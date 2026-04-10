@@ -9,8 +9,9 @@ struct GearTab: View {
     @State private var viewMode: ViewMode = .list
 
     enum ViewMode: String, CaseIterable {
-        case list = "Loadouts"
+        case list = "My Gear"
         case effectiveness = "Effectiveness"
+        case catalog = "Catalog"
     }
 
     var body: some View {
@@ -30,6 +31,8 @@ struct GearTab: View {
                         loadoutList
                     case .effectiveness:
                         effectivenessList
+                    case .catalog:
+                        GearCatalogBrowser()
                     }
                 }
             }
@@ -129,6 +132,139 @@ struct GearTab: View {
     }
 }
 
+// MARK: - Gear Catalog Browser
+
+struct GearCatalogBrowser: View {
+    @Environment(AppState.self) private var appState
+    @State private var items: [GearItem] = []
+    @State private var searchText = ""
+    @State private var selectedCategory: GearItem.GearCategory?
+
+    var filtered: [GearItem] {
+        var result = items
+        if let cat = selectedCategory {
+            result = result.filter { $0.category == cat }
+        }
+        if !searchText.isEmpty {
+            result = result.filter {
+                $0.brand.localizedCaseInsensitiveContains(searchText) ||
+                $0.model.localizedCaseInsensitiveContains(searchText) ||
+                ($0.type ?? "").localizedCaseInsensitiveContains(searchText) ||
+                ($0.targetSpecies ?? "").localizedCaseInsensitiveContains(searchText)
+            }
+        }
+        return result
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Category filter chips
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    FilterChip(title: "All", isSelected: selectedCategory == nil) {
+                        selectedCategory = nil
+                    }
+                    ForEach(GearItem.GearCategory.allCases, id: \.self) { cat in
+                        FilterChip(title: cat.rawValue, isSelected: selectedCategory == cat) {
+                            selectedCategory = cat
+                        }
+                    }
+                }
+                .padding(.horizontal)
+            }
+            .padding(.vertical, 8)
+
+            List {
+                Section("\(filtered.count) items") {
+                    ForEach(filtered) { item in
+                        GearCatalogRow(item: item)
+                    }
+                }
+            }
+            .listStyle(.plain)
+            .searchable(text: $searchText, prompt: "Search gear by brand, type, species...")
+        }
+        .task {
+            items = (try? appState.gearCatalogRepository.fetchAll()) ?? []
+        }
+    }
+}
+
+struct GearCatalogRow: View {
+    let item: GearItem
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Image(systemName: categoryIcon(item.category))
+                    .foregroundStyle(categoryColor(item.category))
+                    .frame(width: 24)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(item.displayName)
+                        .font(.subheadline.bold())
+                    if let type = item.type {
+                        Text(type)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                Spacer()
+                if let price = item.priceRange {
+                    Text(price)
+                        .font(.caption.bold())
+                        .foregroundStyle(.green)
+                }
+            }
+
+            HStack(spacing: 12) {
+                if let specs = item.specs {
+                    Text(specs)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
+                if let target = item.targetSpecies {
+                    Text(target)
+                        .font(.caption2)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(.blue.opacity(0.1))
+                        .foregroundStyle(.blue)
+                        .clipShape(Capsule())
+                }
+            }
+        }
+        .padding(.vertical, 2)
+    }
+
+    private func categoryIcon(_ cat: GearItem.GearCategory) -> String {
+        switch cat {
+        case .rod: return "line.diagonal"
+        case .reel: return "gearshape.fill"
+        case .lure: return "fish.circle.fill"
+        case .bait: return "ant.fill"
+        case .line: return "line.3.horizontal"
+        case .hook: return "arrow.turn.down.right"
+        case .terminal: return "paperclip"
+        case .accessory: return "bag.fill"
+        }
+    }
+
+    private func categoryColor(_ cat: GearItem.GearCategory) -> Color {
+        switch cat {
+        case .rod: return .brown
+        case .reel: return .gray
+        case .lure: return .green
+        case .bait: return .orange
+        case .line: return .blue
+        case .hook: return .red
+        case .terminal: return .purple
+        case .accessory: return .teal
+        }
+    }
+}
+
+// MARK: - Existing Support Views
+
 struct GearLoadoutRow: View {
     let loadout: GearLoadout
 
@@ -154,8 +290,6 @@ struct GearLoadoutRow: View {
         .padding(.vertical, 4)
     }
 }
-
-// MARK: - Add Gear Sheet
 
 struct AddGearSheet: View {
     @Environment(AppState.self) private var appState
@@ -234,8 +368,6 @@ struct AddGearSheet: View {
         dismiss()
     }
 }
-
-// MARK: - Gear Detail Sheet
 
 struct GearDetailSheet: View {
     let loadout: GearLoadout

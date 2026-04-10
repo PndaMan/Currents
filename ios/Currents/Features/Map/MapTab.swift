@@ -5,12 +5,16 @@ struct MapTab: View {
     @Environment(AppState.self) private var appState
     @State private var position: MapCameraPosition = .userLocation(fallback: .automatic)
     @State private var spots: [Spot] = []
-    @State private var catchCounts: [String: Int] = [:] // spotId -> count
+    @State private var catches: [CatchDetail] = []
+    @State private var catchCounts: [String: Int] = [:]
     @State private var showingAddSpot = false
     @State private var selectedSpot: Spot?
     @State private var mapStyle: MapStyleOption = .imagery
-    @State private var longPressLocation: CLLocationCoordinate2D?
-    @State private var showingLongPressAdd = false
+    @State private var showCatchPins = true
+    @State private var showingSpeciesBrowser = false
+    @State private var showingForecast = false
+    @State private var showingWeather = false
+    @State private var weather: WeatherService.WeatherData?
 
     enum MapStyleOption: String, CaseIterable {
         case standard = "Standard"
@@ -19,105 +23,128 @@ struct MapTab: View {
     }
 
     var body: some View {
-        ZStack(alignment: .topTrailing) {
-            Map(position: $position) {
-                UserAnnotation()
+        NavigationStack {
+            ZStack(alignment: .topTrailing) {
+                Map(position: $position) {
+                    UserAnnotation()
 
-                ForEach(spots) { spot in
-                    Annotation(spot.name, coordinate: CLLocationCoordinate2D(
-                        latitude: spot.latitude,
-                        longitude: spot.longitude
-                    )) {
-                        SpotPin(
-                            spot: spot,
-                            catchCount: catchCounts[spot.id] ?? 0,
-                            isSelected: selectedSpot?.id == spot.id
-                        )
-                        .onTapGesture {
-                            selectedSpot = spot
+                    // Spot pins
+                    ForEach(spots) { spot in
+                        Annotation(spot.name, coordinate: CLLocationCoordinate2D(
+                            latitude: spot.latitude,
+                            longitude: spot.longitude
+                        )) {
+                            SpotPin(
+                                spot: spot,
+                                catchCount: catchCounts[spot.id] ?? 0,
+                                isSelected: selectedSpot?.id == spot.id
+                            )
+                            .onTapGesture {
+                                selectedSpot = spot
+                            }
+                        }
+                    }
+
+                    // Catch location pins (individual catches without spots)
+                    if showCatchPins {
+                        ForEach(catches.filter { $0.catchRecord.spotId == nil }, id: \.catchRecord.id) { detail in
+                            Annotation(
+                                detail.species?.commonName ?? "Catch",
+                                coordinate: CLLocationCoordinate2D(
+                                    latitude: detail.catchRecord.latitude,
+                                    longitude: detail.catchRecord.longitude
+                                )
+                            ) {
+                                CatchPin(detail: detail)
+                            }
                         }
                     }
                 }
-            }
-            .mapStyle(activeMapStyle)
-            .mapControls {
-                MapUserLocationButton()
-                MapCompass()
-                MapScaleView()
-            }
-            .onMapCameraChange { context in
-                // Could be used for loading spots in viewport
-            }
+                .mapStyle(activeMapStyle)
+                .mapControls {
+                    MapUserLocationButton()
+                    MapCompass()
+                    MapScaleView()
+                }
 
-            // Controls overlay
-            VStack(spacing: 10) {
-                // Map style picker
-                Menu {
-                    ForEach(MapStyleOption.allCases, id: \.self) { style in
-                        Button {
-                            mapStyle = style
-                        } label: {
-                            Label(style.rawValue, systemImage: mapStyleIcon(style))
+                // Right side control buttons
+                VStack(spacing: 10) {
+                    // Map style picker
+                    Menu {
+                        ForEach(MapStyleOption.allCases, id: \.self) { style in
+                            Button {
+                                mapStyle = style
+                            } label: {
+                                Label(style.rawValue, systemImage: mapStyleIcon(style))
+                            }
                         }
+                    } label: {
+                        mapButton(icon: "map.fill")
                     }
-                } label: {
-                    Image(systemName: "map.fill")
-                        .font(.title3)
-                        .frame(width: 44, height: 44)
-                        .background(.ultraThinMaterial)
-                        .clipShape(Circle())
-                }
 
-                // Add spot
-                Button {
-                    showingAddSpot = true
-                } label: {
-                    Image(systemName: "mappin.and.ellipse")
-                        .font(.title3)
-                        .frame(width: 44, height: 44)
-                        .background(.ultraThinMaterial)
-                        .clipShape(Circle())
-                }
+                    // Add spot
+                    Button {
+                        showingAddSpot = true
+                    } label: {
+                        mapButton(icon: "mappin.and.ellipse")
+                    }
 
-                // Navigate to species browser
-                NavigationLink {
-                    SpeciesBrowserView()
-                } label: {
-                    Image(systemName: "fish.fill")
-                        .font(.title3)
-                        .frame(width: 44, height: 44)
-                        .background(.ultraThinMaterial)
-                        .clipShape(Circle())
-                }
+                    // Toggle catch pins
+                    Button {
+                        showCatchPins.toggle()
+                    } label: {
+                        mapButton(icon: showCatchPins ? "fish.fill" : "fish")
+                    }
 
-                // Quick forecast
-                NavigationLink {
-                    ForecastTab()
-                } label: {
-                    Image(systemName: "cloud.sun.fill")
-                        .font(.title3)
-                        .frame(width: 44, height: 44)
-                        .background(.ultraThinMaterial)
-                        .clipShape(Circle())
-                }
-            }
-            .padding(.top, 60)
-            .padding(.trailing, 12)
+                    // Species browser
+                    Button {
+                        showingSpeciesBrowser = true
+                    } label: {
+                        mapButton(icon: "book.fill")
+                    }
 
-            // Bottom info bar
-            VStack {
-                Spacer()
-                if !spots.isEmpty {
-                    HStack {
-                        Image(systemName: "mappin.circle.fill")
-                            .foregroundStyle(.blue)
-                        Text("\(spots.count) spots")
-                            .font(.subheadline.bold())
+                    // Forecast
+                    Button {
+                        showingForecast = true
+                    } label: {
+                        mapButton(icon: "cloud.sun.fill")
+                    }
+                }
+                .padding(.top, 60)
+                .padding(.trailing, 12)
+
+                // Bottom bar
+                VStack {
+                    Spacer()
+
+                    HStack(spacing: 12) {
+                        // Weather quick view
+                        if let weather {
+                            HStack(spacing: 6) {
+                                WeatherIcon(condition: weather.condition)
+                                Text("\(Int(weather.temperatureC))°")
+                                    .font(.subheadline.bold())
+                                    .monospacedDigit()
+                                Text("\(Int(weather.windSpeedKmh))km/h")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+
                         Spacer()
-                        let totalCatches = catchCounts.values.reduce(0, +)
-                        Text("\(totalCatches) catches")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+
+                        if !spots.isEmpty {
+                            HStack(spacing: 8) {
+                                Image(systemName: "mappin.circle.fill")
+                                    .foregroundStyle(.blue)
+                                Text("\(spots.count) spots")
+                                    .font(.subheadline.bold())
+                                let totalCatches = catchCounts.values.reduce(0, +)
+                                Text("\(totalCatches) catches")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
                     }
                     .padding(.horizontal, 16)
                     .padding(.vertical, 10)
@@ -127,20 +154,42 @@ struct MapTab: View {
                     .padding(.bottom, 8)
                 }
             }
+            .sheet(item: $selectedSpot) { spot in
+                SpotDetailSheet(spot: spot)
+                    .presentationDetents([.medium, .large])
+                    .presentationBackground(.ultraThinMaterial)
+            }
+            .sheet(isPresented: $showingAddSpot) {
+                AddSpotSheet()
+                    .presentationDetents([.medium])
+                    .presentationBackground(.ultraThinMaterial)
+            }
+            .sheet(isPresented: $showingSpeciesBrowser) {
+                NavigationStack {
+                    SpeciesBrowserView()
+                        .toolbar {
+                            ToolbarItem(placement: .cancellationAction) {
+                                Button("Done") { showingSpeciesBrowser = false }
+                            }
+                        }
+                }
+            }
+            .sheet(isPresented: $showingForecast) {
+                ForecastTab()
+            }
+            .task {
+                await loadData()
+            }
         }
-        .sheet(item: $selectedSpot) { spot in
-            SpotDetailSheet(spot: spot)
-                .presentationDetents([.medium, .large])
-                .presentationBackground(.ultraThinMaterial)
-        }
-        .sheet(isPresented: $showingAddSpot) {
-            AddSpotSheet()
-                .presentationDetents([.medium])
-                .presentationBackground(.ultraThinMaterial)
-        }
-        .task {
-            await loadSpots()
-        }
+    }
+
+    @ViewBuilder
+    private func mapButton(icon: String) -> some View {
+        Image(systemName: icon)
+            .font(.title3)
+            .frame(width: 44, height: 44)
+            .background(.ultraThinMaterial)
+            .clipShape(Circle())
     }
 
     private var activeMapStyle: MapStyle {
@@ -159,12 +208,46 @@ struct MapTab: View {
         }
     }
 
-    private func loadSpots() async {
+    private func loadData() async {
         spots = (try? appState.spotRepository.fetchAll()) ?? []
-        // Load catch counts per spot
+        catches = (try? appState.catchRepository.fetchAll(limit: 200)) ?? []
+
         for spot in spots {
-            let catches = (try? appState.catchRepository.fetchForSpot(spot.id)) ?? []
-            catchCounts[spot.id] = catches.count
+            let spotCatches = (try? appState.catchRepository.fetchForSpot(spot.id)) ?? []
+            catchCounts[spot.id] = spotCatches.count
+        }
+
+        // Fetch weather for map overlay
+        let coord = appState.locationManager.currentLocation?.coordinate ??
+            CLLocationCoordinate2D(latitude: -33.9, longitude: 18.4)
+        weather = await WeatherService.shared.current(for: coord)
+    }
+}
+
+// MARK: - Catch Pin (for individual catches on map)
+
+struct CatchPin: View {
+    let detail: CatchDetail
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ZStack {
+                Circle()
+                    .fill(.green)
+                    .frame(width: 28, height: 28)
+                    .shadow(color: .black.opacity(0.3), radius: 3, y: 1)
+                Image(systemName: "fish.fill")
+                    .font(.system(size: 14))
+                    .foregroundStyle(.white)
+            }
+            if let name = detail.species?.commonName {
+                Text(name)
+                    .font(.system(size: 9).bold())
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 1)
+                    .background(.ultraThinMaterial)
+                    .clipShape(Capsule())
+            }
         }
     }
 }
@@ -194,7 +277,6 @@ struct SpotPin: View {
                         .foregroundStyle(isSelected ? .white : .blue)
                 }
             }
-            // Catch count badge
             if catchCount > 0 {
                 Text("\(catchCount)")
                     .font(.caption2.bold())
@@ -205,7 +287,6 @@ struct SpotPin: View {
                     .clipShape(Capsule())
                     .offset(y: -4)
             }
-            // Label
             Text(spot.name)
                 .font(.caption2.bold())
                 .padding(.horizontal, 6)
@@ -227,7 +308,6 @@ struct SpotDetailSheet: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: CurrentsTheme.paddingM) {
-                    // Location info
                     HStack {
                         VStack(alignment: .leading) {
                             Text(spot.name)
@@ -244,7 +324,6 @@ struct SpotDetailSheet: View {
                         }
                     }
 
-                    // Quick stats
                     if !catches.isEmpty {
                         HStack(spacing: 12) {
                             StatCard(value: "\(catches.count)", label: "Catches", icon: "fish.fill")
@@ -263,7 +342,6 @@ struct SpotDetailSheet: View {
                             .foregroundStyle(.secondary)
                     }
 
-                    // Catches at this spot
                     if !catches.isEmpty {
                         Text("Catches Here")
                             .font(.headline)

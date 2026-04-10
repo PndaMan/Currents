@@ -15,6 +15,8 @@ final class AppState {
     let spotRepository: SpotRepository
     let gearRepository: GearRepository
     let speciesRepository: SpeciesRepository
+    let tripRepository: TripRepository
+    let gearCatalogRepository: GearCatalogRepository
 
     init() {
         do {
@@ -28,12 +30,15 @@ final class AppState {
         self.spotRepository = SpotRepository(db: db)
         self.gearRepository = GearRepository(db: db)
         self.speciesRepository = SpeciesRepository(db: db)
+        self.tripRepository = TripRepository(db: db)
+        self.gearCatalogRepository = GearCatalogRepository(db: db)
 
         // Boot async work
         Task {
             await fishClassifier.loadModel()
         }
         try? speciesRepository.seedIfEmpty()
+        try? gearCatalogRepository.seedIfEmpty()
 
         locationManager.requestPermission()
         mapManager.refreshDownloadedRegions()

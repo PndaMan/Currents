@@ -13,7 +13,7 @@ final class ForecastEngineTests: XCTestCase {
             species: nil,
             isInSpawningZone: false
         )
-        // With no data, all weights default to ~1.0, moon = 0.9
+        // With no data, factors default to ~0.5, should produce a moderate score
         XCTAssertGreaterThan(result.score, 0)
         XCTAssertLessThanOrEqual(result.score, 100)
     }
@@ -107,7 +107,6 @@ final class ForecastEngineTests: XCTestCase {
     }
 
     func testScoreNeverExceeds100() {
-        // Max all factors
         let result = ForecastEngine.compute(
             currentPressureHpa: 1020,
             pressureChange6h: -6,
@@ -137,17 +136,18 @@ final class ForecastEngineTests: XCTestCase {
     func testBreakdownValues() {
         let result = ForecastEngine.compute(
             currentPressureHpa: 1020,
-            pressureChange6h: -3,
+            pressureChange6h: -4,
             tidePhase: .moving,
             moonPhase: .new,
             waterTempC: nil,
             species: nil,
             isInSpawningZone: false
         )
+        // With additive scoring, factors are 0-1
         XCTAssertEqual(result.breakdown.pressure, 1.0) // 1020 is in optimal range
-        XCTAssertEqual(result.breakdown.pressureTrend, 1.3) // -3 is between -2 and -4
-        XCTAssertEqual(result.breakdown.tide, 1.1) // moving tide
-        XCTAssertEqual(result.breakdown.moon, 1.2) // new moon
-        XCTAssertEqual(result.breakdown.season, 1.0) // not spawning
+        XCTAssertGreaterThan(result.breakdown.pressureTrend, 0.7) // -4 is falling fast
+        XCTAssertEqual(result.breakdown.tide, 0.7) // moving tide
+        XCTAssertEqual(result.breakdown.moon, 1.0) // new moon = peak solunar
+        XCTAssertEqual(result.breakdown.season, 0.5) // not spawning
     }
 }

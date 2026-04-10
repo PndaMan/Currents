@@ -16,7 +16,9 @@ struct LogCatchView: View {
 
     // Catch data
     @State private var selectedSpeciesId: Int64?
+    @State private var selectedSpeciesName: String = ""
     @State private var selectedSpotId: String?
+    @State private var selectedTripId: String?
     @State private var lengthCm: String = ""
     @State private var weightKg: String = ""
     @State private var released = true
@@ -24,11 +26,14 @@ struct LogCatchView: View {
     @State private var notes: String = ""
     @State private var caughtAt = Date.now
 
+    // Sheets
+    @State private var showingSpeciesPicker = false
+
     // Data
     @State private var allSpecies: [Species] = []
     @State private var allSpots: [Spot] = []
     @State private var allGear: [GearLoadout] = []
-    @State private var speciesSearch = ""
+    @State private var allTrips: [Trip] = []
 
     var body: some View {
         NavigationStack {
@@ -40,16 +45,20 @@ struct LogCatchView: View {
 
                 // ML results
                 if !mlPredictions.isEmpty {
-                    Section("Fish ID") {
+                    Section("AI Fish ID") {
                         ForEach(mlPredictions, id: \.species) { prediction in
                             Button {
-                                // Try to find a matching species in our DB
                                 let match = allSpecies.first {
                                     $0.commonName.localizedCaseInsensitiveContains(prediction.species)
                                 }
-                                selectedSpeciesId = match?.id
+                                if let match {
+                                    selectedSpeciesId = match.id
+                                    selectedSpeciesName = match.commonName
+                                }
                             } label: {
                                 HStack {
+                                    Image(systemName: "brain")
+                                        .foregroundStyle(.purple)
                                     Text(prediction.species)
                                     Spacer()
                                     Text("\(Int(prediction.confidence * 100))%")
@@ -67,12 +76,26 @@ struct LogCatchView: View {
                     }
                 }
 
-                // Species (manual pick or confirm ML)
+                // Species (tap to open searchable picker)
                 Section("Species") {
-                    Picker("Species", selection: $selectedSpeciesId) {
-                        Text("Unknown").tag(nil as Int64?)
-                        ForEach(allSpecies) { species in
-                            Text(species.commonName).tag(species.id as Int64?)
+                    Button {
+                        showingSpeciesPicker = true
+                    } label: {
+                        HStack {
+                            Image(systemName: "fish.fill")
+                                .foregroundStyle(.blue)
+                                .frame(width: 28)
+                            if selectedSpeciesId != nil {
+                                Text(selectedSpeciesName)
+                                    .foregroundStyle(.primary)
+                            } else {
+                                Text("Select Species")
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
                         }
                     }
                 }
@@ -100,6 +123,16 @@ struct LogCatchView: View {
                         Text("Current Location").tag(nil as String?)
                         ForEach(allSpots) { spot in
                             Text(spot.name).tag(spot.id as String?)
+                        }
+                    }
+                }
+
+                // Trip
+                Section("Trip") {
+                    Picker("Trip", selection: $selectedTripId) {
+                        Text("None").tag(nil as String?)
+                        ForEach(allTrips) { trip in
+                            Text(trip.name).tag(trip.id as String?)
                         }
                     }
                 }
@@ -139,6 +172,7 @@ struct LogCatchView: View {
                 allSpecies = (try? appState.speciesRepository.fetchAll()) ?? []
                 allSpots = (try? appState.spotRepository.fetchAll()) ?? []
                 allGear = (try? appState.gearRepository.fetchAll()) ?? []
+                allTrips = (try? appState.tripRepository.fetchAll()) ?? []
             }
             .onChange(of: selectedPhoto) { _, item in
                 guard let item else { return }
@@ -149,6 +183,13 @@ struct LogCatchView: View {
                         classifyImage(image)
                     }
                 }
+            }
+            .sheet(isPresented: $showingSpeciesPicker) {
+                SpeciesPickerSheet(
+                    species: allSpecies,
+                    selectedId: $selectedSpeciesId,
+                    selectedName: $selectedSpeciesName
+                )
             }
         }
     }
@@ -204,7 +245,10 @@ struct LogCatchView: View {
                 let match = allSpecies.first {
                     $0.commonName.localizedCaseInsensitiveContains(top.species)
                 }
-                selectedSpeciesId = match?.id
+                if let match {
+                    selectedSpeciesId = match.id
+                    selectedSpeciesName = match.commonName
+                }
             }
         }
     }
@@ -245,10 +289,171 @@ struct LogCatchView: View {
             mlConfidence: mlPredictions.first.map { Double($0.confidence) },
             forecastScoreAtCapture: forecast.score,
             gearLoadoutId: selectedGearId,
+            tripId: selectedTripId,
             notes: notes.isEmpty ? nil : notes
         )
 
         try? appState.catchRepository.save(&catchRecord)
         dismiss()
+    }
+}
+
+// MARK: - Species Picker Sheet
+
+struct SpeciesPickerSheet: View {
+    let species: [Species]
+    @Binding var selectedId: Int64?
+    @Binding var selectedName: String
+    @Environment(\.dismiss) private var dismiss
+    @State private var searchText = ""
+    @State private var selectedHabitat: Species.Habitat?
+
+    var filtered: [Species] {
+        var result = species
+        if let habitat = selectedHabitat {
+            result = result.filter { $0.habitat == habitat }
+        }
+        if !searchText.isEmpty {
+            result = result.filter {
+                $0.commonName.localizedCaseInsensitiveContains(searchText) ||
+                $0.scientificName.localizedCaseInsensitiveContains(searchText) ||
+                ($0.family ?? "").localizedCaseInsensitiveContains(searchText)
+            }
+        }
+        return result
+    }
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                // Habitat filter
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        FilterChip(title: "All", isSelected: selectedHabitat == nil) {
+                            selectedHabitat = nil
+                        }
+                        FilterChip(title: "Freshwater", isSelected: selectedHabitat == .freshwater) {
+                            selectedHabitat = .freshwater
+                        }
+                        FilterChip(title: "Marine", isSelected: selectedHabitat == .marine) {
+                            selectedHabitat = .marine
+                        }
+                        FilterChip(title: "Brackish", isSelected: selectedHabitat == .brackish) {
+                            selectedHabitat = .brackish
+                        }
+                    }
+                    .padding(.horizontal)
+                }
+                .padding(.vertical, 8)
+
+                List {
+                    // ML Coming Soon banner
+                    Section {
+                        HStack(spacing: 12) {
+                            Image(systemName: "brain")
+                                .font(.title2)
+                                .foregroundStyle(.purple)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("AI Fish ID")
+                                    .font(.subheadline.bold())
+                                Text("Coming soon — snap a photo to auto-identify")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Text("Soon")
+                                .font(.caption2.bold())
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(.purple.opacity(0.2))
+                                .foregroundStyle(.purple)
+                                .clipShape(Capsule())
+                        }
+                    }
+
+                    // Species list
+                    Section("\(filtered.count) Species") {
+                        ForEach(filtered) { sp in
+                            Button {
+                                selectedId = sp.id
+                                selectedName = sp.commonName
+                                dismiss()
+                            } label: {
+                                HStack(spacing: 12) {
+                                    // Fish icon with habitat color
+                                    ZStack {
+                                        Circle()
+                                            .fill(habitatColor(sp.habitat).opacity(0.15))
+                                            .frame(width: 44, height: 44)
+                                        Image(systemName: "fish.fill")
+                                            .foregroundStyle(habitatColor(sp.habitat))
+                                    }
+
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(sp.commonName)
+                                            .font(.body.bold())
+                                            .foregroundStyle(.primary)
+                                        Text(sp.scientificName)
+                                            .font(.caption)
+                                            .italic()
+                                            .foregroundStyle(.secondary)
+                                        if let family = sp.family {
+                                            Text(family)
+                                                .font(.caption2)
+                                                .foregroundStyle(.tertiary)
+                                        }
+                                    }
+
+                                    Spacer()
+
+                                    // Temperature range
+                                    if let opt = sp.optimalTempC {
+                                        VStack(spacing: 2) {
+                                            Text("\(Int(opt))°C")
+                                                .font(.caption.bold())
+                                                .foregroundStyle(.green)
+                                            Text("optimal")
+                                                .font(.caption2)
+                                                .foregroundStyle(.secondary)
+                                        }
+                                    }
+
+                                    if selectedId == sp.id {
+                                        Image(systemName: "checkmark.circle.fill")
+                                            .foregroundStyle(.blue)
+                                    }
+                                }
+                            }
+                            .tint(.primary)
+                        }
+                    }
+                }
+                .listStyle(.plain)
+            }
+            .navigationTitle("Select Species")
+            .navigationBarTitleDisplayMode(.inline)
+            .searchable(text: $searchText, prompt: "Search by name, family...")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Clear") {
+                        selectedId = nil
+                        selectedName = ""
+                        dismiss()
+                    }
+                }
+            }
+        }
+    }
+
+    private func habitatColor(_ habitat: Species.Habitat?) -> Color {
+        switch habitat {
+        case .freshwater: return .green
+        case .marine: return .blue
+        case .brackish: return .teal
+        case nil: return .gray
+        }
     }
 }

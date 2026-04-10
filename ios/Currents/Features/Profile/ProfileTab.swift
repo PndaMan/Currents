@@ -71,6 +71,12 @@ struct ProfileTab: View {
                     }
 
                     NavigationLink {
+                        TripListView()
+                    } label: {
+                        Label("Trips", systemImage: "tent.fill")
+                    }
+
+                    NavigationLink {
                         PhotoGalleryView()
                     } label: {
                         Label("Photo Gallery", systemImage: "photo.on.rectangle.angled")

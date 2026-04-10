@@ -184,6 +184,20 @@ final class AppDatabase: Sendable {
             }
         }
 
+        migrator.registerMigration("v3_gear_catalog") { db in
+            try db.create(table: "gearCatalog") { t in
+                t.primaryKey("id", .integer)
+                t.column("category", .text).notNull()
+                t.column("brand", .text).notNull()
+                t.column("model", .text).notNull()
+                t.column("type", .text)
+                t.column("specs", .text)
+                t.column("targetSpecies", .text)
+                t.column("priceRange", .text)
+            }
+            try db.create(indexOn: "gearCatalog", columns: ["category"])
+        }
+
         return migrator
     }
 }

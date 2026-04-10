@@ -60,10 +60,12 @@ struct ForecastEngine {
             isInSpawningZone: isInSpawningZone
         )
 
-        // Hourly scores combining solunar + conditions
+        // Hourly scores: solunar time pattern (60%) + conditions (40%)
+        let conditionScore = Double(currentResult.score)
         let hourlyScores = solunarHourly.map { item in
-            let conditionMultiplier = Double(currentResult.score) / 50.0 // normalize around 1.0
-            let combined = Int(item.score * 100 * conditionMultiplier)
+            let solunarPart = item.score * 100 * 0.6
+            let conditionPart = conditionScore * 0.4
+            let combined = Int(solunarPart + conditionPart)
             return (hour: item.hour, score: min(100, max(0, combined)))
         }
 
@@ -135,138 +137,140 @@ struct ForecastEngine {
     ) -> InstantResult {
         var reasons: [String] = []
 
-        // === Pressure ===
+        // All factors score 0.0 to 1.0 (0 = worst, 0.5 = average, 1.0 = best)
+
+        // === Pressure === (0-1)
         let wPressure: Double
         if let p = currentPressureHpa {
             switch p {
             case 1018...1030:
                 wPressure = 1.0
             case 1013..<1018:
-                wPressure = 0.9
+                wPressure = 0.7
                 reasons.append("Pressure slightly low (\(Int(p)) hPa)")
             case 1030...:
-                wPressure = 0.8
+                wPressure = 0.6
                 reasons.append("High pressure — fish may be deep and sluggish")
             case 1005..<1013:
-                wPressure = 0.7
+                wPressure = 0.4
                 reasons.append("Low pressure (\(Int(p)) hPa)")
             default:
-                wPressure = 0.5
+                wPressure = 0.2
                 reasons.append("Very low pressure (\(Int(p)) hPa) — storm conditions")
             }
         } else {
-            wPressure = 1.0
+            wPressure = 0.6 // no data = slightly below average
         }
 
-        // === Pressure Trend (most important single factor) ===
+        // === Pressure Trend === (0-1)
         let wPressureTrend: Double
         if let delta = pressureChange6h {
             if delta < -6 {
-                wPressureTrend = 1.7
+                wPressureTrend = 1.0
                 reasons.append("Pressure crashing — feeding frenzy before the front")
             } else if delta < -3 {
-                wPressureTrend = 1.5
-                reasons.append("Pressure dropping fast — fish are feeding aggressively")
+                wPressureTrend = 0.9
+                reasons.append("Pressure dropping fast — fish feeding aggressively")
             } else if delta < -1 {
-                wPressureTrend = 1.3
+                wPressureTrend = 0.75
                 reasons.append("Pressure falling — fish should be active")
             } else if delta > 6 {
-                wPressureTrend = 0.5
+                wPressureTrend = 0.15
                 reasons.append("Pressure spiking — fish shutting down")
             } else if delta > 3 {
-                wPressureTrend = 0.7
+                wPressureTrend = 0.3
                 reasons.append("Pressure rising fast — bite slowing")
             } else {
-                wPressureTrend = 1.0
+                wPressureTrend = 0.55
             }
         } else {
-            wPressureTrend = 1.0
+            wPressureTrend = 0.5 // no data = neutral
         }
 
-        // === Tide ===
+        // === Tide === (0-1)
         let wTide: Double
         switch tidePhase {
         case .nearHighOrLow:
-            wTide = 1.4
+            wTide = 1.0
             reasons.append("Tide change — peak feeding period")
         case .moving:
-            wTide = 1.15
+            wTide = 0.7
             reasons.append("Tide moving — good current flow")
         case .slack:
-            wTide = 0.7
+            wTide = 0.25
             reasons.append("Slack tide — slow period")
         }
 
-        // === Moon / Solunar ===
+        // === Moon === (0-1)
         let wMoon: Double
         switch solunar.moonPhase {
         case .new, .full:
-            wMoon = 1.25
-            reasons.append("\(solunar.moonPhase.displayName) — peak solunar influence")
-        case .firstQuarter, .lastQuarter:
-            wMoon = 0.85
-        default:
             wMoon = 1.0
+            reasons.append("\(solunar.moonPhase.displayName) — peak solunar influence")
+        case .waxingGibbous, .waningGibbous:
+            wMoon = 0.7
+        case .firstQuarter, .lastQuarter:
+            wMoon = 0.4
+        default:
+            wMoon = 0.55
         }
 
-        // === Solunar feeding window ===
+        // === Solunar feeding window === (0-1)
         let wSolunar: Double
-        let allWindows = solunar.majorPeriods + solunar.minorPeriods
         let inMajor = solunar.majorPeriods.contains { date >= $0.start && date <= $0.end }
         let inMinor = solunar.minorPeriods.contains { date >= $0.start && date <= $0.end }
         if inMajor {
-            wSolunar = 1.4
+            wSolunar = 1.0
             reasons.append("Major solunar period — prime feeding window")
         } else if inMinor {
-            wSolunar = 1.2
+            wSolunar = 0.75
             reasons.append("Minor solunar period — elevated activity")
         } else {
-            wSolunar = 1.0
+            wSolunar = 0.35
         }
 
-        // === Time of Day ===
+        // === Time of Day === (0-1)
         let wTimeOfDay: Double
         if solunar.dawnGoldenHour.contains(date) {
-            wTimeOfDay = 1.35
+            wTimeOfDay = 1.0
             reasons.append("Dawn golden hour — prime time")
         } else if solunar.duskGoldenHour.contains(date) {
-            wTimeOfDay = 1.3
+            wTimeOfDay = 0.95
             reasons.append("Dusk golden hour — evening bite")
         } else if date < solunar.sunrise.addingTimeInterval(-1800) || date > solunar.sunset.addingTimeInterval(1800) {
-            wTimeOfDay = 0.6
+            wTimeOfDay = 0.2
         } else {
-            // Middle of the day
             let calendar = Calendar.current
             let hour = calendar.component(.hour, from: date)
             if hour >= 10 && hour <= 14 {
-                wTimeOfDay = 0.75
+                wTimeOfDay = 0.4
             } else {
-                wTimeOfDay = 0.9
+                wTimeOfDay = 0.6
             }
         }
 
-        // === Wind ===
+        // === Wind === (0-1)
         let wWind: Double
         if let wind = windSpeedKmh {
             switch wind {
             case 0..<5:
-                wWind = 0.85
+                wWind = 0.5
                 reasons.append("Very calm — fish may be wary")
             case 5..<20:
-                wWind = 1.15
+                wWind = 1.0
                 reasons.append("Light wind — ideal chop on the water")
             case 20..<35:
-                wWind = 0.9
+                wWind = 0.6
                 reasons.append("Moderate wind — fish moving to wind-blown shores")
             default:
-                wWind = 0.6
+                wWind = 0.2
                 reasons.append("Strong wind (\(Int(wind)) km/h) — tough conditions")
             }
         } else {
-            wWind = 1.0
+            wWind = 0.6 // no data = slight negative
         }
 
-        // === Temperature ===
+        // === Temperature === (0-1)
         let wTemp: Double
         if let temp = waterTempC, let species, let optimal = species.optimalTempC {
             let sigma = (species.maxTempC ?? optimal + 5) - optimal
@@ -278,22 +282,35 @@ struct ForecastEngine {
                 reasons.append("Water \(String(format: "%.0f", temp))°C — in the zone for \(species.commonName)")
             }
         } else {
-            wTemp = 1.0
+            wTemp = 0.6
         }
 
-        // === Spawning Season ===
+        // === Spawning Season === (0-1)
         let wSeason: Double
         if isInSpawningZone {
-            wSeason = 1.5
+            wSeason = 1.0
             reasons.append("Active spawning zone — aggressive fish")
         } else {
-            wSeason = 1.0
+            wSeason = 0.5
         }
 
-        // === Combine ===
-        let raw = wPressure * wPressureTrend * wTide * wMoon * wSolunar * wTimeOfDay * wWind * wTemp * wSeason
-        // Max theoretical: 1.0 * 1.7 * 1.4 * 1.25 * 1.4 * 1.35 * 1.15 * 1.0 * 1.5 ≈ 8.1
-        let score = min(100, max(0, Int(raw / 8.0 * 100)))
+        // === Combine (additive weighted) ===
+        // Each factor: 0-1, weighted to sum to 100 points total
+        let weights: [(Double, Double)] = [
+            (wPressure, 10),
+            (wPressureTrend, 15),
+            (wTide, 15),
+            (wMoon, 10),
+            (wSolunar, 15),
+            (wTimeOfDay, 15),
+            (wWind, 8),
+            (wTemp, 7),
+            (wSeason, 5),
+        ]
+        let raw = weights.reduce(0.0) { sum, pair in
+            sum + pair.0 * pair.1
+        }
+        let score = min(100, max(0, Int(raw)))
 
         if reasons.isEmpty {
             reasons.append("Average conditions — worth a cast")
@@ -329,38 +346,42 @@ struct ForecastEngine {
     ) -> InstantResult {
         var reasons: [String] = []
 
+        // All factors 0-1 (same as instant scoring)
         let wPressure: Double
         if let p = currentPressureHpa {
             switch p {
             case 1018...1030: wPressure = 1.0
-            case 1014..<1018: wPressure = 0.9; reasons.append("Pressure slightly low (\(Int(p)) hPa)")
-            case 1030...: wPressure = 0.85; reasons.append("High pressure — fish may be sluggish")
-            default: wPressure = 0.6; reasons.append("Low pressure (\(Int(p)) hPa)")
+            case 1013..<1018: wPressure = 0.7; reasons.append("Pressure slightly low (\(Int(p)) hPa)")
+            case 1030...: wPressure = 0.6; reasons.append("High pressure — fish may be sluggish")
+            case 1005..<1013: wPressure = 0.4; reasons.append("Low pressure (\(Int(p)) hPa)")
+            default: wPressure = 0.2; reasons.append("Very low pressure (\(Int(p)) hPa)")
             }
-        } else { wPressure = 1.0 }
+        } else { wPressure = 0.6 }
 
         let wPressureTrend: Double
         if let delta = pressureChange6h {
-            if delta < -4 { wPressureTrend = 1.6; reasons.append("Pressure dropping fast — feeding frenzy") }
-            else if delta < -2 { wPressureTrend = 1.3; reasons.append("Pressure falling — fish active") }
-            else if delta > 4 { wPressureTrend = 0.7; reasons.append("Pressure rising sharply") }
-            else { wPressureTrend = 1.0 }
-        } else { wPressureTrend = 1.0 }
+            if delta < -6 { wPressureTrend = 1.0; reasons.append("Pressure crashing — feeding frenzy") }
+            else if delta < -3 { wPressureTrend = 0.9; reasons.append("Pressure dropping fast — fish feeding") }
+            else if delta < -1 { wPressureTrend = 0.75; reasons.append("Pressure falling — fish active") }
+            else if delta > 6 { wPressureTrend = 0.15; reasons.append("Pressure spiking") }
+            else if delta > 3 { wPressureTrend = 0.3; reasons.append("Pressure rising sharply") }
+            else { wPressureTrend = 0.55 }
+        } else { wPressureTrend = 0.5 }
 
         let wTide: Double
         if let tide = tidePhase {
             switch tide {
-            case .nearHighOrLow: wTide = 1.4; reasons.append("Tide change — peak feeding")
-            case .moving: wTide = 1.1
-            case .slack: wTide = 0.7; reasons.append("Slack tide — slow")
+            case .nearHighOrLow: wTide = 1.0; reasons.append("Tide change — peak feeding")
+            case .moving: wTide = 0.7
+            case .slack: wTide = 0.25; reasons.append("Slack tide — slow")
             }
-        } else { wTide = 1.0 }
+        } else { wTide = 0.5 }
 
         let wMoon: Double
         switch moonPhase {
-        case .new, .full: wMoon = 1.2; reasons.append("\(moonPhase.displayName) — strong solunar")
-        case .firstQuarter, .lastQuarter: wMoon = 0.9
-        default: wMoon = 1.0
+        case .new, .full: wMoon = 1.0; reasons.append("\(moonPhase.displayName) — strong solunar")
+        case .firstQuarter, .lastQuarter: wMoon = 0.4
+        default: wMoon = 0.55
         }
 
         let wTemp: Double
@@ -368,13 +389,23 @@ struct ForecastEngine {
             let sigma = (species.maxTempC ?? optimal + 5) - optimal
             let diff = abs(temp - optimal)
             wTemp = exp(-(diff * diff) / (2 * sigma * sigma))
-        } else { wTemp = 1.0 }
+        } else { wTemp = 0.6 }
 
-        let wSeason: Double = isInSpawningZone ? 1.5 : 1.0
+        let wSeason: Double = isInSpawningZone ? 1.0 : 0.5
         if isInSpawningZone { reasons.append("Active spawning zone") }
 
-        let raw = wPressure * wPressureTrend * wTide * wMoon * wTemp * wSeason
-        let score = min(100, max(0, Int(raw / 4.0 * 100)))
+        // Additive: pressure(10) + trend(15) + tide(15) + moon(10) + solunar(15) + time(15) + wind(8) + temp(7) + season(5) = 100
+        // Legacy has no solunar/time/wind, so redistribute: pressure(12) + trend(20) + tide(20) + moon(15) + temp(18) + season(15) = 100
+        let weights: [(Double, Double)] = [
+            (wPressure, 12),
+            (wPressureTrend, 20),
+            (wTide, 20),
+            (wMoon, 15),
+            (wTemp, 18),
+            (wSeason, 15),
+        ]
+        let raw = weights.reduce(0.0) { $0 + $1.0 * $1.1 }
+        let score = min(100, max(0, Int(raw)))
 
         if reasons.isEmpty { reasons.append("Average conditions — worth a cast") }
 
@@ -384,7 +415,7 @@ struct ForecastEngine {
             breakdown: ScoreBreakdown(
                 pressure: wPressure, pressureTrend: wPressureTrend,
                 tide: wTide, moon: wMoon, temperature: wTemp,
-                season: wSeason, timeOfDay: 1.0, wind: 1.0, solunar: 1.0
+                season: wSeason, timeOfDay: 0.5, wind: 0.6, solunar: 0.35
             )
         )
     }
