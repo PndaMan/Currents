@@ -19,7 +19,6 @@ jobs:
 
       - name: Select Xcode
         run: |
-          # Use the latest available Xcode
           XCODE_PATH=$(ls -d /Applications/Xcode*.app 2>/dev/null | sort -V | tail -1)
           if [ -z "$XCODE_PATH" ]; then
             echo "No Xcode found"
@@ -44,6 +43,7 @@ jobs:
 
       - name: Build
         run: |
+          set -o pipefail
           xcodebuild build \
             -project Currents.xcodeproj \
             -scheme Currents \
@@ -53,32 +53,46 @@ jobs:
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO \
-            | tee build.log | tail -20
+            2>&1 | tee build.log
 
       - name: Test
         run: |
+          set -o pipefail
           xcodebuild test \
             -project Currents.xcodeproj \
             -scheme CurrentsTests \
             -destination 'platform=iOS Simulator,name=iPhone 16 Pro' \
+            -derivedDataPath DerivedData \
             -clonedSourcePackagesDirPath .spm-cache \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO \
-            | tee test.log | tail -30
+            2>&1 | tee test.log
 
       - name: Package .app for Appetize
         run: |
-          APP_PATH=$(find DerivedData -name "Currents.app" -type d | head -1)
-          if [ -z "$APP_PATH" ]; then
-            echo "Could not find Currents.app in DerivedData"
-            find DerivedData -name "*.app" -type d
+          PRODUCTS_DIR="DerivedData/Build/Products/Debug-iphonesimulator"
+          APP_PATH="$PRODUCTS_DIR/Currents.app"
+
+          if [ ! -d "$APP_PATH" ]; then
+            echo "Expected .app not at $APP_PATH"
+            echo "Searching DerivedData for .app bundles:"
+            find DerivedData -name "Currents.app" -type d 2>/dev/null
             exit 1
           fi
-          echo "Found app at: $APP_PATH"
-          cd "$(dirname "$APP_PATH")"
+
+          if [ ! -f "$APP_PATH/Currents" ]; then
+            echo "No executable binary in .app bundle"
+            echo "Contents:"
+            ls -la "$APP_PATH/"
+            exit 1
+          fi
+
+          echo "App binary: $(du -h "$APP_PATH/Currents" | cut -f1)"
+          echo "Total .app: $(du -sh "$APP_PATH" | cut -f1)"
+
+          cd "$PRODUCTS_DIR"
           zip -r "$GITHUB_WORKSPACE/Currents-simulator.zip" "Currents.app"
-          echo "Zipped to Currents-simulator.zip ($(du -h "$GITHUB_WORKSPACE/Currents-simulator.zip" | cut -f1))"
 
       - name: Upload .app artifact
         uses: actions/upload-artifact@v4
@@ -87,8 +101,8 @@ jobs:
           path: Currents-simulator.zip
           retention-days: 30
 
-      - name: Upload build log on failure
-        if: failure()
+      - name: Upload build logs
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: build-logs
@@ -96,16 +110,22 @@ jobs:
             ios/build.log
             ios/test.log
 
-      - name: Test Summary
+      - name: Summary
         if: always()
         run: |
-          echo "## Test Results" >> $GITHUB_STEP_SUMMARY
-          if grep -q "TEST SUCCEEDED" test.log 2>/dev/null; then
-            echo "All tests passed" >> $GITHUB_STEP_SUMMARY
-          elif grep -q "BUILD SUCCEEDED" build.log 2>/dev/null; then
-            echo "Build succeeded, check test results above" >> $GITHUB_STEP_SUMMARY
+          echo "## Build Results" >> $GITHUB_STEP_SUMMARY
+          if grep -q "BUILD SUCCEEDED" build.log 2>/dev/null; then
+            echo "Build: passed" >> $GITHUB_STEP_SUMMARY
           else
-            echo "Build or tests had issues - check logs" >> $GITHUB_STEP_SUMMARY
+            echo "Build: **FAILED**" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            grep -E "error:" build.log 2>/dev/null | head -20 >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          fi
+          if grep -q "TEST SUCCEEDED" test.log 2>/dev/null; then
+            echo "Tests: passed" >> $GITHUB_STEP_SUMMARY
+          elif [ -f test.log ]; then
+            echo "Tests: **FAILED**" >> $GITHUB_STEP_SUMMARY
           fi
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Download the **Currents-simulator** artifact above to test on [Appetize.io](https://appetize.io)" >> $GITHUB_STEP_SUMMARY
+          echo "Download **Currents-simulator** artifact to test on [Appetize.io](https://appetize.io)" >> $GITHUB_STEP_SUMMARY
