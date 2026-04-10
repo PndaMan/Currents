@@ -184,12 +184,51 @@ struct ForecastTab: View {
     }
 
     private func generateMockPressure() {
-        // Generate realistic-looking pressure data for demo
-        var pressure = 1018.0
+        // Generate realistic pressure data seeded by today's date for consistency
+        let calendar = Calendar.current
+        let dayOfYear = calendar.ordinality(of: .day, in: .year, for: .now) ?? 1
+        var rng = SeededRNG(seed: UInt64(dayOfYear))
+
+        // Base pressure varies by "season" — lower in winter, higher in summer
+        let seasonalOffset = sin(Double(dayOfYear) / 365.0 * .pi * 2) * 4
+        var pressure = 1016.0 + seasonalOffset
+
+        let currentHour = calendar.component(.hour, from: .now)
         pressureHistory = (0...24).map { hour in
-            pressure += Double.random(in: -1.5...1.0)
+            // Slight diurnal variation + random walk
+            let diurnal = sin(Double(hour) / 24.0 * .pi * 2) * 0.5
+            pressure += diurnal + rng.nextDouble(in: -1.2...0.8)
+            pressure = max(995, min(1040, pressure))
             return (hour: hour, hPa: pressure)
         }
+
+        // Re-compute forecast now that we have pressure data
+        computeForecast()
+
+        // Mark current hour
+        _ = currentHour // available for future use (current hour indicator on chart)
+    }
+}
+
+/// Simple seeded RNG for deterministic mock data (same pressure curve each day).
+private struct SeededRNG {
+    private var state: UInt64
+
+    init(seed: UInt64) {
+        state = seed
+    }
+
+    mutating func next() -> UInt64 {
+        state &+= 0x9e3779b97f4a7c15
+        var z = state
+        z = (z ^ (z >> 30)) &* 0xbf58476d1ce4e5b9
+        z = (z ^ (z >> 27)) &* 0x94d049bb133111eb
+        return z ^ (z >> 31)
+    }
+
+    mutating func nextDouble(in range: ClosedRange<Double>) -> Double {
+        let raw = Double(next() & 0x1FFFFFFFFFFFFF) / Double(0x1FFFFFFFFFFFFF)
+        return range.lowerBound + raw * (range.upperBound - range.lowerBound)
     }
 }
 

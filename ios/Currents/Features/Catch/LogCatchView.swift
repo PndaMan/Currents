@@ -140,6 +140,16 @@ struct LogCatchView: View {
                 allSpots = (try? appState.spotRepository.fetchAll()) ?? []
                 allGear = (try? appState.gearRepository.fetchAll()) ?? []
             }
+            .onChange(of: selectedPhoto) { _, item in
+                guard let item else { return }
+                Task {
+                    if let data = try? await item.loadTransferable(type: Data.self),
+                       let image = UIImage(data: data) {
+                        capturedImage = image
+                        classifyImage(image)
+                    }
+                }
+            }
         }
     }
 

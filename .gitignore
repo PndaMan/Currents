@@ -9,6 +9,10 @@ ios/**/*.dSYM
 # Swift Package Manager
 ios/.build/
 ios/.swiftpm/
+ios/.spm-cache/
+
+# XcodeGen output (regenerated in CI)
+ios/Currents.xcodeproj
 
 # ML training data and outputs
 ml/data/

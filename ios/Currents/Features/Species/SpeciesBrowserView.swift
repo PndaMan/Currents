@@ -69,6 +69,11 @@ struct SpeciesBrowserView: View {
         .listStyle(.plain)
         .searchable(text: $searchText, prompt: "Search species")
         .navigationTitle("Species")
+        .navigationDestination(for: Int64.self) { speciesId in
+            if let sp = species.first(where: { $0.id == speciesId }) {
+                SpeciesDetailView(species: sp)
+            }
+        }
         .task {
             species = (try? appState.speciesRepository.fetchAll()) ?? []
         }

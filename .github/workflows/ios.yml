@@ -1,0 +1,88 @@
+name: iOS Build & Test
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+jobs:
+  build-and-test:
+    runs-on: macos-15
+    defaults:
+      run:
+        working-directory: ios
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: |
+          # Use the latest available Xcode
+          XCODE_PATH=$(ls -d /Applications/Xcode*.app 2>/dev/null | sort -V | tail -1)
+          if [ -z "$XCODE_PATH" ]; then
+            echo "No Xcode found"
+            exit 1
+          fi
+          sudo xcode-select -s "$XCODE_PATH"
+          xcodebuild -version
+          swift --version
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode Project
+        run: xcodegen generate
+
+      - name: Resolve packages
+        run: |
+          xcodebuild -resolvePackageDependencies \
+            -project Currents.xcodeproj \
+            -scheme Currents \
+            -clonedSourcePackagesDirPath .spm-cache
+
+      - name: Build
+        run: |
+          xcodebuild build \
+            -project Currents.xcodeproj \
+            -scheme Currents \
+            -destination 'platform=iOS Simulator,name=iPhone 16 Pro' \
+            -clonedSourcePackagesDirPath .spm-cache \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            | tee build.log | tail -20
+
+      - name: Test
+        run: |
+          xcodebuild test \
+            -project Currents.xcodeproj \
+            -scheme CurrentsTests \
+            -destination 'platform=iOS Simulator,name=iPhone 16 Pro' \
+            -clonedSourcePackagesDirPath .spm-cache \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            | tee test.log | tail -30
+
+      - name: Upload build log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs
+          path: |
+            ios/build.log
+            ios/test.log
+
+      - name: Test Summary
+        if: always()
+        run: |
+          echo "## Test Results" >> $GITHUB_STEP_SUMMARY
+          if grep -q "TEST SUCCEEDED" test.log 2>/dev/null; then
+            echo "All tests passed" >> $GITHUB_STEP_SUMMARY
+          elif grep -q "BUILD SUCCEEDED" build.log 2>/dev/null; then
+            echo "Build succeeded, check test results above" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "Build or tests had issues - check logs" >> $GITHUB_STEP_SUMMARY
+          fi

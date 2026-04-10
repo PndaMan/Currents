@@ -7,7 +7,7 @@ import SwiftUI
 enum CurrentsTheme {
     // MARK: Colors
 
-    static let accent = Color("AccentBlue", bundle: .main)
+    static let accent = Color.blue
     static let accentGreen = Color.green
     static let warning = Color.orange
     static let danger = Color.red

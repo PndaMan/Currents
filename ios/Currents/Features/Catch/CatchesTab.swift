@@ -54,6 +54,13 @@ struct CatchesTab: View {
                                 CatchRow(detail: detail)
                             }
                         }
+                        .onDelete { offsets in
+                            let toDelete = offsets.map { filteredCatches[$0] }
+                            for detail in toDelete {
+                                try? appState.catchRepository.delete(detail.catchRecord)
+                            }
+                            Task { await loadCatches() }
+                        }
                     }
                     .listStyle(.plain)
                     .searchable(text: $searchText, prompt: "Search catches")

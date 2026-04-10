@@ -1,11 +1,14 @@
 import SwiftUI
 import Charts
+import UniformTypeIdentifiers
 
 struct ProfileTab: View {
     @Environment(AppState.self) private var appState
     @State private var totalCatches = 0
     @State private var speciesCounts: [(speciesId: Int64, commonName: String, count: Int)] = []
     @State private var mapRegions: [OfflineRegion] = []
+    @State private var showingExport = false
+    @State private var exportURL: URL?
 
     var body: some View {
         NavigationStack {
@@ -59,6 +62,15 @@ struct ProfileTab: View {
                     }
                 }
 
+                // Browse
+                Section("Browse") {
+                    NavigationLink {
+                        SpeciesBrowserView()
+                    } label: {
+                        Label("Species Guide", systemImage: "fish.fill")
+                    }
+                }
+
                 // Settings
                 Section("Settings") {
                     NavigationLink {
@@ -82,8 +94,8 @@ struct ProfileTab: View {
 
                 // Data
                 Section("Data") {
-                    Button(role: .destructive) {
-                        // TODO: export data
+                    Button {
+                        exportAllData()
                     } label: {
                         Label("Export All Data", systemImage: "square.and.arrow.up")
                     }
@@ -96,6 +108,19 @@ struct ProfileTab: View {
                 appState.mapManager.refreshDownloadedRegions()
                 mapRegions = appState.mapManager.downloadedRegions
             }
+            .sheet(isPresented: $showingExport) {
+                if let url = exportURL {
+                    ShareSheet(url: url)
+                }
+            }
+        }
+    }
+
+    private func exportAllData() {
+        let exporter = DataExporter(appState: appState)
+        if let url = try? exporter.exportAll() {
+            exportURL = url
+            showingExport = true
         }
     }
 }
