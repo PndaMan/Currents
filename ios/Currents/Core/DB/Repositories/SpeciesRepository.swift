@@ -42,22 +42,16 @@ final class SpeciesRepository: ObservableObject {
         }
     }
 
-    /// Seed species from bundled JSON data.
+    /// Seed species from embedded data (compiled into binary).
     func seedIfEmpty() throws {
         let count = try db.db.read { db in try Species.fetchCount(db) }
         guard count == 0 else { return }
 
-        guard let url = Self.findBundleResource("species_seed", ext: "json") else {
-            print("[Currents] ⚠️ species_seed.json not found in bundle")
-            return
-        }
-
         let speciesList: [Species]
         do {
-            let data = try Data(contentsOf: url)
-            speciesList = try JSONDecoder().decode([Species].self, from: data)
+            speciesList = try JSONDecoder().decode([Species].self, from: SpeciesSeedData.json)
         } catch {
-            print("[Currents] ⚠️ Failed to decode species_seed.json: \(error)")
+            print("[Currents] ⚠️ Failed to decode species seed data: \(error)")
             return
         }
 
@@ -67,32 +61,5 @@ final class SpeciesRepository: ObservableObject {
             }
         }
         print("[Currents] ✅ Seeded \(speciesList.count) species")
-    }
-
-    /// Search all possible bundle paths for a resource file.
-    private static func findBundleResource(_ name: String, ext: String) -> URL? {
-        // Direct lookup (file at bundle root)
-        if let url = Bundle.main.url(forResource: name, withExtension: ext) {
-            return url
-        }
-        // Common subdirectories XcodeGen might create
-        for sub in ["Data", "Resources/Data", "Resources"] {
-            if let url = Bundle.main.url(forResource: name, withExtension: ext, subdirectory: sub) {
-                return url
-            }
-        }
-        // Last resort: search the entire bundle
-        if let bundlePath = Bundle.main.resourcePath {
-            let fm = FileManager.default
-            if let enumerator = fm.enumerator(atPath: bundlePath) {
-                let target = "\(name).\(ext)"
-                while let path = enumerator.nextObject() as? String {
-                    if (path as NSString).lastPathComponent == target {
-                        return URL(fileURLWithPath: bundlePath).appendingPathComponent(path)
-                    }
-                }
-            }
-        }
-        return nil
     }
 }

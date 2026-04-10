@@ -21,8 +21,6 @@ targets:
       - path: Currents
         excludes:
           - "Resources/**"
-      - path: Currents/Resources/Data
-        buildPhase: resources
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.currents.app
