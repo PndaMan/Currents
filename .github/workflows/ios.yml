@@ -48,6 +48,7 @@ jobs:
             -project Currents.xcodeproj \
             -scheme Currents \
             -destination 'platform=iOS Simulator,name=iPhone 16 Pro' \
+            -derivedDataPath DerivedData \
             -clonedSourcePackagesDirPath .spm-cache \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
@@ -65,6 +66,26 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO \
             | tee test.log | tail -30
+
+      - name: Package .app for Appetize
+        run: |
+          APP_PATH=$(find DerivedData -name "Currents.app" -type d | head -1)
+          if [ -z "$APP_PATH" ]; then
+            echo "Could not find Currents.app in DerivedData"
+            find DerivedData -name "*.app" -type d
+            exit 1
+          fi
+          echo "Found app at: $APP_PATH"
+          cd "$(dirname "$APP_PATH")"
+          zip -r "$GITHUB_WORKSPACE/Currents-simulator.zip" "Currents.app"
+          echo "Zipped to Currents-simulator.zip ($(du -h "$GITHUB_WORKSPACE/Currents-simulator.zip" | cut -f1))"
+
+      - name: Upload .app artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Currents-simulator
+          path: Currents-simulator.zip
+          retention-days: 30
 
       - name: Upload build log on failure
         if: failure()
@@ -86,3 +107,5 @@ jobs:
           else
             echo "Build or tests had issues - check logs" >> $GITHUB_STEP_SUMMARY
           fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Download the **Currents-simulator** artifact above to test on [Appetize.io](https://appetize.io)" >> $GITHUB_STEP_SUMMARY
