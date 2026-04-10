@@ -1,0 +1,42 @@
+# Xcode
+ios/**/*.xcodeproj/xcuserdata/
+ios/**/*.xcworkspace/xcuserdata/
+ios/**/DerivedData/
+ios/**/*.ipa
+ios/**/*.dSYM.zip
+ios/**/*.dSYM
+
+# Swift Package Manager
+ios/.build/
+ios/.swiftpm/
+
+# ML training data and outputs
+ml/data/
+ml/**/*.pt
+ml/**/*.onnx
+ml/**/*.mlpackage
+ml/**/*.mlmodelc
+
+# PMTiles (large binary files)
+tiles/*.pmtiles
+tiles/*.mbtiles
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+
+# Environment
+.env
+.env.local
+*.pem
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp

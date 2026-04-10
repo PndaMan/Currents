@@ -1,0 +1,57 @@
+import CoreLocation
+import Observation
+
+@Observable
+final class LocationManager: NSObject, CLLocationManagerDelegate {
+    private let manager = CLLocationManager()
+
+    var currentLocation: CLLocation?
+    var authorizationStatus: CLAuthorizationStatus = .notDetermined
+    var isAuthorized: Bool {
+        authorizationStatus == .authorizedWhenInUse || authorizationStatus == .authorizedAlways
+    }
+
+    override init() {
+        super.init()
+        manager.delegate = self
+        manager.desiredAccuracy = kCLLocationAccuracyBest
+        manager.distanceFilter = 50 // meters
+        authorizationStatus = manager.authorizationStatus
+    }
+
+    func requestPermission() {
+        manager.requestWhenInUseAuthorization()
+    }
+
+    func startUpdating() {
+        manager.startUpdatingLocation()
+    }
+
+    func stopUpdating() {
+        manager.stopUpdatingLocation()
+    }
+
+    /// Start significant change monitoring for background spot alerts.
+    func startMonitoringSignificantChanges() {
+        manager.startMonitoringSignificantLocationChanges()
+    }
+
+    // MARK: - CLLocationManagerDelegate
+
+    nonisolated func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+        guard let location = locations.last else { return }
+        Task { @MainActor in
+            self.currentLocation = location
+        }
+    }
+
+    nonisolated func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        let status = manager.authorizationStatus
+        Task { @MainActor in
+            self.authorizationStatus = status
+            if status == .authorizedWhenInUse || status == .authorizedAlways {
+                manager.startUpdatingLocation()
+            }
+        }
+    }
+}
