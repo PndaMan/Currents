@@ -52,25 +52,29 @@ jobs:
 
       - name: Create Simulator
         run: |
-          # Find the iOS 26 runtime identifier
-          RUNTIME=$(xcrun simctl list runtimes | grep "iOS 26" | head -1 | sed 's/.*(\(com.apple[^)]*\)).*/\1/')
+          # Get the latest iOS 26 runtime ID
+          RUNTIME=$(xcrun simctl list runtimes -j | python3 -c "
+          import json, sys
+          data = json.load(sys.stdin)
+          runtimes = [r for r in data['runtimes'] if 'iOS' in r.get('name','') and '26' in r.get('name','') and r.get('isAvailable', False)]
+          if runtimes:
+              print(runtimes[-1]['identifier'])
+          ")
           if [ -z "$RUNTIME" ]; then
-            echo "No iOS 26 runtime found, skipping simulator creation"
+            echo "No iOS 26 runtime found, skipping tests"
             echo "SKIP_TESTS=true" >> $GITHUB_ENV
             exit 0
           fi
           echo "Using runtime: $RUNTIME"
 
-          # Find an iPhone device type
-          DEVICE_TYPE=$(xcrun simctl list devicetypes | grep "iPhone" | tail -1 | sed 's/.*(\(com.apple[^)]*\)).*/\1/')
+          # Use iPhone 16 Pro device type
+          DEVICE_TYPE="com.apple.CoreSimulator.SimDeviceType.iPhone-16-Pro"
           echo "Using device type: $DEVICE_TYPE"
 
-          # Create the simulator
+          # Create and boot the simulator
           UDID=$(xcrun simctl create "CI-iPhone" "$DEVICE_TYPE" "$RUNTIME")
           echo "Created simulator: $UDID"
           echo "SIM_UDID=$UDID" >> $GITHUB_ENV
-
-          # Boot it
           xcrun simctl boot "$UDID" || true
 
       - name: Build
