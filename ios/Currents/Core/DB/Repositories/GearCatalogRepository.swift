@@ -42,9 +42,20 @@ final class GearCatalogRepository: ObservableObject {
         let count = try db.db.read { db in try GearItem.fetchCount(db) }
         guard count == 0 else { return }
 
-        guard let url = Bundle.main.url(forResource: "gear_catalog_seed", withExtension: "json"),
-              let data = try? Data(contentsOf: url),
-              let items = try? JSONDecoder().decode([GearItem].self, from: data) else {
+        let url = Bundle.main.url(forResource: "gear_catalog_seed", withExtension: "json", subdirectory: "Data")
+            ?? Bundle.main.url(forResource: "gear_catalog_seed", withExtension: "json")
+
+        guard let url,
+              let data = try? Data(contentsOf: url) else {
+            print("[Currents] ⚠️ gear_catalog_seed.json not found in bundle")
+            return
+        }
+
+        let items: [GearItem]
+        do {
+            items = try JSONDecoder().decode([GearItem].self, from: data)
+        } catch {
+            print("[Currents] ⚠️ Failed to decode gear_catalog_seed.json: \(error)")
             return
         }
 
@@ -53,5 +64,6 @@ final class GearCatalogRepository: ObservableObject {
                 try item.insert(db)
             }
         }
+        print("[Currents] ✅ Seeded \(items.count) gear catalog items")
     }
 }

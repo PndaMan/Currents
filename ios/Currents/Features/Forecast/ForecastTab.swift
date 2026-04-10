@@ -93,10 +93,10 @@ struct ForecastTab: View {
         }
     }
 
-    // MARK: - Current Conditions Card (Fishbrain-style)
+    // MARK: - Current Conditions Card
 
     private func currentConditionsCard(_ weather: WeatherService.WeatherData) -> some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 16) {
             HStack {
                 Text("Current Conditions")
                     .font(.headline)
@@ -109,36 +109,28 @@ struct ForecastTab: View {
                     .foregroundStyle(.secondary)
             }
 
-            // Main weather row
-            HStack(spacing: 16) {
-                // Temperature
-                VStack(spacing: 4) {
-                    WeatherIcon(condition: weather.condition)
-                        .font(.largeTitle)
+            // Temperature row
+            HStack(spacing: 20) {
+                WeatherIcon(condition: weather.condition)
+                    .font(.system(size: 32))
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("\(Int(weather.temperatureC))°C")
+                        .font(.system(size: 32, weight: .bold))
+                        .monospacedDigit()
                     Text(weather.condition.capitalized)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
 
-                Divider().frame(height: 50)
-
-                VStack(spacing: 2) {
-                    Text("\(Int(weather.temperatureC))°")
-                        .font(.system(size: 36, weight: .bold))
-                        .monospacedDigit()
-                    Text("Air Temp")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
+                Spacer()
 
                 if let waterTemp = weather.waterTempC {
-                    Divider().frame(height: 50)
-                    VStack(spacing: 2) {
-                        HStack(spacing: 2) {
+                    VStack(alignment: .trailing, spacing: 2) {
+                        HStack(spacing: 4) {
                             Image(systemName: "water.waves")
-                                .font(.caption)
                                 .foregroundStyle(.cyan)
-                            Text("\(Int(waterTemp))°")
+                            Text("\(Int(waterTemp))°C")
                                 .font(.title2.bold())
                                 .monospacedDigit()
                         }
@@ -147,35 +139,16 @@ struct ForecastTab: View {
                             .foregroundStyle(.secondary)
                     }
                 }
-
-                Spacer()
             }
 
-            // Detail grid
+            // Detail grid — 2x2
             LazyVGrid(columns: [
-                GridItem(.flexible()), GridItem(.flexible()),
                 GridItem(.flexible()), GridItem(.flexible())
-            ], spacing: 12) {
-                WeatherDetailCell(
-                    icon: "humidity.fill",
-                    value: "\(weather.humidity)%",
-                    label: "Humidity"
-                )
-                WeatherDetailCell(
-                    icon: "cloud.fill",
-                    value: "\(weather.cloudCoverPct)%",
-                    label: "Cloud Cover"
-                )
-                WeatherDetailCell(
-                    icon: "drop.fill",
-                    value: String(format: "%.1fmm", weather.precipMm),
-                    label: "Precip"
-                )
-                WeatherDetailCell(
-                    icon: "sun.max.fill",
-                    value: String(format: "%.0f", weather.uvIndex),
-                    label: "UV Index"
-                )
+            ], spacing: 10) {
+                WeatherDetailCell(icon: "drop.fill", value: "\(weather.humidity)%", label: "Humidity")
+                WeatherDetailCell(icon: "cloud.fill", value: "\(weather.cloudCoverPct)%", label: "Cloud Cover")
+                WeatherDetailCell(icon: "umbrella.fill", value: String(format: "%.1fmm", weather.precipMm), label: "Precipitation")
+                WeatherDetailCell(icon: "sun.max.fill", value: String(format: "%.0f", weather.uvIndex), label: "UV Index")
             }
         }
         .glassCard()
@@ -184,77 +157,65 @@ struct ForecastTab: View {
     // MARK: - Wind & Pressure Card
 
     private func windAndPressureCard(_ weather: WeatherService.WeatherData) -> some View {
-        HStack(spacing: 0) {
-            // Wind section
-            VStack(spacing: 8) {
-                Text("Wind")
-                    .font(.caption.bold())
-                    .foregroundStyle(.secondary)
+        VStack(spacing: 16) {
+            // Wind
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Wind")
+                        .font(.headline)
+                    Text("\(Int(weather.windSpeedKmh)) km/h \(windDirection(weather.windDirectionDeg))")
+                        .font(.title3.bold())
+                        .monospacedDigit()
+                }
 
+                Spacer()
+
+                // Compass
                 ZStack {
                     Circle()
                         .stroke(.secondary.opacity(0.2), lineWidth: 2)
-                        .frame(width: 70, height: 70)
-
-                    // Cardinal directions
-                    ForEach(["N", "E", "S", "W"], id: \.self) { dir in
-                        Text(dir)
-                            .font(.system(size: 9, weight: .bold))
-                            .foregroundStyle(.secondary)
-                            .offset(compassOffset(for: dir, radius: 42))
-                    }
-
-                    // Wind direction arrow
+                        .frame(width: 56, height: 56)
+                    Text("N")
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundStyle(.secondary)
+                        .offset(y: -30)
                     Image(systemName: "location.north.fill")
-                        .font(.title3)
+                        .font(.body)
                         .foregroundStyle(.blue)
                         .rotationEffect(.degrees(weather.windDirectionDeg))
                 }
-
-                Text("\(Int(weather.windSpeedKmh)) km/h")
-                    .font(.subheadline.bold())
-                    .monospacedDigit()
-                Text(windDirection(weather.windDirectionDeg))
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
             }
-            .frame(maxWidth: .infinity)
 
-            Divider().frame(height: 100)
+            // Pressure
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Pressure")
+                        .font(.headline)
+                    HStack(spacing: 6) {
+                        Text("\(Int(weather.pressureHpa)) hPa")
+                            .font(.title3.bold())
+                            .monospacedDigit()
 
-            // Pressure section
-            VStack(spacing: 8) {
-                Text("Pressure")
-                    .font(.caption.bold())
-                    .foregroundStyle(.secondary)
-
-                Text("\(Int(weather.pressureHpa))")
-                    .font(.system(size: 28, weight: .bold))
-                    .monospacedDigit()
-                Text("hPa")
+                        let trend = weather.pressureChange6h
+                        HStack(spacing: 2) {
+                            Image(systemName: trend < -1 ? "arrow.down" : trend > 1 ? "arrow.up" : "equal")
+                                .font(.caption)
+                            Text(String(format: "%+.1f", trend))
+                                .font(.caption.bold())
+                                .monospacedDigit()
+                        }
+                        .foregroundStyle(pressureTrendColor(trend))
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(pressureTrendColor(trend).opacity(0.15))
+                        .clipShape(Capsule())
+                    }
+                }
+                Spacer()
+                Text(pressureTrendLabel(weather.pressureChange6h))
                     .font(.caption)
                     .foregroundStyle(.secondary)
-
-                // Trend
-                let trend = weather.pressureChange6h
-                HStack(spacing: 4) {
-                    Image(systemName: trend < -2 ? "arrow.down.circle.fill" :
-                            trend < -0.5 ? "arrow.down.right.circle.fill" :
-                            trend > 2 ? "arrow.up.circle.fill" :
-                            trend > 0.5 ? "arrow.up.right.circle.fill" :
-                            "equal.circle.fill")
-                        .foregroundStyle(pressureTrendColor(trend))
-                    Text(String(format: "%+.1f/6h", trend))
-                        .font(.caption.bold())
-                        .monospacedDigit()
-                        .foregroundStyle(pressureTrendColor(trend))
-                }
-
-                Text(pressureTrendLabel(trend))
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
             }
-            .frame(maxWidth: .infinity)
         }
         .glassCard()
     }

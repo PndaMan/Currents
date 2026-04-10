@@ -47,9 +47,21 @@ final class SpeciesRepository: ObservableObject {
         let count = try db.db.read { db in try Species.fetchCount(db) }
         guard count == 0 else { return }
 
-        guard let url = Bundle.main.url(forResource: "species_seed", withExtension: "json"),
-              let data = try? Data(contentsOf: url),
-              let speciesList = try? JSONDecoder().decode([Species].self, from: data) else {
+        // Try multiple bundle paths — XcodeGen may preserve Data/ subdirectory
+        let url = Bundle.main.url(forResource: "species_seed", withExtension: "json", subdirectory: "Data")
+            ?? Bundle.main.url(forResource: "species_seed", withExtension: "json")
+
+        guard let url,
+              let data = try? Data(contentsOf: url) else {
+            print("[Currents] ⚠️ species_seed.json not found in bundle")
+            return
+        }
+
+        let speciesList: [Species]
+        do {
+            speciesList = try JSONDecoder().decode([Species].self, from: data)
+        } catch {
+            print("[Currents] ⚠️ Failed to decode species_seed.json: \(error)")
             return
         }
 
@@ -58,5 +70,6 @@ final class SpeciesRepository: ObservableObject {
                 try species.insert(db)
             }
         }
+        print("[Currents] ✅ Seeded \(speciesList.count) species")
     }
 }
