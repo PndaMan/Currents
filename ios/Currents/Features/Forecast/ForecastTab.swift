@@ -261,21 +261,17 @@ struct ForecastTab: View {
     // MARK: - Score Card
 
     private func scoreCard(_ forecast: ForecastEngine.ForecastResult, solunar: SolunarEngine.SolunarDay) -> some View {
-        VStack(spacing: 12) {
-            HStack(alignment: .top) {
-                ScoreGauge(score: forecast.score, label: "Bite Score")
-                    .scaleEffect(1.4)
-                    .padding(.trailing, 8)
+        VStack(spacing: 16) {
+            HStack(alignment: .center, spacing: 16) {
+                ScoreGauge(score: forecast.score, label: "Bite Score", size: 90)
 
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 6) {
                         Image(systemName: ratingIcon(solunar.dayRating))
                             .foregroundStyle(ratingColor(solunar.dayRating))
-                        Text(solunar.dayRating.label)
-                            .font(.headline)
+                        Text("\(solunar.dayRating.label) Day")
+                            .font(.title3.bold())
                             .foregroundStyle(ratingColor(solunar.dayRating))
-                        Text("Day")
-                            .font(.headline)
                     }
 
                     if !forecast.bestHours.isEmpty {
@@ -302,14 +298,16 @@ struct ForecastTab: View {
                 Spacer()
             }
 
-            VStack(alignment: .leading, spacing: 4) {
-                ForEach(forecast.reasons.prefix(4), id: \.self) { reason in
-                    Label(reason, systemImage: "info.circle")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+            if !forecast.reasons.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(forecast.reasons.prefix(4), id: \.self) { reason in
+                        Label(reason, systemImage: "info.circle")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .glassCard()
     }

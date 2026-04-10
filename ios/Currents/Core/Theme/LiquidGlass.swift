@@ -57,24 +57,25 @@ extension View {
 struct ScoreGauge: View {
     let score: Int
     let label: String
+    var size: CGFloat = 64
 
     var body: some View {
         VStack(spacing: 4) {
             ZStack {
                 Circle()
-                    .stroke(Color.secondary.opacity(0.2), lineWidth: 6)
+                    .stroke(Color.secondary.opacity(0.2), lineWidth: size > 80 ? 8 : 6)
                 Circle()
                     .trim(from: 0, to: CGFloat(score) / 100)
                     .stroke(
                         CurrentsTheme.scoreColor(score),
-                        style: StrokeStyle(lineWidth: 6, lineCap: .round)
+                        style: StrokeStyle(lineWidth: size > 80 ? 8 : 6, lineCap: .round)
                     )
                     .rotationEffect(.degrees(-90))
                 Text("\(score)")
-                    .font(.title2.bold())
+                    .font(size > 80 ? .largeTitle.bold() : .title2.bold())
                     .monospacedDigit()
             }
-            .frame(width: 64, height: 64)
+            .frame(width: size, height: size)
 
             Text(label)
                 .font(.caption)

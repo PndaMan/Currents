@@ -22,7 +22,8 @@ targets:
         excludes:
           - "Resources/**"
     resources:
-      - path: Currents/Resources
+      - path: Currents/Resources/Data/species_seed.json
+      - path: Currents/Resources/Data/gear_catalog_seed.json
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.currents.app
