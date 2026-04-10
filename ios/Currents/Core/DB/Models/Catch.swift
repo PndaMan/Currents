@@ -19,6 +19,7 @@ struct Catch: Codable, Identifiable, Sendable {
     var weatherSnapshot: String? // JSON encoded
     var tideSnapshot: String? // JSON encoded
     var gearLoadoutId: String?
+    var tripId: String?
     var notes: String?
     var createdAt: Date
 
@@ -39,6 +40,7 @@ struct Catch: Codable, Identifiable, Sendable {
         weatherSnapshot: String? = nil,
         tideSnapshot: String? = nil,
         gearLoadoutId: String? = nil,
+        tripId: String? = nil,
         notes: String? = nil
     ) {
         self.id = id
@@ -58,6 +60,7 @@ struct Catch: Codable, Identifiable, Sendable {
         self.weatherSnapshot = weatherSnapshot
         self.tideSnapshot = tideSnapshot
         self.gearLoadoutId = gearLoadoutId
+        self.tripId = tripId
         self.notes = notes
         self.createdAt = .now
     }
@@ -71,6 +74,7 @@ extension Catch {
     static let species = belongsTo(Species.self)
     static let spot = belongsTo(Spot.self)
     static let gearLoadout = belongsTo(GearLoadout.self)
+    static let trip = belongsTo(Trip.self)
 }
 
 /// A catch joined with its species and spot for display purposes.

@@ -62,8 +62,20 @@ struct ProfileTab: View {
                     }
                 }
 
-                // Browse
-                Section("Browse") {
+                // Browse & Analytics
+                Section("Explore") {
+                    NavigationLink {
+                        AnalyticsView()
+                    } label: {
+                        Label("Analytics & Personal Bests", systemImage: "chart.xyaxis.line")
+                    }
+
+                    NavigationLink {
+                        PhotoGalleryView()
+                    } label: {
+                        Label("Photo Gallery", systemImage: "photo.on.rectangle.angled")
+                    }
+
                     NavigationLink {
                         SpeciesBrowserView()
                     } label: {

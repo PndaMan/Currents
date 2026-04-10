@@ -21,7 +21,15 @@ ci-logs: ## Stream logs from the latest CI run
 	gh run watch $$(gh run list --limit 1 --json databaseId --jq '.[0].databaseId')
 
 ci-download: ## Download build artifacts from latest CI run
+	rm -rf build-logs Currents-simulator Currents-IPA
 	gh run download $$(gh run list --limit 1 --json databaseId --jq '.[0].databaseId')
+
+ci-ipa: ## Download just the IPA from latest CI run
+	rm -rf Currents-IPA
+	gh run download $$(gh run list --limit 1 --json databaseId --jq '.[0].databaseId') -n Currents-IPA
+	@echo ""
+	@echo "IPA downloaded to Currents-IPA/Currents.ipa"
+	@echo "Install with: AltStore, TrollStore, or SideStore"
 
 swift-check: ## Check Swift syntax (requires swift on PATH)
 	@which swift > /dev/null 2>&1 && \

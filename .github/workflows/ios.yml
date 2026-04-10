@@ -132,6 +132,46 @@ jobs:
           path: Currents-simulator.zip
           retention-days: 30
 
+      - name: Build unsigned IPA (for sideloading)
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -project Currents.xcodeproj \
+            -scheme Currents \
+            -destination "generic/platform=iOS" \
+            -derivedDataPath DerivedData-Device \
+            -clonedSourcePackagesDirPath .spm-cache \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            2>&1 | tee device-build.log
+
+          # Package as IPA
+          PRODUCTS_DIR="DerivedData-Device/Build/Products/Debug-iphoneos"
+          APP_PATH="$PRODUCTS_DIR/Currents.app"
+
+          if [ ! -d "$APP_PATH" ]; then
+            echo "Device .app not found, searching:"
+            find DerivedData-Device -name "*.app" -type d 2>/dev/null
+            exit 1
+          fi
+
+          echo "Device .app size: $(du -sh "$APP_PATH" | cut -f1)"
+
+          # Create IPA structure: Payload/Currents.app
+          mkdir -p Payload
+          cp -R "$APP_PATH" Payload/
+          cd "$(dirname Payload)" || true
+          zip -r "$GITHUB_WORKSPACE/Currents.ipa" Payload
+          rm -rf Payload
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Currents-IPA
+          path: Currents.ipa
+          retention-days: 90
+
       - name: Upload build logs
         if: always()
         uses: actions/upload-artifact@v4

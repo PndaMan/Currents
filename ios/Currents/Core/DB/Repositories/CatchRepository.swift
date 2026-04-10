@@ -68,6 +68,79 @@ final class CatchRepository: ObservableObject {
         }
     }
 
+    /// Personal bests per species.
+    func personalBests() throws -> [PersonalBest] {
+        try db.db.read { db in
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT
+                    s.id as speciesId,
+                    s.commonName,
+                    s.scientificName,
+                    MAX(c.weightKg) as heaviestKg,
+                    MAX(c.lengthCm) as longestCm,
+                    COUNT(c.id) as totalCatches,
+                    MIN(c.caughtAt) as firstCaught,
+                    MAX(c.caughtAt) as lastCaught
+                FROM "catch" c
+                JOIN species s ON s.id = c.speciesId
+                WHERE c.speciesId IS NOT NULL
+                GROUP BY c.speciesId
+                ORDER BY totalCatches DESC
+                """)
+            return rows.map { row in
+                PersonalBest(
+                    speciesId: row["speciesId"],
+                    commonName: row["commonName"],
+                    scientificName: row["scientificName"],
+                    heaviestKg: row["heaviestKg"],
+                    longestCm: row["longestCm"],
+                    heaviestCatchId: nil,
+                    longestCatchId: nil,
+                    totalCatches: row["totalCatches"],
+                    firstCaught: row["firstCaught"],
+                    lastCaught: row["lastCaught"]
+                )
+            }
+        }
+    }
+
+    /// Monthly catch counts for trend charts.
+    func monthlyCounts(months: Int = 12) throws -> [(month: String, count: Int)] {
+        try db.db.read { db in
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT strftime('%Y-%m', caughtAt) as month, COUNT(*) as cnt
+                FROM "catch"
+                WHERE caughtAt >= date('now', '-\(months) months')
+                GROUP BY month
+                ORDER BY month
+                """)
+            return rows.map { (month: $0["month"] as String, count: $0["cnt"] as Int) }
+        }
+    }
+
+    /// Catches grouped by hour of day (for "best time to fish" analysis).
+    func catchesByHour() throws -> [(hour: Int, count: Int)] {
+        try db.db.read { db in
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT CAST(strftime('%H', caughtAt) AS INTEGER) as hour, COUNT(*) as cnt
+                FROM "catch"
+                GROUP BY hour
+                ORDER BY hour
+                """)
+            return rows.map { (hour: $0["hour"] as Int, count: $0["cnt"] as Int) }
+        }
+    }
+
+    /// Average forecast score at catch time (validates our forecast model).
+    func averageForecastScore() throws -> Double? {
+        try db.db.read { db in
+            try Double.fetchOne(db, sql: """
+                SELECT AVG(forecastScoreAtCapture) FROM "catch"
+                WHERE forecastScoreAtCapture IS NOT NULL
+                """)
+        }
+    }
+
     func speciesCounts() throws -> [(speciesId: Int64, commonName: String, count: Int)] {
         try db.db.read { db in
             let rows = try Row.fetchAll(db, sql: """

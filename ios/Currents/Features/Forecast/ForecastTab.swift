@@ -1,40 +1,66 @@
 import SwiftUI
 import Charts
+import CoreLocation
 
 struct ForecastTab: View {
     @Environment(AppState.self) private var appState
     @State private var forecast: ForecastEngine.ForecastResult?
-    @State private var moonPhase: MoonPhase = .current()
+    @State private var solunar: SolunarEngine.SolunarDay?
+    @State private var tideDay: TideEngine.TideDay?
     @State private var selectedSpecies: Species?
     @State private var allSpecies: [Species] = []
+    @State private var selectedDay: Int = 0 // 0 = today, 1 = tomorrow, etc.
 
-    // Simulated hourly pressure data for the chart
-    @State private var pressureHistory: [(hour: Int, hPa: Double)] = []
+    private var forecastDate: Date {
+        Calendar.current.date(byAdding: .day, value: selectedDay, to: .now) ?? .now
+    }
+
+    private var coordinate: CLLocationCoordinate2D {
+        appState.locationManager.currentLocation?.coordinate ??
+        CLLocationCoordinate2D(latitude: 0, longitude: 0)
+    }
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: CurrentsTheme.paddingM) {
-                    // Main score
-                    if let forecast {
-                        scoreCard(forecast)
+                    // Day picker
+                    dayPicker
+
+                    // Main score + day rating
+                    if let forecast, let solunar {
+                        scoreCard(forecast, solunar: solunar)
                     } else {
                         ProgressView()
                             .frame(height: 120)
                     }
 
-                    // Pressure trend chart
-                    pressureChart
+                    // Hourly chart
+                    if let forecast, !forecast.hourlyScores.isEmpty {
+                        hourlyChart(forecast)
+                    }
 
-                    // Moon phase
-                    moonCard
+                    // Solunar feeding windows
+                    if let solunar {
+                        solunarCard(solunar)
+                    }
 
-                    // Conditions breakdown
+                    // Tide chart
+                    if let tideDay {
+                        tideCard(tideDay)
+                    }
+
+                    // Sun times
+                    if let solunar {
+                        sunTimesCard(solunar)
+                    }
+
+                    // Breakdown
                     if let forecast {
                         breakdownCard(forecast)
                     }
 
-                    // Species picker for species-specific forecast
+                    // Species picker
                     speciesPicker
                 }
                 .padding()
@@ -42,22 +68,103 @@ struct ForecastTab: View {
             .navigationTitle("Forecast")
             .task {
                 allSpecies = (try? appState.speciesRepository.fetchAll()) ?? []
-                computeForecast()
-                generateMockPressure()
+                recompute()
+            }
+            .onChange(of: selectedDay) { _, _ in recompute() }
+        }
+    }
+
+    // MARK: - Day Picker
+
+    private var dayPicker: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(0..<7, id: \.self) { offset in
+                    let date = Calendar.current.date(byAdding: .day, value: offset, to: .now) ?? .now
+                    Button {
+                        selectedDay = offset
+                    } label: {
+                        VStack(spacing: 4) {
+                            Text(offset == 0 ? "Today" : dayLabel(date))
+                                .font(.caption.bold())
+                            Text(date, format: .dateTime.day())
+                                .font(.title3.bold())
+                                .monospacedDigit()
+                        }
+                        .frame(width: 60)
+                        .padding(.vertical, 8)
+                        .background(selectedDay == offset ? Color.blue : Color.clear)
+                        .foregroundStyle(selectedDay == offset ? .white : .primary)
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12)
+                                .stroke(.secondary.opacity(0.3))
+                        )
+                    }
+                }
             }
         }
     }
 
-    private func scoreCard(_ forecast: ForecastEngine.ForecastResult) -> some View {
-        VStack(spacing: 12) {
-            ScoreGauge(score: forecast.score, label: "Bite Score")
-                .scaleEffect(1.5)
-                .padding()
+    private func dayLabel(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "EEE"
+        return formatter.string(from: date)
+    }
 
-            VStack(alignment: .leading, spacing: 6) {
-                ForEach(forecast.reasons, id: \.self) { reason in
+    // MARK: - Score Card
+
+    private func scoreCard(_ forecast: ForecastEngine.ForecastResult, solunar: SolunarEngine.SolunarDay) -> some View {
+        VStack(spacing: 12) {
+            HStack(alignment: .top) {
+                ScoreGauge(score: forecast.score, label: "Bite Score")
+                    .scaleEffect(1.4)
+                    .padding(.trailing, 8)
+
+                VStack(alignment: .leading, spacing: 8) {
+                    // Day rating badge
+                    HStack {
+                        Image(systemName: ratingIcon(solunar.dayRating))
+                            .foregroundStyle(ratingColor(solunar.dayRating))
+                        Text(solunar.dayRating.label)
+                            .font(.headline)
+                            .foregroundStyle(ratingColor(solunar.dayRating))
+                        Text("Day")
+                            .font(.headline)
+                    }
+
+                    // Best hours
+                    if !forecast.bestHours.isEmpty {
+                        HStack(spacing: 4) {
+                            Image(systemName: "clock.fill")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Text("Best: " + forecast.bestHours.map { formatHour($0) }.joined(separator: ", "))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
+                    // Moon
+                    HStack(spacing: 4) {
+                        Image(systemName: solunar.moonPhase.symbolName)
+                            .symbolRenderingMode(.multicolor)
+                        Text(solunar.moonPhase.displayName)
+                            .font(.caption)
+                        Text("(\(Int(solunar.moonIllumination * 100))%)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                Spacer()
+            }
+
+            // Top reasons
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach(forecast.reasons.prefix(4), id: \.self) { reason in
                     Label(reason, systemImage: "info.circle")
-                        .font(.subheadline)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -65,57 +172,195 @@ struct ForecastTab: View {
         .glassCard()
     }
 
-    private var pressureChart: some View {
+    // MARK: - Hourly Chart
+
+    private func hourlyChart(_ forecast: ForecastEngine.ForecastResult) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Barometric Pressure (24h)")
+            Text("Hourly Forecast")
                 .font(.headline)
 
-            Chart(pressureHistory, id: \.hour) { point in
-                LineMark(
+            Chart(forecast.hourlyScores, id: \.hour) { point in
+                BarMark(
                     x: .value("Hour", point.hour),
-                    y: .value("hPa", point.hPa)
+                    y: .value("Score", point.score)
                 )
-                .interpolationMethod(.catmullRom)
-                .foregroundStyle(.blue.gradient)
-
-                AreaMark(
-                    x: .value("Hour", point.hour),
-                    y: .value("hPa", point.hPa)
-                )
-                .interpolationMethod(.catmullRom)
-                .foregroundStyle(.blue.opacity(0.1).gradient)
+                .foregroundStyle(barColor(score: point.score))
             }
-            .chartYScale(domain: .automatic(includesZero: false))
+            .chartYScale(domain: 0...100)
             .chartXAxis {
-                AxisMarks(values: .stride(by: 6)) { value in
+                AxisMarks(values: .stride(by: 3)) { value in
                     AxisValueLabel {
                         if let hour = value.as(Int.self) {
-                            Text("\(hour)h")
+                            Text(formatHour(hour))
+                                .font(.caption2)
                         }
                     }
                 }
             }
-            .frame(height: 180)
+            .chartYAxis {
+                AxisMarks(values: [0, 25, 50, 75, 100]) { value in
+                    AxisGridLine()
+                    AxisValueLabel {
+                        if let v = value.as(Int.self) {
+                            Text("\(v)")
+                                .font(.caption2)
+                        }
+                    }
+                }
+            }
+            .frame(height: 160)
         }
         .glassCard()
     }
 
-    private var moonCard: some View {
-        HStack {
-            Image(systemName: moonPhase.symbolName)
-                .font(.largeTitle)
-                .symbolRenderingMode(.multicolor)
-            VStack(alignment: .leading) {
-                Text(moonPhase.displayName)
+    // MARK: - Solunar Card
+
+    private func solunarCard(_ solunar: SolunarEngine.SolunarDay) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("Solunar Periods")
                     .font(.headline)
-                Text("Solunar influence: \(moonPhase == .full || moonPhase == .new ? "Strong" : "Moderate")")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                Spacer()
+                Image(systemName: solunar.moonPhase.symbolName)
+                    .symbolRenderingMode(.multicolor)
+                    .font(.title3)
             }
-            Spacer()
+
+            ForEach(solunar.majorPeriods, id: \.peak) { window in
+                feedingRow(window, isMajor: true)
+            }
+            ForEach(solunar.minorPeriods, id: \.peak) { window in
+                feedingRow(window, isMajor: false)
+            }
         }
         .glassCard()
     }
+
+    private func feedingRow(_ window: SolunarEngine.FeedingWindow, isMajor: Bool) -> some View {
+        HStack {
+            RoundedRectangle(cornerRadius: 2)
+                .fill(isMajor ? Color.orange : Color.blue)
+                .frame(width: 4, height: 32)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(window.kind.rawValue)
+                    .font(.subheadline.bold())
+                Text("\(window.start, style: .time) – \(window.end, style: .time)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+
+            Text(isMajor ? "MAJOR" : "MINOR")
+                .font(.caption2.bold())
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .background(isMajor ? Color.orange.opacity(0.2) : Color.blue.opacity(0.2))
+                .foregroundStyle(isMajor ? .orange : .blue)
+                .clipShape(Capsule())
+        }
+    }
+
+    // MARK: - Tide Card
+
+    private func tideCard(_ tide: TideEngine.TideDay) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Tides")
+                .font(.headline)
+
+            // Tide curve chart
+            Chart(tide.points, id: \.time) { point in
+                LineMark(
+                    x: .value("Time", point.time),
+                    y: .value("Height", point.height)
+                )
+                .interpolationMethod(.catmullRom)
+                .foregroundStyle(.cyan.gradient)
+
+                AreaMark(
+                    x: .value("Time", point.time),
+                    y: .value("Height", point.height)
+                )
+                .interpolationMethod(.catmullRom)
+                .foregroundStyle(.cyan.opacity(0.15).gradient)
+            }
+            .chartYScale(domain: -1.2...1.2)
+            .chartXAxis {
+                AxisMarks(values: .stride(by: .hour, count: 6)) { value in
+                    AxisValueLabel(format: .dateTime.hour())
+                }
+            }
+            .chartYAxis(.hidden)
+            .frame(height: 120)
+
+            // High and low tide times
+            HStack(spacing: 16) {
+                ForEach(tide.highTides) { event in
+                    Label("\(event.time, style: .time)", systemImage: "arrow.up")
+                        .font(.caption)
+                        .foregroundStyle(.cyan)
+                }
+                ForEach(tide.lowTides) { event in
+                    Label("\(event.time, style: .time)", systemImage: "arrow.down")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .glassCard()
+    }
+
+    // MARK: - Sun Times Card
+
+    private func sunTimesCard(_ solunar: SolunarEngine.SolunarDay) -> some View {
+        HStack {
+            VStack(spacing: 4) {
+                Image(systemName: "sunrise.fill")
+                    .font(.title3)
+                    .symbolRenderingMode(.multicolor)
+                Text(solunar.sunrise, style: .time)
+                    .font(.subheadline.bold())
+                    .monospacedDigit()
+                Text("Sunrise")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity)
+
+            Divider().frame(height: 40)
+
+            VStack(spacing: 4) {
+                Image(systemName: "sun.max.fill")
+                    .font(.title3)
+                    .foregroundStyle(.yellow)
+                Text("Golden Hours")
+                    .font(.subheadline.bold())
+                Text("\(solunar.dawnGoldenHour.lowerBound, style: .time)–\(solunar.dawnGoldenHour.upperBound, style: .time)")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity)
+
+            Divider().frame(height: 40)
+
+            VStack(spacing: 4) {
+                Image(systemName: "sunset.fill")
+                    .font(.title3)
+                    .symbolRenderingMode(.multicolor)
+                Text(solunar.sunset, style: .time)
+                    .font(.subheadline.bold())
+                    .monospacedDigit()
+                Text("Sunset")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity)
+        }
+        .glassCard()
+    }
+
+    // MARK: - Breakdown Card
 
     private func breakdownCard(_ forecast: ForecastEngine.ForecastResult) -> some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -125,12 +370,17 @@ struct ForecastTab: View {
             BreakdownRow(label: "Pressure", value: forecast.breakdown.pressure)
             BreakdownRow(label: "Pressure Trend", value: forecast.breakdown.pressureTrend)
             BreakdownRow(label: "Tide", value: forecast.breakdown.tide)
-            BreakdownRow(label: "Moon", value: forecast.breakdown.moon)
+            BreakdownRow(label: "Moon Phase", value: forecast.breakdown.moon)
+            BreakdownRow(label: "Solunar Window", value: forecast.breakdown.solunar)
+            BreakdownRow(label: "Time of Day", value: forecast.breakdown.timeOfDay)
+            BreakdownRow(label: "Wind", value: forecast.breakdown.wind)
             BreakdownRow(label: "Temperature", value: forecast.breakdown.temperature)
             BreakdownRow(label: "Season/Spawn", value: forecast.breakdown.season)
         }
         .glassCard()
     }
+
+    // MARK: - Species Picker
 
     private var speciesPicker: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -140,7 +390,7 @@ struct ForecastTab: View {
                 HStack {
                     Button {
                         selectedSpecies = nil
-                        computeForecast()
+                        recompute()
                     } label: {
                         Text("General")
                             .glassPill()
@@ -150,7 +400,7 @@ struct ForecastTab: View {
                     ForEach(allSpecies.prefix(20)) { species in
                         Button {
                             selectedSpecies = species
-                            computeForecast()
+                            recompute()
                         } label: {
                             Text(species.commonName)
                                 .glassPill()
@@ -163,72 +413,59 @@ struct ForecastTab: View {
         .glassCard()
     }
 
-    private func computeForecast() {
-        // Use whatever pressure data we have cached
-        let latestPressure = pressureHistory.last?.hPa
-        let pressureDelta: Double? = if pressureHistory.count > 6 {
-            (pressureHistory.last?.hPa ?? 0) - (pressureHistory[pressureHistory.count - 7].hPa)
-        } else {
-            nil
-        }
+    // MARK: - Helpers
 
-        forecast = ForecastEngine.compute(
-            currentPressureHpa: latestPressure,
-            pressureChange6h: pressureDelta,
-            tidePhase: nil,
-            moonPhase: moonPhase,
+    private func recompute() {
+        let coord = coordinate
+        let date = forecastDate
+
+        solunar = SolunarEngine.compute(date: date, coordinate: coord)
+        tideDay = TideEngine.predict(date: date, coordinate: coord)
+
+        forecast = ForecastEngine.forecast(
+            date: date,
+            coordinate: coord,
+            currentPressureHpa: nil,
+            pressureChange6h: nil,
             waterTempC: nil,
+            windSpeedKmh: nil,
+            windDirection: nil,
             species: selectedSpecies,
             isInSpawningZone: false
         )
     }
 
-    private func generateMockPressure() {
-        // Generate realistic pressure data seeded by today's date for consistency
-        let calendar = Calendar.current
-        let dayOfYear = calendar.ordinality(of: .day, in: .year, for: .now) ?? 1
-        var rng = SeededRNG(seed: UInt64(dayOfYear))
+    private func formatHour(_ hour: Int) -> String {
+        let h = hour % 12 == 0 ? 12 : hour % 12
+        let ampm = hour < 12 ? "a" : "p"
+        return "\(h)\(ampm)"
+    }
 
-        // Base pressure varies by "season" — lower in winter, higher in summer
-        let seasonalOffset = sin(Double(dayOfYear) / 365.0 * .pi * 2) * 4
-        var pressure = 1016.0 + seasonalOffset
-
-        let currentHour = calendar.component(.hour, from: .now)
-        pressureHistory = (0...24).map { hour in
-            // Slight diurnal variation + random walk
-            let diurnal = sin(Double(hour) / 24.0 * .pi * 2) * 0.5
-            pressure += diurnal + rng.nextDouble(in: -1.2...0.8)
-            pressure = max(995, min(1040, pressure))
-            return (hour: hour, hPa: pressure)
+    private func barColor(score: Int) -> Color {
+        switch score {
+        case 0..<25: return .red.opacity(0.7)
+        case 25..<50: return .orange.opacity(0.7)
+        case 50..<75: return .yellow.opacity(0.7)
+        default: return .green.opacity(0.8)
         }
-
-        // Re-compute forecast now that we have pressure data
-        computeForecast()
-
-        // Mark current hour
-        _ = currentHour // available for future use (current hour indicator on chart)
-    }
-}
-
-/// Simple seeded RNG for deterministic mock data (same pressure curve each day).
-private struct SeededRNG {
-    private var state: UInt64
-
-    init(seed: UInt64) {
-        state = seed
     }
 
-    mutating func next() -> UInt64 {
-        state &+= 0x9e3779b97f4a7c15
-        var z = state
-        z = (z ^ (z >> 30)) &* 0xbf58476d1ce4e5b9
-        z = (z ^ (z >> 27)) &* 0x94d049bb133111eb
-        return z ^ (z >> 31)
+    private func ratingIcon(_ rating: SolunarEngine.DayRating) -> String {
+        switch rating {
+        case .poor: "star"
+        case .fair: "star.leadinghalf.filled"
+        case .good: "star.fill"
+        case .best: "sparkles"
+        }
     }
 
-    mutating func nextDouble(in range: ClosedRange<Double>) -> Double {
-        let raw = Double(next() & 0x1FFFFFFFFFFFFF) / Double(0x1FFFFFFFFFFFFF)
-        return range.lowerBound + raw * (range.upperBound - range.lowerBound)
+    private func ratingColor(_ rating: SolunarEngine.DayRating) -> Color {
+        switch rating {
+        case .poor: .red
+        case .fair: .orange
+        case .good: .green
+        case .best: .yellow
+        }
     }
 }
 

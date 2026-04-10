@@ -166,6 +166,24 @@ final class AppDatabase: Sendable {
             }
         }
 
+        migrator.registerMigration("v2_trips") { db in
+            try db.create(table: "trip") { t in
+                t.primaryKey("id", .text)
+                t.column("name", .text).notNull()
+                t.column("startDate", .datetime).notNull()
+                t.column("endDate", .datetime)
+                t.column("spotId", .text).references("spot")
+                t.column("notes", .text)
+                t.column("weatherConditions", .text)
+                t.column("createdAt", .datetime).notNull()
+            }
+
+            // Add tripId to catches
+            try db.alter(table: "catch") { t in
+                t.add(column: "tripId", .text).references("trip")
+            }
+        }
+
         return migrator
     }
 }
