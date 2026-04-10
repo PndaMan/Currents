@@ -2,6 +2,7 @@ import SwiftUI
 import Observation
 
 /// Root app state — owns the database, location manager, ML classifier, and map manager.
+@MainActor
 @Observable
 final class AppState {
     let db: AppDatabase
@@ -9,11 +10,11 @@ final class AppState {
     let fishClassifier = FishClassifier()
     let mapManager = MapManager()
 
-    // Repositories (lazy, share the db)
-    lazy var catchRepository = CatchRepository(db: db)
-    lazy var spotRepository = SpotRepository(db: db)
-    lazy var gearRepository = GearRepository(db: db)
-    lazy var speciesRepository = SpeciesRepository(db: db)
+    // Repositories (share the db)
+    let catchRepository: CatchRepository
+    let spotRepository: SpotRepository
+    let gearRepository: GearRepository
+    let speciesRepository: SpeciesRepository
 
     init() {
         do {
@@ -23,13 +24,16 @@ final class AppState {
             self.db = try! AppDatabase.empty()
         }
 
+        self.catchRepository = CatchRepository(db: db)
+        self.spotRepository = SpotRepository(db: db)
+        self.gearRepository = GearRepository(db: db)
+        self.speciesRepository = SpeciesRepository(db: db)
+
         // Boot async work
         Task {
             await fishClassifier.loadModel()
         }
-        Task { @MainActor in
-            try? speciesRepository.seedIfEmpty()
-        }
+        try? speciesRepository.seedIfEmpty()
 
         locationManager.requestPermission()
         mapManager.refreshDownloadedRegions()
