@@ -148,9 +148,10 @@ jobs:
             -destination "generic/platform=iOS" \
             -derivedDataPath DerivedData-Device \
             -clonedSourcePackagesDirPath .spm-cache \
-            CODE_SIGN_IDENTITY="" \
+            CODE_SIGN_IDENTITY="-" \
             CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_ALLOWED=YES \
+            AD_HOC_CODE_SIGNING_ALLOWED=YES \
             2>&1 | tee device-build.log
 
           # Package as IPA
@@ -164,7 +165,7 @@ jobs:
           fi
 
           echo "Device .app contents:"
-          ls -la "$APP_PATH/"
+          ls -laR "$APP_PATH/"
           echo "Device .app size: $(du -sh "$APP_PATH" | cut -f1)"
 
           # Create IPA structure: Payload/Currents.app

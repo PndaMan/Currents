@@ -2,7 +2,7 @@ name: Currents
 options:
   bundleIdPrefix: com.currents
   deploymentTarget:
-    iOS: "26.0"
+    iOS: "18.0"
   minimumXcodeGenVersion: "2.42.0"
 
 packages:
