@@ -1,8 +1,12 @@
 import SwiftUI
+import MapKit
 
 struct CatchDetailView: View {
     @Environment(AppState.self) private var appState
+    @Environment(\.dismiss) private var dismiss
     let detail: CatchDetail
+    @State private var showingDeleteConfirm = false
+    @State private var showingEdit = false
 
     var body: some View {
         ScrollView {
@@ -59,37 +63,34 @@ struct CatchDetailView: View {
                     }
                 }
 
+                // Location map
+                locationCard
+
                 // Spot
                 if let spot = detail.spot {
-                    Section {
-                        HStack {
-                            Image(systemName: "mappin.circle.fill")
-                                .foregroundStyle(.blue)
-                            VStack(alignment: .leading) {
-                                Text(spot.name)
-                                    .font(.headline)
-                                Text(String(format: "%.4f, %.4f", spot.latitude, spot.longitude))
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
+                    HStack {
+                        Image(systemName: "mappin.circle.fill")
+                            .foregroundStyle(.blue)
+                        VStack(alignment: .leading) {
+                            Text(spot.name)
+                                .font(.headline)
+                            Text(String(format: "%.4f, %.4f", spot.latitude, spot.longitude))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
                         }
-                    } header: {
-                        Text("Location")
-                            .font(.headline)
                     }
+                    .glassCard()
                 }
 
                 // Gear
                 if let gear = detail.gearLoadout {
-                    Section {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text(gear.name).font(.headline)
-                            GearDetailGrid(loadout: gear)
-                        }
-                    } header: {
+                    VStack(alignment: .leading, spacing: 8) {
                         Text("Gear")
                             .font(.headline)
+                        Text(gear.name).font(.subheadline.bold())
+                        GearDetailGrid(loadout: gear)
                     }
+                    .glassCard()
                 }
 
                 // Forecast at capture
@@ -107,12 +108,13 @@ struct CatchDetailView: View {
 
                 // Notes
                 if let notes = detail.catchRecord.notes, !notes.isEmpty {
-                    Section {
-                        Text(notes)
-                    } header: {
+                    VStack(alignment: .leading, spacing: 4) {
                         Text("Notes")
                             .font(.headline)
+                        Text(notes)
+                            .foregroundStyle(.secondary)
                     }
+                    .glassCard()
                 }
 
                 // Timestamp
@@ -129,6 +131,58 @@ struct CatchDetailView: View {
         }
         .navigationTitle("Catch")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Menu {
+                    Button(role: .destructive) {
+                        showingDeleteConfirm = true
+                    } label: {
+                        Label("Delete Catch", systemImage: "trash")
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                }
+            }
+        }
+        .alert("Delete Catch?", isPresented: $showingDeleteConfirm) {
+            Button("Delete", role: .destructive) {
+                deleteCatch()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This cannot be undone.")
+        }
+    }
+
+    private var locationCard: some View {
+        Map(initialPosition: .camera(.init(
+            centerCoordinate: CLLocationCoordinate2D(
+                latitude: detail.catchRecord.latitude,
+                longitude: detail.catchRecord.longitude
+            ),
+            distance: 2000
+        ))) {
+            Annotation("Catch", coordinate: CLLocationCoordinate2D(
+                latitude: detail.catchRecord.latitude,
+                longitude: detail.catchRecord.longitude
+            )) {
+                Image(systemName: "fish.circle.fill")
+                    .font(.title)
+                    .foregroundStyle(.green)
+            }
+        }
+        .mapStyle(.hybrid)
+        .frame(height: 160)
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .allowsHitTesting(false)
+    }
+
+    private func deleteCatch() {
+        if let photoPath = detail.catchRecord.photoPath {
+            PhotoManager.delete(photoPath)
+        }
+        try? appState.catchRepository.delete(detail.catchRecord)
+        dismiss()
     }
 }
 

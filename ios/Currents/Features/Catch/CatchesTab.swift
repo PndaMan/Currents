@@ -83,7 +83,9 @@ struct CatchesTab: View {
                     }
                 }
             }
-            .fullScreenCover(isPresented: $showingLogCatch) {
+            .fullScreenCover(isPresented: $showingLogCatch, onDismiss: {
+                Task { await loadCatches() }
+            }) {
                 LogCatchView()
             }
             .navigationDestination(for: String.self) { catchId in

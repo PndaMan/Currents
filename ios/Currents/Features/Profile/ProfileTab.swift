@@ -71,6 +71,12 @@ struct ProfileTab: View {
                     }
 
                     NavigationLink {
+                        SpotsListView()
+                    } label: {
+                        Label("My Spots", systemImage: "mappin.circle.fill")
+                    }
+
+                    NavigationLink {
                         TripListView()
                     } label: {
                         Label("Trips", systemImage: "tent.fill")

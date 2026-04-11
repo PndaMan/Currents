@@ -301,13 +301,38 @@ struct SpotPin: View {
 
 struct SpotDetailSheet: View {
     @Environment(AppState.self) private var appState
+    @Environment(\.dismiss) private var dismiss
     let spot: Spot
     @State private var catches: [CatchDetail] = []
+    @State private var showingDeleteConfirm = false
+    @State private var showingEditName = false
+    @State private var editedName = ""
+    @State private var editedNotes = ""
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: CurrentsTheme.paddingM) {
+                    // Map preview
+                    Map(initialPosition: .camera(.init(
+                        centerCoordinate: CLLocationCoordinate2D(
+                            latitude: spot.latitude, longitude: spot.longitude
+                        ),
+                        distance: 1500
+                    ))) {
+                        Annotation(spot.name, coordinate: CLLocationCoordinate2D(
+                            latitude: spot.latitude, longitude: spot.longitude
+                        )) {
+                            Image(systemName: "mappin.circle.fill")
+                                .font(.title)
+                                .foregroundStyle(.blue)
+                        }
+                    }
+                    .mapStyle(.hybrid)
+                    .frame(height: 140)
+                    .clipShape(RoundedRectangle(cornerRadius: 16))
+                    .allowsHitTesting(false)
+
                     HStack {
                         VStack(alignment: .leading) {
                             Text(spot.name)
@@ -342,6 +367,27 @@ struct SpotDetailSheet: View {
                             .foregroundStyle(.secondary)
                     }
 
+                    // Actions
+                    HStack(spacing: 12) {
+                        Button {
+                            editedName = spot.name
+                            editedNotes = spot.notes ?? ""
+                            showingEditName = true
+                        } label: {
+                            Label("Edit", systemImage: "pencil")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.bordered)
+
+                        Button(role: .destructive) {
+                            showingDeleteConfirm = true
+                        } label: {
+                            Label("Delete", systemImage: "trash")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.bordered)
+                    }
+
                     if !catches.isEmpty {
                         Text("Catches Here")
                             .font(.headline)
@@ -362,6 +408,27 @@ struct SpotDetailSheet: View {
         .task {
             catches = (try? appState.catchRepository.fetchForSpot(spot.id)) ?? []
         }
+        .alert("Delete Spot?", isPresented: $showingDeleteConfirm) {
+            Button("Delete", role: .destructive) {
+                try? appState.spotRepository.delete(spot)
+                dismiss()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This will remove the spot but keep any catches logged here.")
+        }
+        .alert("Edit Spot", isPresented: $showingEditName) {
+            TextField("Name", text: $editedName)
+            TextField("Notes", text: $editedNotes)
+            Button("Save") {
+                var updated = spot
+                updated.name = editedName
+                updated.notes = editedNotes.isEmpty ? nil : editedNotes
+                try? appState.spotRepository.save(&updated)
+                dismiss()
+            }
+            Button("Cancel", role: .cancel) {}
+        }
     }
 }
 
@@ -374,6 +441,9 @@ struct AddSpotSheet: View {
     @State private var notes = ""
     @State private var isPrivate = true
     @State private var spotType: SpotType = .general
+    @State private var usePin = false
+    @State private var pinCoordinate: CLLocationCoordinate2D?
+    @State private var showingLocationPicker = false
 
     enum SpotType: String, CaseIterable {
         case general = "General"
@@ -401,10 +471,50 @@ struct AddSpotSheet: View {
                         .lineLimit(3...6)
                 }
 
+                Section("Location") {
+                    Toggle("Drop pin on map", isOn: $usePin)
+
+                    if usePin {
+                        if let coord = pinCoordinate {
+                            HStack {
+                                Image(systemName: "mappin.circle.fill")
+                                    .foregroundStyle(.red)
+                                Text(String(format: "%.4f, %.4f", coord.latitude, coord.longitude))
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                Spacer()
+                                Button("Change") {
+                                    showingLocationPicker = true
+                                }
+                                .font(.caption)
+                            }
+                        } else {
+                            Button {
+                                showingLocationPicker = true
+                            } label: {
+                                Label("Choose location on map", systemImage: "map")
+                            }
+                        }
+                    } else {
+                        if let loc = appState.locationManager.currentLocation {
+                            HStack {
+                                Image(systemName: "location.fill")
+                                    .foregroundStyle(.blue)
+                                Text(String(format: "%.4f, %.4f", loc.coordinate.latitude, loc.coordinate.longitude))
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        } else {
+                            Label("Waiting for location...", systemImage: "location.slash")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+
                 Section {
                     Toggle("Private Spot", isOn: $isPrivate)
                 } footer: {
-                    Text("Private spots are never shared. Public spots are obfuscated by your privacy radius when shared.")
+                    Text("Private spots are never shared.")
                 }
             }
             .navigationTitle("New Spot")
@@ -416,18 +526,34 @@ struct AddSpotSheet: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") { saveSpot() }
                         .disabled(name.isEmpty)
+                        .bold()
                 }
+            }
+            .sheet(isPresented: $showingLocationPicker) {
+                LocationPickerSheet(coordinate: $pinCoordinate)
             }
         }
     }
 
     private func saveSpot() {
-        guard let location = appState.locationManager.currentLocation else { return }
+        let lat: Double
+        let lon: Double
+
+        if usePin, let coord = pinCoordinate {
+            lat = coord.latitude
+            lon = coord.longitude
+        } else if let location = appState.locationManager.currentLocation {
+            lat = location.coordinate.latitude
+            lon = location.coordinate.longitude
+        } else {
+            return
+        }
+
         let fullNotes = spotType == .general ? notes : "[\(spotType.rawValue)] \(notes)"
         var spot = Spot(
             name: name,
-            latitude: location.coordinate.latitude,
-            longitude: location.coordinate.longitude,
+            latitude: lat,
+            longitude: lon,
             notes: fullNotes.isEmpty ? nil : fullNotes,
             isPrivate: isPrivate
         )
