@@ -51,7 +51,7 @@ final class SpeciesRepository: ObservableObject {
         do {
             speciesList = try JSONDecoder().decode([Species].self, from: SpeciesSeedData.json)
         } catch {
-            print("[Currents] ⚠️ Failed to decode species seed data: \(error)")
+            print("[Currents] Failed to decode species seed data: \(error)")
             return
         }
 
@@ -60,6 +60,6 @@ final class SpeciesRepository: ObservableObject {
                 try species.insert(db)
             }
         }
-        print("[Currents] ✅ Seeded \(speciesList.count) species")
+        print("[Currents] Seeded \(speciesList.count) species")
     }
 }

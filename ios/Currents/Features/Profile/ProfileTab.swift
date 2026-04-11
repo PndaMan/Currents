@@ -13,6 +13,17 @@ struct ProfileTab: View {
     var body: some View {
         NavigationStack {
             List {
+                Section {
+                    HStack {
+                        Spacer()
+                        LogoView(style: .horizontal, size: 44)
+                        Spacer()
+                    }
+                    .padding(.vertical, 8)
+                }
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
+
                 // Stats overview
                 Section("Stats") {
                     HStack {
@@ -190,16 +201,8 @@ struct AboutView: View {
             Section {
                 HStack {
                     Spacer()
-                    VStack(spacing: 8) {
-                        Image(systemName: "water.waves")
-                            .font(.system(size: 48))
-                            .foregroundStyle(.blue)
-                        Text("Currents")
-                            .font(.title.bold())
-                        Text("Offline-First Fishing Companion")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                    }
+                    LogoView(style: .stacked, size: 88, showsTagline: true)
+                        .padding(.vertical, 12)
                     Spacer()
                 }
             }

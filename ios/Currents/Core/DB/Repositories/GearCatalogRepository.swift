@@ -47,7 +47,7 @@ final class GearCatalogRepository: ObservableObject {
         do {
             items = try JSONDecoder().decode([GearItem].self, from: GearCatalogSeedData.json)
         } catch {
-            print("[Currents] ⚠️ Failed to decode gear catalog seed data: \(error)")
+            print("[Currents] Failed to decode gear catalog seed data: \(error)")
             return
         }
 
@@ -56,6 +56,6 @@ final class GearCatalogRepository: ObservableObject {
                 try item.insert(db)
             }
         }
-        print("[Currents] ✅ Seeded \(items.count) gear catalog items")
+        print("[Currents] Seeded \(items.count) gear catalog items")
     }
 }

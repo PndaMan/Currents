@@ -1,6 +1,12 @@
 import SwiftUI
 import MapKit
 
+/// Wrapper so CLLocationCoordinate2D can drive a .sheet(item:) binding.
+struct IdentifiableCoordinate: Identifiable {
+    let coord: CLLocationCoordinate2D
+    var id: String { "\(coord.latitude),\(coord.longitude)" }
+}
+
 struct MapTab: View {
     @Environment(AppState.self) private var appState
     @State private var position: MapCameraPosition = .userLocation(fallback: .automatic)
@@ -15,6 +21,7 @@ struct MapTab: View {
     @State private var showingForecast = false
     @State private var showingWeather = false
     @State private var weather: WeatherService.WeatherData?
+    @State private var inspectorCoordinate: CLLocationCoordinate2D?
 
     enum MapStyleOption: String, CaseIterable {
         case standard = "Standard"
@@ -25,6 +32,7 @@ struct MapTab: View {
     var body: some View {
         NavigationStack {
             ZStack(alignment: .topTrailing) {
+                MapReader { proxy in
                 Map(position: $position) {
                     UserAnnotation()
 
@@ -66,6 +74,12 @@ struct MapTab: View {
                     MapCompass()
                     MapScaleView()
                 }
+                .onTapGesture(coordinateSpace: .local) { screenPoint in
+                    if let coord = proxy.convert(screenPoint, from: .local) {
+                        inspectorCoordinate = coord
+                    }
+                }
+                } // MapReader
 
                 // Right side control buttons
                 VStack(spacing: 10) {
@@ -116,6 +130,18 @@ struct MapTab: View {
                 // Bottom bar
                 VStack {
                     Spacer()
+
+                    HStack(spacing: 6) {
+                        Image(systemName: "hand.tap.fill")
+                            .font(.caption2)
+                        Text("Tap anywhere to analyse the bite")
+                            .font(.caption2)
+                    }
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                    .background(.ultraThinMaterial, in: Capsule())
+                    .padding(.bottom, 4)
 
                     HStack(spacing: 12) {
                         // Weather quick view
@@ -176,6 +202,14 @@ struct MapTab: View {
             }
             .sheet(isPresented: $showingForecast) {
                 ForecastTab()
+            }
+            .sheet(item: Binding(
+                get: { inspectorCoordinate.map { IdentifiableCoordinate(coord: $0) } },
+                set: { inspectorCoordinate = $0?.coord }
+            )) { wrapper in
+                LocationInspectorSheet(coordinate: wrapper.coord)
+                    .presentationDetents([.medium, .large])
+                    .presentationBackground(.ultraThinMaterial)
             }
             .task {
                 await loadData()
@@ -441,9 +475,14 @@ struct AddSpotSheet: View {
     @State private var notes = ""
     @State private var isPrivate = true
     @State private var spotType: SpotType = .general
-    @State private var usePin = false
+    @State private var usePin: Bool
     @State private var pinCoordinate: CLLocationCoordinate2D?
     @State private var showingLocationPicker = false
+
+    init(prefillCoordinate: CLLocationCoordinate2D? = nil) {
+        _usePin = State(initialValue: prefillCoordinate != nil)
+        _pinCoordinate = State(initialValue: prefillCoordinate)
+    }
 
     enum SpotType: String, CaseIterable {
         case general = "General"
