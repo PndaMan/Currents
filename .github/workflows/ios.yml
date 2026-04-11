@@ -148,10 +148,9 @@ jobs:
             -destination "generic/platform=iOS" \
             -derivedDataPath DerivedData-Device \
             -clonedSourcePackagesDirPath .spm-cache \
-            CODE_SIGN_IDENTITY="-" \
+            CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_ALLOWED=YES \
-            AD_HOC_CODE_SIGNING_ALLOWED=YES \
+            CODE_SIGNING_ALLOWED=NO \
             2>&1 | tee device-build.log
 
           # Package as IPA
@@ -167,6 +166,16 @@ jobs:
           echo "Device .app contents:"
           ls -laR "$APP_PATH/"
           echo "Device .app size: $(du -sh "$APP_PATH" | cut -f1)"
+
+          # Fakesign with ldid for sideloading (TrollStore/Sideloader compatible)
+          if command -v ldid &>/dev/null; then
+            echo "Signing with ldid..."
+            ldid -S"$GITHUB_WORKSPACE/ios/Currents/App/Currents.entitlements" "$APP_PATH/Currents"
+          else
+            echo "ldid not found, installing..."
+            brew install ldid
+            ldid -S"$GITHUB_WORKSPACE/ios/Currents/App/Currents.entitlements" "$APP_PATH/Currents"
+          fi
 
           # Create IPA structure: Payload/Currents.app
           mkdir -p Payload
