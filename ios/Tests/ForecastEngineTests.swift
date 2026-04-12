@@ -143,11 +143,11 @@ final class ForecastEngineTests: XCTestCase {
             species: nil,
             isInSpawningZone: false
         )
-        // With additive scoring, factors are 0-1
+        // With dynamic weighting, factors are 0-1
         XCTAssertEqual(result.breakdown.pressure, 1.0) // 1020 is in optimal range
         XCTAssertGreaterThan(result.breakdown.pressureTrend, 0.7) // -4 is falling fast
-        XCTAssertEqual(result.breakdown.tide, 0.7) // moving tide
+        XCTAssertEqual(result.breakdown.tide, 0.55) // moving tide
         XCTAssertEqual(result.breakdown.moon, 1.0) // new moon = peak solunar
-        XCTAssertEqual(result.breakdown.season, 0.5) // not spawning
+        XCTAssertEqual(result.breakdown.season, 0.3) // not spawning
     }
 }
