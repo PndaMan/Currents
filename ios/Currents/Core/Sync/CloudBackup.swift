@@ -60,10 +60,10 @@ actor CloudBackup {
         do {
             let tempURL = FileManager.default.temporaryDirectory
                 .appendingPathComponent("backup_\(UUID().uuidString).sqlite")
-
-            try db.db.read { sourceDb in
-                try sourceDb.backup(to: DatabaseQueue(path: tempURL.path))
-            }
+            
+            // Fix 1: Backup directly from Queue to Queue
+            let destQueue = try DatabaseQueue(path: tempURL.path)
+            try db.db.backup(to: destQueue)
 
             // Move to iCloud (replaces existing)
             if FileManager.default.fileExists(atPath: backupURL.path) {
@@ -101,8 +101,9 @@ actor CloudBackup {
         // Wait for download (simple polling — file is small)
         for _ in 0..<30 {
             if FileManager.default.isUbiquitousItem(at: backupURL) {
-                let values = try? backupURL.resourceValues(forKeys: [.ubiquitousItemIsDownloadedKey])
-                if values?.ubiquitousItemIsDownloaded == true {
+                // Fix 2: Use downloadingStatusKey instead of the deprecated downloaded boolean
+                let values = try? backupURL.resourceValues(forKeys: [.ubiquitousItemDownloadingStatusKey])
+                if let status = values?.ubiquitousItemDownloadingStatus, status == .current {
                     break
                 }
             }
@@ -115,10 +116,9 @@ actor CloudBackup {
 
         // Restore by reading from backup and writing to local db
         do {
+            // Fix 3: Restore directly from Queue to Queue
             let backupDb = try DatabaseQueue(path: backupURL.path)
-            try backupDb.read { sourceDb in
-                try sourceDb.backup(to: db.db)
-            }
+            try backupDb.backup(to: db.db)
         } catch {
             throw BackupError.restoreFailed(error)
         }
