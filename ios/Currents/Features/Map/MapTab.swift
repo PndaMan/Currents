@@ -22,11 +22,13 @@ struct MapTab: View {
     @State private var showingWeather = false
     @State private var weather: WeatherService.WeatherData?
     @State private var inspectorCoordinate: CLLocationCoordinate2D?
+    @State private var spotScores: [String: Int] = [:]
 
     enum MapStyleOption: String, CaseIterable {
         case standard = "Standard"
         case imagery = "Satellite"
         case hybrid = "Hybrid"
+        case fishing = "Fishing"
     }
 
     var body: some View {
@@ -45,7 +47,8 @@ struct MapTab: View {
                             SpotPin(
                                 spot: spot,
                                 catchCount: catchCounts[spot.id] ?? 0,
-                                isSelected: selectedSpot?.id == spot.id
+                                isSelected: selectedSpot?.id == spot.id,
+                                biteScore: spotScores[spot.id]
                             )
                             .onTapGesture {
                                 selectedSpot = spot
@@ -70,7 +73,6 @@ struct MapTab: View {
                 }
                 .mapStyle(activeMapStyle)
                 .mapControls {
-                    MapUserLocationButton()
                     MapCompass()
                     MapScaleView()
                 }
@@ -83,6 +85,13 @@ struct MapTab: View {
 
                 // Right side control buttons
                 VStack(spacing: 10) {
+                    // Recentre on user
+                    Button {
+                        position = .userLocation(fallback: .automatic)
+                    } label: {
+                        mapButton(icon: "location.fill")
+                    }
+
                     // Map style picker
                     Menu {
                         ForEach(MapStyleOption.allCases, id: \.self) { style in
@@ -231,6 +240,7 @@ struct MapTab: View {
         case .standard: .standard(elevation: .realistic)
         case .imagery: .imagery(elevation: .realistic)
         case .hybrid: .hybrid(elevation: .realistic)
+        case .fishing: .standard(elevation: .realistic, emphasis: .muted, pointsOfInterest: .excludingAll)
         }
     }
 
@@ -239,6 +249,7 @@ struct MapTab: View {
         case .standard: "map"
         case .imagery: "globe.americas.fill"
         case .hybrid: "square.split.2x2"
+        case .fishing: "fish.fill"
         }
     }
 
@@ -255,6 +266,23 @@ struct MapTab: View {
         let coord = appState.locationManager.currentLocation?.coordinate ??
             CLLocationCoordinate2D(latitude: -33.9, longitude: 18.4)
         weather = await WeatherService.shared.current(for: coord)
+
+        // Compute bite scores for each spot
+        for spot in spots {
+            let spotCoord = CLLocationCoordinate2D(latitude: spot.latitude, longitude: spot.longitude)
+            let w = await WeatherService.shared.current(for: spotCoord)
+            let result = ForecastEngine.forecast(
+                coordinate: spotCoord,
+                currentPressureHpa: w?.pressureHpa,
+                pressureChange6h: w?.pressureChange6h,
+                waterTempC: w?.waterTempC,
+                windSpeedKmh: w?.windSpeedKmh,
+                windDirection: w?.windDirectionDeg,
+                species: nil,
+                isInSpawningZone: false
+            )
+            spotScores[spot.id] = result.score
+        }
     }
 }
 
@@ -292,23 +320,39 @@ struct SpotPin: View {
     let spot: Spot
     let catchCount: Int
     let isSelected: Bool
+    var biteScore: Int?
 
     var body: some View {
         VStack(spacing: 0) {
-            ZStack {
-                Circle()
-                    .fill(isSelected ? .blue : .white)
-                    .frame(width: 40, height: 40)
-                    .shadow(color: .black.opacity(0.3), radius: 4, y: 2)
+            ZStack(alignment: .topTrailing) {
+                ZStack {
+                    Circle()
+                        .fill(isSelected ? .blue : .white)
+                        .frame(width: 40, height: 40)
+                        .shadow(color: .black.opacity(0.3), radius: 4, y: 2)
 
-                if spot.isPrivate {
-                    Image(systemName: "lock.fill")
-                        .font(.system(size: 16))
-                        .foregroundStyle(isSelected ? .white : .blue)
-                } else {
-                    Image(systemName: "mappin.circle.fill")
-                        .font(.system(size: 20))
-                        .foregroundStyle(isSelected ? .white : .blue)
+                    if spot.isPrivate {
+                        Image(systemName: "lock.fill")
+                            .font(.system(size: 16))
+                            .foregroundStyle(isSelected ? .white : .blue)
+                    } else {
+                        Image(systemName: "mappin.circle.fill")
+                            .font(.system(size: 20))
+                            .foregroundStyle(isSelected ? .white : .blue)
+                    }
+                }
+
+                // Bite score badge
+                if let score = biteScore {
+                    Text("\(score)")
+                        .font(.system(size: 9, weight: .heavy))
+                        .monospacedDigit()
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 1)
+                        .background(CurrentsTheme.scoreColor(score))
+                        .clipShape(Capsule())
+                        .offset(x: 8, y: -6)
                 }
             }
             if catchCount > 0 {
@@ -338,10 +382,16 @@ struct SpotDetailSheet: View {
     @Environment(\.dismiss) private var dismiss
     let spot: Spot
     @State private var catches: [CatchDetail] = []
+    @State private var weather: WeatherService.WeatherData?
+    @State private var forecast: ForecastEngine.ForecastResult?
     @State private var showingDeleteConfirm = false
     @State private var showingEditName = false
     @State private var editedName = ""
     @State private var editedNotes = ""
+
+    private var spotCoord: CLLocationCoordinate2D {
+        CLLocationCoordinate2D(latitude: spot.latitude, longitude: spot.longitude)
+    }
 
     var body: some View {
         NavigationStack {
@@ -349,14 +399,10 @@ struct SpotDetailSheet: View {
                 VStack(alignment: .leading, spacing: CurrentsTheme.paddingM) {
                     // Map preview
                     Map(initialPosition: .camera(.init(
-                        centerCoordinate: CLLocationCoordinate2D(
-                            latitude: spot.latitude, longitude: spot.longitude
-                        ),
+                        centerCoordinate: spotCoord,
                         distance: 1500
                     ))) {
-                        Annotation(spot.name, coordinate: CLLocationCoordinate2D(
-                            latitude: spot.latitude, longitude: spot.longitude
-                        )) {
+                        Annotation(spot.name, coordinate: spotCoord) {
                             Image(systemName: "mappin.circle.fill")
                                 .font(.title)
                                 .foregroundStyle(.blue)
@@ -381,6 +427,85 @@ struct SpotDetailSheet: View {
                                 .font(.caption)
                                 .glassPill()
                         }
+                    }
+
+                    // Weather + Bite Score
+                    if let weather {
+                        VStack(alignment: .leading, spacing: 10) {
+                            HStack {
+                                Label("Conditions Now", systemImage: "cloud.sun.fill")
+                                    .font(.headline)
+                                Spacer()
+                                if let f = forecast {
+                                    HStack(spacing: 4) {
+                                        ScoreGauge(score: f.score, label: "", size: 36)
+                                        Text("bite")
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                            }
+                            HStack(spacing: 16) {
+                                VStack(spacing: 2) {
+                                    WeatherIcon(condition: weather.condition)
+                                    Text("\(Int(weather.temperatureC))°")
+                                        .font(.subheadline.bold().monospacedDigit())
+                                    Text("Air")
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                }
+                                if let wt = weather.waterTempC {
+                                    VStack(spacing: 2) {
+                                        Image(systemName: "drop.fill")
+                                            .foregroundStyle(.cyan)
+                                        Text("\(Int(wt))°")
+                                            .font(.subheadline.bold().monospacedDigit())
+                                        Text("Water")
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                                VStack(spacing: 2) {
+                                    Image(systemName: "wind")
+                                        .foregroundStyle(.secondary)
+                                    Text("\(Int(weather.windSpeedKmh))")
+                                        .font(.subheadline.bold().monospacedDigit())
+                                    Text("km/h")
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                }
+                                VStack(spacing: 2) {
+                                    Image(systemName: "barometer")
+                                        .foregroundStyle(.secondary)
+                                    Text("\(Int(weather.pressureHpa))")
+                                        .font(.subheadline.bold().monospacedDigit())
+                                    Text("hPa")
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                            if let f = forecast, !f.reasons.isEmpty {
+                                ForEach(f.reasons.prefix(2), id: \.self) { reason in
+                                    HStack(spacing: 4) {
+                                        Circle()
+                                            .fill(CurrentsTheme.scoreColor(f.score))
+                                            .frame(width: 5, height: 5)
+                                        Text(reason)
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                            }
+                        }
+                        .glassCard()
+                    } else {
+                        HStack(spacing: 8) {
+                            ProgressView()
+                            Text("Loading weather...")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        .glassCard()
                     }
 
                     if !catches.isEmpty {
@@ -441,6 +566,18 @@ struct SpotDetailSheet: View {
         }
         .task {
             catches = (try? appState.catchRepository.fetchForSpot(spot.id)) ?? []
+            let w = await WeatherService.shared.current(for: spotCoord)
+            weather = w
+            forecast = ForecastEngine.forecast(
+                coordinate: spotCoord,
+                currentPressureHpa: w?.pressureHpa,
+                pressureChange6h: w?.pressureChange6h,
+                waterTempC: w?.waterTempC,
+                windSpeedKmh: w?.windSpeedKmh,
+                windDirection: w?.windDirectionDeg,
+                species: nil,
+                isInSpawningZone: false
+            )
         }
         .alert("Delete Spot?", isPresented: $showingDeleteConfirm) {
             Button("Delete", role: .destructive) {

@@ -12,6 +12,10 @@ struct ForecastTab: View {
     @State private var allSpecies: [Species] = []
     @State private var selectedDay: Int = 0
     @State private var isLoadingWeather = true
+    @State private var selectedHour: Int?
+    @State private var hourDetail: ForecastEngine.ForecastResult?
+    @State private var speciesSearch = ""
+    @State private var showAllSpecies = false
 
     private var forecastDate: Date {
         Calendar.current.date(byAdding: .day, value: selectedDay, to: .now) ?? .now
@@ -316,15 +320,23 @@ struct ForecastTab: View {
 
     private func hourlyChart(_ forecast: ForecastEngine.ForecastResult) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Hourly Forecast")
-                .font(.headline)
+            HStack {
+                Text("Hourly Forecast")
+                    .font(.headline)
+                Spacer()
+                if selectedHour != nil {
+                    Button("Clear") { selectedHour = nil; hourDetail = nil }
+                        .font(.caption)
+                }
+            }
 
             Chart(forecast.hourlyScores, id: \.hour) { point in
                 BarMark(
                     x: .value("Hour", point.hour),
                     y: .value("Score", point.score)
                 )
-                .foregroundStyle(barColor(score: point.score))
+                .foregroundStyle(selectedHour == point.hour ? Color.blue : barColor(score: point.score))
+                .opacity(selectedHour == nil || selectedHour == point.hour ? 1.0 : 0.4)
             }
             .chartYScale(domain: 0...100)
             .chartXAxis {
@@ -348,9 +360,77 @@ struct ForecastTab: View {
                     }
                 }
             }
+            .chartXSelection(value: $selectedHour)
             .frame(height: 160)
+
+            // Hourly drill-down detail
+            if let hour = selectedHour, let detail = hourDetail {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text(formatHour(hour))
+                            .font(.title3.bold())
+                        ScoreGauge(score: detail.score, label: "", size: 36)
+                        Spacer()
+                        if !detail.feedingWindows.isEmpty {
+                            let inWindow = detail.feedingWindows.contains { w in
+                                let hourDate = Calendar.current.startOfDay(for: forecastDate)
+                                    .addingTimeInterval(Double(hour) * 3600 + 1800)
+                                return hourDate >= w.start && hourDate <= w.end
+                            }
+                            if inWindow {
+                                Text("FEEDING")
+                                    .font(.caption2.bold())
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 2)
+                                    .background(Color.orange.opacity(0.2))
+                                    .foregroundStyle(.orange)
+                                    .clipShape(Capsule())
+                            }
+                        }
+                    }
+
+                    ForEach(detail.reasons.prefix(3), id: \.self) { reason in
+                        HStack(spacing: 4) {
+                            Circle()
+                                .fill(CurrentsTheme.scoreColor(detail.score))
+                                .frame(width: 5, height: 5)
+                            Text(reason)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
+                    // Mini breakdown
+                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 6) {
+                        MiniBreakdownCell(label: "Pressure", value: detail.breakdown.pressure)
+                        MiniBreakdownCell(label: "Trend", value: detail.breakdown.pressureTrend)
+                        MiniBreakdownCell(label: "Tide", value: detail.breakdown.tide)
+                        MiniBreakdownCell(label: "Solunar", value: detail.breakdown.solunar)
+                        MiniBreakdownCell(label: "Time", value: detail.breakdown.timeOfDay)
+                        MiniBreakdownCell(label: "Wind", value: detail.breakdown.wind)
+                        MiniBreakdownCell(label: "Temp", value: detail.breakdown.temperature)
+                        MiniBreakdownCell(label: "Moon", value: detail.breakdown.moon)
+                    }
+                }
+                .padding(.top, 4)
+                .transition(.opacity)
+            }
         }
         .glassCard()
+        .onChange(of: selectedHour) { _, newHour in
+            guard let hour = newHour else { hourDetail = nil; return }
+            hourDetail = ForecastEngine.forecastForHour(
+                hour: hour,
+                date: forecastDate,
+                coordinate: coordinate,
+                currentPressureHpa: weather?.pressureHpa,
+                pressureChange6h: weather?.pressureChange6h,
+                waterTempC: weather?.waterTempC,
+                windSpeedKmh: weather?.windSpeedKmh,
+                species: selectedSpecies,
+                isInSpawningZone: false
+            )
+        }
     }
 
     // MARK: - Solunar Card
@@ -520,10 +600,28 @@ struct ForecastTab: View {
 
     // MARK: - Species Picker
 
+    private var filteredSpecies: [Species] {
+        if speciesSearch.isEmpty { return allSpecies }
+        let q = speciesSearch.lowercased()
+        return allSpecies.filter {
+            $0.commonName.lowercased().contains(q) ||
+            $0.scientificName.lowercased().contains(q)
+        }
+    }
+
     private var speciesPicker: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Target Species")
-                .font(.headline)
+            HStack {
+                Text("Target Species")
+                    .font(.headline)
+                Spacer()
+                Button(showAllSpecies ? "Less" : "All \(allSpecies.count)") {
+                    showAllSpecies.toggle()
+                }
+                .font(.caption)
+            }
+
+            // Quick picks — horizontal scroll of popular/recent
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack {
                     Button {
@@ -535,7 +633,7 @@ struct ForecastTab: View {
                     }
                     .tint(selectedSpecies == nil ? .blue : .secondary)
 
-                    ForEach(allSpecies.prefix(20)) { species in
+                    ForEach(allSpecies.prefix(8)) { species in
                         Button {
                             selectedSpecies = species
                             recompute()
@@ -546,6 +644,46 @@ struct ForecastTab: View {
                         .tint(selectedSpecies?.id == species.id ? .blue : .secondary)
                     }
                 }
+            }
+
+            if showAllSpecies {
+                TextField("Search species...", text: $speciesSearch)
+                    .textFieldStyle(.roundedBorder)
+                    .autocorrectionDisabled()
+
+                ScrollView {
+                    LazyVStack(spacing: 0) {
+                        ForEach(filteredSpecies) { species in
+                            Button {
+                                selectedSpecies = species
+                                showAllSpecies = false
+                                speciesSearch = ""
+                                recompute()
+                            } label: {
+                                HStack {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(species.commonName)
+                                            .font(.subheadline)
+                                            .foregroundStyle(.primary)
+                                        Text(species.scientificName)
+                                            .font(.caption2)
+                                            .italic()
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    Spacer()
+                                    if selectedSpecies?.id == species.id {
+                                        Image(systemName: "checkmark.circle.fill")
+                                            .foregroundStyle(.blue)
+                                    }
+                                }
+                                .padding(.vertical, 8)
+                                .padding(.horizontal, 4)
+                            }
+                            Divider()
+                        }
+                    }
+                }
+                .frame(maxHeight: 240)
             }
         }
         .glassCard()
@@ -667,6 +805,28 @@ struct WeatherDetailCell: View {
             Text(label)
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
+        }
+    }
+}
+
+// MARK: - Mini Breakdown Cell (hourly drill-down)
+
+struct MiniBreakdownCell: View {
+    let label: String
+    let value: Double
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Circle()
+                .fill(value > 0.7 ? Color.green : value < 0.4 ? Color.red : Color.orange)
+                .frame(width: 8, height: 8)
+            Text(label)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            Spacer()
+            Text("\(Int(value * 100))%")
+                .font(.caption2.bold())
+                .monospacedDigit()
         }
     }
 }

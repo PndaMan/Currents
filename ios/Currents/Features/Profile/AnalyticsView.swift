@@ -337,8 +337,26 @@ struct AnalyticsView: View {
                                 y: .value("Species", item.key)
                             )
                             .foregroundStyle(.blue.gradient)
+                            .annotation(position: .trailing, spacing: 4) {
+                                Text("\(item.value.count)")
+                                    .font(.caption2.monospacedDigit())
+                                    .foregroundStyle(.secondary)
+                            }
                         }
-                        .frame(height: CGFloat(min(speciesMap.count, 5)) * 28)
+                        .chartYAxis {
+                            AxisMarks { value in
+                                AxisValueLabel {
+                                    if let name = value.as(String.self) {
+                                        Text(name)
+                                            .font(.caption2)
+                                            .lineLimit(1)
+                                            .truncationMode(.tail)
+                                            .frame(maxWidth: 100, alignment: .trailing)
+                                    }
+                                }
+                            }
+                        }
+                        .frame(height: CGFloat(min(speciesMap.count, 5)) * 36)
                     }
                     .padding(.vertical, 4)
                 }

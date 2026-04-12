@@ -4,9 +4,13 @@ import MapKit
 struct CatchDetailView: View {
     @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss
-    let detail: CatchDetail
+    var detail: CatchDetail
     @State private var showingDeleteConfirm = false
     @State private var showingEdit = false
+    @State private var editWeight: String = ""
+    @State private var editLength: String = ""
+    @State private var editNotes: String = ""
+    @State private var editReleased: Bool = true
 
     var body: some View {
         ScrollView {
@@ -134,6 +138,15 @@ struct CatchDetailView: View {
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Menu {
+                    Button {
+                        editWeight = detail.catchRecord.weightKg.map { String(format: "%.2f", $0) } ?? ""
+                        editLength = detail.catchRecord.lengthCm.map { String(format: "%.1f", $0) } ?? ""
+                        editNotes = detail.catchRecord.notes ?? ""
+                        editReleased = detail.catchRecord.released
+                        showingEdit = true
+                    } label: {
+                        Label("Edit Catch", systemImage: "pencil")
+                    }
                     Button(role: .destructive) {
                         showingDeleteConfirm = true
                     } label: {
@@ -151,6 +164,19 @@ struct CatchDetailView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("This cannot be undone.")
+        }
+        .sheet(isPresented: $showingEdit) {
+            EditCatchSheet(
+                catchRecord: detail.catchRecord,
+                weight: $editWeight,
+                length: $editLength,
+                notes: $editNotes,
+                released: $editReleased,
+                onSave: { updated in
+                    var record = updated
+                    try? appState.catchRepository.save(&record)
+                }
+            )
         }
     }
 
@@ -183,6 +209,67 @@ struct CatchDetailView: View {
         }
         try? appState.catchRepository.delete(detail.catchRecord)
         dismiss()
+    }
+}
+
+// MARK: - Edit Catch Sheet
+
+struct EditCatchSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let catchRecord: Catch
+    @Binding var weight: String
+    @Binding var length: String
+    @Binding var notes: String
+    @Binding var released: Bool
+    let onSave: (Catch) -> Void
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Measurements") {
+                    HStack {
+                        Text("Weight (kg)")
+                        Spacer()
+                        TextField("0.00", text: $weight)
+                            .keyboardType(.decimalPad)
+                            .multilineTextAlignment(.trailing)
+                            .frame(width: 100)
+                    }
+                    HStack {
+                        Text("Length (cm)")
+                        Spacer()
+                        TextField("0.0", text: $length)
+                            .keyboardType(.decimalPad)
+                            .multilineTextAlignment(.trailing)
+                            .frame(width: 100)
+                    }
+                    Toggle("Released", isOn: $released)
+                }
+                Section("Notes") {
+                    TextField("Notes", text: $notes, axis: .vertical)
+                        .lineLimit(3...8)
+                }
+            }
+            .navigationTitle("Edit Catch")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        var updated = catchRecord
+                        updated.weightKg = Double(weight)
+                        updated.lengthCm = Double(length)
+                        updated.notes = notes.isEmpty ? nil : notes
+                        updated.released = released
+                        onSave(updated)
+                        dismiss()
+                    }
+                    .bold()
+                }
+            }
+        }
     }
 }
 
