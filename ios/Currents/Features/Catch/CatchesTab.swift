@@ -9,8 +9,12 @@ struct CatchesTab: View {
 
     enum SortOrder: String, CaseIterable {
         case recent = "Recent"
+        case oldest = "Oldest"
         case species = "Species"
         case size = "Biggest"
+        case longest = "Longest"
+        case spot = "Spot"
+        case score = "Best Score"
     }
 
     var filteredCatches: [CatchDetail] {
@@ -19,16 +23,25 @@ struct CatchesTab: View {
             result = result.filter { detail in
                 detail.species?.commonName.localizedCaseInsensitiveContains(searchText) == true ||
                 detail.spot?.name.localizedCaseInsensitiveContains(searchText) == true ||
-                detail.catchRecord.notes?.localizedCaseInsensitiveContains(searchText) == true
+                detail.catchRecord.notes?.localizedCaseInsensitiveContains(searchText) == true ||
+                detail.gearLoadout?.name.localizedCaseInsensitiveContains(searchText) == true
             }
         }
         switch sortOrder {
         case .recent:
-            break // already sorted by date
+            break // already sorted by date desc
+        case .oldest:
+            result.reverse()
         case .species:
             result.sort { ($0.species?.commonName ?? "") < ($1.species?.commonName ?? "") }
         case .size:
             result.sort { ($0.catchRecord.weightKg ?? 0) > ($1.catchRecord.weightKg ?? 0) }
+        case .longest:
+            result.sort { ($0.catchRecord.lengthCm ?? 0) > ($1.catchRecord.lengthCm ?? 0) }
+        case .spot:
+            result.sort { ($0.spot?.name ?? "zzz") < ($1.spot?.name ?? "zzz") }
+        case .score:
+            result.sort { ($0.catchRecord.forecastScoreAtCapture ?? 0) > ($1.catchRecord.forecastScoreAtCapture ?? 0) }
         }
         return result
     }
@@ -48,6 +61,12 @@ struct CatchesTab: View {
                         CatchStatsHeader(catches: catches)
                             .listRowBackground(Color.clear)
                             .listRowInsets(EdgeInsets())
+
+                        // Streak & badges
+                        FishingStreakView(catches: catches)
+                            .listRowBackground(Color.clear)
+                            .listRowInsets(EdgeInsets())
+                            .padding(.horizontal)
 
                         ForEach(filteredCatches, id: \.catchRecord.id) { detail in
                             NavigationLink(value: detail.catchRecord.id) {
@@ -76,10 +95,16 @@ struct CatchesTab: View {
                     }
                 }
                 ToolbarItem(placement: .secondaryAction) {
-                    Picker("Sort", selection: $sortOrder) {
+                    Menu {
                         ForEach(SortOrder.allCases, id: \.self) { order in
-                            Text(order.rawValue).tag(order)
+                            Button {
+                                sortOrder = order
+                            } label: {
+                                Label(order.rawValue, systemImage: sortOrder == order ? "checkmark" : "")
+                            }
                         }
+                    } label: {
+                        Label("Sort", systemImage: "arrow.up.arrow.down")
                     }
                 }
             }

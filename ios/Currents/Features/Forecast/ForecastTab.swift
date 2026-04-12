@@ -4,6 +4,8 @@ import CoreLocation
 
 struct ForecastTab: View {
     @Environment(AppState.self) private var appState
+    @Environment(\.dismiss) private var dismiss
+    var presentedAsSheet: Bool = false
     @State private var forecast: ForecastEngine.ForecastResult?
     @State private var solunar: SolunarEngine.SolunarDay?
     @State private var tideDay: TideEngine.TideDay?
@@ -86,14 +88,25 @@ struct ForecastTab: View {
                 .padding()
             }
             .navigationTitle("Forecast")
+            .toolbar {
+                if presentedAsSheet {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Done") { dismiss() }
+                    }
+                }
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        Task { await fetchWeatherAndCompute() }
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                }
+            }
             .task {
                 allSpecies = (try? appState.speciesRepository.fetchAll()) ?? []
                 await fetchWeatherAndCompute()
             }
             .onChange(of: selectedDay) { _, _ in recompute() }
-            .refreshable {
-                await fetchWeatherAndCompute()
-            }
         }
     }
 
@@ -600,93 +613,75 @@ struct ForecastTab: View {
 
     // MARK: - Species Picker
 
-    private var filteredSpecies: [Species] {
-        if speciesSearch.isEmpty { return allSpecies }
-        let q = speciesSearch.lowercased()
-        return allSpecies.filter {
-            $0.commonName.lowercased().contains(q) ||
-            $0.scientificName.lowercased().contains(q)
-        }
-    }
-
     private var speciesPicker: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text("Target Species")
-                    .font(.headline)
-                Spacer()
-                Button(showAllSpecies ? "Less" : "All \(allSpecies.count)") {
-                    showAllSpecies.toggle()
-                }
-                .font(.caption)
-            }
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Target Species")
+                .font(.headline)
 
-            // Quick picks — horizontal scroll of popular/recent
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack {
-                    Button {
-                        selectedSpecies = nil
-                        recompute()
-                    } label: {
-                        Text("General")
+            Button {
+                showAllSpecies = true
+            } label: {
+                HStack(spacing: 12) {
+                    ZStack {
+                        Circle()
+                            .fill(selectedSpecies != nil ? .blue.opacity(0.15) : .secondary.opacity(0.15))
+                            .frame(width: 44, height: 44)
+                        Image(systemName: "fish.fill")
+                            .foregroundStyle(selectedSpecies != nil ? .blue : .secondary)
+                    }
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(selectedSpecies?.commonName ?? "General (All Species)")
+                            .font(.body.bold())
+                            .foregroundStyle(.primary)
+                        if let sci = selectedSpecies?.scientificName {
+                            Text(sci)
+                                .font(.caption)
+                                .italic()
+                                .foregroundStyle(.secondary)
+                        } else {
+                            Text("Tap to choose a target species")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .tint(.primary)
+
+            if let species = selectedSpecies {
+                HStack(spacing: 8) {
+                    if let temp = species.optimalTempC {
+                        Label("\(Int(temp))°C", systemImage: "thermometer.medium")
+                            .font(.caption)
                             .glassPill()
                     }
-                    .tint(selectedSpecies == nil ? .blue : .secondary)
-
-                    ForEach(allSpecies.prefix(8)) { species in
-                        Button {
-                            selectedSpecies = species
-                            recompute()
-                        } label: {
-                            Text(species.commonName)
-                                .glassPill()
-                        }
-                        .tint(selectedSpecies?.id == species.id ? .blue : .secondary)
+                    if let habitat = species.habitat {
+                        Label(habitat.rawValue.capitalized, systemImage: "water.waves")
+                            .font(.caption)
+                            .glassPill()
                     }
-                }
-            }
-
-            if showAllSpecies {
-                TextField("Search species...", text: $speciesSearch)
-                    .textFieldStyle(.roundedBorder)
-                    .autocorrectionDisabled()
-
-                ScrollView {
-                    LazyVStack(spacing: 0) {
-                        ForEach(filteredSpecies) { species in
-                            Button {
-                                selectedSpecies = species
-                                showAllSpecies = false
-                                speciesSearch = ""
-                                recompute()
-                            } label: {
-                                HStack {
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(species.commonName)
-                                            .font(.subheadline)
-                                            .foregroundStyle(.primary)
-                                        Text(species.scientificName)
-                                            .font(.caption2)
-                                            .italic()
-                                            .foregroundStyle(.secondary)
-                                    }
-                                    Spacer()
-                                    if selectedSpecies?.id == species.id {
-                                        Image(systemName: "checkmark.circle.fill")
-                                            .foregroundStyle(.blue)
-                                    }
-                                }
-                                .padding(.vertical, 8)
-                                .padding(.horizontal, 4)
-                            }
-                            Divider()
-                        }
+                    Spacer()
+                    Button("Clear") {
+                        selectedSpecies = nil
+                        recompute()
                     }
+                    .font(.caption)
+                    .foregroundStyle(.red)
                 }
-                .frame(maxHeight: 240)
             }
         }
         .glassCard()
+        .sheet(isPresented: $showAllSpecies) {
+            ForecastSpeciesPickerSheet(
+                allSpecies: allSpecies,
+                selectedSpecies: $selectedSpecies,
+                onSelect: { recompute() }
+            )
+        }
     }
 
     // MARK: - Data Loading
@@ -827,6 +822,141 @@ struct MiniBreakdownCell: View {
             Text("\(Int(value * 100))%")
                 .font(.caption2.bold())
                 .monospacedDigit()
+        }
+    }
+}
+
+// MARK: - Forecast Species Picker Sheet
+
+struct ForecastSpeciesPickerSheet: View {
+    let allSpecies: [Species]
+    @Binding var selectedSpecies: Species?
+    let onSelect: () -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var search = ""
+    @State private var habitatFilter: Species.Habitat?
+
+    private var filtered: [Species] {
+        var result = allSpecies
+        if let hab = habitatFilter {
+            result = result.filter { $0.habitat == hab }
+        }
+        if !search.isEmpty {
+            let q = search.lowercased()
+            result = result.filter {
+                $0.commonName.lowercased().contains(q) ||
+                $0.scientificName.lowercased().contains(q) ||
+                ($0.family ?? "").lowercased().contains(q)
+            }
+        }
+        return result
+    }
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                // Habitat filter
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        FilterChip(title: "All", isSelected: habitatFilter == nil) {
+                            habitatFilter = nil
+                        }
+                        ForEach(Species.Habitat.allCases, id: \.self) { hab in
+                            FilterChip(title: hab.rawValue.capitalized, isSelected: habitatFilter == hab) {
+                                habitatFilter = hab
+                            }
+                        }
+                    }
+                    .padding(.horizontal)
+                }
+                .padding(.vertical, 8)
+
+                List {
+                    // General option
+                    Button {
+                        selectedSpecies = nil
+                        onSelect()
+                        dismiss()
+                    } label: {
+                        HStack(spacing: 12) {
+                            ZStack {
+                                Circle()
+                                    .fill(.secondary.opacity(0.15))
+                                    .frame(width: 44, height: 44)
+                                Image(systemName: "globe")
+                                    .foregroundStyle(.secondary)
+                            }
+                            Text("General (All Species)")
+                                .font(.body.bold())
+                                .foregroundStyle(.primary)
+                            Spacer()
+                            if selectedSpecies == nil {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundStyle(.blue)
+                            }
+                        }
+                    }
+                    .tint(.primary)
+
+                    Section("\(filtered.count) species") {
+                        ForEach(filtered) { sp in
+                            Button {
+                                selectedSpecies = sp
+                                onSelect()
+                                dismiss()
+                            } label: {
+                                HStack(spacing: 12) {
+                                    ZStack {
+                                        Circle()
+                                            .fill(habitatColor(sp.habitat).opacity(0.15))
+                                            .frame(width: 44, height: 44)
+                                        Image(systemName: "fish.fill")
+                                            .foregroundStyle(habitatColor(sp.habitat))
+                                    }
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(sp.commonName)
+                                            .font(.body.bold())
+                                            .foregroundStyle(.primary)
+                                        Text(sp.scientificName)
+                                            .font(.caption)
+                                            .italic()
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    Spacer()
+                                    if let temp = sp.optimalTempC {
+                                        Text("\(Int(temp))°")
+                                            .font(.caption.bold())
+                                            .foregroundStyle(.green)
+                                    }
+                                    if selectedSpecies?.id == sp.id {
+                                        Image(systemName: "checkmark.circle.fill")
+                                            .foregroundStyle(.blue)
+                                    }
+                                }
+                            }
+                            .tint(.primary)
+                        }
+                    }
+                }
+                .listStyle(.plain)
+            }
+            .navigationTitle("Target Species")
+            .navigationBarTitleDisplayMode(.inline)
+            .searchable(text: $search, prompt: "Search species by name or family...")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+            }
+        }
+    }
+
+    private func habitatColor(_ habitat: Species.Habitat?) -> Color {
+        switch habitat {
+        case .freshwater: .green
+        case .marine: .blue
+        case .brackish: .teal
+        case nil: .gray
         }
     }
 }

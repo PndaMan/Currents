@@ -331,12 +331,54 @@ struct LogCatchView: View {
 
     // MARK: - Gear
 
+    @State private var gearRod = ""
+    @State private var gearReel = ""
+    @State private var gearLure = ""
+    @State private var gearLureColor = ""
+    @State private var gearTechnique = ""
+    @State private var showGearDetails = false
+
+    private let techniques = [
+        "Drop Shot", "Carolina Rig", "Texas Rig", "Jigging", "Trolling",
+        "Topwater", "Crankbait", "Spinnerbait", "Fly Fishing", "Live Bait",
+        "Bottom Fishing", "Cast & Retrieve", "Slow Roll", "Finesse",
+        "Power Fishing", "Sight Fishing", "Drift Fishing", "Vertical Jigging"
+    ]
+
     private var gearSection: some View {
         Section("Gear") {
-            Picker("Loadout", selection: $selectedGearId) {
-                Text("None").tag(nil as String?)
+            // Quick loadout picker
+            Picker("Loadout Preset", selection: $selectedGearId) {
+                Text("Custom / None").tag(nil as String?)
                 ForEach(allGear) { loadout in
                     Text(loadout.name).tag(loadout.id as String?)
+                }
+            }
+            .onChange(of: selectedGearId) { _, newId in
+                if let loadout = allGear.first(where: { $0.id == newId }) {
+                    gearRod = loadout.rod ?? ""
+                    gearReel = loadout.reel ?? ""
+                    gearLure = loadout.lure ?? ""
+                    gearLureColor = loadout.lureColor ?? ""
+                    gearTechnique = loadout.technique ?? ""
+                }
+            }
+
+            DisclosureGroup("Individual Gear", isExpanded: $showGearDetails) {
+                TextField("Rod", text: $gearRod)
+                TextField("Reel", text: $gearReel)
+
+                // Technique picker
+                Picker("Technique", selection: $gearTechnique) {
+                    Text("None").tag("")
+                    ForEach(techniques, id: \.self) { t in
+                        Text(t).tag(t)
+                    }
+                }
+
+                TextField("Lure / Bait", text: $gearLure)
+                if !gearLure.isEmpty {
+                    TextField("Lure Color", text: $gearLureColor)
                 }
             }
         }
@@ -427,6 +469,25 @@ struct LogCatchView: View {
             isInSpawningZone: false
         )
 
+        // If custom gear fields are filled but no loadout selected, create one
+        var gearId = selectedGearId
+        let hasCustomGear = !gearRod.isEmpty || !gearReel.isEmpty || !gearLure.isEmpty || !gearTechnique.isEmpty
+        if gearId == nil && hasCustomGear {
+            let name = [gearRod, gearLure, gearTechnique]
+                .filter { !$0.isEmpty }
+                .joined(separator: " + ")
+            var loadout = GearLoadout(
+                name: name.isEmpty ? "Quick Setup" : name,
+                rod: gearRod.isEmpty ? nil : gearRod,
+                reel: gearReel.isEmpty ? nil : gearReel,
+                lure: gearLure.isEmpty ? nil : gearLure,
+                lureColor: gearLureColor.isEmpty ? nil : gearLureColor,
+                technique: gearTechnique.isEmpty ? nil : gearTechnique
+            )
+            try? appState.gearRepository.save(&loadout)
+            gearId = loadout.id
+        }
+
         var catchRecord = Catch(
             speciesId: selectedSpeciesId,
             spotId: locationMode == .spot ? selectedSpotId : nil,
@@ -439,7 +500,7 @@ struct LogCatchView: View {
             photoPath: photoPath,
             mlConfidence: mlPredictions.first.map { Double($0.confidence) },
             forecastScoreAtCapture: forecast.score,
-            gearLoadoutId: selectedGearId,
+            gearLoadoutId: gearId,
             tripId: selectedTripId,
             notes: notes.isEmpty ? nil : notes
         )

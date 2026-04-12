@@ -30,5 +30,9 @@
 	<string>Select photos of your catches from your library.</string>
 	<key>UIUserInterfaceStyle</key>
 	<string>Dark</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
+	<key>UISupportsDocumentBrowser</key>
+	<false/>
 </dict>
 </plist>

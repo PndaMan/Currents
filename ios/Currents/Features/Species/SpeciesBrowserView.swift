@@ -1,5 +1,10 @@
 import SwiftUI
 
+/// Wrapper to avoid `Int64` collisions in navigationDestination.
+struct SpeciesNavID: Hashable {
+    let id: Int64
+}
+
 struct SpeciesBrowserView: View {
     @Environment(AppState.self) private var appState
     @State private var species: [Species] = []
@@ -43,7 +48,7 @@ struct SpeciesBrowserView: View {
             .padding(.vertical, 4)
 
             ForEach(filtered) { sp in
-                NavigationLink(value: sp.id) {
+                NavigationLink(value: SpeciesNavID(id: sp.id)) {
                     HStack {
                         Image(systemName: "fish.fill")
                             .foregroundStyle(.blue)
@@ -69,8 +74,8 @@ struct SpeciesBrowserView: View {
         .listStyle(.plain)
         .searchable(text: $searchText, prompt: "Search species")
         .navigationTitle("Species")
-        .navigationDestination(for: Int64.self) { speciesId in
-            if let sp = species.first(where: { $0.id == speciesId }) {
+        .navigationDestination(for: SpeciesNavID.self) { nav in
+            if let sp = species.first(where: { $0.id == nav.id }) {
                 SpeciesDetailView(species: sp)
             }
         }

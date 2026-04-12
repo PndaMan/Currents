@@ -35,7 +35,8 @@ struct PhotoGalleryView: View {
                                 Image(uiImage: image)
                                     .resizable()
                                     .scaledToFill()
-                                    .frame(minHeight: 120)
+                                    .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
+                                    .aspectRatio(1, contentMode: .fill)
                                     .clipped()
                                     .overlay(alignment: .bottomLeading) {
                                         if let species = detail.species?.commonName {

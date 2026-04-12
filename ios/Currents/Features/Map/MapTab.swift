@@ -210,7 +210,7 @@ struct MapTab: View {
                 }
             }
             .sheet(isPresented: $showingForecast) {
-                ForecastTab()
+                ForecastTab(presentedAsSheet: true)
             }
             .sheet(item: Binding(
                 get: { inspectorCoordinate.map { IdentifiableCoordinate(coord: $0) } },
