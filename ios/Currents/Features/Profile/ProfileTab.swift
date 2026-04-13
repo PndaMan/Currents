@@ -15,6 +15,10 @@ struct ProfileTab: View {
     @State private var showingRestoreConfirm = false
     @State private var lastBackupDate: Date?
     @State private var showingSaveRegion = false
+    @State private var showingFilePicker = false
+    @State private var backupFileURL: URL?
+    @State private var iCloudAvailable = false
+    @State private var dbSize: String?
 
     var body: some View {
         NavigationStack {
@@ -156,68 +160,25 @@ struct ProfileTab: View {
                     }
                 }
 
-                // iCloud Backup
-                Section("iCloud Backup") {
-                    Button {
-                        backupToCloud()
-                    } label: {
-                        HStack {
-                            Label("Back Up Now", systemImage: "icloud.and.arrow.up")
-                            Spacer()
-                            if isBackingUp {
-                                ProgressView()
-                            }
-                        }
-                    }
-                    .disabled(isBackingUp || isRestoring)
-
-                    Button {
-                        showingRestoreConfirm = true
-                    } label: {
-                        HStack {
-                            Label("Restore from Backup", systemImage: "icloud.and.arrow.down")
-                            Spacer()
-                            if isRestoring {
-                                ProgressView()
-                            }
-                        }
-                    }
-                    .disabled(isBackingUp || isRestoring)
-
-                    if let date = lastBackupDate {
-                        HStack {
-                            Text("Last backup")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            Spacer()
-                            Text(date, style: .relative)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            Text("ago")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-
-                    if let msg = backupMessage {
-                        Text(msg)
-                            .font(.caption)
-                            .foregroundStyle(msg.contains("Error") ? .red : .green)
-                    }
+                // Backup — iCloud when available (App Store), file-based fallback (sideloaded)
+                if iCloudAvailable {
+                    iCloudBackupSection
+                } else {
+                    fileBackupSection
                 }
 
                 // Support
                 Section {
-                    Link(destination: URL(string: "https://buymeacoffee.com/currentsapp")!) {
+                    Link(destination: URL(string: "https://ko-fi.com/aidanmcconnon")!) {
                         HStack(spacing: 12) {
-                            Image(systemName: "cup.and.saucer.fill")
+                            Image(systemName: "heart.fill")
                                 .font(.title3)
-                                .foregroundStyle(.yellow)
+                                .foregroundStyle(.pink)
                             VStack(alignment: .leading, spacing: 2) {
-                                Text("Buy Me a Coffee")
+                                Text("Support Currents")
                                     .font(.subheadline.bold())
                                     .foregroundStyle(.primary)
-                                Text("Support Currents development")
+                                Text("Buy me a coffee on Ko-fi")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
@@ -238,7 +199,7 @@ struct ProfileTab: View {
                     Button {
                         exportAllData()
                     } label: {
-                        Label("Export All Data", systemImage: "square.and.arrow.up")
+                        Label("Export All Data (CSV)", systemImage: "square.and.arrow.up")
                     }
                 }
             }
@@ -248,7 +209,11 @@ struct ProfileTab: View {
                 speciesCounts = (try? appState.catchRepository.speciesCounts()) ?? []
                 appState.mapManager.refreshDownloadedRegions()
                 mapRegions = appState.mapManager.downloadedRegions
-                lastBackupDate = await CloudBackup.shared.lastBackupDate
+                iCloudAvailable = await CloudBackup.shared.isAvailable
+                if iCloudAvailable {
+                    lastBackupDate = await CloudBackup.shared.lastBackupDate
+                }
+                dbSize = await FileBackup.shared.databaseSize
             }
             .sheet(item: $exportURL) { url in
                 ShareSheet(url: url)
@@ -259,14 +224,128 @@ struct ProfileTab: View {
                     mapRegions = appState.mapManager.downloadedRegions
                 }
             }
+            .sheet(item: $backupFileURL) { url in
+                ShareSheet(url: url)
+            }
+            .sheet(isPresented: $showingFilePicker) {
+                DocumentPicker { url in
+                    importFromFile(url)
+                }
+            }
             .alert("Restore from Backup?", isPresented: $showingRestoreConfirm) {
-                Button("Restore", role: .destructive) { restoreFromCloud() }
+                if iCloudAvailable {
+                    Button("Restore", role: .destructive) { restoreFromCloud() }
+                } else {
+                    Button("Choose File", role: .destructive) { showingFilePicker = true }
+                }
                 Button("Cancel", role: .cancel) {}
             } message: {
-                Text("This will replace all local data with the iCloud backup. This cannot be undone.")
+                if iCloudAvailable {
+                    Text("This will replace all local data with the iCloud backup. This cannot be undone.")
+                } else {
+                    Text("Select a .sqlite backup file to restore. This will replace all local data.")
+                }
             }
         }
     }
+
+    // MARK: - iCloud Backup Section (App Store installs)
+
+    private var iCloudBackupSection: some View {
+        Section {
+            Button {
+                backupToCloud()
+            } label: {
+                HStack {
+                    Label("Back Up to iCloud", systemImage: "icloud.and.arrow.up")
+                    Spacer()
+                    if isBackingUp { ProgressView() }
+                }
+            }
+            .disabled(isBackingUp || isRestoring)
+
+            Button {
+                showingRestoreConfirm = true
+            } label: {
+                HStack {
+                    Label("Restore from iCloud", systemImage: "icloud.and.arrow.down")
+                    Spacer()
+                    if isRestoring { ProgressView() }
+                }
+            }
+            .disabled(isBackingUp || isRestoring)
+
+            if let date = lastBackupDate {
+                HStack {
+                    Text("Last backup")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Text(date, style: .relative)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text("ago")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            if let msg = backupMessage {
+                Text(msg)
+                    .font(.caption)
+                    .foregroundStyle(msg.contains("Error") ? .red : .green)
+            }
+        } header: {
+            Text("iCloud Backup")
+        } footer: {
+            Text("Automatically syncs your data across devices via iCloud.")
+        }
+    }
+
+    // MARK: - File Backup Section (sideloaded IPAs)
+
+    private var fileBackupSection: some View {
+        Section {
+            Button {
+                exportBackupFile()
+            } label: {
+                HStack {
+                    Label("Export Backup", systemImage: "arrow.up.doc")
+                    Spacer()
+                    if let dbSize {
+                        Text(dbSize)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    if isBackingUp { ProgressView() }
+                }
+            }
+            .disabled(isBackingUp || isRestoring)
+
+            Button {
+                showingRestoreConfirm = true
+            } label: {
+                HStack {
+                    Label("Import Backup", systemImage: "arrow.down.doc")
+                    Spacer()
+                    if isRestoring { ProgressView() }
+                }
+            }
+            .disabled(isBackingUp || isRestoring)
+
+            if let msg = backupMessage {
+                Text(msg)
+                    .font(.caption)
+                    .foregroundStyle(msg.contains("Error") ? .red : .green)
+            }
+        } header: {
+            Text("Backup & Restore")
+        } footer: {
+            Text("Export your database to Files, AirDrop, or any storage. Import to restore on a new install.")
+        }
+    }
+
+    // MARK: - Actions
 
     private func exportAllData() {
         let exporter = DataExporter(appState: appState)
@@ -299,6 +378,65 @@ struct ProfileTab: View {
                 backupMessage = "Error: \(error.localizedDescription)"
             }
             isRestoring = false
+        }
+    }
+
+    private func exportBackupFile() {
+        isBackingUp = true
+        backupMessage = nil
+        Task {
+            do {
+                let url = try await FileBackup.shared.exportBackup(db: appState.db)
+                backupFileURL = url
+                backupMessage = "Backup exported"
+            } catch {
+                backupMessage = "Error: \(error.localizedDescription)"
+            }
+            isBackingUp = false
+        }
+    }
+
+    private func importFromFile(_ url: URL) {
+        isRestoring = true
+        backupMessage = nil
+        Task {
+            do {
+                try await FileBackup.shared.importBackup(from: url, to: appState.db)
+                backupMessage = "Restore complete — restart app to see changes"
+            } catch {
+                backupMessage = "Error: \(error.localizedDescription)"
+            }
+            isRestoring = false
+        }
+    }
+}
+
+// MARK: - Document Picker for Import
+
+struct DocumentPicker: UIViewControllerRepresentable {
+    let onPick: (URL) -> Void
+
+    func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [
+            UTType(filenameExtension: "sqlite") ?? .data,
+            .database,
+            .data,
+        ])
+        picker.delegate = context.coordinator
+        return picker
+    }
+
+    func updateUIViewController(_ controller: UIDocumentPickerViewController, context: Context) {}
+
+    func makeCoordinator() -> Coordinator { Coordinator(onPick: onPick) }
+
+    class Coordinator: NSObject, UIDocumentPickerDelegate {
+        let onPick: (URL) -> Void
+        init(onPick: @escaping (URL) -> Void) { self.onPick = onPick }
+
+        func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+            guard let url = urls.first else { return }
+            onPick(url)
         }
     }
 }

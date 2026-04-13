@@ -15,7 +15,7 @@ struct MapTab: View {
     @State private var catchCounts: [String: Int] = [:]
     @State private var showingAddSpot = false
     @State private var selectedSpot: Spot?
-    @State private var mapStyle: MapStyleOption = .imagery
+    @State private var mapStyle: MapStyleOption = .fishing
     @State private var showCatchPins = true
     @State private var showingSpeciesBrowser = false
     @State private var showingForecast = false
@@ -23,6 +23,9 @@ struct MapTab: View {
     @State private var weather: WeatherService.WeatherData?
     @State private var inspectorCoordinate: CLLocationCoordinate2D?
     @State private var spotScores: [String: Int] = [:]
+    @State private var searchText = ""
+    @State private var searchResults: [MKMapItem] = []
+    @State private var isSearching = false
 
     enum MapStyleOption: String, CaseIterable {
         case standard = "Standard"
@@ -135,6 +138,70 @@ struct MapTab: View {
                 }
                 .padding(.top, 60)
                 .padding(.trailing, 12)
+
+                // Search overlay
+                VStack {
+                    HStack {
+                        Image(systemName: "magnifyingglass")
+                            .foregroundStyle(.secondary)
+                        TextField("Search dams, rivers, places...", text: $searchText)
+                            .textFieldStyle(.plain)
+                            .onSubmit { performSearch() }
+                        if isSearching {
+                            ProgressView()
+                                .controlSize(.small)
+                        }
+                        if !searchText.isEmpty {
+                            Button { searchText = ""; searchResults = [] } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                    .padding(10)
+                    .background(.ultraThinMaterial)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .padding(.horizontal)
+                    .padding(.top, 50)
+
+                    if !searchResults.isEmpty {
+                        ScrollView {
+                            VStack(spacing: 0) {
+                                ForEach(searchResults, id: \.self) { item in
+                                    Button {
+                                        if let coord = item.placemark.location?.coordinate {
+                                            position = .camera(.init(centerCoordinate: coord, distance: 10000))
+                                        }
+                                        searchResults = []
+                                        searchText = item.name ?? ""
+                                    } label: {
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(item.name ?? "Unknown")
+                                                .font(.subheadline)
+                                                .foregroundStyle(.primary)
+                                            if let subtitle = item.placemark.title {
+                                                Text(subtitle)
+                                                    .font(.caption)
+                                                    .foregroundStyle(.secondary)
+                                                    .lineLimit(1)
+                                            }
+                                        }
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        .padding(.horizontal, 12)
+                                        .padding(.vertical, 8)
+                                    }
+                                    Divider()
+                                }
+                            }
+                            .background(.ultraThinMaterial)
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                        }
+                        .frame(maxHeight: 200)
+                        .padding(.horizontal)
+                    }
+
+                    Spacer()
+                }
 
                 // Bottom bar
                 VStack {
@@ -250,6 +317,22 @@ struct MapTab: View {
         case .imagery: "globe.americas.fill"
         case .hybrid: "square.split.2x2"
         case .fishing: "fish.fill"
+        }
+    }
+
+    private func performSearch() {
+        guard !searchText.isEmpty else { return }
+        isSearching = true
+        let request = MKLocalSearch.Request()
+        request.naturalLanguageQuery = searchText
+        // Prefer natural features (dams, rivers, lakes)
+        request.resultTypes = [.pointOfInterest, .address]
+
+        Task {
+            let search = MKLocalSearch(request: request)
+            let response = try? await search.start()
+            searchResults = response?.mapItems ?? []
+            isSearching = false
         }
     }
 
@@ -385,9 +468,10 @@ struct SpotDetailSheet: View {
     @State private var weather: WeatherService.WeatherData?
     @State private var forecast: ForecastEngine.ForecastResult?
     @State private var showingDeleteConfirm = false
-    @State private var showingEditName = false
+    @State private var showingEdit = false
     @State private var editedName = ""
     @State private var editedNotes = ""
+    @State private var editedPrivate = true
 
     private var spotCoord: CLLocationCoordinate2D {
         CLLocationCoordinate2D(latitude: spot.latitude, longitude: spot.longitude)
@@ -531,7 +615,8 @@ struct SpotDetailSheet: View {
                         Button {
                             editedName = spot.name
                             editedNotes = spot.notes ?? ""
-                            showingEditName = true
+                            editedPrivate = spot.isPrivate
+                            showingEdit = true
                         } label: {
                             Label("Edit", systemImage: "pencil")
                                 .frame(maxWidth: .infinity)
@@ -588,17 +673,12 @@ struct SpotDetailSheet: View {
         } message: {
             Text("This will remove the spot but keep any catches logged here.")
         }
-        .alert("Edit Spot", isPresented: $showingEditName) {
-            TextField("Name", text: $editedName)
-            TextField("Notes", text: $editedNotes)
-            Button("Save") {
-                var updated = spot
-                updated.name = editedName
-                updated.notes = editedNotes.isEmpty ? nil : editedNotes
-                try? appState.spotRepository.save(&updated)
+        .sheet(isPresented: $showingEdit) {
+            EditSpotSheet(spot: spot) { updated in
+                var record = updated
+                try? appState.spotRepository.save(&record)
                 dismiss()
             }
-            Button("Cancel", role: .cancel) {}
         }
     }
 }
@@ -735,5 +815,84 @@ struct AddSpotSheet: View {
         )
         try? appState.spotRepository.save(&spot)
         dismiss()
+    }
+}
+
+// MARK: - Edit Spot Sheet (Full Field Editing)
+
+struct EditSpotSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let spot: Spot
+    let onSave: (Spot) -> Void
+
+    @State private var name: String = ""
+    @State private var notes: String = ""
+    @State private var isPrivate: Bool = true
+    @State private var latitude: String = ""
+    @State private var longitude: String = ""
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Details") {
+                    TextField("Spot Name", text: $name)
+                    TextField("Notes", text: $notes, axis: .vertical)
+                        .lineLimit(3...6)
+                }
+
+                Section("Location") {
+                    HStack {
+                        Text("Latitude")
+                        Spacer()
+                        TextField("0.0000", text: $latitude)
+                            .keyboardType(.decimalPad)
+                            .multilineTextAlignment(.trailing)
+                            .frame(width: 140)
+                    }
+                    HStack {
+                        Text("Longitude")
+                        Spacer()
+                        TextField("0.0000", text: $longitude)
+                            .keyboardType(.decimalPad)
+                            .multilineTextAlignment(.trailing)
+                            .frame(width: 140)
+                    }
+                }
+
+                Section {
+                    Toggle("Private Spot", isOn: $isPrivate)
+                } footer: {
+                    Text("Private spots are never shared.")
+                }
+            }
+            .navigationTitle("Edit Spot")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        var updated = spot
+                        updated.name = name
+                        updated.notes = notes.isEmpty ? nil : notes
+                        updated.isPrivate = isPrivate
+                        if let lat = Double(latitude) { updated.latitude = lat }
+                        if let lon = Double(longitude) { updated.longitude = lon }
+                        onSave(updated)
+                        dismiss()
+                    }
+                    .bold()
+                    .disabled(name.isEmpty)
+                }
+            }
+            .task {
+                name = spot.name
+                notes = spot.notes ?? ""
+                isPrivate = spot.isPrivate
+                latitude = String(format: "%.6f", spot.latitude)
+                longitude = String(format: "%.6f", spot.longitude)
+            }
+        }
     }
 }

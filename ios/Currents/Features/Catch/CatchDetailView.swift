@@ -7,22 +7,12 @@ struct CatchDetailView: View {
     var detail: CatchDetail
     @State private var showingDeleteConfirm = false
     @State private var showingEdit = false
-    @State private var editWeight: String = ""
-    @State private var editLength: String = ""
-    @State private var editNotes: String = ""
-    @State private var editReleased: Bool = true
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: CurrentsTheme.paddingM) {
-                // Photo
-                if let photoPath = detail.catchRecord.photoPath,
-                   let image = PhotoManager.load(photoPath) {
-                    Image(uiImage: image)
-                        .resizable()
-                        .scaledToFit()
-                        .clipShape(RoundedRectangle(cornerRadius: 16))
-                }
+                // Photo carousel (multi-photo)
+                photoCarousel
 
                 // Species + ML confidence
                 HStack {
@@ -139,10 +129,6 @@ struct CatchDetailView: View {
             ToolbarItem(placement: .primaryAction) {
                 Menu {
                     Button {
-                        editWeight = detail.catchRecord.weightKg.map { String(format: "%.2f", $0) } ?? ""
-                        editLength = detail.catchRecord.lengthCm.map { String(format: "%.1f", $0) } ?? ""
-                        editNotes = detail.catchRecord.notes ?? ""
-                        editReleased = detail.catchRecord.released
                         showingEdit = true
                     } label: {
                         Label("Edit Catch", systemImage: "pencil")
@@ -167,16 +153,39 @@ struct CatchDetailView: View {
         }
         .sheet(isPresented: $showingEdit) {
             EditCatchSheet(
-                catchRecord: detail.catchRecord,
-                weight: $editWeight,
-                length: $editLength,
-                notes: $editNotes,
-                released: $editReleased,
+                detail: detail,
                 onSave: { updated in
                     var record = updated
                     try? appState.catchRepository.save(&record)
                 }
             )
+        }
+    }
+
+    // MARK: - Photo Carousel
+
+    @ViewBuilder
+    private var photoCarousel: some View {
+        let photos = detail.catchRecord.allPhotoPaths
+        if photos.count > 1 {
+            TabView {
+                ForEach(photos, id: \.self) { path in
+                    if let image = PhotoManager.load(path) {
+                        Image(uiImage: image)
+                            .resizable()
+                            .scaledToFit()
+                            .clipShape(RoundedRectangle(cornerRadius: 16))
+                    }
+                }
+            }
+            .tabViewStyle(.page)
+            .frame(height: 280)
+        } else if let photoPath = photos.first,
+                  let image = PhotoManager.load(photoPath) {
+            Image(uiImage: image)
+                .resizable()
+                .scaledToFit()
+                .clipShape(RoundedRectangle(cornerRadius: 16))
         }
     }
 
@@ -204,28 +213,62 @@ struct CatchDetailView: View {
     }
 
     private func deleteCatch() {
-        if let photoPath = detail.catchRecord.photoPath {
-            PhotoManager.delete(photoPath)
-        }
+        PhotoManager.deleteAll(detail.catchRecord.allPhotoPaths)
         try? appState.catchRepository.delete(detail.catchRecord)
         dismiss()
     }
 }
 
-// MARK: - Edit Catch Sheet
+// MARK: - Edit Catch Sheet (Full Field Editing)
 
 struct EditCatchSheet: View {
+    @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss
-    let catchRecord: Catch
-    @Binding var weight: String
-    @Binding var length: String
-    @Binding var notes: String
-    @Binding var released: Bool
+    let detail: CatchDetail
     let onSave: (Catch) -> Void
+
+    @State private var weight: String = ""
+    @State private var length: String = ""
+    @State private var notes: String = ""
+    @State private var released: Bool = true
+    @State private var caughtAt: Date = .now
+    @State private var selectedSpeciesId: Int64?
+    @State private var selectedSpeciesName: String = ""
+    @State private var selectedSpotId: String?
+    @State private var selectedTripId: String?
+    @State private var selectedGearId: String?
+    @State private var showingSpeciesPicker = false
+
+    @State private var allSpecies: [Species] = []
+    @State private var allSpots: [Spot] = []
+    @State private var allGear: [GearLoadout] = []
+    @State private var allTrips: [Trip] = []
 
     var body: some View {
         NavigationStack {
             Form {
+                Section("Species") {
+                    Button {
+                        showingSpeciesPicker = true
+                    } label: {
+                        HStack {
+                            Image(systemName: "fish.fill")
+                                .foregroundStyle(.blue)
+                            if selectedSpeciesId != nil {
+                                Text(selectedSpeciesName)
+                                    .foregroundStyle(.primary)
+                            } else {
+                                Text("Select Species")
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+
                 Section("Measurements") {
                     HStack {
                         Text("Weight (kg)")
@@ -245,6 +288,38 @@ struct EditCatchSheet: View {
                     }
                     Toggle("Released", isOn: $released)
                 }
+
+                Section("When") {
+                    DatePicker("Caught at", selection: $caughtAt)
+                }
+
+                Section("Location") {
+                    Picker("Spot", selection: $selectedSpotId) {
+                        Text("None").tag(nil as String?)
+                        ForEach(allSpots) { spot in
+                            Text(spot.name).tag(spot.id as String?)
+                        }
+                    }
+                }
+
+                Section("Trip") {
+                    Picker("Trip", selection: $selectedTripId) {
+                        Text("None").tag(nil as String?)
+                        ForEach(allTrips) { trip in
+                            Text(trip.name).tag(trip.id as String?)
+                        }
+                    }
+                }
+
+                Section("Gear") {
+                    Picker("Loadout", selection: $selectedGearId) {
+                        Text("None").tag(nil as String?)
+                        ForEach(allGear) { loadout in
+                            Text(loadout.name).tag(loadout.id as String?)
+                        }
+                    }
+                }
+
                 Section("Notes") {
                     TextField("Notes", text: $notes, axis: .vertical)
                         .lineLimit(3...8)
@@ -257,19 +332,52 @@ struct EditCatchSheet: View {
                     Button("Cancel") { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
-                        var updated = catchRecord
-                        updated.weightKg = Double(weight)
-                        updated.lengthCm = Double(length)
-                        updated.notes = notes.isEmpty ? nil : notes
-                        updated.released = released
-                        onSave(updated)
-                        dismiss()
-                    }
-                    .bold()
+                    Button("Save") { save() }
+                        .bold()
                 }
             }
+            .task {
+                // Pre-populate from existing catch
+                let c = detail.catchRecord
+                weight = c.weightKg.map { String(format: "%.2f", $0) } ?? ""
+                length = c.lengthCm.map { String(format: "%.1f", $0) } ?? ""
+                notes = c.notes ?? ""
+                released = c.released
+                caughtAt = c.caughtAt
+                selectedSpeciesId = c.speciesId
+                selectedSpeciesName = detail.species?.commonName ?? ""
+                selectedSpotId = c.spotId
+                selectedTripId = c.tripId
+                selectedGearId = c.gearLoadoutId
+
+                allSpecies = (try? appState.speciesRepository.fetchAll()) ?? []
+                allSpots = (try? appState.spotRepository.fetchAll()) ?? []
+                allGear = (try? appState.gearRepository.fetchAll()) ?? []
+                allTrips = (try? appState.tripRepository.fetchAll()) ?? []
+            }
+            .sheet(isPresented: $showingSpeciesPicker) {
+                SpeciesPickerSheet(
+                    species: allSpecies,
+                    selectedId: $selectedSpeciesId,
+                    selectedName: $selectedSpeciesName
+                )
+            }
         }
+    }
+
+    private func save() {
+        var updated = detail.catchRecord
+        updated.weightKg = Double(weight)
+        updated.lengthCm = Double(length)
+        updated.notes = notes.isEmpty ? nil : notes
+        updated.released = released
+        updated.caughtAt = caughtAt
+        updated.speciesId = selectedSpeciesId
+        updated.spotId = selectedSpotId
+        updated.tripId = selectedTripId
+        updated.gearLoadoutId = selectedGearId
+        onSave(updated)
+        dismiss()
     }
 }
 

@@ -6,9 +6,9 @@ struct LogCatchView: View {
     @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss
 
-    // Photo
-    @State private var selectedPhoto: PhotosPickerItem?
-    @State private var capturedImage: UIImage?
+    // Photos (multi-photo)
+    @State private var selectedPhotos: [PhotosPickerItem] = []
+    @State private var capturedImages: [UIImage] = []
     @State private var showingCamera = false
 
     // ML
@@ -42,6 +42,7 @@ struct LogCatchView: View {
     @State private var allSpots: [Spot] = []
     @State private var allGear: [GearLoadout] = []
     @State private var allTrips: [Trip] = []
+    @State private var ownedGear: [OwnedGear] = []
 
     enum LocationMode: String, CaseIterable {
         case current = "Current Location"
@@ -78,13 +79,14 @@ struct LogCatchView: View {
                 allSpots = (try? appState.spotRepository.fetchAll()) ?? []
                 allGear = (try? appState.gearRepository.fetchAll()) ?? []
                 allTrips = (try? appState.tripRepository.fetchAll()) ?? []
+                ownedGear = (try? appState.ownedGearRepository.fetchAll()) ?? []
 
                 if let loc = appState.locationManager.currentLocation {
                     pinCoordinate = loc.coordinate
                 }
             }
-            .onChange(of: selectedPhoto) { _, item in
-                loadPhoto(item)
+            .onChange(of: selectedPhotos) { _, items in
+                loadPhotos(items)
             }
             .sheet(isPresented: $showingSpeciesPicker) {
                 SpeciesPickerSheet(
@@ -106,29 +108,52 @@ struct LogCatchView: View {
         }
     }
 
-    // MARK: - Photo Section
+    // MARK: - Photo Section (Multi-Photo)
 
     @ViewBuilder
     private var photoSection: some View {
-        Section("Photo") {
-            if let image = capturedImage {
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFit()
-                    .frame(maxHeight: 200)
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
-                    .overlay(alignment: .topTrailing) {
-                        Button {
-                            capturedImage = nil
-                            mlPredictions = []
-                        } label: {
-                            Image(systemName: "xmark.circle.fill")
-                                .font(.title3)
-                                .symbolRenderingMode(.palette)
-                                .foregroundStyle(.white, .black.opacity(0.5))
+        Section("Photos") {
+            if !capturedImages.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(capturedImages.indices, id: \.self) { index in
+                            Image(uiImage: capturedImages[index])
+                                .resizable()
+                                .scaledToFill()
+                                .frame(width: 120, height: 120)
+                                .clipShape(RoundedRectangle(cornerRadius: 12))
+                                .overlay(alignment: .topTrailing) {
+                                    Button {
+                                        capturedImages.remove(at: index)
+                                        if capturedImages.isEmpty {
+                                            mlPredictions = []
+                                        }
+                                    } label: {
+                                        Image(systemName: "xmark.circle.fill")
+                                            .font(.title3)
+                                            .symbolRenderingMode(.palette)
+                                            .foregroundStyle(.white, .black.opacity(0.5))
+                                    }
+                                    .padding(4)
+                                }
                         }
-                        .padding(8)
+
+                        // Add more photos button
+                        PhotosPicker(selection: $selectedPhotos, maxSelectionCount: 10, matching: .images) {
+                            VStack {
+                                Image(systemName: "plus.circle")
+                                    .font(.title2)
+                                Text("Add")
+                                    .font(.caption)
+                            }
+                            .foregroundStyle(.secondary)
+                            .frame(width: 120, height: 120)
+                            .background(.ultraThinMaterial)
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                        }
                     }
+                    .padding(.vertical, 4)
+                }
 
                 if isClassifying {
                     HStack {
@@ -139,10 +164,8 @@ struct LogCatchView: View {
                     }
                 }
             } else {
-                HStack(spacing: 16) {
-                    PhotosPicker(selection: $selectedPhoto, matching: .images) {
-                        Label("Photo Library", systemImage: "photo.on.rectangle")
-                    }
+                PhotosPicker(selection: $selectedPhotos, maxSelectionCount: 10, matching: .images) {
+                    Label("Choose Photos", systemImage: "photo.on.rectangle")
                 }
             }
         }
@@ -329,7 +352,7 @@ struct LogCatchView: View {
         }
     }
 
-    // MARK: - Gear
+    // MARK: - Gear (Individual items from owned gear + loadout presets)
 
     @State private var gearRod = ""
     @State private var gearReel = ""
@@ -347,7 +370,28 @@ struct LogCatchView: View {
 
     private var gearSection: some View {
         Section("Gear") {
-            // Quick loadout picker
+            // Individual gear picks from owned items
+            DisclosureGroup("Pick Gear", isExpanded: $showGearDetails) {
+                gearPicker(category: .rod, selection: $gearRod, placeholder: "Rod")
+                gearPicker(category: .reel, selection: $gearReel, placeholder: "Reel")
+                gearPicker(category: .lure, selection: $gearLure, placeholder: "Lure / Bait")
+
+                if !gearLure.isEmpty {
+                    TextField("Lure Color", text: $gearLureColor)
+                }
+
+                // Technique picker — owned techniques + presets
+                let ownedTechniques = ownedGear.filter { $0.category == .technique }.map(\.name)
+                let allTechniques = Array(Set(ownedTechniques + techniques)).sorted()
+                Picker("Technique", selection: $gearTechnique) {
+                    Text("None").tag("")
+                    ForEach(allTechniques, id: \.self) { t in
+                        Text(t).tag(t)
+                    }
+                }
+            }
+
+            // Quick loadout preset
             Picker("Loadout Preset", selection: $selectedGearId) {
                 Text("Custom / None").tag(nil as String?)
                 ForEach(allGear) { loadout in
@@ -361,25 +405,27 @@ struct LogCatchView: View {
                     gearLure = loadout.lure ?? ""
                     gearLureColor = loadout.lureColor ?? ""
                     gearTechnique = loadout.technique ?? ""
+                    showGearDetails = true
                 }
             }
+        }
+    }
 
-            DisclosureGroup("Individual Gear", isExpanded: $showGearDetails) {
-                TextField("Rod", text: $gearRod)
-                TextField("Reel", text: $gearReel)
-
-                // Technique picker
-                Picker("Technique", selection: $gearTechnique) {
-                    Text("None").tag("")
-                    ForEach(techniques, id: \.self) { t in
-                        Text(t).tag(t)
-                    }
+    @ViewBuilder
+    private func gearPicker(category: OwnedGear.Category, selection: Binding<String>, placeholder: String) -> some View {
+        let items = ownedGear.filter { $0.category == category }
+        if items.isEmpty {
+            TextField(placeholder, text: selection)
+        } else {
+            Picker(placeholder, selection: selection) {
+                Text("None").tag("")
+                ForEach(items) { item in
+                    Text(item.displayName).tag(item.displayName)
                 }
-
-                TextField("Lure / Bait", text: $gearLure)
-                if !gearLure.isEmpty {
-                    TextField("Lure Color", text: $gearLureColor)
-                }
+                Text("Custom...").tag("__custom__")
+            }
+            if selection.wrappedValue == "__custom__" {
+                TextField("Custom \(placeholder.lowercased())", text: selection)
             }
         }
     }
@@ -403,14 +449,18 @@ struct LogCatchView: View {
 
     // MARK: - Actions
 
-    private func loadPhoto(_ item: PhotosPickerItem?) {
-        guard let item else { return }
+    private func loadPhotos(_ items: [PhotosPickerItem]) {
         Task {
-            // Try loading as Image first (more reliable), then fallback to Data
-            if let imageData = try? await item.loadTransferable(type: Data.self),
-               let uiImage = UIImage(data: imageData) {
-                capturedImage = uiImage
-                classifyImage(uiImage)
+            var newImages: [UIImage] = []
+            for item in items {
+                if let data = try? await item.loadTransferable(type: Data.self),
+                   let uiImage = UIImage(data: data) {
+                    newImages.append(uiImage)
+                }
+            }
+            capturedImages = newImages
+            if let first = newImages.first {
+                classifyImage(first)
             }
         }
     }
@@ -451,11 +501,12 @@ struct LogCatchView: View {
 
     private func saveCatch() {
         let (lat, lon) = resolveLocation()
+        let catchId = UUID().uuidString
 
-        var photoPath: String?
-        if let image = capturedImage {
-            let id = UUID().uuidString
-            photoPath = try? PhotoManager.save(image, id: id)
+        // Save multiple photos
+        var photoPaths: [String] = []
+        if !capturedImages.isEmpty {
+            photoPaths = (try? PhotoManager.saveMultiple(capturedImages, catchId: catchId)) ?? []
         }
 
         let moonPhase = MoonPhase.current(for: caughtAt)
@@ -471,16 +522,19 @@ struct LogCatchView: View {
 
         // If custom gear fields are filled but no loadout selected, create one
         var gearId = selectedGearId
-        let hasCustomGear = !gearRod.isEmpty || !gearReel.isEmpty || !gearLure.isEmpty || !gearTechnique.isEmpty
+        let rod = gearRod == "__custom__" ? "" : gearRod
+        let reel = gearReel == "__custom__" ? "" : gearReel
+        let lure = gearLure == "__custom__" ? "" : gearLure
+        let hasCustomGear = !rod.isEmpty || !reel.isEmpty || !lure.isEmpty || !gearTechnique.isEmpty
         if gearId == nil && hasCustomGear {
-            let name = [gearRod, gearLure, gearTechnique]
+            let name = [rod, lure, gearTechnique]
                 .filter { !$0.isEmpty }
                 .joined(separator: " + ")
             var loadout = GearLoadout(
                 name: name.isEmpty ? "Quick Setup" : name,
-                rod: gearRod.isEmpty ? nil : gearRod,
-                reel: gearReel.isEmpty ? nil : gearReel,
-                lure: gearLure.isEmpty ? nil : gearLure,
+                rod: rod.isEmpty ? nil : rod,
+                reel: reel.isEmpty ? nil : reel,
+                lure: lure.isEmpty ? nil : lure,
                 lureColor: gearLureColor.isEmpty ? nil : gearLureColor,
                 technique: gearTechnique.isEmpty ? nil : gearTechnique
             )
@@ -489,6 +543,7 @@ struct LogCatchView: View {
         }
 
         var catchRecord = Catch(
+            id: catchId,
             speciesId: selectedSpeciesId,
             spotId: locationMode == .spot ? selectedSpotId : nil,
             caughtAt: caughtAt,
@@ -497,7 +552,8 @@ struct LogCatchView: View {
             lengthCm: Double(lengthCm),
             weightKg: Double(weightKg),
             released: released,
-            photoPath: photoPath,
+            photoPath: photoPaths.first,
+            photoPaths: Catch.encodePhotoPaths(photoPaths),
             mlConfidence: mlPredictions.first.map { Double($0.confidence) },
             forecastScoreAtCapture: forecast.score,
             gearLoadoutId: gearId,
@@ -530,13 +586,16 @@ struct LogCatchView: View {
     }
 }
 
-// MARK: - Location Picker Sheet (Pin Drop)
+// MARK: - Location Picker Sheet (Pin Drop with Search)
 
 struct LocationPickerSheet: View {
     @Binding var coordinate: CLLocationCoordinate2D?
     @Environment(\.dismiss) private var dismiss
     @State private var cameraPosition: MapCameraPosition = .userLocation(fallback: .automatic)
     @State private var pinPosition: CLLocationCoordinate2D?
+    @State private var searchText = ""
+    @State private var searchResults: [MKMapItem] = []
+    @State private var isSearching = false
 
     var body: some View {
         NavigationStack {
@@ -556,11 +615,8 @@ struct LocationPickerSheet: View {
                     MapUserLocationButton()
                     MapCompass()
                 }
-                .onTapGesture { position in
-                    // Note: MapKit tap-to-coordinate requires MapReader
-                }
 
-                // Center crosshair for pin placement
+                // Center crosshair
                 VStack {
                     Spacer()
                     Image(systemName: "plus.circle.fill")
@@ -570,15 +626,68 @@ struct LocationPickerSheet: View {
                     Spacer()
                 }
 
-                // Instructions
+                // Search bar + results overlay
                 VStack {
-                    Text("Move the map to position the pin")
-                        .font(.caption)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
-                        .background(.ultraThinMaterial)
-                        .clipShape(Capsule())
-                        .padding(.top, 8)
+                    HStack {
+                        Image(systemName: "magnifyingglass")
+                            .foregroundStyle(.secondary)
+                        TextField("Search location...", text: $searchText)
+                            .textFieldStyle(.plain)
+                            .onSubmit { performSearch() }
+                        if isSearching {
+                            ProgressView()
+                                .controlSize(.small)
+                        }
+                        if !searchText.isEmpty {
+                            Button { searchText = ""; searchResults = [] } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                    .padding(10)
+                    .background(.ultraThinMaterial)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .padding(.horizontal)
+                    .padding(.top, 8)
+
+                    if !searchResults.isEmpty {
+                        ScrollView {
+                            VStack(spacing: 0) {
+                                ForEach(searchResults, id: \.self) { item in
+                                    Button {
+                                        if let coord = item.placemark.location?.coordinate {
+                                            cameraPosition = .camera(.init(centerCoordinate: coord, distance: 5000))
+                                            pinPosition = coord
+                                        }
+                                        searchResults = []
+                                        searchText = item.name ?? ""
+                                    } label: {
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(item.name ?? "Unknown")
+                                                .font(.subheadline)
+                                                .foregroundStyle(.primary)
+                                            if let subtitle = item.placemark.title {
+                                                Text(subtitle)
+                                                    .font(.caption)
+                                                    .foregroundStyle(.secondary)
+                                                    .lineLimit(1)
+                                            }
+                                        }
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        .padding(.horizontal, 12)
+                                        .padding(.vertical, 8)
+                                    }
+                                    Divider()
+                                }
+                            }
+                            .background(.ultraThinMaterial)
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                        }
+                        .frame(maxHeight: 200)
+                        .padding(.horizontal)
+                    }
+
                     Spacer()
                 }
             }
@@ -590,7 +699,8 @@ struct LocationPickerSheet: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Confirm") {
-                        confirmPin()
+                        coordinate = pinPosition
+                        dismiss()
                     }
                     .bold()
                 }
@@ -601,9 +711,26 @@ struct LocationPickerSheet: View {
         }
     }
 
-    private func confirmPin() {
-        coordinate = pinPosition
-        dismiss()
+    private func performSearch() {
+        guard !searchText.isEmpty else { return }
+        isSearching = true
+        let request = MKLocalSearch.Request()
+        request.naturalLanguageQuery = searchText
+        if let region = {
+            if let pin = pinPosition {
+                return MKCoordinateRegion(center: pin, latitudinalMeters: 100_000, longitudinalMeters: 100_000)
+            }
+            return nil as MKCoordinateRegion?
+        }() {
+            request.region = region
+        }
+
+        Task {
+            let search = MKLocalSearch(request: request)
+            let response = try? await search.start()
+            searchResults = response?.mapItems ?? []
+            isSearching = false
+        }
     }
 }
 

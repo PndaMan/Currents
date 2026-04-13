@@ -35,7 +35,7 @@ struct FishingStreakView: View {
         let species = Set(catches.compactMap { $0.species?.id }).count
         let spots = Set(catches.compactMap { $0.spot?.id }).count
         let released = catches.filter { $0.catchRecord.released }.count
-        let withPhoto = catches.filter { $0.catchRecord.photoPath != nil }.count
+        let withPhoto = catches.filter { !$0.catchRecord.allPhotoPaths.isEmpty }.count
 
         return [
             ("fish.fill", "First Catch", total >= 1),

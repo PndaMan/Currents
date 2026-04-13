@@ -17,6 +17,7 @@ final class AppState {
     let speciesRepository: SpeciesRepository
     let tripRepository: TripRepository
     let gearCatalogRepository: GearCatalogRepository
+    let ownedGearRepository: OwnedGearRepository
 
     init() {
         do {
@@ -32,6 +33,7 @@ final class AppState {
         self.speciesRepository = SpeciesRepository(db: db)
         self.tripRepository = TripRepository(db: db)
         self.gearCatalogRepository = GearCatalogRepository(db: db)
+        self.ownedGearRepository = OwnedGearRepository(db: db)
 
         // Boot async work
         Task {

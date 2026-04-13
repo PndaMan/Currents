@@ -3,13 +3,16 @@ import SwiftUI
 struct GearTab: View {
     @Environment(AppState.self) private var appState
     @State private var loadouts: [GearLoadout] = []
+    @State private var ownedGear: [OwnedGear] = []
     @State private var effectiveness: [(loadout: GearLoadout, catchCount: Int)] = []
-    @State private var showingAdd = false
+    @State private var showingAddItem = false
+    @State private var showingAddLoadout = false
     @State private var selectedLoadout: GearLoadout?
-    @State private var viewMode: ViewMode = .list
+    @State private var viewMode: ViewMode = .items
 
     enum ViewMode: String, CaseIterable {
-        case list = "My Gear"
+        case items = "My Gear"
+        case presets = "Presets"
         case effectiveness = "Effectiveness"
         case catalog = "Catalog"
     }
@@ -27,7 +30,9 @@ struct GearTab: View {
 
                 Group {
                     switch viewMode {
-                    case .list:
+                    case .items:
+                        ownedGearList
+                    case .presets:
                         loadoutList
                     case .effectiveness:
                         effectivenessList
@@ -40,13 +45,21 @@ struct GearTab: View {
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
                     Button {
-                        showingAdd = true
+                        if viewMode == .presets {
+                            showingAddLoadout = true
+                        } else {
+                            showingAddItem = true
+                        }
                     } label: {
                         Image(systemName: "plus")
                     }
                 }
             }
-            .sheet(isPresented: $showingAdd) {
+            .sheet(isPresented: $showingAddItem) {
+                AddOwnedGearSheet()
+                    .presentationBackground(.ultraThinMaterial)
+            }
+            .sheet(isPresented: $showingAddLoadout) {
                 AddGearSheet()
                     .presentationBackground(.ultraThinMaterial)
             }
@@ -60,13 +73,73 @@ struct GearTab: View {
         }
     }
 
+    // MARK: - Owned Gear (Individual Items)
+
+    private var gearByCategory: [(OwnedGear.Category, [OwnedGear])] {
+        let grouped = Dictionary(grouping: ownedGear) { $0.category }
+        return OwnedGear.Category.allCases.compactMap { cat in
+            guard let items = grouped[cat], !items.isEmpty else { return nil }
+            return (cat, items)
+        }
+    }
+
+    private var ownedGearList: some View {
+        Group {
+            if ownedGear.isEmpty {
+                ContentUnavailableView(
+                    "No Gear Added",
+                    systemImage: "wrench.and.screwdriver",
+                    description: Text("Add your rods, reels, lures, and more to mix and match when logging catches")
+                )
+            } else {
+                List {
+                    ForEach(gearByCategory, id: \.0) { category, items in
+                        Section {
+                            ForEach(items) { item in
+                                HStack(spacing: 12) {
+                                    Image(systemName: category.icon)
+                                        .foregroundStyle(categoryColor(category))
+                                        .frame(width: 24)
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(item.displayName)
+                                            .font(.subheadline.bold())
+                                        if let specs = item.specs {
+                                            Text(specs)
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                        }
+                                    }
+                                }
+                                .padding(.vertical, 2)
+                            }
+                            .onDelete { offsets in
+                                for i in offsets {
+                                    try? appState.ownedGearRepository.delete(items[i])
+                                }
+                                Task { await refresh() }
+                            }
+                        } header: {
+                            HStack {
+                                Image(systemName: category.icon)
+                                Text(category.rawValue + "s")
+                            }
+                        }
+                    }
+                }
+                .listStyle(.plain)
+            }
+        }
+    }
+
+    // MARK: - Loadout Presets
+
     private var loadoutList: some View {
         Group {
             if loadouts.isEmpty {
                 ContentUnavailableView(
-                    "No Gear Loadouts",
-                    systemImage: "wrench.and.screwdriver",
-                    description: Text("Save your rod/reel/lure combos for quick logging")
+                    "No Loadout Presets",
+                    systemImage: "tray.2",
+                    description: Text("Save rod/reel/lure combos for quick selection when logging")
                 )
             } else {
                 List {
@@ -90,13 +163,15 @@ struct GearTab: View {
         }
     }
 
+    // MARK: - Effectiveness
+
     private var effectivenessList: some View {
         Group {
             if effectiveness.isEmpty {
                 ContentUnavailableView(
                     "No Data Yet",
                     systemImage: "chart.bar",
-                    description: Text("Log catches with gear loadouts to see what works")
+                    description: Text("Log catches with gear to see what works")
                 )
             } else {
                 List {
@@ -126,9 +201,76 @@ struct GearTab: View {
         }
     }
 
+    private func categoryColor(_ cat: OwnedGear.Category) -> Color {
+        switch cat {
+        case .rod: .brown
+        case .reel: .gray
+        case .lure: .green
+        case .line: .blue
+        case .technique: .purple
+        case .bait: .orange
+        case .hook: .red
+        case .accessory: .teal
+        }
+    }
+
     private func refresh() async {
         loadouts = (try? appState.gearRepository.fetchAll()) ?? []
+        ownedGear = (try? appState.ownedGearRepository.fetchAll()) ?? []
         effectiveness = (try? appState.gearRepository.effectiveness()) ?? []
+    }
+}
+
+// MARK: - Add Owned Gear Sheet
+
+struct AddOwnedGearSheet: View {
+    @Environment(AppState.self) private var appState
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var category: OwnedGear.Category = .rod
+    @State private var name = ""
+    @State private var brand = ""
+    @State private var specs = ""
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Type") {
+                    Picker("Category", selection: $category) {
+                        ForEach(OwnedGear.Category.allCases, id: \.self) { cat in
+                            Label(cat.rawValue, systemImage: cat.icon).tag(cat)
+                        }
+                    }
+                }
+                Section("Details") {
+                    TextField("Name (e.g. Shimano Stradic)", text: $name)
+                    TextField("Brand (optional)", text: $brand)
+                    TextField("Specs / Notes (optional)", text: $specs)
+                }
+            }
+            .navigationTitle("Add Gear")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") { save() }
+                        .disabled(name.isEmpty)
+                }
+            }
+        }
+    }
+
+    private func save() {
+        var item = OwnedGear(
+            category: category,
+            name: name,
+            brand: brand.isEmpty ? nil : brand,
+            specs: specs.isEmpty ? nil : specs
+        )
+        try? appState.ownedGearRepository.save(&item)
+        dismiss()
     }
 }
 
@@ -158,7 +300,6 @@ struct GearCatalogBrowser: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Category filter chips
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
                     FilterChip(title: "All", isSelected: selectedCategory == nil) {
@@ -238,27 +379,27 @@ struct GearCatalogRow: View {
 
     private func categoryIcon(_ cat: GearItem.GearCategory) -> String {
         switch cat {
-        case .rod: return "line.diagonal"
-        case .reel: return "gearshape.fill"
-        case .lure: return "fish.circle.fill"
-        case .bait: return "ant.fill"
-        case .line: return "line.3.horizontal"
-        case .hook: return "arrow.turn.down.right"
-        case .terminal: return "paperclip"
-        case .accessory: return "bag.fill"
+        case .rod: "line.diagonal"
+        case .reel: "gearshape.fill"
+        case .lure: "fish.circle.fill"
+        case .bait: "ant.fill"
+        case .line: "line.3.horizontal"
+        case .hook: "arrow.turn.down.right"
+        case .terminal: "paperclip"
+        case .accessory: "bag.fill"
         }
     }
 
     private func categoryColor(_ cat: GearItem.GearCategory) -> Color {
         switch cat {
-        case .rod: return .brown
-        case .reel: return .gray
-        case .lure: return .green
-        case .bait: return .orange
-        case .line: return .blue
-        case .hook: return .red
-        case .terminal: return .purple
-        case .accessory: return .teal
+        case .rod: .brown
+        case .reel: .gray
+        case .lure: .green
+        case .bait: .orange
+        case .line: .blue
+        case .hook: .red
+        case .terminal: .purple
+        case .accessory: .teal
         }
     }
 }

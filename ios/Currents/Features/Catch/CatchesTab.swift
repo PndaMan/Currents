@@ -199,7 +199,7 @@ struct CatchRow: View {
     var body: some View {
         HStack(spacing: 12) {
             // Photo thumbnail or species icon
-            if let photoPath = detail.catchRecord.photoPath,
+            if let photoPath = detail.catchRecord.allPhotoPaths.first,
                let image = PhotoManager.load(photoPath) {
                 Image(uiImage: image)
                     .resizable()

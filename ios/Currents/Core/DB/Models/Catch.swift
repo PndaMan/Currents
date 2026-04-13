@@ -13,6 +13,7 @@ struct Catch: Codable, Identifiable, Sendable {
     var weightKg: Double?
     var released: Bool
     var photoPath: String?
+    var photoPaths: String? // JSON array of filenames (multi-photo)
     var mlConfidence: Double?
     var mlTop3: String? // JSON encoded
     var forecastScoreAtCapture: Int?
@@ -34,6 +35,7 @@ struct Catch: Codable, Identifiable, Sendable {
         weightKg: Double? = nil,
         released: Bool = true,
         photoPath: String? = nil,
+        photoPaths: String? = nil,
         mlConfidence: Double? = nil,
         mlTop3: String? = nil,
         forecastScoreAtCapture: Int? = nil,
@@ -54,6 +56,7 @@ struct Catch: Codable, Identifiable, Sendable {
         self.weightKg = weightKg
         self.released = released
         self.photoPath = photoPath
+        self.photoPaths = photoPaths
         self.mlConfidence = mlConfidence
         self.mlTop3 = mlTop3
         self.forecastScoreAtCapture = forecastScoreAtCapture
@@ -68,6 +71,24 @@ struct Catch: Codable, Identifiable, Sendable {
 
 extension Catch: FetchableRecord, PersistableRecord {
     static let databaseTableName = "catch"
+}
+
+extension Catch {
+    /// All photo filenames for this catch (reads photoPaths JSON, falls back to photoPath).
+    var allPhotoPaths: [String] {
+        if let photoPaths, let data = photoPaths.data(using: .utf8),
+           let arr = try? JSONDecoder().decode([String].self, from: data) {
+            return arr
+        }
+        if let photoPath { return [photoPath] }
+        return []
+    }
+
+    /// Encode an array of filenames into the JSON photoPaths column.
+    static func encodePhotoPaths(_ paths: [String]) -> String? {
+        guard !paths.isEmpty else { return nil }
+        return try? String(data: JSONEncoder().encode(paths), encoding: .utf8)
+    }
 }
 
 extension Catch {

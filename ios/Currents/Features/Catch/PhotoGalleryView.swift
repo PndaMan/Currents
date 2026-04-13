@@ -5,8 +5,10 @@ struct PhotoGalleryView: View {
     @State private var catches: [CatchDetail] = []
     @State private var selectedDetail: CatchDetail?
 
-    private var catchesWithPhotos: [CatchDetail] {
-        catches.filter { $0.catchRecord.photoPath != nil }
+    private var photoCells: [(detail: CatchDetail, photoPath: String)] {
+        catches.flatMap { detail in
+            detail.catchRecord.allPhotoPaths.map { (detail: detail, photoPath: $0) }
+        }
     }
 
     private let columns = [
@@ -17,7 +19,7 @@ struct PhotoGalleryView: View {
 
     var body: some View {
         ScrollView {
-            if catchesWithPhotos.isEmpty {
+            if photoCells.isEmpty {
                 ContentUnavailableView(
                     "No Photos Yet",
                     systemImage: "photo.on.rectangle",
@@ -26,11 +28,11 @@ struct PhotoGalleryView: View {
                 .padding(.top, 100)
             } else {
                 LazyVGrid(columns: columns, spacing: 2) {
-                    ForEach(catchesWithPhotos, id: \.catchRecord.id) { detail in
-                        if let photoPath = detail.catchRecord.photoPath,
-                           let image = PhotoManager.load(photoPath) {
+                    ForEach(photoCells.indices, id: \.self) { index in
+                        let cell = photoCells[index]
+                        if let image = PhotoManager.load(cell.photoPath) {
                             Button {
-                                selectedDetail = detail
+                                selectedDetail = cell.detail
                             } label: {
                                 Image(uiImage: image)
                                     .resizable()
@@ -39,7 +41,7 @@ struct PhotoGalleryView: View {
                                     .aspectRatio(1, contentMode: .fill)
                                     .clipped()
                                     .overlay(alignment: .bottomLeading) {
-                                        if let species = detail.species?.commonName {
+                                        if let species = cell.detail.species?.commonName {
                                             Text(species)
                                                 .font(.caption2.bold())
                                                 .padding(4)

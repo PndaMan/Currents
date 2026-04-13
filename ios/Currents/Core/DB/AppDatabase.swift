@@ -198,6 +198,30 @@ final class AppDatabase: Sendable {
             try db.create(indexOn: "gearCatalog", columns: ["category"])
         }
 
+        migrator.registerMigration("v4_multi_photo_owned_gear") { db in
+            // Multi-photo: add photoPaths JSON column
+            try db.alter(table: "catch") { t in
+                t.add(column: "photoPaths", .text)
+            }
+
+            // Migrate existing single photoPath into photoPaths JSON array
+            try db.execute(sql: """
+                UPDATE "catch" SET photoPaths = '[\"' || replace(photoPath, '\"', '\\\"') || '\"]'
+                WHERE photoPath IS NOT NULL
+                """)
+
+            // Individual gear items the user owns (mix-and-match)
+            try db.create(table: "ownedGear") { t in
+                t.primaryKey("id", .text)
+                t.column("category", .text).notNull()
+                t.column("name", .text).notNull()
+                t.column("brand", .text)
+                t.column("specs", .text)
+                t.column("createdAt", .datetime).notNull()
+            }
+            try db.create(indexOn: "ownedGear", columns: ["category"])
+        }
+
         return migrator
     }
 }
