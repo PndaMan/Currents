@@ -22,6 +22,9 @@ targets:
         excludes:
           - "Resources/**"
       - path: Currents/Resources/Assets.xcassets
+      - path: Currents/Resources/Data
+        type: folder
+        buildPhase: resources
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.currents.app

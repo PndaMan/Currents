@@ -139,9 +139,9 @@ struct MapTab: View {
                 .padding(.top, 60)
                 .padding(.trailing, 12)
 
-                // Search overlay
-                VStack {
-                    HStack {
+                // Search overlay — pinned to top
+                VStack(spacing: 4) {
+                    HStack(spacing: 8) {
                         Image(systemName: "magnifyingglass")
                             .foregroundStyle(.secondary)
                         TextField("Search dams, rivers, places...", text: $searchText)
@@ -158,11 +158,12 @@ struct MapTab: View {
                             }
                         }
                     }
-                    .padding(10)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
                     .background(.ultraThinMaterial)
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .clipShape(RoundedRectangle(cornerRadius: CurrentsTheme.cornerRadius))
+                    .shadow(color: .black.opacity(0.15), radius: 8, y: 2)
                     .padding(.horizontal)
-                    .padding(.top, 50)
 
                     if !searchResults.isEmpty {
                         ScrollView {
@@ -170,7 +171,7 @@ struct MapTab: View {
                                 ForEach(searchResults, id: \.self) { item in
                                     Button {
                                         if let coord = item.placemark.location?.coordinate {
-                                            position = .camera(.init(centerCoordinate: coord, distance: 10000))
+                                            position = .camera(.init(centerCoordinate: coord, distance: 2000))
                                         }
                                         searchResults = []
                                         searchText = item.name ?? ""
@@ -194,7 +195,7 @@ struct MapTab: View {
                                 }
                             }
                             .background(.ultraThinMaterial)
-                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                            .clipShape(RoundedRectangle(cornerRadius: CurrentsTheme.cornerRadius))
                         }
                         .frame(maxHeight: 200)
                         .padding(.horizontal)
@@ -202,6 +203,7 @@ struct MapTab: View {
 
                     Spacer()
                 }
+                .frame(maxWidth: .infinity, alignment: .top)
 
                 // Bottom bar
                 VStack {

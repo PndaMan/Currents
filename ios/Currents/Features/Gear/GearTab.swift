@@ -238,7 +238,7 @@ struct AddOwnedGearSheet: View {
                 Section("Type") {
                     Picker("Category", selection: $category) {
                         ForEach(OwnedGear.Category.allCases, id: \.self) { cat in
-                            Label(cat.rawValue, systemImage: cat.icon).tag(cat)
+                            Text(cat.rawValue).tag(cat)
                         }
                     }
                 }
