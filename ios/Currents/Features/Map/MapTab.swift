@@ -26,6 +26,8 @@ struct MapTab: View {
     @State private var searchText = ""
     @State private var searchResults: [MKMapItem] = []
     @State private var isSearching = false
+    @State private var searchDebounceTask: Task<Void, Never>?
+    @State private var needsRefresh = false
 
     enum MapStyleOption: String, CaseIterable {
         case standard = "Standard"
@@ -147,6 +149,18 @@ struct MapTab: View {
                         TextField("Search dams, rivers, places...", text: $searchText)
                             .textFieldStyle(.plain)
                             .onSubmit { performSearch() }
+                            .onChange(of: searchText) { _, newValue in
+                                searchDebounceTask?.cancel()
+                                if newValue.isEmpty {
+                                    searchResults = []
+                                    return
+                                }
+                                searchDebounceTask = Task {
+                                    try? await Task.sleep(for: .milliseconds(300))
+                                    guard !Task.isCancelled else { return }
+                                    performSearch()
+                                }
+                            }
                         if isSearching {
                             ProgressView()
                                 .controlSize(.small)
@@ -176,15 +190,28 @@ struct MapTab: View {
                                         searchResults = []
                                         searchText = item.name ?? ""
                                     } label: {
-                                        VStack(alignment: .leading, spacing: 2) {
-                                            Text(item.name ?? "Unknown")
-                                                .font(.subheadline)
-                                                .foregroundStyle(.primary)
-                                            if let subtitle = item.placemark.title {
-                                                Text(subtitle)
-                                                    .font(.caption)
+                                        HStack(spacing: 8) {
+                                            Image(systemName: "mappin.circle.fill")
+                                                .foregroundStyle(.red)
+                                                .font(.caption)
+                                            VStack(alignment: .leading, spacing: 2) {
+                                                Text(item.name ?? "Unknown")
+                                                    .font(.subheadline)
+                                                    .foregroundStyle(.primary)
+                                                if let subtitle = item.placemark.title {
+                                                    Text(subtitle)
+                                                        .font(.caption)
+                                                        .foregroundStyle(.secondary)
+                                                        .lineLimit(1)
+                                                }
+                                            }
+                                            Spacer()
+                                            if let itemLocation = item.placemark.location,
+                                               let userLocation = appState.locationManager.currentLocation {
+                                                let distKm = itemLocation.distance(from: userLocation) / 1000
+                                                Text(distKm < 100 ? String(format: "%.0f km", distKm) : String(format: "%.0f km", distKm))
+                                                    .font(.caption2)
                                                     .foregroundStyle(.secondary)
-                                                    .lineLimit(1)
                                             }
                                         }
                                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -197,12 +224,13 @@ struct MapTab: View {
                             .background(.ultraThinMaterial)
                             .clipShape(RoundedRectangle(cornerRadius: CurrentsTheme.cornerRadius))
                         }
-                        .frame(maxHeight: 200)
+                        .frame(maxHeight: 250)
                         .padding(.horizontal)
                     }
 
                     Spacer()
                 }
+                .padding(.top, 4)
                 .frame(maxWidth: .infinity, alignment: .top)
 
                 // Bottom bar
@@ -258,12 +286,16 @@ struct MapTab: View {
                     .padding(.bottom, 8)
                 }
             }
-            .sheet(item: $selectedSpot) { spot in
+            .sheet(item: $selectedSpot, onDismiss: {
+                Task { await loadData() }
+            }) { spot in
                 SpotDetailSheet(spot: spot)
                     .presentationDetents([.medium, .large])
                     .presentationBackground(.ultraThinMaterial)
             }
-            .sheet(isPresented: $showingAddSpot) {
+            .sheet(isPresented: $showingAddSpot, onDismiss: {
+                Task { await loadData() }
+            }) {
                 AddSpotSheet()
                     .presentationDetents([.medium])
                     .presentationBackground(.ultraThinMaterial)
@@ -284,7 +316,9 @@ struct MapTab: View {
             .sheet(item: Binding(
                 get: { inspectorCoordinate.map { IdentifiableCoordinate(coord: $0) } },
                 set: { inspectorCoordinate = $0?.coord }
-            )) { wrapper in
+            ), onDismiss: {
+                Task { await loadData() }
+            }) { wrapper in
                 LocationInspectorSheet(coordinate: wrapper.coord)
                     .presentationDetents([.medium, .large])
                     .presentationBackground(.ultraThinMaterial)
@@ -330,10 +364,30 @@ struct MapTab: View {
         // Prefer natural features (dams, rivers, lakes)
         request.resultTypes = [.pointOfInterest, .address]
 
+        // Bias results toward user's current location
+        if let userLocation = appState.locationManager.currentLocation {
+            request.region = MKCoordinateRegion(
+                center: userLocation.coordinate,
+                latitudinalMeters: 200_000,
+                longitudinalMeters: 200_000
+            )
+        }
+
         Task {
             let search = MKLocalSearch(request: request)
             let response = try? await search.start()
-            searchResults = response?.mapItems ?? []
+            var items = response?.mapItems ?? []
+
+            // Sort by distance from user (closer first)
+            if let userLocation = appState.locationManager.currentLocation {
+                items.sort { a, b in
+                    let distA = a.placemark.location?.distance(from: userLocation) ?? .greatestFiniteMagnitude
+                    let distB = b.placemark.location?.distance(from: userLocation) ?? .greatestFiniteMagnitude
+                    return distA < distB
+                }
+            }
+
+            searchResults = items
             isSearching = false
         }
     }

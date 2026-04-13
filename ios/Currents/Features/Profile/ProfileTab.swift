@@ -6,8 +6,13 @@ import UniformTypeIdentifiers
 struct ProfileTab: View {
     @Environment(AppState.self) private var appState
     @State private var totalCatches = 0
+    @State private var totalSpots = 0
+    @State private var catches: [CatchDetail] = []
     @State private var speciesCounts: [(speciesId: Int64, commonName: String, count: Int)] = []
     @State private var mapRegions: [OfflineRegion] = []
+    @State private var previousBadgeCount = 0
+    @State private var newBadgeTitle: String?
+    @State private var showBadgeToast = false
     @State private var exportURL: URL?
     @State private var isBackingUp = false
     @State private var isRestoring = false
@@ -39,9 +44,18 @@ struct ProfileTab: View {
                     HStack {
                         StatCard(value: "\(totalCatches)", label: "Catches", icon: "fish.fill")
                         StatCard(value: "\(speciesCounts.count)", label: "Species", icon: "leaf.fill")
+                        StatCard(value: "\(totalSpots)", label: "Spots", icon: "mappin.circle.fill")
                     }
                     .listRowBackground(Color.clear)
                     .listRowInsets(EdgeInsets())
+                }
+
+                // Badges
+                Section("Badges") {
+                    BadgesGridView(catches: catches)
+                        .listRowBackground(Color.clear)
+                        .listRowInsets(EdgeInsets())
+                        .padding(.horizontal)
                 }
 
                 // Species breakdown chart
@@ -205,7 +219,9 @@ struct ProfileTab: View {
             }
             .navigationTitle("Profile")
             .task {
-                totalCatches = (try? appState.catchRepository.totalCount()) ?? 0
+                catches = (try? appState.catchRepository.fetchAll(limit: 10000)) ?? []
+                totalCatches = catches.count
+                totalSpots = ((try? appState.spotRepository.fetchAll()) ?? []).count
                 speciesCounts = (try? appState.catchRepository.speciesCounts()) ?? []
                 appState.mapManager.refreshDownloadedRegions()
                 mapRegions = appState.mapManager.downloadedRegions
@@ -214,6 +230,23 @@ struct ProfileTab: View {
                     lastBackupDate = await CloudBackup.shared.lastBackupDate
                 }
                 dbSize = await FileBackup.shared.databaseSize
+
+                // Track badge count for new-badge notification
+                let streakDays = BadgeDefinition.streakDays(from: catches)
+                let allBadges = BadgeDefinition.compute(from: catches, streakDays: streakDays)
+                let earnedCount = allBadges.filter(\.earned).count
+                if previousBadgeCount > 0 && earnedCount > previousBadgeCount {
+                    // A new badge was earned
+                    if let newest = allBadges.filter(\.earned).last {
+                        newBadgeTitle = newest.title
+                        showBadgeToast = true
+                        Task {
+                            try? await Task.sleep(for: .seconds(3))
+                            withAnimation { showBadgeToast = false }
+                        }
+                    }
+                }
+                previousBadgeCount = earnedCount
             }
             .sheet(item: $exportURL) { url in
                 ShareSheet(url: url)
@@ -230,6 +263,32 @@ struct ProfileTab: View {
             .sheet(isPresented: $showingFilePicker) {
                 DocumentPicker { url in
                     importFromFile(url)
+                }
+            }
+            .overlay(alignment: .top) {
+                if showBadgeToast, let title = newBadgeTitle {
+                    HStack(spacing: 10) {
+                        Image(systemName: "trophy.fill")
+                            .font(.title3)
+                            .foregroundStyle(.yellow)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Badge Earned!")
+                                .font(.caption.bold())
+                            Text(title)
+                                .font(.subheadline.bold())
+                        }
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 12)
+                    .background(.ultraThinMaterial)
+                    .clipShape(RoundedRectangle(cornerRadius: 16))
+                    .shadow(color: .black.opacity(0.2), radius: 10, y: 4)
+                    .padding(.top, 60)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .animation(.spring(duration: 0.4), value: showBadgeToast)
+                    .onTapGesture {
+                        withAnimation { showBadgeToast = false }
+                    }
                 }
             }
             .alert("Restore from Backup?", isPresented: $showingRestoreConfirm) {

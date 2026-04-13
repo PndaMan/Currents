@@ -1,6 +1,7 @@
 import SwiftUI
 import PhotosUI
 import MapKit
+import ImageIO
 
 struct LogCatchView: View {
     @Environment(AppState.self) private var appState
@@ -452,17 +453,39 @@ struct LogCatchView: View {
     private func loadPhotos(_ items: [PhotosPickerItem]) {
         Task {
             var newImages: [UIImage] = []
+            var extractedDate: Date?
             for item in items {
                 if let data = try? await item.loadTransferable(type: Data.self),
                    let uiImage = UIImage(data: data) {
                     newImages.append(uiImage)
+                    // Extract EXIF date from first photo
+                    if extractedDate == nil {
+                        extractedDate = Self.extractDateFromEXIF(data: data)
+                    }
                 }
             }
             capturedImages = newImages
+            if let date = extractedDate {
+                caughtAt = date
+            }
             if let first = newImages.first {
                 classifyImage(first)
             }
         }
+    }
+
+    private static func extractDateFromEXIF(data: Data) -> Date? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+              let exif = properties[kCGImagePropertyExifDictionary] as? [CFString: Any],
+              let dateString = exif[kCGImagePropertyExifDateTimeOriginal] as? String
+                ?? exif[kCGImagePropertyExifDateTimeDigitized] as? String else {
+            return nil
+        }
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy:MM:dd HH:mm:ss"
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        return formatter.date(from: dateString)
     }
 
     private func classifyImage(_ image: UIImage) {
@@ -520,27 +543,8 @@ struct LogCatchView: View {
             isInSpawningZone: false
         )
 
-        // If custom gear fields are filled but no loadout selected, create one
-        var gearId = selectedGearId
-        let rod = gearRod == "__custom__" ? "" : gearRod
-        let reel = gearReel == "__custom__" ? "" : gearReel
-        let lure = gearLure == "__custom__" ? "" : gearLure
-        let hasCustomGear = !rod.isEmpty || !reel.isEmpty || !lure.isEmpty || !gearTechnique.isEmpty
-        if gearId == nil && hasCustomGear {
-            let name = [rod, lure, gearTechnique]
-                .filter { !$0.isEmpty }
-                .joined(separator: " + ")
-            var loadout = GearLoadout(
-                name: name.isEmpty ? "Quick Setup" : name,
-                rod: rod.isEmpty ? nil : rod,
-                reel: reel.isEmpty ? nil : reel,
-                lure: lure.isEmpty ? nil : lure,
-                lureColor: gearLureColor.isEmpty ? nil : gearLureColor,
-                technique: gearTechnique.isEmpty ? nil : gearTechnique
-            )
-            try? appState.gearRepository.save(&loadout)
-            gearId = loadout.id
-        }
+        // Use the selected loadout preset if one was chosen; do NOT auto-create presets
+        let gearId = selectedGearId
 
         var catchRecord = Catch(
             id: catchId,
@@ -590,12 +594,14 @@ struct LogCatchView: View {
 
 struct LocationPickerSheet: View {
     @Binding var coordinate: CLLocationCoordinate2D?
+    @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss
     @State private var cameraPosition: MapCameraPosition = .userLocation(fallback: .automatic)
     @State private var pinPosition: CLLocationCoordinate2D?
     @State private var searchText = ""
     @State private var searchResults: [MKMapItem] = []
     @State private var isSearching = false
+    @State private var searchDebounceTask: Task<Void, Never>?
 
     var body: some View {
         NavigationStack {
@@ -634,6 +640,18 @@ struct LocationPickerSheet: View {
                         TextField("Search location...", text: $searchText)
                             .textFieldStyle(.plain)
                             .onSubmit { performSearch() }
+                            .onChange(of: searchText) { _, newValue in
+                                searchDebounceTask?.cancel()
+                                if newValue.isEmpty {
+                                    searchResults = []
+                                    return
+                                }
+                                searchDebounceTask = Task {
+                                    try? await Task.sleep(for: .milliseconds(300))
+                                    guard !Task.isCancelled else { return }
+                                    performSearch()
+                                }
+                            }
                         if isSearching {
                             ProgressView()
                                 .controlSize(.small)
@@ -716,19 +734,32 @@ struct LocationPickerSheet: View {
         isSearching = true
         let request = MKLocalSearch.Request()
         request.naturalLanguageQuery = searchText
-        if let region = {
-            if let pin = pinPosition {
-                return MKCoordinateRegion(center: pin, latitudinalMeters: 100_000, longitudinalMeters: 100_000)
-            }
-            return nil as MKCoordinateRegion?
-        }() {
-            request.region = region
+        request.resultTypes = [.pointOfInterest, .address]
+
+        // Bias toward pin position or user location
+        if let pin = pinPosition {
+            request.region = MKCoordinateRegion(center: pin, latitudinalMeters: 200_000, longitudinalMeters: 200_000)
+        } else if let userLocation = appState.locationManager.currentLocation {
+            request.region = MKCoordinateRegion(center: userLocation.coordinate, latitudinalMeters: 200_000, longitudinalMeters: 200_000)
         }
 
         Task {
             let search = MKLocalSearch(request: request)
             let response = try? await search.start()
-            searchResults = response?.mapItems ?? []
+            var items = response?.mapItems ?? []
+
+            // Sort by distance from reference point
+            let refLocation = pinPosition.map { CLLocation(latitude: $0.latitude, longitude: $0.longitude) }
+                ?? appState.locationManager.currentLocation
+            if let ref = refLocation {
+                items.sort { a, b in
+                    let distA = a.placemark.location?.distance(from: ref) ?? .greatestFiniteMagnitude
+                    let distB = b.placemark.location?.distance(from: ref) ?? .greatestFiniteMagnitude
+                    return distA < distB
+                }
+            }
+
+            searchResults = items
             isSearching = false
         }
     }

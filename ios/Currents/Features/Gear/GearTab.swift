@@ -8,6 +8,8 @@ struct GearTab: View {
     @State private var showingAddItem = false
     @State private var showingAddLoadout = false
     @State private var selectedLoadout: GearLoadout?
+    @State private var editingOwnedGear: OwnedGear?
+    @State private var editingLoadout: GearLoadout?
     @State private var viewMode: ViewMode = .items
 
     enum ViewMode: String, CaseIterable {
@@ -55,17 +57,36 @@ struct GearTab: View {
                     }
                 }
             }
-            .sheet(isPresented: $showingAddItem) {
+            .sheet(isPresented: $showingAddItem, onDismiss: {
+                Task { await refresh() }
+            }) {
                 AddOwnedGearSheet()
                     .presentationBackground(.ultraThinMaterial)
             }
-            .sheet(isPresented: $showingAddLoadout) {
+            .sheet(isPresented: $showingAddLoadout, onDismiss: {
+                Task { await refresh() }
+            }) {
                 AddGearSheet()
                     .presentationBackground(.ultraThinMaterial)
             }
             .sheet(item: $selectedLoadout) { loadout in
-                GearDetailSheet(loadout: loadout)
+                GearDetailSheet(loadout: loadout, onEdit: { edited in
+                    editingLoadout = edited
+                    selectedLoadout = nil
+                })
                     .presentationDetents([.medium, .large])
+                    .presentationBackground(.ultraThinMaterial)
+            }
+            .sheet(item: $editingOwnedGear, onDismiss: {
+                Task { await refresh() }
+            }) { gear in
+                EditOwnedGearSheet(gear: gear)
+                    .presentationBackground(.ultraThinMaterial)
+            }
+            .sheet(item: $editingLoadout, onDismiss: {
+                Task { await refresh() }
+            }) { loadout in
+                EditLoadoutSheet(loadout: loadout)
                     .presentationBackground(.ultraThinMaterial)
             }
             .task { await refresh() }
@@ -96,20 +117,29 @@ struct GearTab: View {
                     ForEach(gearByCategory, id: \.0) { category, items in
                         Section {
                             ForEach(items) { item in
-                                HStack(spacing: 12) {
-                                    Image(systemName: category.icon)
-                                        .foregroundStyle(categoryColor(category))
-                                        .frame(width: 24)
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(item.displayName)
-                                            .font(.subheadline.bold())
-                                        if let specs = item.specs {
-                                            Text(specs)
-                                                .font(.caption)
-                                                .foregroundStyle(.secondary)
+                                Button {
+                                    editingOwnedGear = item
+                                } label: {
+                                    HStack(spacing: 12) {
+                                        Image(systemName: category.icon)
+                                            .foregroundStyle(categoryColor(category))
+                                            .frame(width: 24)
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(item.displayName)
+                                                .font(.subheadline.bold())
+                                            if let specs = item.specs {
+                                                Text(specs)
+                                                    .font(.caption)
+                                                    .foregroundStyle(.secondary)
+                                            }
                                         }
+                                        Spacer()
+                                        Image(systemName: "chevron.right")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
                                     }
                                 }
+                                .tint(.primary)
                                 .padding(.vertical, 2)
                             }
                             .onDelete { offsets in
@@ -512,6 +542,7 @@ struct AddGearSheet: View {
 
 struct GearDetailSheet: View {
     let loadout: GearLoadout
+    var onEdit: ((GearLoadout) -> Void)?
 
     var body: some View {
         NavigationStack {
@@ -522,6 +553,165 @@ struct GearDetailSheet: View {
             }
             .navigationTitle(loadout.name)
             .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                if let onEdit {
+                    ToolbarItem(placement: .primaryAction) {
+                        Button("Edit") {
+                            onEdit(loadout)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Edit Owned Gear Sheet
+
+struct EditOwnedGearSheet: View {
+    @Environment(AppState.self) private var appState
+    @Environment(\.dismiss) private var dismiss
+
+    let gear: OwnedGear
+    @State private var category: OwnedGear.Category
+    @State private var name: String
+    @State private var brand: String
+    @State private var specs: String
+
+    init(gear: OwnedGear) {
+        self.gear = gear
+        _category = State(initialValue: gear.category)
+        _name = State(initialValue: gear.name)
+        _brand = State(initialValue: gear.brand ?? "")
+        _specs = State(initialValue: gear.specs ?? "")
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Type") {
+                    Picker("Category", selection: $category) {
+                        ForEach(OwnedGear.Category.allCases, id: \.self) { cat in
+                            Text(cat.rawValue).tag(cat)
+                        }
+                    }
+                }
+                Section("Details") {
+                    TextField("Name", text: $name)
+                    TextField("Brand (optional)", text: $brand)
+                    TextField("Specs / Notes (optional)", text: $specs)
+                }
+            }
+            .navigationTitle("Edit Gear")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        var updated = gear
+                        updated.category = category
+                        updated.name = name
+                        updated.brand = brand.isEmpty ? nil : brand
+                        updated.specs = specs.isEmpty ? nil : specs
+                        try? appState.ownedGearRepository.save(&updated)
+                        dismiss()
+                    }
+                    .disabled(name.isEmpty)
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Edit Loadout Preset Sheet
+
+struct EditLoadoutSheet: View {
+    @Environment(AppState.self) private var appState
+    @Environment(\.dismiss) private var dismiss
+
+    let loadout: GearLoadout
+    @State private var name: String
+    @State private var rod: String
+    @State private var reel: String
+    @State private var lineLb: String
+    @State private var leaderLb: String
+    @State private var lure: String
+    @State private var lureColor: String
+    @State private var lureWeightG: String
+    @State private var technique: String
+
+    init(loadout: GearLoadout) {
+        self.loadout = loadout
+        _name = State(initialValue: loadout.name)
+        _rod = State(initialValue: loadout.rod ?? "")
+        _reel = State(initialValue: loadout.reel ?? "")
+        _lineLb = State(initialValue: loadout.lineLb.map { String($0) } ?? "")
+        _leaderLb = State(initialValue: loadout.leaderLb.map { String($0) } ?? "")
+        _lure = State(initialValue: loadout.lure ?? "")
+        _lureColor = State(initialValue: loadout.lureColor ?? "")
+        _lureWeightG = State(initialValue: loadout.lureWeightG.map { String($0) } ?? "")
+        _technique = State(initialValue: loadout.technique ?? "")
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Name") {
+                    TextField("Preset name", text: $name)
+                }
+                Section("Rod & Reel") {
+                    TextField("Rod", text: $rod)
+                    TextField("Reel", text: $reel)
+                    HStack {
+                        TextField("Line", text: $lineLb)
+                            .keyboardType(.decimalPad)
+                        Text("lb").foregroundStyle(.secondary)
+                    }
+                    HStack {
+                        TextField("Leader", text: $leaderLb)
+                            .keyboardType(.decimalPad)
+                        Text("lb").foregroundStyle(.secondary)
+                    }
+                }
+                Section("Lure / Bait") {
+                    TextField("Lure / Bait", text: $lure)
+                    TextField("Color", text: $lureColor)
+                    HStack {
+                        TextField("Weight", text: $lureWeightG)
+                            .keyboardType(.decimalPad)
+                        Text("g").foregroundStyle(.secondary)
+                    }
+                }
+                Section("Technique") {
+                    TextField("e.g. Drop shot, Carolina rig", text: $technique)
+                }
+            }
+            .navigationTitle("Edit Preset")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        var updated = loadout
+                        updated.name = name
+                        updated.rod = rod.isEmpty ? nil : rod
+                        updated.reel = reel.isEmpty ? nil : reel
+                        updated.lineLb = Double(lineLb)
+                        updated.leaderLb = Double(leaderLb)
+                        updated.lure = lure.isEmpty ? nil : lure
+                        updated.lureColor = lureColor.isEmpty ? nil : lureColor
+                        updated.lureWeightG = Double(lureWeightG)
+                        updated.technique = technique.isEmpty ? nil : technique
+                        try? appState.gearRepository.save(&updated)
+                        dismiss()
+                    }
+                    .disabled(name.isEmpty)
+                }
+            }
         }
     }
 }
