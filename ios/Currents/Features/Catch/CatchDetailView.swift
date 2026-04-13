@@ -7,6 +7,9 @@ struct CatchDetailView: View {
     var detail: CatchDetail
     @State private var showingDeleteConfirm = false
     @State private var showingEdit = false
+    @State private var isGeneratingShareCard = false
+    @State private var shareImage: UIImage?
+    @State private var showingShareSheet = false
 
     var body: some View {
         ScrollView {
@@ -57,23 +60,38 @@ struct CatchDetailView: View {
                     }
                 }
 
-                // Location map
-                locationCard
+                // Location + Conditions side by side
+                HStack(spacing: 12) {
+                    // Location map
+                    VStack(alignment: .leading, spacing: 6) {
+                        locationCard
 
-                // Spot
-                if let spot = detail.spot {
-                    HStack {
-                        Image(systemName: "mappin.circle.fill")
-                            .foregroundStyle(.blue)
-                        VStack(alignment: .leading) {
-                            Text(spot.name)
-                                .font(.headline)
-                            Text(String(format: "%.4f, %.4f", spot.latitude, spot.longitude))
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                        if let spot = detail.spot {
+                            HStack(spacing: 4) {
+                                Image(systemName: "mappin.circle.fill")
+                                    .foregroundStyle(.blue)
+                                    .font(.caption)
+                                Text(spot.name)
+                                    .font(.caption.bold())
+                                    .lineLimit(1)
+                            }
                         }
                     }
-                    .glassCard()
+                    .frame(maxWidth: .infinity)
+
+                    // Forecast at capture
+                    if let score = detail.catchRecord.forecastScoreAtCapture {
+                        VStack(spacing: 8) {
+                            ScoreGauge(score: score, label: "", size: 56)
+                            Text("Bite Score")
+                                .font(.caption2.bold())
+                            Text("at catch time")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                        .frame(width: 100)
+                        .glassCard()
+                    }
                 }
 
                 // Gear
@@ -83,19 +101,6 @@ struct CatchDetailView: View {
                             .font(.headline)
                         Text(gear.name).font(.subheadline.bold())
                         GearDetailGrid(loadout: gear)
-                    }
-                    .glassCard()
-                }
-
-                // Forecast at capture
-                if let score = detail.catchRecord.forecastScoreAtCapture {
-                    HStack {
-                        ScoreGauge(score: score, label: "Forecast")
-                        VStack(alignment: .leading) {
-                            Text("Conditions at catch time")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
                     }
                     .glassCard()
                 }
@@ -127,19 +132,32 @@ struct CatchDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
-                Menu {
+                HStack(spacing: 12) {
                     Button {
-                        showingEdit = true
+                        generateShareCard()
                     } label: {
-                        Label("Edit Catch", systemImage: "pencil")
+                        if isGeneratingShareCard {
+                            ProgressView()
+                        } else {
+                            Image(systemName: "square.and.arrow.up")
+                        }
                     }
-                    Button(role: .destructive) {
-                        showingDeleteConfirm = true
+                    .disabled(isGeneratingShareCard)
+
+                    Menu {
+                        Button {
+                            showingEdit = true
+                        } label: {
+                            Label("Edit Catch", systemImage: "pencil")
+                        }
+                        Button(role: .destructive) {
+                            showingDeleteConfirm = true
+                        } label: {
+                            Label("Delete Catch", systemImage: "trash")
+                        }
                     } label: {
-                        Label("Delete Catch", systemImage: "trash")
+                        Image(systemName: "ellipsis.circle")
                     }
-                } label: {
-                    Image(systemName: "ellipsis.circle")
                 }
             }
         }
@@ -159,6 +177,28 @@ struct CatchDetailView: View {
                     try? appState.catchRepository.save(&record)
                 }
             )
+        }
+        .sheet(isPresented: $showingShareSheet) {
+            if let shareImage {
+                ImageShareSheet(image: shareImage)
+            }
+        }
+    }
+
+    private func generateShareCard() {
+        isGeneratingShareCard = true
+        Task {
+            guard let photoPath = detail.catchRecord.allPhotoPaths.first,
+                  let photo = PhotoManager.load(photoPath) else {
+                isGeneratingShareCard = false
+                return
+            }
+
+            if let card = await CatchShareCard.render(detail: detail, photo: photo) {
+                shareImage = card
+                showingShareSheet = true
+            }
+            isGeneratingShareCard = false
         }
     }
 
@@ -239,10 +279,26 @@ struct EditCatchSheet: View {
     @State private var selectedGearId: String?
     @State private var showingSpeciesPicker = false
 
+    // Individual gear fields (matching LogCatchView)
+    @State private var gearRod = ""
+    @State private var gearReel = ""
+    @State private var gearLure = ""
+    @State private var gearLureColor = ""
+    @State private var gearTechnique = ""
+    @State private var showGearDetails = false
+
     @State private var allSpecies: [Species] = []
     @State private var allSpots: [Spot] = []
     @State private var allGear: [GearLoadout] = []
     @State private var allTrips: [Trip] = []
+    @State private var ownedGear: [OwnedGear] = []
+
+    private let techniques = [
+        "Drop Shot", "Carolina Rig", "Texas Rig", "Jigging", "Trolling",
+        "Topwater", "Crankbait", "Spinnerbait", "Fly Fishing", "Live Bait",
+        "Bottom Fishing", "Cast & Retrieve", "Slow Roll", "Finesse",
+        "Power Fishing", "Sight Fishing", "Drift Fishing", "Vertical Jigging"
+    ]
 
     var body: some View {
         NavigationStack {
@@ -312,10 +368,39 @@ struct EditCatchSheet: View {
                 }
 
                 Section("Gear") {
-                    Picker("Loadout", selection: $selectedGearId) {
-                        Text("None").tag(nil as String?)
+                    DisclosureGroup("Pick Gear", isExpanded: $showGearDetails) {
+                        editGearPicker(category: .rod, selection: $gearRod, placeholder: "Rod")
+                        editGearPicker(category: .reel, selection: $gearReel, placeholder: "Reel")
+                        editGearPicker(category: .lure, selection: $gearLure, placeholder: "Lure / Bait")
+
+                        if !gearLure.isEmpty {
+                            TextField("Lure Color", text: $gearLureColor)
+                        }
+
+                        let ownedTechniques = ownedGear.filter { $0.category == .technique }.map(\.name)
+                        let allTechniques = Array(Set(ownedTechniques + techniques)).sorted()
+                        Picker("Technique", selection: $gearTechnique) {
+                            Text("None").tag("")
+                            ForEach(allTechniques, id: \.self) { t in
+                                Text(t).tag(t)
+                            }
+                        }
+                    }
+
+                    Picker("Loadout Preset", selection: $selectedGearId) {
+                        Text("Custom / None").tag(nil as String?)
                         ForEach(allGear) { loadout in
                             Text(loadout.name).tag(loadout.id as String?)
+                        }
+                    }
+                    .onChange(of: selectedGearId) { _, newId in
+                        if let loadout = allGear.first(where: { $0.id == newId }) {
+                            gearRod = loadout.rod ?? ""
+                            gearReel = loadout.reel ?? ""
+                            gearLure = loadout.lure ?? ""
+                            gearLureColor = loadout.lureColor ?? ""
+                            gearTechnique = loadout.technique ?? ""
+                            showGearDetails = true
                         }
                     }
                 }
@@ -337,7 +422,6 @@ struct EditCatchSheet: View {
                 }
             }
             .task {
-                // Pre-populate from existing catch
                 let c = detail.catchRecord
                 weight = c.weightKg.map { String(format: "%.2f", $0) } ?? ""
                 length = c.lengthCm.map { String(format: "%.1f", $0) } ?? ""
@@ -354,6 +438,16 @@ struct EditCatchSheet: View {
                 allSpots = (try? appState.spotRepository.fetchAll()) ?? []
                 allGear = (try? appState.gearRepository.fetchAll()) ?? []
                 allTrips = (try? appState.tripRepository.fetchAll()) ?? []
+                ownedGear = (try? appState.ownedGearRepository.fetchAll()) ?? []
+
+                // Pre-fill individual gear from loadout if set
+                if let loadout = detail.gearLoadout {
+                    gearRod = loadout.rod ?? ""
+                    gearReel = loadout.reel ?? ""
+                    gearLure = loadout.lure ?? ""
+                    gearLureColor = loadout.lureColor ?? ""
+                    gearTechnique = loadout.technique ?? ""
+                }
             }
             .sheet(isPresented: $showingSpeciesPicker) {
                 SpeciesPickerSheet(
@@ -361,6 +455,25 @@ struct EditCatchSheet: View {
                     selectedId: $selectedSpeciesId,
                     selectedName: $selectedSpeciesName
                 )
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func editGearPicker(category: OwnedGear.Category, selection: Binding<String>, placeholder: String) -> some View {
+        let items = ownedGear.filter { $0.category == category }
+        if items.isEmpty {
+            TextField(placeholder, text: selection)
+        } else {
+            Picker(placeholder, selection: selection) {
+                Text("None").tag("")
+                ForEach(items) { item in
+                    Text(item.displayName).tag(item.displayName)
+                }
+                Text("Custom...").tag("__custom__")
+            }
+            if selection.wrappedValue == "__custom__" {
+                TextField("Custom \(placeholder.lowercased())", text: selection)
             }
         }
     }

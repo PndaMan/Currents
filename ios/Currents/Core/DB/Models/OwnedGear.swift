@@ -23,13 +23,13 @@ struct OwnedGear: Codable, Identifiable, Sendable {
 
         var icon: String {
             switch self {
-            case .rod: "line.diagonal"
-            case .reel: "gearshape.fill"
-            case .lure: "fish.circle.fill"
-            case .line: "line.3.horizontal"
-            case .technique: "hand.raised.fill"
-            case .bait: "ant.fill"
-            case .hook: "arrow.turn.down.right"
+            case .rod: "lines.measurement.horizontal"
+            case .reel: "circle.circle"
+            case .lure: "fish.fill"
+            case .line: "water.waves"
+            case .technique: "figure.fishing"
+            case .bait: "ladybug.fill"
+            case .hook: "paperclip"
             case .accessory: "bag.fill"
             }
         }

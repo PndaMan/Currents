@@ -176,8 +176,17 @@ struct LogCatchView: View {
 
     @ViewBuilder
     private var mlSection: some View {
-        if !mlPredictions.isEmpty {
+        if isClassifying {
             Section("AI Fish ID") {
+                HStack(spacing: 10) {
+                    ProgressView()
+                    Text("Identifying fish...")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        } else if !mlPredictions.isEmpty {
+            Section {
                 ForEach(mlPredictions, id: \.species) { prediction in
                     Button {
                         let match = allSpecies.first {
@@ -204,6 +213,17 @@ struct LogCatchView: View {
                         }
                     }
                     .tint(.primary)
+                }
+            } header: {
+                HStack {
+                    Text("AI Fish ID")
+                    Spacer()
+                    Button("Re-scan") {
+                        if let first = capturedImages.first {
+                            classifyImage(first)
+                        }
+                    }
+                    .font(.caption)
                 }
             }
         }

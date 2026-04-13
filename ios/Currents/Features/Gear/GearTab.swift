@@ -409,13 +409,13 @@ struct GearCatalogRow: View {
 
     private func categoryIcon(_ cat: GearItem.GearCategory) -> String {
         switch cat {
-        case .rod: "line.diagonal"
-        case .reel: "gearshape.fill"
-        case .lure: "fish.circle.fill"
-        case .bait: "ant.fill"
-        case .line: "line.3.horizontal"
-        case .hook: "arrow.turn.down.right"
-        case .terminal: "paperclip"
+        case .rod: "lines.measurement.horizontal"
+        case .reel: "circle.circle"
+        case .lure: "fish.fill"
+        case .bait: "ladybug.fill"
+        case .line: "water.waves"
+        case .hook: "paperclip"
+        case .terminal: "link"
         case .accessory: "bag.fill"
         }
     }
@@ -446,13 +446,13 @@ struct GearLoadoutRow: View {
 
             HStack(spacing: 12) {
                 if let rod = loadout.rod {
-                    Label(rod, systemImage: "line.diagonal")
+                    Label(rod, systemImage: "lines.measurement.horizontal")
                 }
                 if let lure = loadout.lure {
-                    Label(lure, systemImage: "fish.circle")
+                    Label(lure, systemImage: "fish.fill")
                 }
                 if let technique = loadout.technique {
-                    Label(technique, systemImage: "hand.raised")
+                    Label(technique, systemImage: "figure.fishing")
                 }
             }
             .font(.caption)
@@ -475,6 +475,7 @@ struct AddGearSheet: View {
     @State private var lureColor = ""
     @State private var lureWeightG = ""
     @State private var technique = ""
+    @State private var ownedGear: [OwnedGear] = []
 
     var body: some View {
         NavigationStack {
@@ -483,8 +484,8 @@ struct AddGearSheet: View {
                     TextField("e.g. Bass Finesse Setup", text: $name)
                 }
                 Section("Rod & Reel") {
-                    TextField("Rod", text: $rod)
-                    TextField("Reel", text: $reel)
+                    loadoutGearPicker(category: .rod, selection: $rod, placeholder: "Rod")
+                    loadoutGearPicker(category: .reel, selection: $reel, placeholder: "Reel")
                     HStack {
                         TextField("Line", text: $lineLb)
                             .keyboardType(.decimalPad)
@@ -497,7 +498,7 @@ struct AddGearSheet: View {
                     }
                 }
                 Section("Lure / Bait") {
-                    TextField("Lure / Bait", text: $lure)
+                    loadoutGearPicker(category: .lure, selection: $lure, placeholder: "Lure / Bait")
                     TextField("Color", text: $lureColor)
                     HStack {
                         TextField("Weight", text: $lureWeightG)
@@ -506,7 +507,7 @@ struct AddGearSheet: View {
                     }
                 }
                 Section("Technique") {
-                    TextField("e.g. Drop shot, Carolina rig", text: $technique)
+                    loadoutGearPicker(category: .technique, selection: $technique, placeholder: "Technique")
                 }
             }
             .navigationTitle("New Loadout")
@@ -520,20 +521,46 @@ struct AddGearSheet: View {
                         .disabled(name.isEmpty)
                 }
             }
+            .task {
+                ownedGear = (try? appState.ownedGearRepository.fetchAll()) ?? []
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func loadoutGearPicker(category: OwnedGear.Category, selection: Binding<String>, placeholder: String) -> some View {
+        let items = ownedGear.filter { $0.category == category }
+        if items.isEmpty {
+            TextField(placeholder, text: selection)
+        } else {
+            Picker(placeholder, selection: selection) {
+                Text("None").tag("")
+                ForEach(items) { item in
+                    Text(item.displayName).tag(item.displayName)
+                }
+                Text("Custom...").tag("__custom__")
+            }
+            if selection.wrappedValue == "__custom__" {
+                TextField("Custom \(placeholder.lowercased())", text: selection)
+            }
         }
     }
 
     private func save() {
+        let cleanRod = rod == "__custom__" ? "" : rod
+        let cleanReel = reel == "__custom__" ? "" : reel
+        let cleanLure = lure == "__custom__" ? "" : lure
+        let cleanTechnique = technique == "__custom__" ? "" : technique
         var loadout = GearLoadout(
             name: name,
-            rod: rod.isEmpty ? nil : rod,
-            reel: reel.isEmpty ? nil : reel,
+            rod: cleanRod.isEmpty ? nil : cleanRod,
+            reel: cleanReel.isEmpty ? nil : cleanReel,
             lineLb: Double(lineLb),
             leaderLb: Double(leaderLb),
-            lure: lure.isEmpty ? nil : lure,
+            lure: cleanLure.isEmpty ? nil : cleanLure,
             lureColor: lureColor.isEmpty ? nil : lureColor,
             lureWeightG: Double(lureWeightG),
-            technique: technique.isEmpty ? nil : technique
+            technique: cleanTechnique.isEmpty ? nil : cleanTechnique
         )
         try? appState.gearRepository.save(&loadout)
         dismiss()
@@ -641,6 +668,7 @@ struct EditLoadoutSheet: View {
     @State private var lureColor: String
     @State private var lureWeightG: String
     @State private var technique: String
+    @State private var ownedGear: [OwnedGear] = []
 
     init(loadout: GearLoadout) {
         self.loadout = loadout
@@ -662,8 +690,8 @@ struct EditLoadoutSheet: View {
                     TextField("Preset name", text: $name)
                 }
                 Section("Rod & Reel") {
-                    TextField("Rod", text: $rod)
-                    TextField("Reel", text: $reel)
+                    loadoutGearPicker(category: .rod, selection: $rod, placeholder: "Rod")
+                    loadoutGearPicker(category: .reel, selection: $reel, placeholder: "Reel")
                     HStack {
                         TextField("Line", text: $lineLb)
                             .keyboardType(.decimalPad)
@@ -676,7 +704,7 @@ struct EditLoadoutSheet: View {
                     }
                 }
                 Section("Lure / Bait") {
-                    TextField("Lure / Bait", text: $lure)
+                    loadoutGearPicker(category: .lure, selection: $lure, placeholder: "Lure / Bait")
                     TextField("Color", text: $lureColor)
                     HStack {
                         TextField("Weight", text: $lureWeightG)
@@ -685,7 +713,7 @@ struct EditLoadoutSheet: View {
                     }
                 }
                 Section("Technique") {
-                    TextField("e.g. Drop shot, Carolina rig", text: $technique)
+                    loadoutGearPicker(category: .technique, selection: $technique, placeholder: "Technique")
                 }
             }
             .navigationTitle("Edit Preset")
@@ -698,19 +726,45 @@ struct EditLoadoutSheet: View {
                     Button("Save") {
                         var updated = loadout
                         updated.name = name
-                        updated.rod = rod.isEmpty ? nil : rod
-                        updated.reel = reel.isEmpty ? nil : reel
+                        let cleanRod = rod == "__custom__" ? "" : rod
+                        let cleanReel = reel == "__custom__" ? "" : reel
+                        let cleanLure = lure == "__custom__" ? "" : lure
+                        let cleanTechnique = technique == "__custom__" ? "" : technique
+                        updated.rod = cleanRod.isEmpty ? nil : cleanRod
+                        updated.reel = cleanReel.isEmpty ? nil : cleanReel
                         updated.lineLb = Double(lineLb)
                         updated.leaderLb = Double(leaderLb)
-                        updated.lure = lure.isEmpty ? nil : lure
+                        updated.lure = cleanLure.isEmpty ? nil : cleanLure
                         updated.lureColor = lureColor.isEmpty ? nil : lureColor
                         updated.lureWeightG = Double(lureWeightG)
-                        updated.technique = technique.isEmpty ? nil : technique
+                        updated.technique = cleanTechnique.isEmpty ? nil : cleanTechnique
                         try? appState.gearRepository.save(&updated)
                         dismiss()
                     }
                     .disabled(name.isEmpty)
                 }
+            }
+            .task {
+                ownedGear = (try? appState.ownedGearRepository.fetchAll()) ?? []
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func loadoutGearPicker(category: OwnedGear.Category, selection: Binding<String>, placeholder: String) -> some View {
+        let items = ownedGear.filter { $0.category == category }
+        if items.isEmpty {
+            TextField(placeholder, text: selection)
+        } else {
+            Picker(placeholder, selection: selection) {
+                Text("None").tag("")
+                ForEach(items) { item in
+                    Text(item.displayName).tag(item.displayName)
+                }
+                Text("Custom...").tag("__custom__")
+            }
+            if selection.wrappedValue == "__custom__" {
+                TextField("Custom \(placeholder.lowercased())", text: selection)
             }
         }
     }
