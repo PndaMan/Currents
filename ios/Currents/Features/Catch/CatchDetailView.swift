@@ -61,7 +61,7 @@ struct CatchDetailView: View {
                 }
 
                 // Location + Conditions side by side
-                HStack(spacing: 12) {
+                HStack(alignment: .top, spacing: 12) {
                     // Location map
                     VStack(alignment: .leading, spacing: 6) {
                         locationCard
@@ -79,18 +79,22 @@ struct CatchDetailView: View {
                     }
                     .frame(maxWidth: .infinity)
 
-                    // Forecast at capture
+                    // Forecast at capture — matched to map height
                     if let score = detail.catchRecord.forecastScoreAtCapture {
-                        VStack(spacing: 8) {
-                            ScoreGauge(score: score, label: "", size: 56)
+                        VStack(spacing: 10) {
+                            Spacer()
+                            ScoreGauge(score: score, label: "", size: 64)
                             Text("Bite Score")
-                                .font(.caption2.bold())
+                                .font(.caption.bold())
                             Text("at catch time")
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
+                            Spacer()
                         }
-                        .frame(width: 100)
-                        .glassCard()
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 186)
+                        .background(.ultraThinMaterial)
+                        .clipShape(RoundedRectangle(cornerRadius: CurrentsTheme.cornerRadius))
                     }
                 }
 

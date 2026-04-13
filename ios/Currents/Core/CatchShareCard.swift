@@ -9,12 +9,13 @@ enum CatchShareCard {
     static func render(detail: CatchDetail, photo: UIImage) async -> UIImage? {
         let cardWidth: CGFloat = 1080
         let cardHeight: CGFloat = 1350
+        let mapSize: CGFloat = 240
 
-        // Get a map snapshot for the location strip
+        // Get a map snapshot — square, zoomed in tight
         let mapSnapshot = await captureMapSnapshot(
             latitude: detail.catchRecord.latitude,
             longitude: detail.catchRecord.longitude,
-            size: CGSize(width: cardWidth, height: 200)
+            size: CGSize(width: mapSize * 2, height: mapSize * 2)
         )
 
         let renderer = UIGraphicsImageRenderer(size: CGSize(width: cardWidth, height: cardHeight))
@@ -54,45 +55,55 @@ enum CatchShareCard {
             cgCtx.drawLinearGradient(
                 topGradient,
                 start: CGPoint(x: 0, y: 0),
-                end: CGPoint(x: 0, y: 120),
+                end: CGPoint(x: 0, y: 140),
                 options: []
             )
 
-            // 3. App logo watermark (top-left)
+            // 3. App logo watermark (top-left) — 1.5x bigger
             drawWatermark(in: cgCtx, rect: rect)
 
-            // 4. Map strip (bottom area, above info)
-            let mapY = cardHeight - 460
+            // 4. Map square (bottom-right corner)
+            let mapMargin: CGFloat = 40
+            let mapRect = CGRect(
+                x: cardWidth - mapSize - mapMargin,
+                y: cardHeight - mapSize - mapMargin,
+                width: mapSize,
+                height: mapSize
+            )
             if let mapSnapshot {
-                let mapRect = CGRect(x: 40, y: mapY, width: cardWidth - 80, height: 160)
-                // Rounded rect clip
-                let mapPath = UIBezierPath(roundedRect: mapRect, cornerRadius: 16)
+                let mapPath = UIBezierPath(roundedRect: mapRect, cornerRadius: 20)
                 cgCtx.saveGState()
                 mapPath.addClip()
                 mapSnapshot.draw(in: mapRect)
                 cgCtx.restoreGState()
 
                 // Map border
-                UIColor.white.withAlphaComponent(0.3).setStroke()
-                mapPath.lineWidth = 2
+                UIColor.white.withAlphaComponent(0.4).setStroke()
+                mapPath.lineWidth = 3
                 mapPath.stroke()
 
                 // Pin icon in center of map
-                let pinRect = CGRect(x: mapRect.midX - 12, y: mapRect.midY - 24, width: 24, height: 24)
-                let pinConfig = UIImage.SymbolConfiguration(pointSize: 24, weight: .bold)
+                let pinSize: CGFloat = 32
+                let pinRect = CGRect(
+                    x: mapRect.midX - pinSize / 2,
+                    y: mapRect.midY - pinSize,
+                    width: pinSize,
+                    height: pinSize
+                )
+                let pinConfig = UIImage.SymbolConfiguration(pointSize: pinSize, weight: .bold)
                 if let pinImage = UIImage(systemName: "mappin.circle.fill", withConfiguration: pinConfig) {
-                    UIColor.red.setFill()
                     pinImage.withTintColor(.red, renderingMode: .alwaysOriginal).draw(in: pinRect)
                 }
             }
 
-            // 5. Info overlay at bottom
-            let infoY = cardHeight - 280
+            // 5. Info overlay at bottom-left (alongside map)
+            let infoWidth = cardWidth - mapSize - mapMargin * 2 - 20
+            let infoY = cardHeight - 340
             drawInfoSection(
                 in: cgCtx,
                 detail: detail,
                 at: CGPoint(x: 40, y: infoY),
-                width: cardWidth - 80
+                width: infoWidth
             )
         }
     }
@@ -100,19 +111,17 @@ enum CatchShareCard {
     // MARK: - Drawing Helpers
 
     private static func drawWatermark(in ctx: CGContext, rect: CGRect) {
-        // Draw logo image
         if let logoImage = UIImage(named: "Logo") {
-            let logoSize: CGFloat = 40
-            let logoRect = CGRect(x: 32, y: 32, width: logoSize, height: logoSize)
+            let logoSize: CGFloat = 60
+            let logoRect = CGRect(x: 36, y: 36, width: logoSize, height: logoSize)
             logoImage.draw(in: logoRect)
 
-            // Draw "Currents" text next to logo
             let wordmark = "Currents"
             let wordmarkAttrs: [NSAttributedString.Key: Any] = [
-                .font: UIFont.systemFont(ofSize: 26, weight: .semibold),
+                .font: UIFont.systemFont(ofSize: 40, weight: .semibold),
                 .foregroundColor: UIColor.white.withAlphaComponent(0.9),
             ]
-            let wordmarkPoint = CGPoint(x: 82, y: 37)
+            let wordmarkPoint = CGPoint(x: 108, y: 44)
             (wordmark as NSString).draw(at: wordmarkPoint, withAttributes: wordmarkAttrs)
         }
     }
@@ -173,7 +182,7 @@ enum CatchShareCard {
                 .foregroundColor: UIColor.white.withAlphaComponent(0.85),
             ]
             (statsText as NSString).draw(
-                in: CGRect(x: origin.x, y: y, width: width, height: 30),
+                in: CGRect(x: origin.x, y: y, width: width, height: 60),
                 withAttributes: statsAttrs
             )
             y += 36
@@ -181,14 +190,14 @@ enum CatchShareCard {
 
         // Forecast score badge
         if let score = detail.catchRecord.forecastScoreAtCapture {
-            let badgeRect = CGRect(x: origin.x, y: y, width: 180, height: 44)
-            let badgePath = UIBezierPath(roundedRect: badgeRect, cornerRadius: 22)
+            let badgeRect = CGRect(x: origin.x, y: y, width: 200, height: 48)
+            let badgePath = UIBezierPath(roundedRect: badgeRect, cornerRadius: 24)
             scoreUIColor(score).withAlphaComponent(0.9).setFill()
             badgePath.fill()
 
             let scoreText = "Bite Score: \(score)"
             let scoreAttrs: [NSAttributedString.Key: Any] = [
-                .font: UIFont.systemFont(ofSize: 20, weight: .bold),
+                .font: UIFont.systemFont(ofSize: 22, weight: .bold),
                 .foregroundColor: UIColor.white,
             ]
             let scoreSize = (scoreText as NSString).size(withAttributes: scoreAttrs)
@@ -198,7 +207,7 @@ enum CatchShareCard {
             )
             (scoreText as NSString).draw(at: scorePoint, withAttributes: scoreAttrs)
 
-            y += 52
+            y += 56
         }
 
         // Date
@@ -233,8 +242,8 @@ enum CatchShareCard {
         let options = MKMapSnapshotter.Options()
         options.region = MKCoordinateRegion(
             center: CLLocationCoordinate2D(latitude: latitude, longitude: longitude),
-            latitudinalMeters: 2000,
-            longitudinalMeters: 2000
+            latitudinalMeters: 500,
+            longitudinalMeters: 500
         )
         options.size = size
         options.mapType = .hybrid
