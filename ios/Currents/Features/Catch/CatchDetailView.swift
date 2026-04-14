@@ -492,7 +492,25 @@ struct EditCatchSheet: View {
         updated.speciesId = selectedSpeciesId
         updated.spotId = selectedSpotId
         updated.tripId = selectedTripId
-        updated.gearLoadoutId = selectedGearId
+
+        // If user picked individual gear fields but no preset, auto-create a loadout
+        let hasIndividualGear = !gearRod.isEmpty || !gearReel.isEmpty || !gearLure.isEmpty || !gearTechnique.isEmpty
+        if selectedGearId == nil && hasIndividualGear {
+            let speciesName = selectedSpeciesName.isEmpty ? "Catch" : selectedSpeciesName
+            var newLoadout = GearLoadout(
+                name: "\(speciesName) Setup",
+                rod: gearRod.isEmpty ? nil : gearRod,
+                reel: gearReel.isEmpty ? nil : gearReel,
+                lure: gearLure.isEmpty ? nil : gearLure,
+                lureColor: gearLureColor.isEmpty ? nil : gearLureColor,
+                technique: gearTechnique.isEmpty ? nil : gearTechnique
+            )
+            try? appState.gearRepository.save(&newLoadout)
+            updated.gearLoadoutId = newLoadout.id
+        } else {
+            updated.gearLoadoutId = selectedGearId
+        }
+
         onSave(updated)
         dismiss()
     }

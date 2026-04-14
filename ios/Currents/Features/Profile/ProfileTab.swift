@@ -9,6 +9,9 @@ struct ProfileTab: View {
     @State private var totalSpots = 0
     @State private var catches: [CatchDetail] = []
     @State private var speciesCounts: [(speciesId: Int64, commonName: String, count: Int)] = []
+    @State private var monthlyCounts: [(month: String, count: Int)] = []
+    @State private var hourCounts: [(hour: Int, count: Int)] = []
+    @State private var personalBests: [PersonalBest] = []
     @State private var mapRegions: [OfflineRegion] = []
     @State private var previousBadgeCount = 0
     @State private var newBadgeTitle: String?
@@ -24,6 +27,9 @@ struct ProfileTab: View {
     @State private var backupFileURL: URL?
     @State private var iCloudAvailable = false
     @State private var dbSize: String?
+    @State private var showingCSVImport = false
+    @State private var importMessage: String?
+    @State private var showingImportAlert = false
 
     var body: some View {
         NavigationStack {
@@ -58,6 +64,81 @@ struct ProfileTab: View {
                         .padding(.horizontal)
                 }
 
+                // Quick stats row
+                if totalCatches > 0 {
+                    Section("At a Glance") {
+                        let released = catches.filter { $0.catchRecord.released }.count
+                        let releaseRate = totalCatches > 0 ? Int(Double(released) / Double(totalCatches) * 100) : 0
+                        let avgWeight = catches.compactMap(\.catchRecord.weightKg).reduce(0, +) / max(Double(catches.compactMap(\.catchRecord.weightKg).count), 1)
+
+                        HStack {
+                            StatCard(value: "\(releaseRate)%", label: "Released", icon: "arrow.uturn.backward")
+                            if avgWeight > 0 {
+                                StatCard(value: String(format: "%.1fkg", avgWeight), label: "Avg Weight", icon: "scalemass")
+                            }
+                            if let biggest = catches.compactMap(\.catchRecord.weightKg).max() {
+                                StatCard(value: String(format: "%.1fkg", biggest), label: "Biggest", icon: "trophy.fill")
+                            }
+                        }
+                        .listRowBackground(Color.clear)
+                        .listRowInsets(EdgeInsets())
+                    }
+                }
+
+                // Monthly trend
+                if !monthlyCounts.isEmpty {
+                    Section("Monthly Trend") {
+                        Chart(monthlyCounts, id: \.month) { item in
+                            BarMark(
+                                x: .value("Month", formatMonth(item.month)),
+                                y: .value("Catches", item.count)
+                            )
+                            .foregroundStyle(.blue.gradient)
+                        }
+                        .frame(height: 140)
+                        .chartXAxis {
+                            AxisMarks(values: .automatic) { _ in
+                                AxisValueLabel().font(.caption2)
+                            }
+                        }
+                    }
+                }
+
+                // Best time of day
+                if !hourCounts.isEmpty {
+                    Section("Best Time to Fish") {
+                        Chart(hourCounts, id: \.hour) { item in
+                            BarMark(
+                                x: .value("Hour", item.hour),
+                                y: .value("Catches", item.count)
+                            )
+                            .foregroundStyle(hourColor(item.hour))
+                        }
+                        .chartXAxis {
+                            AxisMarks(values: [0, 4, 8, 12, 16, 20]) { value in
+                                AxisValueLabel {
+                                    if let h = value.as(Int.self) {
+                                        Text(formatHour(h)).font(.caption2)
+                                    }
+                                }
+                            }
+                        }
+                        .frame(height: 120)
+
+                        if let peak = hourCounts.max(by: { $0.count < $1.count }) {
+                            HStack {
+                                Image(systemName: "clock.fill")
+                                    .foregroundStyle(.orange)
+                                Text("Peak: \(formatHour(peak.hour))")
+                                    .font(.subheadline.bold())
+                                Text("(\(peak.count) catches)")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
+
                 // Species breakdown chart
                 if !speciesCounts.isEmpty {
                     Section("Species Breakdown") {
@@ -69,6 +150,60 @@ struct ProfileTab: View {
                             .foregroundStyle(.blue.gradient)
                         }
                         .frame(height: CGFloat(min(speciesCounts.count, 8)) * 36)
+                    }
+                }
+
+                // Top spots
+                if !catches.isEmpty {
+                    let spotGroups = Dictionary(grouping: catches.filter { $0.spot != nil }, by: { $0.spot!.name })
+                    let sortedSpots = spotGroups.sorted { $0.value.count > $1.value.count }
+                    if !sortedSpots.isEmpty {
+                        Section("Top Spots") {
+                            ForEach(sortedSpots.prefix(5), id: \.key) { spotName, spotCatches in
+                                HStack {
+                                    Image(systemName: "mappin.circle.fill")
+                                        .foregroundStyle(.blue)
+                                    Text(spotName)
+                                    Spacer()
+                                    Text("\(spotCatches.count)")
+                                        .font(.headline.bold())
+                                        .monospacedDigit()
+                                    Text("catches")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Personal bests
+                if !personalBests.isEmpty {
+                    Section("Personal Bests") {
+                        ForEach(personalBests.prefix(5), id: \.speciesId) { pb in
+                            HStack {
+                                Image(systemName: "trophy.fill")
+                                    .foregroundStyle(.yellow)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(pb.commonName)
+                                        .font(.subheadline.bold())
+                                    HStack(spacing: 8) {
+                                        if let w = pb.heaviestKg {
+                                            Text(String(format: "%.2f kg", w))
+                                        }
+                                        if let l = pb.longestCm {
+                                            Text(String(format: "%.1f cm", l))
+                                        }
+                                    }
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Text("\(pb.totalCatches) caught")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
                     }
                 }
 
@@ -215,6 +350,12 @@ struct ProfileTab: View {
                     } label: {
                         Label("Export All Data (CSV)", systemImage: "square.and.arrow.up")
                     }
+
+                    Button {
+                        showingCSVImport = true
+                    } label: {
+                        Label("Import Data (CSV)", systemImage: "square.and.arrow.down")
+                    }
                 }
             }
             .navigationTitle("Profile")
@@ -223,6 +364,9 @@ struct ProfileTab: View {
                 totalCatches = catches.count
                 totalSpots = ((try? appState.spotRepository.fetchAll()) ?? []).count
                 speciesCounts = (try? appState.catchRepository.speciesCounts()) ?? []
+                monthlyCounts = (try? appState.catchRepository.monthlyCounts()) ?? []
+                hourCounts = (try? appState.catchRepository.catchesByHour()) ?? []
+                personalBests = (try? appState.catchRepository.personalBests()) ?? []
                 appState.mapManager.refreshDownloadedRegions()
                 mapRegions = appState.mapManager.downloadedRegions
                 iCloudAvailable = await CloudBackup.shared.isAvailable
@@ -290,6 +434,18 @@ struct ProfileTab: View {
                         withAnimation { showBadgeToast = false }
                     }
                 }
+            }
+            .fileImporter(
+                isPresented: $showingCSVImport,
+                allowedContentTypes: [.commaSeparatedText, .plainText],
+                allowsMultipleSelection: false
+            ) { result in
+                handleCSVImport(result)
+            }
+            .alert("Import Complete", isPresented: $showingImportAlert) {
+                Button("OK") {}
+            } message: {
+                Text(importMessage ?? "")
             }
             .alert("Restore from Backup?", isPresented: $showingRestoreConfirm) {
                 if iCloudAvailable {
@@ -404,11 +560,65 @@ struct ProfileTab: View {
         }
     }
 
+    // MARK: - Helpers
+
+    private func formatMonth(_ ym: String) -> String {
+        let parts = ym.split(separator: "-")
+        guard parts.count == 2, let month = Int(parts[1]) else { return ym }
+        let symbols = Calendar.current.shortMonthSymbols
+        guard month >= 1, month <= 12 else { return ym }
+        return symbols[month - 1]
+    }
+
+    private func formatHour(_ hour: Int) -> String {
+        let h = hour % 12 == 0 ? 12 : hour % 12
+        return "\(h)\(hour < 12 ? "a" : "p")"
+    }
+
+    private func hourColor(_ hour: Int) -> Color {
+        switch hour {
+        case 5...8: return .orange
+        case 16...19: return .orange
+        case 9...15: return .blue
+        default: return .indigo
+        }
+    }
+
     // MARK: - Actions
 
     private func exportAllData() {
         let exporter = DataExporter(appState: appState)
         exportURL = try? exporter.exportAll()
+    }
+
+    private func handleCSVImport(_ result: Result<[URL], Error>) {
+        switch result {
+        case .success(let urls):
+            guard let url = urls.first else { return }
+            guard url.startAccessingSecurityScopedResource() else {
+                importMessage = "Could not access the selected file."
+                showingImportAlert = true
+                return
+            }
+            defer { url.stopAccessingSecurityScopedResource() }
+
+            do {
+                let exporter = DataExporter(appState: appState)
+                let count = try exporter.importCatches(from: url)
+                importMessage = "Successfully imported \(count) catches."
+                // Refresh stats
+                catches = (try? appState.catchRepository.fetchAll(limit: 10000)) ?? []
+                totalCatches = catches.count
+                speciesCounts = (try? appState.catchRepository.speciesCounts()) ?? []
+            } catch {
+                importMessage = "Import failed: \(error.localizedDescription)"
+            }
+            showingImportAlert = true
+
+        case .failure(let error):
+            importMessage = "Could not read file: \(error.localizedDescription)"
+            showingImportAlert = true
+        }
     }
 
     private func backupToCloud() {

@@ -79,7 +79,6 @@ struct MapTab: View {
                 .mapStyle(activeMapStyle)
                 .mapControls {
                     MapCompass()
-                    MapScaleView()
                 }
                 .onTapGesture(coordinateSpace: .local) { screenPoint in
                     if let coord = proxy.convert(screenPoint, from: .local) {
@@ -141,7 +140,7 @@ struct MapTab: View {
                 .padding(.top, 60)
                 .padding(.trailing, 12)
 
-                // Search overlay — pinned to top
+                // Search overlay — pinned to top, above map scale
                 VStack(spacing: 4) {
                     HStack(spacing: 8) {
                         Image(systemName: "magnifyingglass")

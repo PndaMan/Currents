@@ -362,7 +362,9 @@ struct GearCatalogBrowser: View {
 }
 
 struct GearCatalogRow: View {
+    @Environment(AppState.self) private var appState
     let item: GearItem
+    @State private var added = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -380,10 +382,17 @@ struct GearCatalogRow: View {
                     }
                 }
                 Spacer()
-                if let price = item.priceRange {
-                    Text(price)
-                        .font(.caption.bold())
+                if added {
+                    Image(systemName: "checkmark.circle.fill")
                         .foregroundStyle(.green)
+                } else {
+                    Button {
+                        addToMyGear()
+                    } label: {
+                        Image(systemName: "plus.circle.fill")
+                            .foregroundStyle(.blue)
+                    }
+                    .buttonStyle(.plain)
                 }
             }
 
@@ -405,6 +414,29 @@ struct GearCatalogRow: View {
             }
         }
         .padding(.vertical, 2)
+    }
+
+    private func addToMyGear() {
+        let category: OwnedGear.Category = switch item.category {
+        case .rod: .rod
+        case .reel: .reel
+        case .lure: .lure
+        case .bait: .bait
+        case .line: .line
+        case .hook: .hook
+        case .terminal, .accessory: .accessory
+        }
+        var gear = OwnedGear(
+            category: category,
+            name: item.model,
+            brand: item.brand,
+            specs: {
+                let s = [item.type, item.specs].compactMap { $0 }.joined(separator: " — ")
+                return s.isEmpty ? nil : s
+            }()
+        )
+        try? appState.ownedGearRepository.save(&gear)
+        withAnimation { added = true }
     }
 
     private func categoryIcon(_ cat: GearItem.GearCategory) -> String {

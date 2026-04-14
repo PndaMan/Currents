@@ -97,6 +97,111 @@ struct DataExporter {
         try csv.write(to: dir.appendingPathComponent("gear.csv"), atomically: true, encoding: .utf8)
     }
 
+    // MARK: - Import
+
+    /// Import catches from a CSV file (matching the export format).
+    /// Returns the number of successfully imported catches.
+    func importCatches(from url: URL) throws -> Int {
+        let csvString = try String(contentsOf: url, encoding: .utf8)
+        let lines = csvString.components(separatedBy: .newlines).filter { !$0.isEmpty }
+        guard lines.count > 1 else { return 0 }
+
+        let formatter = ISO8601DateFormatter()
+        let allSpecies = try appState.speciesRepository.fetchAll()
+        let allSpots = try appState.spotRepository.fetchAll()
+        let allGear = try appState.gearRepository.fetchAll()
+        var imported = 0
+
+        for line in lines.dropFirst() {
+            let fields = parseCSVLine(line)
+            // Expected: id,species,spot,date,latitude,longitude,length_cm,weight_kg,released,gear,forecast_score,notes
+            guard fields.count >= 6 else { continue }
+
+            let dateStr = fields.count > 3 ? fields[3] : ""
+            guard let caughtAt = formatter.date(from: dateStr) else { continue }
+
+            let speciesName = fields.count > 1 ? fields[1] : ""
+            let speciesId = allSpecies.first { $0.commonName.caseInsensitiveCompare(speciesName) == .orderedSame }?.id
+
+            let spotName = fields.count > 2 ? fields[2] : ""
+            let spotId = allSpots.first { $0.name.caseInsensitiveCompare(spotName) == .orderedSame }?.id
+
+            let gearName = fields.count > 9 ? fields[9] : ""
+            let gearId = allGear.first { $0.name.caseInsensitiveCompare(gearName) == .orderedSame }?.id
+
+            let lat = fields.count > 4 ? Double(fields[4]) ?? 0 : 0
+            let lon = fields.count > 5 ? Double(fields[5]) ?? 0 : 0
+
+            var catchRecord = Catch(
+                speciesId: speciesId,
+                spotId: spotId,
+                caughtAt: caughtAt,
+                latitude: lat,
+                longitude: lon,
+                lengthCm: fields.count > 6 ? Double(fields[6]) : nil,
+                weightKg: fields.count > 7 ? Double(fields[7]) : nil,
+                released: fields.count > 8 ? fields[8].lowercased() == "yes" : true,
+                forecastScoreAtCapture: fields.count > 10 ? Int(fields[10]) : nil,
+                gearLoadoutId: gearId,
+                notes: fields.count > 11 && !fields[11].isEmpty ? fields[11] : nil
+            )
+
+            try appState.catchRepository.save(&catchRecord)
+            imported += 1
+        }
+        return imported
+    }
+
+    /// Import from a zip export (multiple CSVs).
+    func importFromZip(at url: URL) throws -> Int {
+        // Unzip to temp directory
+        let importDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("currents_import_\(UUID().uuidString)", isDirectory: true)
+
+        let coordinator = NSFileCoordinator()
+        var error: NSError?
+        var unzippedURL: URL?
+
+        coordinator.coordinate(readingItemAt: url, options: [.withoutChanges], error: &error) { coordURL in
+            // Try to decompress the zip
+            if let archive = try? FileManager.default.contentsOfDirectory(at: coordURL, includingPropertiesForKeys: nil) {
+                unzippedURL = coordURL
+            }
+        }
+
+        // Fall back to treating as a single CSV
+        if unzippedURL == nil {
+            return try importCatches(from: url)
+        }
+
+        // Look for catches.csv inside the extracted dir
+        let catchesFile = importDir.appendingPathComponent("catches.csv")
+        if FileManager.default.fileExists(atPath: catchesFile.path) {
+            return try importCatches(from: catchesFile)
+        }
+
+        // If it's a single CSV
+        return try importCatches(from: url)
+    }
+
+    private func parseCSVLine(_ line: String) -> [String] {
+        var fields: [String] = []
+        var current = ""
+        var inQuotes = false
+        for char in line {
+            if char == "\"" {
+                inQuotes.toggle()
+            } else if char == "," && !inQuotes {
+                fields.append(current)
+                current = ""
+            } else {
+                current.append(char)
+            }
+        }
+        fields.append(current)
+        return fields
+    }
+
     private func csvEscape(_ value: String) -> String {
         if value.contains(",") || value.contains("\"") || value.contains("\n") {
             return "\"" + value.replacingOccurrences(of: "\"", with: "\"\"") + "\""
