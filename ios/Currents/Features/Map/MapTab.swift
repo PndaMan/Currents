@@ -507,8 +507,12 @@ struct MapTab: View {
             spotScores[spot.id] = result.score
         }
 
-        // Compute bite scores for waterbodies
-        await computeWaterbodyScores()
+        // Compute a shared bite score for nearby waterbodies
+        let regionForScore = MKCoordinateRegion(
+            center: coord,
+            span: MKCoordinateSpan(latitudeDelta: 1.0, longitudeDelta: 1.0)
+        )
+        await computeRegionScore(region: regionForScore)
     }
 
     private func loadWaterbodies(region: MKCoordinateRegion) async {
