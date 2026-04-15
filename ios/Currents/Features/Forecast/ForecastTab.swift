@@ -5,6 +5,7 @@ import CoreLocation
 struct ForecastTab: View {
     @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss
+    @AppStorage("use24HourTime") private var use24HourTime = true
     var presentedAsSheet: Bool = false
     @State private var forecast: ForecastEngine.ForecastResult?
     @State private var solunar: SolunarEngine.SolunarDay?
@@ -716,9 +717,11 @@ struct ForecastTab: View {
     // MARK: - Helpers
 
     private func formatHour(_ hour: Int) -> String {
+        if use24HourTime {
+            return String(format: "%02d:00", hour)
+        }
         let h = hour % 12 == 0 ? 12 : hour % 12
-        let ampm = hour < 12 ? "a" : "p"
-        return "\(h)\(ampm)"
+        return "\(h)\(hour < 12 ? "am" : "pm")"
     }
 
     private func barColor(score: Int) -> Color {

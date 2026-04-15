@@ -309,6 +309,7 @@ struct AddOwnedGearSheet: View {
 struct GearCatalogBrowser: View {
     @Environment(AppState.self) private var appState
     @State private var items: [GearItem] = []
+    @State private var ownedNames: Set<String> = []
     @State private var searchText = ""
     @State private var selectedCategory: GearItem.GearCategory?
 
@@ -348,7 +349,9 @@ struct GearCatalogBrowser: View {
             List {
                 Section("\(filtered.count) items") {
                     ForEach(filtered) { item in
-                        GearCatalogRow(item: item)
+                        GearCatalogRow(item: item, isOwned: ownedNames.contains(item.model), onAdded: {
+                            ownedNames.insert(item.model)
+                        })
                     }
                 }
             }
@@ -357,6 +360,8 @@ struct GearCatalogBrowser: View {
         }
         .task {
             items = (try? appState.gearCatalogRepository.fetchAll()) ?? []
+            let owned = (try? appState.ownedGearRepository.fetchAll()) ?? []
+            ownedNames = Set(owned.map(\.name))
         }
     }
 }
@@ -364,7 +369,8 @@ struct GearCatalogBrowser: View {
 struct GearCatalogRow: View {
     @Environment(AppState.self) private var appState
     let item: GearItem
-    @State private var added = false
+    let isOwned: Bool
+    var onAdded: (() -> Void)?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -382,7 +388,7 @@ struct GearCatalogRow: View {
                     }
                 }
                 Spacer()
-                if added {
+                if isOwned {
                     Image(systemName: "checkmark.circle.fill")
                         .foregroundStyle(.green)
                 } else {
@@ -436,7 +442,7 @@ struct GearCatalogRow: View {
             }()
         )
         try? appState.ownedGearRepository.save(&gear)
-        withAnimation { added = true }
+        withAnimation { onAdded?() }
     }
 
     private func categoryIcon(_ cat: GearItem.GearCategory) -> String {

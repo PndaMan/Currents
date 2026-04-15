@@ -10,6 +10,7 @@ struct CatchDetailView: View {
     @State private var isGeneratingShareCard = false
     @State private var shareImage: UIImage?
     @State private var showingShareSheet = false
+    @State private var trip: Trip?
 
     var body: some View {
         ScrollView {
@@ -42,22 +43,18 @@ struct CatchDetailView: View {
                     }
                 }
 
-                // Measurements
-                if detail.catchRecord.lengthCm != nil || detail.catchRecord.weightKg != nil {
-                    HStack(spacing: 16) {
-                        if let length = detail.catchRecord.lengthCm {
-                            Label(String(format: "%.1f cm", length), systemImage: "ruler")
-                                .glassPill()
-                        }
-                        if let weight = detail.catchRecord.weightKg {
-                            Label(String(format: "%.2f kg", weight), systemImage: "scalemass")
-                                .glassPill()
-                        }
-                        if detail.catchRecord.released {
-                            Label("Released", systemImage: "arrow.uturn.backward")
-                                .glassPill()
-                        }
+                // Measurements & status
+                HStack(spacing: 16) {
+                    if let length = detail.catchRecord.lengthCm {
+                        Label(String(format: "%.1f cm", length), systemImage: "ruler")
+                            .glassPill()
                     }
+                    if let weight = detail.catchRecord.weightKg {
+                        Label(String(format: "%.2f kg", weight), systemImage: "scalemass")
+                            .glassPill()
+                    }
+                    Label(detail.catchRecord.released ? "Released" : "Kept", systemImage: detail.catchRecord.released ? "arrow.uturn.backward" : "bag.fill")
+                        .glassPill()
                 }
 
                 // Location + Conditions side by side
@@ -109,6 +106,117 @@ struct CatchDetailView: View {
                     .glassCard()
                 }
 
+                // Trip
+                if let trip {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Trip")
+                            .font(.headline)
+                        HStack {
+                            Image(systemName: "tent.fill")
+                                .foregroundStyle(.blue)
+                            Text(trip.name)
+                                .font(.subheadline.bold())
+                            Spacer()
+                            Text(trip.startDate, style: .date)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .glassCard()
+                }
+
+                // Weather at capture
+                if let weatherJSON = detail.catchRecord.weatherSnapshot,
+                   let weatherData = weatherJSON.data(using: .utf8),
+                   let weather = try? JSONDecoder().decode(WeatherSnapshot.self, from: weatherData) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Weather at Catch")
+                            .font(.headline)
+                        HStack(spacing: 16) {
+                            if let temp = weather.temperatureC {
+                                VStack(spacing: 2) {
+                                    Image(systemName: "thermometer")
+                                        .foregroundStyle(.orange)
+                                    Text("\(Int(temp))°C")
+                                        .font(.subheadline.bold().monospacedDigit())
+                                    Text("Air")
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                            if let waterTemp = weather.waterTempC {
+                                VStack(spacing: 2) {
+                                    Image(systemName: "drop.fill")
+                                        .foregroundStyle(.cyan)
+                                    Text("\(Int(waterTemp))°C")
+                                        .font(.subheadline.bold().monospacedDigit())
+                                    Text("Water")
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                            if let wind = weather.windSpeedKmh {
+                                VStack(spacing: 2) {
+                                    Image(systemName: "wind")
+                                        .foregroundStyle(.secondary)
+                                    Text("\(Int(wind))")
+                                        .font(.subheadline.bold().monospacedDigit())
+                                    Text("km/h")
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                            if let pressure = weather.pressureHpa {
+                                VStack(spacing: 2) {
+                                    Image(systemName: "barometer")
+                                        .foregroundStyle(.secondary)
+                                    Text("\(Int(pressure))")
+                                        .font(.subheadline.bold().monospacedDigit())
+                                    Text("hPa")
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                        if let condition = weather.condition {
+                            HStack(spacing: 4) {
+                                Image(systemName: "cloud.fill")
+                                    .foregroundStyle(.secondary)
+                                Text(condition)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                    .glassCard()
+                }
+
+                // ML Top 3 predictions
+                if let mlTop3JSON = detail.catchRecord.mlTop3,
+                   let mlData = mlTop3JSON.data(using: .utf8),
+                   let predictions = try? JSONDecoder().decode([MLPrediction].self, from: mlData),
+                   predictions.count > 1 {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("AI Predictions")
+                            .font(.headline)
+                        ForEach(predictions, id: \.label) { pred in
+                            HStack {
+                                Image(systemName: "brain")
+                                    .foregroundStyle(.purple)
+                                    .frame(width: 20)
+                                Text(pred.label)
+                                    .font(.subheadline)
+                                Spacer()
+                                Text("\(Int(pred.confidence * 100))%")
+                                    .font(.subheadline.bold())
+                                    .monospacedDigit()
+                                    .foregroundStyle(pred.confidence > 0.5 ? .primary : .secondary)
+                            }
+                        }
+                    }
+                    .glassCard()
+                }
+
                 // Notes
                 if let notes = detail.catchRecord.notes, !notes.isEmpty {
                     VStack(alignment: .leading, spacing: 4) {
@@ -120,15 +228,33 @@ struct CatchDetailView: View {
                     .glassCard()
                 }
 
-                // Timestamp
-                HStack {
-                    Image(systemName: "clock")
-                    Text(detail.catchRecord.caughtAt, style: .date)
-                    Text("at")
-                    Text(detail.catchRecord.caughtAt, style: .time)
+                // Details footer
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Image(systemName: "clock")
+                        Text(detail.catchRecord.caughtAt, style: .date)
+                        Text("at")
+                        Text(detail.catchRecord.caughtAt, style: .time)
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                    HStack {
+                        Image(systemName: "location")
+                        Text(String(format: "%.5f, %.5f", detail.catchRecord.latitude, detail.catchRecord.longitude))
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                    if let geohash = detail.catchRecord.geohash {
+                        HStack {
+                            Image(systemName: "grid")
+                            Text("Geohash: \(geohash)")
+                        }
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    }
                 }
-                .font(.caption)
-                .foregroundStyle(.secondary)
             }
             .padding()
         }
@@ -185,6 +311,11 @@ struct CatchDetailView: View {
         .sheet(isPresented: $showingShareSheet) {
             if let shareImage {
                 ImageShareSheet(image: shareImage)
+            }
+        }
+        .task {
+            if let tripId = detail.catchRecord.tripId {
+                trip = try? appState.tripRepository.fetch(tripId)
             }
         }
     }
@@ -552,4 +683,22 @@ struct GearDetailGrid: View {
             }
         }
     }
+}
+
+// MARK: - Weather Snapshot (for decoding weatherSnapshot JSON)
+
+private struct WeatherSnapshot: Codable {
+    var temperatureC: Double?
+    var waterTempC: Double?
+    var windSpeedKmh: Double?
+    var windDirectionDeg: Double?
+    var pressureHpa: Double?
+    var condition: String?
+}
+
+// MARK: - ML Prediction (for decoding mlTop3 JSON)
+
+private struct MLPrediction: Codable {
+    var label: String
+    var confidence: Double
 }

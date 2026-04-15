@@ -21,6 +21,12 @@ final class TripRepository: ObservableObject {
         }
     }
 
+    func fetch(_ id: String) throws -> Trip? {
+        try db.db.read { db in
+            try Trip.fetchOne(db, key: id)
+        }
+    }
+
     func fetchAll() throws -> [Trip] {
         try db.db.read { db in
             try Trip.order(Column("startDate").desc).fetchAll(db)

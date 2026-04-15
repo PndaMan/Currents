@@ -38,7 +38,7 @@ struct MapTab: View {
 
     var body: some View {
         NavigationStack {
-            ZStack(alignment: .topTrailing) {
+            ZStack {
                 MapReader { proxy in
                 Map(position: $position) {
                     UserAnnotation()
@@ -87,60 +87,7 @@ struct MapTab: View {
                 }
                 } // MapReader
 
-                // Right side control buttons
-                VStack(spacing: 10) {
-                    // Recentre on user
-                    Button {
-                        position = .userLocation(fallback: .automatic)
-                    } label: {
-                        mapButton(icon: "location.fill")
-                    }
-
-                    // Map style picker
-                    Menu {
-                        ForEach(MapStyleOption.allCases, id: \.self) { style in
-                            Button {
-                                mapStyle = style
-                            } label: {
-                                Label(style.rawValue, systemImage: mapStyleIcon(style))
-                            }
-                        }
-                    } label: {
-                        mapButton(icon: "map.fill")
-                    }
-
-                    // Add spot
-                    Button {
-                        showingAddSpot = true
-                    } label: {
-                        mapButton(icon: "mappin.and.ellipse")
-                    }
-
-                    // Toggle catch pins
-                    Button {
-                        showCatchPins.toggle()
-                    } label: {
-                        mapButton(icon: showCatchPins ? "fish.fill" : "fish")
-                    }
-
-                    // Species browser
-                    Button {
-                        showingSpeciesBrowser = true
-                    } label: {
-                        mapButton(icon: "book.fill")
-                    }
-
-                    // Forecast
-                    Button {
-                        showingForecast = true
-                    } label: {
-                        mapButton(icon: "cloud.sun.fill")
-                    }
-                }
-                .padding(.top, 60)
-                .padding(.trailing, 12)
-
-                // Search overlay — pinned to top, above map scale
+                // Search bar — pinned to top of screen
                 VStack(spacing: 4) {
                     HStack(spacing: 8) {
                         Image(systemName: "magnifyingglass")
@@ -226,16 +173,66 @@ struct MapTab: View {
                         .frame(maxHeight: 250)
                         .padding(.horizontal)
                     }
-
-                    Spacer()
                 }
-                .padding(.top, 4)
-                .frame(maxWidth: .infinity, alignment: .top)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                .padding(.top, 8)
+
+                // Right side control buttons
+                VStack(spacing: 10) {
+                    // Recentre on user
+                    Button {
+                        position = .userLocation(fallback: .automatic)
+                    } label: {
+                        mapButton(icon: "location.fill")
+                    }
+
+                    // Map style picker
+                    Menu {
+                        ForEach(MapStyleOption.allCases, id: \.self) { style in
+                            Button {
+                                mapStyle = style
+                            } label: {
+                                Label(style.rawValue, systemImage: mapStyleIcon(style))
+                            }
+                        }
+                    } label: {
+                        mapButton(icon: "map.fill")
+                    }
+
+                    // Add spot
+                    Button {
+                        showingAddSpot = true
+                    } label: {
+                        mapButton(icon: "mappin.and.ellipse")
+                    }
+
+                    // Toggle catch pins
+                    Button {
+                        showCatchPins.toggle()
+                    } label: {
+                        mapButton(icon: showCatchPins ? "fish.fill" : "fish")
+                    }
+
+                    // Species browser
+                    Button {
+                        showingSpeciesBrowser = true
+                    } label: {
+                        mapButton(icon: "book.fill")
+                    }
+
+                    // Forecast
+                    Button {
+                        showingForecast = true
+                    } label: {
+                        mapButton(icon: "cloud.sun.fill")
+                    }
+                }
+                .padding(.top, 60)
+                .padding(.trailing, 12)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
 
                 // Bottom bar
-                VStack {
-                    Spacer()
-
+                VStack(spacing: 0) {
                     HStack(spacing: 6) {
                         Image(systemName: "hand.tap.fill")
                             .font(.caption2)
@@ -284,6 +281,7 @@ struct MapTab: View {
                     .padding(.horizontal)
                     .padding(.bottom, 8)
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
             }
             .sheet(item: $selectedSpot, onDismiss: {
                 Task { await loadData() }

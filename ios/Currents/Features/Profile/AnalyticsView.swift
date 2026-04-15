@@ -3,6 +3,7 @@ import Charts
 
 struct AnalyticsView: View {
     @Environment(AppState.self) private var appState
+    @AppStorage("use24HourTime") private var use24HourTime = true
     @State private var personalBests: [PersonalBest] = []
     @State private var monthlyCounts: [(month: String, count: Int)] = []
     @State private var hourCounts: [(hour: Int, count: Int)] = []
@@ -62,16 +63,134 @@ struct AnalyticsView: View {
     private var overviewSection: some View {
         summaryCard
 
+        // At a Glance
+        if totalCatches > 0 {
+            atAGlanceCard
+        }
+
         if !monthlyCounts.isEmpty {
             monthlyTrendChart
+        }
+
+        if !hourCounts.isEmpty {
+            overviewBestTimeChart
         }
 
         if let avg = avgForecast {
             forecastAccuracyCard(avg)
         }
 
+        // Species breakdown
+        if !speciesCounts.isEmpty {
+            overviewSpeciesBreakdown
+        }
+
+        // Top spots
+        overviewTopSpots
+
         if !personalBests.isEmpty {
             personalBestsSection
+        }
+    }
+
+    private var atAGlanceCard: some View {
+        HStack(spacing: 12) {
+            let released = allCatches.filter { $0.catchRecord.released }.count
+            let releaseRate = totalCatches > 0 ? Int(Double(released) / Double(totalCatches) * 100) : 0
+            let weights = allCatches.compactMap(\.catchRecord.weightKg)
+            let avgWeight = weights.isEmpty ? 0.0 : weights.reduce(0, +) / Double(weights.count)
+
+            StatCard(value: "\(releaseRate)%", label: "Released", icon: "arrow.uturn.backward")
+            if avgWeight > 0 {
+                StatCard(value: String(format: "%.1fkg", avgWeight), label: "Avg Weight", icon: "scalemass")
+            }
+            if let biggest = weights.max() {
+                StatCard(value: String(format: "%.1fkg", biggest), label: "Biggest", icon: "trophy.fill")
+            }
+        }
+    }
+
+    private var overviewBestTimeChart: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Best Time to Fish")
+                .font(.headline)
+
+            Chart(hourCounts, id: \.hour) { item in
+                BarMark(
+                    x: .value("Hour", item.hour),
+                    y: .value("Catches", item.count)
+                )
+                .foregroundStyle(hourColor(item.hour))
+            }
+            .chartXAxis {
+                AxisMarks(values: [0, 4, 8, 12, 16, 20]) { value in
+                    AxisValueLabel {
+                        if let h = value.as(Int.self) {
+                            Text(formatHour(h)).font(.caption2)
+                        }
+                    }
+                }
+            }
+            .frame(height: 120)
+
+            if let peak = hourCounts.max(by: { $0.count < $1.count }) {
+                HStack {
+                    Image(systemName: "clock.fill")
+                        .foregroundStyle(.orange)
+                    Text("Peak: \(formatHour(peak.hour))")
+                        .font(.subheadline.bold())
+                    Text("(\(peak.count) catches)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .glassCard()
+    }
+
+    private var overviewSpeciesBreakdown: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Species Breakdown")
+                .font(.headline)
+
+            Chart(speciesCounts.prefix(8), id: \.speciesId) { item in
+                BarMark(
+                    x: .value("Count", item.count),
+                    y: .value("Species", item.commonName)
+                )
+                .foregroundStyle(.blue.gradient)
+            }
+            .frame(height: CGFloat(min(speciesCounts.count, 8)) * 36)
+        }
+        .glassCard()
+    }
+
+    @ViewBuilder
+    private var overviewTopSpots: some View {
+        let spotGroups = Dictionary(grouping: allCatches.filter { $0.spot != nil }, by: { $0.spot!.name })
+        let sortedSpots = spotGroups.sorted { $0.value.count > $1.value.count }
+
+        if !sortedSpots.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Top Spots")
+                    .font(.headline)
+
+                ForEach(sortedSpots.prefix(5), id: \.key) { spotName, spotCatches in
+                    HStack {
+                        Image(systemName: "mappin.circle.fill")
+                            .foregroundStyle(.blue)
+                        Text(spotName)
+                        Spacer()
+                        Text("\(spotCatches.count)")
+                            .font(.headline.bold())
+                            .monospacedDigit()
+                        Text("catches")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .glassCard()
         }
     }
 
@@ -581,8 +700,11 @@ struct AnalyticsView: View {
     }
 
     private func formatHour(_ hour: Int) -> String {
+        if use24HourTime {
+            return String(format: "%02d:00", hour)
+        }
         let h = hour % 12 == 0 ? 12 : hour % 12
-        return "\(h)\(hour < 12 ? "a" : "p")"
+        return "\(h)\(hour < 12 ? "am" : "pm")"
     }
 
     private func hourColor(_ hour: Int) -> Color {

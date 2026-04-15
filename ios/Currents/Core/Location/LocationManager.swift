@@ -25,10 +25,14 @@ final class LocationManager: NSObject, CLLocationManagerDelegate {
 
     func startUpdating() {
         manager.startUpdatingLocation()
+        if CLLocationManager.headingAvailable() {
+            manager.startUpdatingHeading()
+        }
     }
 
     func stopUpdating() {
         manager.stopUpdatingLocation()
+        manager.stopUpdatingHeading()
     }
 
     /// Start significant change monitoring for background spot alerts.
