@@ -464,15 +464,31 @@ struct MapTab: View {
             CLLocationCoordinate2D(latitude: -33.9, longitude: 18.4)
         weather = await WeatherService.shared.current(for: coord)
 
-        // Load waterbodies near user (camera change will fetch more via Overpass)
+        // Show cached waterbodies instantly, fetch more from Overpass in background
         let userLat = coord.latitude
         let userLon = coord.longitude
-        waterbodies = (try? await appState.waterbodyRepository.fetchForRegionWithOverpass(
+        waterbodies = (try? appState.waterbodyRepository.fetchForRegion(
             minLat: userLat - 0.5, maxLat: userLat + 0.5,
             minLon: userLon - 0.5, maxLon: userLon + 0.5,
-            minSurfaceAreaKm2: 0, // Show all nearby at initial load
+            minSurfaceAreaKm2: 0,
             limit: 80
         )) ?? []
+
+        // Background Overpass fetch for new data
+        Task {
+            if let results = await OverpassService.shared.fetchWaterbodies(
+                minLat: userLat - 0.5, maxLat: userLat + 0.5,
+                minLon: userLon - 0.5, maxLon: userLon + 0.5
+            ) {
+                let _ = try? appState.waterbodyRepository.insertFromOverpass(results)
+                waterbodies = (try? appState.waterbodyRepository.fetchForRegion(
+                    minLat: userLat - 0.5, maxLat: userLat + 0.5,
+                    minLon: userLon - 0.5, maxLon: userLon + 0.5,
+                    minSurfaceAreaKm2: 0,
+                    limit: 80
+                )) ?? []
+            }
+        }
 
         // Compute bite scores for each spot
         for spot in spots {
@@ -496,55 +512,81 @@ struct MapTab: View {
     }
 
     private func loadWaterbodies(region: MKCoordinateRegion) async {
-        isLoadingWaterbodies = true
-
         let minLat = region.center.latitude - region.span.latitudeDelta / 2
         let maxLat = region.center.latitude + region.span.latitudeDelta / 2
         let minLon = region.center.longitude - region.span.longitudeDelta / 2
         let maxLon = region.center.longitude + region.span.longitudeDelta / 2
         let latSpan = region.span.latitudeDelta
 
-        // Zoom-adaptive filtering:
-        //  - Zoomed way out (>10°): only massive bodies (>500 km²), few results
-        //  - Regional view (3-10°): large bodies (>50 km²)
-        //  - City/area view (1-3°): medium+ bodies (>5 km²)
-        //  - Close view (0.3-1°): small+ bodies (>0.5 km²)
-        //  - Street level (<0.3°): show everything including ponds
+        // Zoom-adaptive filtering — bigger zoom = only big waterbodies
         let (minArea, limit): (Double, Int) = switch latSpan {
         case 10...: (500, 30)
         case 3..<10: (50, 50)
         case 1..<3: (5, 80)
         case 0.3..<1: (0.5, 120)
-        default: (0, 150) // Show all when zoomed in close
+        default: (0, 150)
         }
 
-        waterbodies = (try? await appState.waterbodyRepository.fetchForRegionWithOverpass(
+        // 1) Show cached DB results INSTANTLY (no network wait)
+        waterbodies = (try? appState.waterbodyRepository.fetchForRegion(
             minLat: minLat, maxLat: maxLat,
             minLon: minLon, maxLon: maxLon,
             minSurfaceAreaKm2: minArea,
             limit: limit
         )) ?? []
 
-        isLoadingWaterbodies = false
-        await computeWaterbodyScores()
+        // 2) Compute a single bite score for the region center (shared across all pins)
+        await computeRegionScore(region: region)
+
+        // 3) Fetch new waterbodies from Overpass in background — don't block UI
+        isLoadingWaterbodies = true
+        Task {
+            if let overpassResults = await OverpassService.shared.fetchWaterbodies(
+                minLat: minLat, maxLat: maxLat,
+                minLon: minLon, maxLon: maxLon
+            ) {
+                let _ = try? appState.waterbodyRepository.insertFromOverpass(overpassResults)
+                // Refresh from DB with new entries
+                waterbodies = (try? appState.waterbodyRepository.fetchForRegion(
+                    minLat: minLat, maxLat: maxLat,
+                    minLon: minLon, maxLon: maxLon,
+                    minSurfaceAreaKm2: minArea,
+                    limit: limit
+                )) ?? []
+            }
+            isLoadingWaterbodies = false
+        }
     }
 
-    private func computeWaterbodyScores() async {
-        // Only compute scores for the first batch to avoid hammering the weather API
-        let toScore = waterbodies.prefix(30).filter { waterbodyScores[$0.id ?? 0] == nil }
-        for wb in toScore {
-            let coord = CLLocationCoordinate2D(latitude: wb.latitude, longitude: wb.longitude)
-            let w = await WeatherService.shared.current(for: coord)
-            let result = ForecastEngine.forecast(
-                coordinate: coord,
-                currentPressureHpa: w?.pressureHpa,
-                pressureChange6h: w?.pressureChange6h,
-                waterTempC: w?.waterTempC,
-                windSpeedKmh: w?.windSpeedKmh,
-                windDirection: w?.windDirectionDeg,
-                species: nil,
-                isInSpawningZone: false
-            )
+    /// Compute a single bite score for the region center and apply it to all waterbodies.
+    /// This avoids making a weather API call per waterbody.
+    private func computeRegionScore(region: MKCoordinateRegion) async {
+        let center = region.center
+        // Skip if we already have a score for this approximate area
+        let regionKey = Int64(center.latitude * 100) * 100000 + Int64(center.longitude * 100)
+        guard waterbodyScores[regionKey] == nil else {
+            // Apply existing region score to new waterbodies
+            let score = waterbodyScores[regionKey]!
+            for wb in waterbodies where waterbodyScores[wb.id ?? 0] == nil {
+                waterbodyScores[wb.id ?? 0] = score
+            }
+            return
+        }
+
+        let w = await WeatherService.shared.current(for: center)
+        let result = ForecastEngine.forecast(
+            coordinate: center,
+            currentPressureHpa: w?.pressureHpa,
+            pressureChange6h: w?.pressureChange6h,
+            waterTempC: w?.waterTempC,
+            windSpeedKmh: w?.windSpeedKmh,
+            windDirection: w?.windDirectionDeg,
+            species: nil,
+            isInSpawningZone: false
+        )
+        waterbodyScores[regionKey] = result.score
+        // Apply this score to all waterbodies in view
+        for wb in waterbodies {
             waterbodyScores[wb.id ?? 0] = result.score
         }
     }

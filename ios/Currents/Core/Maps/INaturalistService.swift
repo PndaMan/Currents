@@ -1,52 +1,53 @@
 import Foundation
 import CoreLocation
 
-/// Fetches fish observation data from the iNaturalist API.
-/// Used to determine which fish species are present near a given water body.
+/// Fetches fish observation data from the iNaturalist and GBIF APIs.
+/// Results are cached locally — this service only does the network fetching.
 ///
 /// iNaturalist API is free, no API key required. Rate limit: ~100 req/min.
 /// taxon_id 47178 = Actinopterygii (ray-finned fishes)
-/// taxon_id 47273 = Chondrichthyes (sharks, rays)
-///
-/// GBIF is used as a secondary source for broader coverage.
 actor INaturalistService {
     static let shared = INaturalistService()
 
-    /// Cache: coordinate cell → species scientific names already fetched.
+    /// Tracks which geohash cells we've already queried this session.
     private var fetchedCells: Set<String> = []
 
     private var lastQueryTime: Date = .distantPast
-    private let minQueryInterval: TimeInterval = 2
+    private let minQueryInterval: TimeInterval = 1.5
 
-    // MARK: - iNaturalist Query
+    // MARK: - Public API
 
-    /// Fetch fish species observed near a coordinate from iNaturalist.
-    /// Returns an array of species observations with scientific names and counts.
+    enum FetchResult: Sendable {
+        case fetched([ObservedSpecies])  // New data from API
+        case alreadyCached               // Already fetched this session, check local DB
+    }
+
+    /// Fetch fish species observed near a coordinate.
+    /// Returns `.alreadyCached` if this area was already queried this session.
     func fetchFishSpecies(
         latitude: Double,
         longitude: Double,
         radiusKm: Double = 10
-    ) async -> [ObservedSpecies] {
+    ) async -> FetchResult {
         let cellKey = "\(Int(latitude * 10))_\(Int(longitude * 10))"
-        if fetchedCells.contains(cellKey) { return [] }
+        if fetchedCells.contains(cellKey) { return .alreadyCached }
 
-        // Rate limit
+        // Rate limit — wait if needed
         let elapsed = Date.now.timeIntervalSince(lastQueryTime)
         if elapsed < minQueryInterval {
-            try? await Task.sleep(for: .milliseconds(Int(minQueryInterval - elapsed) * 1000))
+            try? await Task.sleep(for: .milliseconds(Int((minQueryInterval - elapsed) * 1000)))
         }
         lastQueryTime = .now
 
-        var allSpecies: [ObservedSpecies] = []
+        // Run iNaturalist and GBIF queries in parallel
+        async let iNatTask = queryINaturalist(latitude: latitude, longitude: longitude, radiusKm: radiusKm)
+        async let gbifTask = queryGBIF(latitude: latitude, longitude: longitude, radiusKm: radiusKm)
 
-        // Query iNaturalist species counts endpoint (much more efficient than raw observations)
-        let iNatResults = await queryINaturalist(latitude: latitude, longitude: longitude, radiusKm: radiusKm)
-        allSpecies.append(contentsOf: iNatResults)
+        let iNatResults = await iNatTask
+        let gbifResults = await gbifTask
 
-        // Also query GBIF for additional coverage
-        let gbifResults = await queryGBIF(latitude: latitude, longitude: longitude, radiusKm: radiusKm)
-
-        // Merge GBIF results (add species not already found via iNat)
+        // Merge: start with iNat, add GBIF species not already present
+        var allSpecies = iNatResults
         let existingNames = Set(allSpecies.map { $0.scientificName.lowercased() })
         for sp in gbifResults {
             if !existingNames.contains(sp.scientificName.lowercased()) {
@@ -55,10 +56,10 @@ actor INaturalistService {
         }
 
         fetchedCells.insert(cellKey)
-        return allSpecies
+        return .fetched(allSpecies)
     }
 
-    /// Mark a cell as fetched (when loaded from cache).
+    /// Mark a cell as already fetched (when loaded from cache).
     func markFetched(latitude: Double, longitude: Double) {
         let cellKey = "\(Int(latitude * 10))_\(Int(longitude * 10))"
         fetchedCells.insert(cellKey)
@@ -71,7 +72,7 @@ actor INaturalistService {
         longitude: Double,
         radiusKm: Double
     ) async -> [ObservedSpecies] {
-        // Use the species_counts endpoint — returns unique species with observation counts
+        // species_counts endpoint — efficient, returns unique species with counts
         let urlString = "https://api.inaturalist.org/v1/observations/species_counts"
             + "?lat=\(latitude)&lng=\(longitude)&radius=\(radiusKm)"
             + "&taxon_id=47178"           // Ray-finned fishes
@@ -82,60 +83,51 @@ actor INaturalistService {
         guard let url = URL(string: urlString) else { return [] }
 
         var request = URLRequest(url: url)
-        request.setValue("Currents Fishing App (contact: github.com/currents-app)", forHTTPHeaderField: "User-Agent")
-        request.timeoutInterval = 15
+        request.setValue("Currents Fishing App", forHTTPHeaderField: "User-Agent")
+        request.timeoutInterval = 12
 
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
-
             guard let httpResponse = response as? HTTPURLResponse,
                   httpResponse.statusCode == 200 else { return [] }
-
-            return parseINaturalistResponse(data, source: "iNaturalist")
+            return parseINaturalistResponse(data)
         } catch {
             print("[Currents] iNaturalist query failed: \(error.localizedDescription)")
             return []
         }
     }
 
-    private func parseINaturalistResponse(_ data: Data, source: String) -> [ObservedSpecies] {
+    private func parseINaturalistResponse(_ data: Data) -> [ObservedSpecies] {
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let results = json["results"] as? [[String: Any]] else { return [] }
 
         var species: [ObservedSpecies] = []
-
         for result in results {
             let count = result["count"] as? Int ?? 1
-
             guard let taxon = result["taxon"] as? [String: Any],
-                  let rank = taxon["rank"] as? String,
-                  rank == "species", // Only species-level IDs
-                  let scientificName = taxon["name"] as? String,
-                  !scientificName.isEmpty else { continue }
+                  let rank = taxon["rank"] as? String, rank == "species",
+                  let scientificName = taxon["name"] as? String, !scientificName.isEmpty
+            else { continue }
 
             let commonName = (taxon["preferred_common_name"] as? String)
                 ?? (taxon["english_common_name"] as? String)
 
             let photoUrl: String?
-            if let defaultPhoto = taxon["default_photo"] as? [String: Any] {
-                photoUrl = defaultPhoto["medium_url"] as? String
-                    ?? defaultPhoto["square_url"] as? String
+            if let photo = taxon["default_photo"] as? [String: Any] {
+                photoUrl = photo["medium_url"] as? String ?? photo["square_url"] as? String
             } else {
                 photoUrl = nil
             }
-
-            let taxonId = taxon["id"] as? Int64
 
             species.append(ObservedSpecies(
                 scientificName: scientificName,
                 commonName: commonName,
                 observationCount: count,
-                source: source,
-                iNaturalistTaxonId: taxonId,
+                source: "iNaturalist",
+                iNaturalistTaxonId: taxon["id"] as? Int64,
                 photoUrl: photoUrl
             ))
         }
-
         return species
     }
 
@@ -146,25 +138,31 @@ actor INaturalistService {
         longitude: Double,
         radiusKm: Double
     ) async -> [ObservedSpecies] {
-        // GBIF occurrence search — taxonKey 204 = Actinopterygii
+        // GBIF occurrence search with bounding box
+        let latDelta = radiusKm / 111.0
+        let lonDelta = radiusKm / (111.0 * cos(latitude * .pi / 180))
+        let minLat = latitude - latDelta
+        let maxLat = latitude + latDelta
+        let minLon = longitude - lonDelta
+        let maxLon = longitude + lonDelta
+
         let urlString = "https://api.gbif.org/v1/occurrence/search"
-            + "?decimalLatitude=\(latitude - radiusKm/111),\(latitude + radiusKm/111)"
-            + "&decimalLongitude=\(longitude - radiusKm/111),\(longitude + radiusKm/111)"
-            + "&taxonKey=204"
-            + "&limit=300"
+            + "?decimalLatitude=\(minLat),\(maxLat)"
+            + "&decimalLongitude=\(minLon),\(maxLon)"
+            + "&taxonKey=204"        // Actinopterygii
+            + "&limit=200"
             + "&hasCoordinate=true"
+            + "&hasGeospatialIssue=false"
 
         guard let url = URL(string: urlString) else { return [] }
 
         var request = URLRequest(url: url)
-        request.timeoutInterval = 15
+        request.timeoutInterval = 12
 
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
-
             guard let httpResponse = response as? HTTPURLResponse,
                   httpResponse.statusCode == 200 else { return [] }
-
             return parseGBIFResponse(data)
         } catch {
             print("[Currents] GBIF query failed: \(error.localizedDescription)")
@@ -176,9 +174,7 @@ actor INaturalistService {
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let results = json["results"] as? [[String: Any]] else { return [] }
 
-        // Group by species to get counts
         var speciesCounts: [String: (commonName: String?, count: Int)] = [:]
-
         for result in results {
             guard let name = result["species"] as? String, !name.isEmpty else { continue }
             let vernacular = result["vernacularName"] as? String
@@ -204,12 +200,11 @@ actor INaturalistService {
 
 // MARK: - Data Types
 
-/// A fish species observed near a location, from iNaturalist or GBIF.
 struct ObservedSpecies: Sendable {
     let scientificName: String
     let commonName: String?
     let observationCount: Int
-    let source: String // "iNaturalist" or "GBIF"
+    let source: String
     let iNaturalistTaxonId: Int64?
     let photoUrl: String?
 }

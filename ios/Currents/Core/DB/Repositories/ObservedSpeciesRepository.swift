@@ -34,10 +34,9 @@ final class ObservedSpeciesRepository: ObservableObject {
     ) async -> [FishResult] {
         let cell = Geohash.encode(latitude: latitude, longitude: longitude, precision: 3)
 
-        // Check cache
+        // Check cache first
         let cached = try? fetchCached(geohashCell: cell)
         if let cached, !cached.isEmpty {
-            // Check freshness
             if let first = cached.first, Date.now.timeIntervalSince(first.fetchedAt) < cacheTTL {
                 await INaturalistService.shared.markFetched(latitude: latitude, longitude: longitude)
                 return buildResults(from: cached, speciesRepository: speciesRepository)
@@ -45,23 +44,32 @@ final class ObservedSpeciesRepository: ObservableObject {
         }
 
         // Fetch from iNaturalist + GBIF
-        let observed = await INaturalistService.shared.fetchFishSpecies(
+        let fetchResult = await INaturalistService.shared.fetchFishSpecies(
             latitude: latitude,
             longitude: longitude,
             radiusKm: 10
         )
 
-        guard !observed.isEmpty else {
-            // Return whatever we have cached even if stale, or empty
+        switch fetchResult {
+        case .alreadyCached:
+            // Already queried this session — return whatever is in cache
             if let cached, !cached.isEmpty {
                 return buildResults(from: cached, speciesRepository: speciesRepository)
             }
             return []
-        }
 
-        // Match to local species and cache
-        let cacheEntries = matchAndCache(observed: observed, geohashCell: cell, speciesRepository: speciesRepository)
-        return buildResults(from: cacheEntries, speciesRepository: speciesRepository)
+        case .fetched(let observed):
+            guard !observed.isEmpty else {
+                // API returned nothing — show stale cache if available
+                if let cached, !cached.isEmpty {
+                    return buildResults(from: cached, speciesRepository: speciesRepository)
+                }
+                return []
+            }
+            // Match to local species and cache
+            let entries = matchAndCache(observed: observed, geohashCell: cell, speciesRepository: speciesRepository)
+            return buildResults(from: entries, speciesRepository: speciesRepository)
+        }
     }
 
     // MARK: - Cache Operations
