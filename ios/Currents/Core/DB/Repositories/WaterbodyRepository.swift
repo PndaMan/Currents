@@ -23,25 +23,45 @@ final class WaterbodyRepository: ObservableObject {
     }
 
     /// Fetch waterbodies within the visible map region.
-    func fetchForRegion(minLat: Double, maxLat: Double, minLon: Double, maxLon: Double) throws -> [Waterbody] {
+    /// - `minSurfaceAreaKm2`: only return waterbodies at least this large (0 = all)
+    /// - `limit`: max results returned, ordered by surface area descending
+    func fetchForRegion(
+        minLat: Double, maxLat: Double,
+        minLon: Double, maxLon: Double,
+        minSurfaceAreaKm2: Double = 0,
+        limit: Int = 150
+    ) throws -> [Waterbody] {
         try db.db.read { db in
-            try Waterbody
+            var query = Waterbody
                 .filter(Column("latitude") >= minLat && Column("latitude") <= maxLat)
                 .filter(Column("longitude") >= minLon && Column("longitude") <= maxLon)
-                .limit(200) // Cap results for performance
+
+            if minSurfaceAreaKm2 > 0 {
+                // Show waterbodies above the size threshold, plus any without area data
+                // (seed data / Overpass entries without area get shown at closer zoom)
+                query = query.filter(
+                    Column("surfaceAreaKm2") >= minSurfaceAreaKm2 ||
+                    Column("surfaceAreaKm2") == nil
+                )
+            }
+
+            return try query
+                .order(Column("surfaceAreaKm2").desc) // Largest first
+                .limit(limit)
                 .fetchAll(db)
         }
     }
 
     /// Fetch waterbodies within approximate radius of a coordinate.
-    func fetchNearby(latitude: Double, longitude: Double, radiusKm: Double) throws -> [Waterbody] {
+    func fetchNearby(latitude: Double, longitude: Double, radiusKm: Double, minSurfaceAreaKm2: Double = 0) throws -> [Waterbody] {
         let latDelta = radiusKm / 111.0
         let lonDelta = radiusKm / (111.0 * cos(latitude * .pi / 180))
         return try fetchForRegion(
             minLat: latitude - latDelta,
             maxLat: latitude + latDelta,
             minLon: longitude - lonDelta,
-            maxLon: longitude + lonDelta
+            maxLon: longitude + lonDelta,
+            minSurfaceAreaKm2: minSurfaceAreaKm2
         )
     }
 
@@ -114,7 +134,9 @@ final class WaterbodyRepository: ObservableObject {
     /// Fetch water bodies for a region, querying Overpass if needed, then return from DB.
     func fetchForRegionWithOverpass(
         minLat: Double, maxLat: Double,
-        minLon: Double, maxLon: Double
+        minLon: Double, maxLon: Double,
+        minSurfaceAreaKm2: Double = 0,
+        limit: Int = 150
     ) async throws -> [Waterbody] {
         // First try to get from Overpass (non-blocking, returns nil if already fetched)
         if let overpassResults = await OverpassService.shared.fetchWaterbodies(
@@ -124,8 +146,13 @@ final class WaterbodyRepository: ObservableObject {
             let _ = try insertFromOverpass(overpassResults)
         }
 
-        // Always return from local DB
-        return try fetchForRegion(minLat: minLat, maxLat: maxLat, minLon: minLon, maxLon: maxLon)
+        // Always return from local DB, filtered by size
+        return try fetchForRegion(
+            minLat: minLat, maxLat: maxLat,
+            minLon: minLon, maxLon: maxLon,
+            minSurfaceAreaKm2: minSurfaceAreaKm2,
+            limit: limit
+        )
     }
 
     /// Seed waterbodies from embedded data if the table is empty.

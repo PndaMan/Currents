@@ -469,7 +469,9 @@ struct MapTab: View {
         let userLon = coord.longitude
         waterbodies = (try? await appState.waterbodyRepository.fetchForRegionWithOverpass(
             minLat: userLat - 0.5, maxLat: userLat + 0.5,
-            minLon: userLon - 0.5, maxLon: userLon + 0.5
+            minLon: userLon - 0.5, maxLon: userLon + 0.5,
+            minSurfaceAreaKm2: 0, // Show all nearby at initial load
+            limit: 80
         )) ?? []
 
         // Compute bite scores for each spot
@@ -495,21 +497,42 @@ struct MapTab: View {
 
     private func loadWaterbodies(region: MKCoordinateRegion) async {
         isLoadingWaterbodies = true
+
         let minLat = region.center.latitude - region.span.latitudeDelta / 2
         let maxLat = region.center.latitude + region.span.latitudeDelta / 2
         let minLon = region.center.longitude - region.span.longitudeDelta / 2
         let maxLon = region.center.longitude + region.span.longitudeDelta / 2
+        let latSpan = region.span.latitudeDelta
 
-        // Fetch from local DB + Overpass API (caches new results automatically)
+        // Zoom-adaptive filtering:
+        //  - Zoomed way out (>10°): only massive bodies (>500 km²), few results
+        //  - Regional view (3-10°): large bodies (>50 km²)
+        //  - City/area view (1-3°): medium+ bodies (>5 km²)
+        //  - Close view (0.3-1°): small+ bodies (>0.5 km²)
+        //  - Street level (<0.3°): show everything including ponds
+        let (minArea, limit): (Double, Int) = switch latSpan {
+        case 10...: (500, 30)
+        case 3..<10: (50, 50)
+        case 1..<3: (5, 80)
+        case 0.3..<1: (0.5, 120)
+        default: (0, 150) // Show all when zoomed in close
+        }
+
         waterbodies = (try? await appState.waterbodyRepository.fetchForRegionWithOverpass(
-            minLat: minLat, maxLat: maxLat, minLon: minLon, maxLon: maxLon
+            minLat: minLat, maxLat: maxLat,
+            minLon: minLon, maxLon: maxLon,
+            minSurfaceAreaKm2: minArea,
+            limit: limit
         )) ?? []
+
         isLoadingWaterbodies = false
         await computeWaterbodyScores()
     }
 
     private func computeWaterbodyScores() async {
-        for wb in waterbodies where waterbodyScores[wb.id ?? 0] == nil {
+        // Only compute scores for the first batch to avoid hammering the weather API
+        let toScore = waterbodies.prefix(30).filter { waterbodyScores[$0.id ?? 0] == nil }
+        for wb in toScore {
             let coord = CLLocationCoordinate2D(latitude: wb.latitude, longitude: wb.longitude)
             let w = await WeatherService.shared.current(for: coord)
             let result = ForecastEngine.forecast(
