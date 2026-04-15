@@ -6,6 +6,7 @@ final class LocationManager: NSObject, CLLocationManagerDelegate {
     private let manager = CLLocationManager()
 
     var currentLocation: CLLocation?
+    var heading: CLLocationDirection = 0
     var authorizationStatus: CLAuthorizationStatus = .notDetermined
     var isAuthorized: Bool {
         authorizationStatus == .authorizedWhenInUse || authorizationStatus == .authorizedAlways
@@ -46,6 +47,13 @@ final class LocationManager: NSObject, CLLocationManagerDelegate {
         guard let location = locations.last else { return }
         Task { @MainActor in
             self.currentLocation = location
+        }
+    }
+
+    nonisolated func locationManager(_ manager: CLLocationManager, didUpdateHeading newHeading: CLHeading) {
+        guard newHeading.headingAccuracy >= 0 else { return }
+        Task { @MainActor in
+            self.heading = newHeading.trueHeading
         }
     }
 

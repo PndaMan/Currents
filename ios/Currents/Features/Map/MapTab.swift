@@ -38,10 +38,19 @@ struct MapTab: View {
 
     var body: some View {
         NavigationStack {
-            ZStack {
+            VStack(spacing: 0) {
+                // Search bar — at the very top of the screen
+                searchBarView
+
+                ZStack {
                 MapReader { proxy in
                 Map(position: $position) {
-                    UserAnnotation()
+                    // Custom location dot with heading cone
+                    if let userCoord = appState.locationManager.currentLocation?.coordinate {
+                        Annotation("", coordinate: userCoord) {
+                            UserLocationDot(heading: appState.locationManager.heading)
+                        }
+                    }
 
                     // Spot pins
                     ForEach(spots) { spot in
@@ -86,96 +95,6 @@ struct MapTab: View {
                     }
                 }
                 } // MapReader
-
-                // Search bar — pinned to top of screen
-                VStack(spacing: 4) {
-                    HStack(spacing: 8) {
-                        Image(systemName: "magnifyingglass")
-                            .foregroundStyle(.secondary)
-                        TextField("Search dams, rivers, places...", text: $searchText)
-                            .textFieldStyle(.plain)
-                            .onSubmit { performSearch() }
-                            .onChange(of: searchText) { _, newValue in
-                                searchDebounceTask?.cancel()
-                                if newValue.isEmpty {
-                                    searchResults = []
-                                    return
-                                }
-                                searchDebounceTask = Task {
-                                    try? await Task.sleep(for: .milliseconds(300))
-                                    guard !Task.isCancelled else { return }
-                                    performSearch()
-                                }
-                            }
-                        if isSearching {
-                            ProgressView()
-                                .controlSize(.small)
-                        }
-                        if !searchText.isEmpty {
-                            Button { searchText = ""; searchResults = [] } label: {
-                                Image(systemName: "xmark.circle.fill")
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 10)
-                    .background(.ultraThinMaterial)
-                    .clipShape(RoundedRectangle(cornerRadius: CurrentsTheme.cornerRadius))
-                    .shadow(color: .black.opacity(0.15), radius: 8, y: 2)
-                    .padding(.horizontal)
-
-                    if !searchResults.isEmpty {
-                        ScrollView {
-                            VStack(spacing: 0) {
-                                ForEach(searchResults, id: \.self) { item in
-                                    Button {
-                                        if let coord = item.placemark.location?.coordinate {
-                                            position = .camera(.init(centerCoordinate: coord, distance: 2000))
-                                        }
-                                        searchResults = []
-                                        searchText = item.name ?? ""
-                                    } label: {
-                                        HStack(spacing: 8) {
-                                            Image(systemName: "mappin.circle.fill")
-                                                .foregroundStyle(.red)
-                                                .font(.caption)
-                                            VStack(alignment: .leading, spacing: 2) {
-                                                Text(item.name ?? "Unknown")
-                                                    .font(.subheadline)
-                                                    .foregroundStyle(.primary)
-                                                if let subtitle = item.placemark.title {
-                                                    Text(subtitle)
-                                                        .font(.caption)
-                                                        .foregroundStyle(.secondary)
-                                                        .lineLimit(1)
-                                                }
-                                            }
-                                            Spacer()
-                                            if let itemLocation = item.placemark.location,
-                                               let userLocation = appState.locationManager.currentLocation {
-                                                let distKm = itemLocation.distance(from: userLocation) / 1000
-                                                Text(distKm < 100 ? String(format: "%.0f km", distKm) : String(format: "%.0f km", distKm))
-                                                    .font(.caption2)
-                                                    .foregroundStyle(.secondary)
-                                            }
-                                        }
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                        .padding(.horizontal, 12)
-                                        .padding(.vertical, 8)
-                                    }
-                                    Divider()
-                                }
-                            }
-                            .background(.ultraThinMaterial)
-                            .clipShape(RoundedRectangle(cornerRadius: CurrentsTheme.cornerRadius))
-                        }
-                        .frame(maxHeight: 250)
-                        .padding(.horizontal)
-                    }
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                .padding(.top, 8)
 
                 // Right side control buttons
                 VStack(spacing: 10) {
@@ -227,7 +146,7 @@ struct MapTab: View {
                         mapButton(icon: "cloud.sun.fill")
                     }
                 }
-                .padding(.top, 60)
+                .padding(.top, 12)
                 .padding(.trailing, 12)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
 
@@ -323,7 +242,102 @@ struct MapTab: View {
             .task {
                 await loadData()
             }
+            } // VStack (search bar + map)
         }
+    }
+
+    // MARK: - Search Bar (at top of screen)
+
+    private var searchBarView: some View {
+        VStack(spacing: 4) {
+            HStack(spacing: 8) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(.secondary)
+                TextField("Search dams, rivers, places...", text: $searchText)
+                    .textFieldStyle(.plain)
+                    .onSubmit { performSearch() }
+                    .onChange(of: searchText) { _, newValue in
+                        searchDebounceTask?.cancel()
+                        if newValue.isEmpty {
+                            searchResults = []
+                            return
+                        }
+                        searchDebounceTask = Task {
+                            try? await Task.sleep(for: .milliseconds(300))
+                            guard !Task.isCancelled else { return }
+                            performSearch()
+                        }
+                    }
+                if isSearching {
+                    ProgressView()
+                        .controlSize(.small)
+                }
+                if !searchText.isEmpty {
+                    Button { searchText = ""; searchResults = [] } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .background(.ultraThinMaterial)
+            .clipShape(RoundedRectangle(cornerRadius: CurrentsTheme.cornerRadius))
+            .shadow(color: .black.opacity(0.15), radius: 8, y: 2)
+            .padding(.horizontal)
+
+            if !searchResults.isEmpty {
+                ScrollView {
+                    VStack(spacing: 0) {
+                        ForEach(searchResults, id: \.self) { item in
+                            Button {
+                                if let coord = item.placemark.location?.coordinate {
+                                    position = .camera(.init(centerCoordinate: coord, distance: 2000))
+                                }
+                                searchResults = []
+                                searchText = item.name ?? ""
+                            } label: {
+                                HStack(spacing: 8) {
+                                    Image(systemName: "mappin.circle.fill")
+                                        .foregroundStyle(.red)
+                                        .font(.caption)
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(item.name ?? "Unknown")
+                                            .font(.subheadline)
+                                            .foregroundStyle(.primary)
+                                        if let subtitle = item.placemark.title {
+                                            Text(subtitle)
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                                .lineLimit(1)
+                                        }
+                                    }
+                                    Spacer()
+                                    if let itemLocation = item.placemark.location,
+                                       let userLocation = appState.locationManager.currentLocation {
+                                        let distKm = itemLocation.distance(from: userLocation) / 1000
+                                        Text(String(format: "%.0f km", distKm))
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 8)
+                            }
+                            Divider()
+                        }
+                    }
+                    .background(.ultraThinMaterial)
+                    .clipShape(RoundedRectangle(cornerRadius: CurrentsTheme.cornerRadius))
+                }
+                .frame(maxHeight: 250)
+                .padding(.horizontal)
+            }
+        }
+        .padding(.top, 8)
+        .padding(.bottom, 4)
+        .background(.ultraThinMaterial)
     }
 
     @ViewBuilder
@@ -419,6 +433,54 @@ struct MapTab: View {
             )
             spotScores[spot.id] = result.score
         }
+    }
+}
+
+// MARK: - User Location Dot with Heading
+
+struct UserLocationDot: View {
+    let heading: Double
+
+    var body: some View {
+        ZStack {
+            // Heading cone
+            HeadingCone()
+                .fill(.blue.opacity(0.15))
+                .frame(width: 60, height: 60)
+                .rotationEffect(.degrees(heading))
+
+            // Outer glow
+            Circle()
+                .fill(.blue.opacity(0.2))
+                .frame(width: 24, height: 24)
+
+            // White border
+            Circle()
+                .fill(.white)
+                .frame(width: 16, height: 16)
+                .shadow(color: .black.opacity(0.25), radius: 2, y: 1)
+
+            // Blue dot
+            Circle()
+                .fill(.blue)
+                .frame(width: 12, height: 12)
+        }
+    }
+}
+
+/// Triangular cone shape pointing up (north), rotated by heading.
+struct HeadingCone: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        let center = CGPoint(x: rect.midX, y: rect.midY)
+        let radius = min(rect.width, rect.height) / 2
+        // Narrow cone pointing up (~40° arc)
+        path.move(to: center)
+        path.addArc(center: center, radius: radius,
+                    startAngle: .degrees(-110), endAngle: .degrees(-70),
+                    clockwise: false)
+        path.closeSubpath()
+        return path
     }
 }
 

@@ -61,12 +61,7 @@ struct AnalyticsView: View {
 
     @ViewBuilder
     private var overviewSection: some View {
-        summaryCard
-
-        // At a Glance
-        if totalCatches > 0 {
-            atAGlanceCard
-        }
+        overviewStatsRow
 
         if !monthlyCounts.isEmpty {
             monthlyTrendChart
@@ -93,19 +88,29 @@ struct AnalyticsView: View {
         }
     }
 
-    private var atAGlanceCard: some View {
-        HStack(spacing: 12) {
-            let released = allCatches.filter { $0.catchRecord.released }.count
-            let releaseRate = totalCatches > 0 ? Int(Double(released) / Double(totalCatches) * 100) : 0
-            let weights = allCatches.compactMap(\.catchRecord.weightKg)
-            let avgWeight = weights.isEmpty ? 0.0 : weights.reduce(0, +) / Double(weights.count)
-
-            StatCard(value: "\(releaseRate)%", label: "Released", icon: "arrow.uturn.backward")
-            if avgWeight > 0 {
-                StatCard(value: String(format: "%.1fkg", avgWeight), label: "Avg Weight", icon: "scalemass")
+    private var overviewStatsRow: some View {
+        VStack(spacing: 10) {
+            HStack(spacing: 12) {
+                StatCard(value: "\(totalCatches)", label: "Catches", icon: "fish.fill")
+                StatCard(value: "\(personalBests.count)", label: "Species", icon: "leaf.fill")
+                if let biggest = personalBests.compactMap(\.heaviestKg).max() {
+                    StatCard(value: String(format: "%.1fkg", biggest), label: "Biggest", icon: "trophy.fill")
+                }
             }
-            if let biggest = weights.max() {
-                StatCard(value: String(format: "%.1fkg", biggest), label: "Biggest", icon: "trophy.fill")
+            if totalCatches > 0 {
+                let released = allCatches.filter { $0.catchRecord.released }.count
+                let releaseRate = totalCatches > 0 ? Int(Double(released) / Double(totalCatches) * 100) : 0
+                let weights = allCatches.compactMap(\.catchRecord.weightKg)
+                let avgWeight = weights.isEmpty ? 0.0 : weights.reduce(0, +) / Double(weights.count)
+                HStack(spacing: 12) {
+                    StatCard(value: "\(releaseRate)%", label: "Released", icon: "arrow.uturn.backward")
+                    if avgWeight > 0 {
+                        StatCard(value: String(format: "%.1fkg", avgWeight), label: "Avg Weight", icon: "scalemass")
+                    }
+                    if let longest = personalBests.compactMap(\.longestCm).max() {
+                        StatCard(value: String(format: "%.0fcm", longest), label: "Longest", icon: "ruler")
+                    }
+                }
             }
         }
     }
@@ -191,19 +196,6 @@ struct AnalyticsView: View {
                 }
             }
             .glassCard()
-        }
-    }
-
-    private var summaryCard: some View {
-        HStack(spacing: 12) {
-            StatCard(value: "\(totalCatches)", label: "Total", icon: "fish.fill")
-            StatCard(value: "\(personalBests.count)", label: "Species", icon: "leaf.fill")
-            if let biggest = personalBests.compactMap(\.heaviestKg).max() {
-                StatCard(value: String(format: "%.1fkg", biggest), label: "Biggest", icon: "trophy.fill")
-            }
-            if let longest = personalBests.compactMap(\.longestCm).max() {
-                StatCard(value: String(format: "%.0fcm", longest), label: "Longest", icon: "ruler")
-            }
         }
     }
 
