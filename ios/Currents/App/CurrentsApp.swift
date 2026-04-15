@@ -9,6 +9,7 @@ struct CurrentsApp: App {
             ContentView()
                 .environment(appState)
                 .preferredColorScheme(.dark)
+                .tint(CurrentsTheme.accent)
         }
     }
 }

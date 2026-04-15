@@ -298,7 +298,7 @@ struct WaterbodyDetailSheet: View {
                 HStack(spacing: 4) {
                     Image(systemName: "checkmark.circle.fill")
                         .font(.caption2)
-                        .foregroundStyle(.green)
+                        .foregroundStyle(CurrentsTheme.accent)
                     Text("Matched — has bait data")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
@@ -513,7 +513,7 @@ struct WaterbodyDetailSheet: View {
             if fish.localSpecies != nil {
                 Image(systemName: "checkmark.circle.fill")
                     .font(.caption2)
-                    .foregroundStyle(.green)
+                    .foregroundStyle(CurrentsTheme.accent)
             }
         }
     }

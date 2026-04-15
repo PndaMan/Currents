@@ -601,7 +601,7 @@ struct CatchPin: View {
         VStack(spacing: 0) {
             ZStack {
                 Circle()
-                    .fill(.green)
+                    .fill(CurrentsTheme.accent)
                     .frame(width: 28, height: 28)
                     .shadow(color: .black.opacity(0.3), radius: 3, y: 1)
                 Image(systemName: "fish.fill")

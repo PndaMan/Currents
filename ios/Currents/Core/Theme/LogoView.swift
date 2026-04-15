@@ -1,8 +1,6 @@
 import SwiftUI
 
-/// The Currents wordmark + symbol. For the default "ocean" theme the
-/// bundled Logo asset is used; for other themes a programmatic SF Symbol
-/// placeholder is rendered in the theme's gradient colours.
+/// The Currents wordmark + symbol. Each theme has its own logo asset.
 struct LogoView: View {
     enum Style {
         case symbol            // just the symbol glyph
@@ -14,22 +12,26 @@ struct LogoView: View {
     var size: CGFloat = 32
     var showsTagline: Bool = false
 
-    /// Override which icon theme to display. `nil` reads from UserDefaults.
-    var iconOverride: String? = nil
+    /// Override which theme's logo to display. `nil` reads from UserDefaults.
+    var themeOverride: String? = nil
 
-    // MARK: - Resolved icon
+    // MARK: - Resolved theme
 
-    private var resolvedIcon: String {
-        iconOverride ?? UserDefaults.standard.string(forKey: "selectedAppIcon") ?? "ocean"
+    private var resolvedTheme: ThemeOption {
+        if let override = themeOverride, let opt = ThemeOption(rawValue: override) {
+            return opt
+        }
+        return ThemeOption.current
     }
 
-    private var iconOption: ThemeIconOption {
-        ThemeIconOption.option(for: resolvedIcon)
-    }
-
-    /// Use the bundled PNG only for the default ocean theme.
-    private var useCustomAsset: Bool {
-        resolvedIcon == "ocean"
+    /// Map each theme to its logo image asset name.
+    private var logoAssetName: String {
+        switch resolvedTheme {
+        case .ocean:                    return "Logo"
+        case .forest, .teal:            return "LogoGreen"
+        case .amethyst, .rose:          return "LogoPurple"
+        case .gold, .sunset, .ember:    return "LogoGold"
+        }
     }
 
     // MARK: - Body
@@ -58,42 +60,18 @@ struct LogoView: View {
 
     // MARK: - Symbol
 
-    @ViewBuilder
     private var symbolView: some View {
-        if useCustomAsset {
-            Image("Logo")
-                .resizable()
-                .renderingMode(.original)
-                .aspectRatio(contentMode: .fit)
-                .frame(width: size, height: size)
-        } else {
-            themedPlaceholderSymbol
-        }
-    }
-
-    /// Programmatic placeholder: SF Symbol centred in a gradient circle.
-    private var themedPlaceholderSymbol: some View {
-        ZStack {
-            Circle()
-                .fill(
-                    LinearGradient(
-                        colors: iconOption.gradient,
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
-
-            Image(systemName: iconOption.sfSymbol)
-                .font(.system(size: size * 0.45, weight: .semibold))
-                .foregroundStyle(.white)
-        }
-        .frame(width: size, height: size)
+        Image(logoAssetName)
+            .resizable()
+            .renderingMode(.original)
+            .aspectRatio(contentMode: .fit)
+            .frame(width: size, height: size)
     }
 
     // MARK: - Wordmark
 
     private var wordmark: some View {
-        let grad = ThemeOption.current.gradient
+        let grad = resolvedTheme.gradient
         return Text("Currents")
             .font(.system(size: size * 0.62, weight: .semibold, design: .rounded))
             .tracking(-0.5)
@@ -112,9 +90,9 @@ struct LogoView: View {
         LogoView(style: .symbol, size: 64)
         LogoView(style: .horizontal, size: 32)
         LogoView(style: .stacked, size: 80, showsTagline: true)
-        // Preview non-ocean themes
-        LogoView(style: .horizontal, size: 44, iconOverride: "ember")
-        LogoView(style: .horizontal, size: 44, iconOverride: "forest")
+        LogoView(style: .horizontal, size: 44, themeOverride: "forest")
+        LogoView(style: .horizontal, size: 44, themeOverride: "amethyst")
+        LogoView(style: .horizontal, size: 44, themeOverride: "gold")
     }
     .padding()
 }

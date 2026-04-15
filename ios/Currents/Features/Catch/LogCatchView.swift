@@ -208,7 +208,7 @@ struct LogCatchView: View {
                                 $0.commonName.localizedCaseInsensitiveContains(prediction.species)
                             }), selectedSpeciesId == match.id {
                                 Image(systemName: "checkmark.circle.fill")
-                                    .foregroundStyle(.green)
+                                    .foregroundStyle(CurrentsTheme.accent)
                             }
                         }
                     }

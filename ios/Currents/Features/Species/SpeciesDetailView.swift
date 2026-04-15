@@ -217,7 +217,7 @@ struct SpeciesDetailView: View {
                 ForEach(sorted.prefix(5), id: \.key) { gearName, gearCatches in
                     HStack {
                         Image(systemName: "wrench.and.screwdriver.fill")
-                            .foregroundStyle(.green)
+                            .foregroundStyle(CurrentsTheme.accent)
                             .frame(width: 24)
                         VStack(alignment: .leading) {
                             Text(gearName)

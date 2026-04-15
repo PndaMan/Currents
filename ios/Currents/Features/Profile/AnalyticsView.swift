@@ -369,7 +369,7 @@ struct AnalyticsView: View {
                         HStack {
                             Image(systemName: "fish.circle")
                                 .font(.caption)
-                                .foregroundStyle(.green)
+                                .foregroundStyle(CurrentsTheme.accent)
                             Text(lure)
                                 .font(.caption)
                             Spacer()

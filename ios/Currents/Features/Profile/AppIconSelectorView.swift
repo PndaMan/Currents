@@ -1,49 +1,30 @@
 import SwiftUI
 
-// MARK: - Theme Icon Definition
+// MARK: - App Icon Option
 
-struct ThemeIconOption: Identifiable {
-    let id: String          // matches ThemeOption raw value
+struct AppIconOption: Identifiable {
+    let id: String              // matches ThemeOption raw value
     let name: String
-    let sfSymbol: String
-    let gradient: [Color]
+    let logoAsset: String       // image asset name for preview
+    let alternateIconName: String? // nil = primary icon, string = CFBundleAlternateIcons key
 
-    static let all: [ThemeIconOption] = [
-        ThemeIconOption(id: "ocean", name: "Ocean",
-                        sfSymbol: "water.waves",
-                        gradient: [Color(red: 0.10, green: 0.55, blue: 0.95),
-                                   Color(red: 0.15, green: 0.82, blue: 0.98)]),
-        ThemeIconOption(id: "forest", name: "Forest",
-                        sfSymbol: "leaf.fill",
-                        gradient: [Color(red: 0.13, green: 0.55, blue: 0.33),
-                                   Color(red: 0.30, green: 0.78, blue: 0.47)]),
-        ThemeIconOption(id: "ember", name: "Ember",
-                        sfSymbol: "flame.fill",
-                        gradient: [Color(red: 0.85, green: 0.20, blue: 0.15),
-                                   Color(red: 0.95, green: 0.45, blue: 0.20)]),
-        ThemeIconOption(id: "sunset", name: "Sunset",
-                        sfSymbol: "sun.horizon.fill",
-                        gradient: [Color(red: 0.95, green: 0.55, blue: 0.15),
-                                   Color(red: 0.98, green: 0.75, blue: 0.25)]),
-        ThemeIconOption(id: "amethyst", name: "Amethyst",
-                        sfSymbol: "sparkles",
-                        gradient: [Color(red: 0.55, green: 0.25, blue: 0.85),
-                                   Color(red: 0.75, green: 0.45, blue: 0.95)]),
-        ThemeIconOption(id: "teal", name: "Teal",
-                        sfSymbol: "drop.fill",
-                        gradient: [Color(red: 0.10, green: 0.60, blue: 0.65),
-                                   Color(red: 0.20, green: 0.80, blue: 0.78)]),
-        ThemeIconOption(id: "rose", name: "Rose",
-                        sfSymbol: "heart.fill",
-                        gradient: [Color(red: 0.85, green: 0.25, blue: 0.45),
-                                   Color(red: 0.95, green: 0.50, blue: 0.60)]),
-        ThemeIconOption(id: "gold", name: "Gold",
-                        sfSymbol: "star.fill",
-                        gradient: [Color(red: 0.80, green: 0.65, blue: 0.15),
-                                   Color(red: 0.95, green: 0.82, blue: 0.30)]),
+    /// The 4 available logo variants, mapped to closest themes.
+    static let all: [AppIconOption] = [
+        AppIconOption(id: "ocean", name: "Ocean",
+                      logoAsset: "Logo",
+                      alternateIconName: nil), // Primary (default)
+        AppIconOption(id: "forest", name: "Forest",
+                      logoAsset: "LogoGreen",
+                      alternateIconName: "AppIcon-Green"),
+        AppIconOption(id: "amethyst", name: "Amethyst",
+                      logoAsset: "LogoPurple",
+                      alternateIconName: "AppIcon-Purple"),
+        AppIconOption(id: "gold", name: "Gold",
+                      logoAsset: "LogoGold",
+                      alternateIconName: "AppIcon-Gold"),
     ]
 
-    static func option(for id: String) -> ThemeIconOption {
+    static func option(for id: String) -> AppIconOption {
         all.first { $0.id == id } ?? all[0]
     }
 }
@@ -54,61 +35,57 @@ struct AppIconSelectorView: View {
     @AppStorage("selectedAppIcon") private var selectedAppIcon = "ocean"
 
     private let columns = [
-        GridItem(.adaptive(minimum: 90, maximum: 120), spacing: 16)
+        GridItem(.adaptive(minimum: 100, maximum: 140), spacing: 16)
     ]
 
     var body: some View {
         ScrollView {
-            LazyVGrid(columns: columns, spacing: 20) {
-                ForEach(ThemeIconOption.all) { option in
-                    iconCell(for: option)
-                }
-            }
-            .padding()
+            VStack(spacing: 20) {
+                Text("Choose your app icon")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
 
-            Text("Custom logos coming soon!")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-                .padding(.bottom, 24)
+                LazyVGrid(columns: columns, spacing: 20) {
+                    ForEach(AppIconOption.all) { option in
+                        iconCell(for: option)
+                    }
+                }
+                .padding(.horizontal)
+            }
+            .padding(.vertical)
         }
         .navigationTitle("App Icon")
     }
 
     @ViewBuilder
-    private func iconCell(for option: ThemeIconOption) -> some View {
+    private func iconCell(for option: AppIconOption) -> some View {
         let isSelected = selectedAppIcon == option.id
         VStack(spacing: 8) {
             ZStack {
-                Circle()
-                    .fill(
-                        LinearGradient(
-                            colors: option.gradient,
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
+                Image(option.logoAsset)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: 72, height: 72)
+                    .background(.black)
+                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .strokeBorder(isSelected ? CurrentsTheme.accent : Color.clear, lineWidth: 3)
                     )
-                    .frame(width: 64, height: 64)
-
-                Image(systemName: option.sfSymbol)
-                    .font(.system(size: 26, weight: .semibold))
-                    .foregroundStyle(.white)
+                    .shadow(color: isSelected ? CurrentsTheme.accent.opacity(0.4) : .clear, radius: 6, y: 2)
 
                 if isSelected {
-                    Circle()
-                        .strokeBorder(.white, lineWidth: 3)
-                        .frame(width: 64, height: 64)
-
                     VStack {
                         HStack {
                             Spacer()
                             Image(systemName: "checkmark.circle.fill")
                                 .font(.system(size: 20))
-                                .foregroundStyle(.white, .green)
-                                .background(Circle().fill(.green).frame(width: 16, height: 16))
+                                .foregroundStyle(.white, CurrentsTheme.accent)
                         }
                         Spacer()
                     }
-                    .frame(width: 64, height: 64)
+                    .frame(width: 72, height: 72)
+                    .offset(x: 6, y: -6)
                 }
             }
 
@@ -118,8 +95,19 @@ struct AppIconSelectorView: View {
                 .fontWeight(isSelected ? .semibold : .regular)
         }
         .onTapGesture {
+            guard selectedAppIcon != option.id else { return }
             withAnimation(.easeInOut(duration: 0.2)) {
                 selectedAppIcon = option.id
+            }
+            setAppIcon(option.alternateIconName)
+        }
+    }
+
+    private func setAppIcon(_ iconName: String?) {
+        guard UIApplication.shared.supportsAlternateIcons else { return }
+        UIApplication.shared.setAlternateIconName(iconName) { error in
+            if let error {
+                print("[Currents] Failed to set app icon: \(error.localizedDescription)")
             }
         }
     }

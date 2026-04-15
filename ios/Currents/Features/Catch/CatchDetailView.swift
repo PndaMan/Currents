@@ -378,7 +378,7 @@ struct CatchDetailView: View {
             )) {
                 Image(systemName: "fish.circle.fill")
                     .font(.title)
-                    .foregroundStyle(.green)
+                    .foregroundStyle(CurrentsTheme.accent)
             }
         }
         .mapStyle(.hybrid)
