@@ -238,7 +238,7 @@ struct LogCatchView: View {
             } label: {
                 HStack {
                     Image(systemName: "fish.fill")
-                        .foregroundStyle(.blue)
+                        .foregroundStyle(CurrentsTheme.accent)
                         .frame(width: 28)
                     if selectedSpeciesId != nil {
                         Text(selectedSpeciesName)
@@ -292,7 +292,7 @@ struct LogCatchView: View {
                 if let loc = appState.locationManager.currentLocation {
                     HStack {
                         Image(systemName: "location.fill")
-                            .foregroundStyle(.blue)
+                            .foregroundStyle(CurrentsTheme.accent)
                         VStack(alignment: .leading) {
                             Text("Using current location")
                                 .font(.subheadline)
@@ -905,7 +905,7 @@ struct SpeciesPickerSheet: View {
 
                                     if selectedId == sp.id {
                                         Image(systemName: "checkmark.circle.fill")
-                                            .foregroundStyle(.blue)
+                                            .foregroundStyle(CurrentsTheme.accent)
                                     }
                                 }
                             }
@@ -936,7 +936,7 @@ struct SpeciesPickerSheet: View {
     private func habitatColor(_ habitat: Species.Habitat?) -> Color {
         switch habitat {
         case .freshwater: return .green
-        case .marine: return .blue
+        case .marine: return CurrentsTheme.accent
         case .brackish: return .teal
         case nil: return .gray
         }

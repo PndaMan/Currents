@@ -101,7 +101,7 @@ struct SpotRow: View {
                     latitude: spot.latitude, longitude: spot.longitude
                 )) {
                     Circle()
-                        .fill(.blue)
+                        .fill(CurrentsTheme.accent)
                         .frame(width: 8, height: 8)
                 }
             }

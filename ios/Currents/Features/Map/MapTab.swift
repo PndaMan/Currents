@@ -568,18 +568,18 @@ struct SpotPin: View {
             ZStack(alignment: .topTrailing) {
                 ZStack {
                     Circle()
-                        .fill(isSelected ? .blue : .white)
+                        .fill(isSelected ? CurrentsTheme.accent : .white)
                         .frame(width: 40, height: 40)
                         .shadow(color: .black.opacity(0.3), radius: 4, y: 2)
 
                     if spot.isPrivate {
                         Image(systemName: "lock.fill")
                             .font(.system(size: 16))
-                            .foregroundStyle(isSelected ? .white : .blue)
+                            .foregroundStyle(isSelected ? .white : CurrentsTheme.accent)
                     } else {
                         Image(systemName: "mappin.circle.fill")
                             .font(.system(size: 20))
-                            .foregroundStyle(isSelected ? .white : .blue)
+                            .foregroundStyle(isSelected ? .white : CurrentsTheme.accent)
                     }
                 }
 
@@ -601,7 +601,7 @@ struct SpotPin: View {
                     .font(.caption2.bold())
                     .padding(.horizontal, 6)
                     .padding(.vertical, 2)
-                    .background(.blue)
+                    .background(CurrentsTheme.accent)
                     .foregroundStyle(.white)
                     .clipShape(Capsule())
                     .offset(y: -4)
@@ -647,7 +647,7 @@ struct SpotDetailSheet: View {
                         Annotation(spot.name, coordinate: spotCoord) {
                             Image(systemName: "mappin.circle.fill")
                                 .font(.title)
-                                .foregroundStyle(.blue)
+                                .foregroundStyle(CurrentsTheme.accent)
                         }
                     }
                     .mapStyle(.hybrid)
@@ -913,7 +913,7 @@ struct AddSpotSheet: View {
                         if let loc = appState.locationManager.currentLocation {
                             HStack {
                                 Image(systemName: "location.fill")
-                                    .foregroundStyle(.blue)
+                                    .foregroundStyle(CurrentsTheme.accent)
                                 Text(String(format: "%.4f, %.4f", loc.coordinate.latitude, loc.coordinate.longitude))
                                     .font(.caption)
                                     .foregroundStyle(.secondary)

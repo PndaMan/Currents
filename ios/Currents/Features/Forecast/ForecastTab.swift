@@ -199,7 +199,7 @@ struct ForecastTab: View {
                         .offset(y: -30)
                     Image(systemName: "location.north.fill")
                         .font(.body)
-                        .foregroundStyle(.blue)
+                        .foregroundStyle(CurrentsTheme.accent)
                         .rotationEffect(.degrees(weather.windDirectionDeg))
                 }
             }
@@ -257,7 +257,7 @@ struct ForecastTab: View {
                         }
                         .frame(width: 60)
                         .padding(.vertical, 8)
-                        .background(selectedDay == offset ? Color.blue : Color.clear)
+                        .background(selectedDay == offset ? CurrentsTheme.accent : Color.clear)
                         .foregroundStyle(selectedDay == offset ? .white : .primary)
                         .clipShape(RoundedRectangle(cornerRadius: 12))
                         .overlay(
@@ -349,7 +349,7 @@ struct ForecastTab: View {
                     x: .value("Hour", point.hour),
                     y: .value("Score", point.score)
                 )
-                .foregroundStyle(selectedHour == point.hour ? Color.blue : barColor(score: point.score))
+                .foregroundStyle(selectedHour == point.hour ? CurrentsTheme.accent : barColor(score: point.score))
                 .opacity(selectedHour == nil || selectedHour == point.hour ? 1.0 : 0.4)
             }
             .chartYScale(domain: 0...100)
@@ -473,7 +473,7 @@ struct ForecastTab: View {
     private func feedingRow(_ window: SolunarEngine.FeedingWindow, isMajor: Bool) -> some View {
         HStack {
             RoundedRectangle(cornerRadius: 2)
-                .fill(isMajor ? Color.orange : Color.blue)
+                .fill(isMajor ? Color.orange : CurrentsTheme.accent)
                 .frame(width: 4, height: 32)
 
             VStack(alignment: .leading, spacing: 2) {
@@ -490,8 +490,8 @@ struct ForecastTab: View {
                 .font(.caption2.bold())
                 .padding(.horizontal, 8)
                 .padding(.vertical, 3)
-                .background(isMajor ? Color.orange.opacity(0.2) : Color.blue.opacity(0.2))
-                .foregroundStyle(isMajor ? .orange : .blue)
+                .background(isMajor ? Color.orange.opacity(0.2) : CurrentsTheme.accent.opacity(0.2))
+                .foregroundStyle(isMajor ? .orange : CurrentsTheme.accent)
                 .clipShape(Capsule())
         }
     }
@@ -625,10 +625,10 @@ struct ForecastTab: View {
                 HStack(spacing: 12) {
                     ZStack {
                         Circle()
-                            .fill(selectedSpecies != nil ? .blue.opacity(0.15) : .secondary.opacity(0.15))
+                            .fill(selectedSpecies != nil ? CurrentsTheme.accent.opacity(0.15) : .secondary.opacity(0.15))
                             .frame(width: 44, height: 44)
                         Image(systemName: "fish.fill")
-                            .foregroundStyle(selectedSpecies != nil ? .blue : .secondary)
+                            .foregroundStyle(selectedSpecies != nil ? CurrentsTheme.accent : .secondary)
                     }
                     VStack(alignment: .leading, spacing: 2) {
                         Text(selectedSpecies?.commonName ?? "General (All Species)")
@@ -895,7 +895,7 @@ struct ForecastSpeciesPickerSheet: View {
                             Spacer()
                             if selectedSpecies == nil {
                                 Image(systemName: "checkmark.circle.fill")
-                                    .foregroundStyle(.blue)
+                                    .foregroundStyle(CurrentsTheme.accent)
                             }
                         }
                     }
@@ -933,7 +933,7 @@ struct ForecastSpeciesPickerSheet: View {
                                     }
                                     if selectedSpecies?.id == sp.id {
                                         Image(systemName: "checkmark.circle.fill")
-                                            .foregroundStyle(.blue)
+                                            .foregroundStyle(CurrentsTheme.accent)
                                     }
                                 }
                             }
@@ -957,7 +957,7 @@ struct ForecastSpeciesPickerSheet: View {
     private func habitatColor(_ habitat: Species.Habitat?) -> Color {
         switch habitat {
         case .freshwater: .green
-        case .marine: .blue
+        case .marine: CurrentsTheme.accent
         case .brackish: .teal
         case nil: .gray
         }

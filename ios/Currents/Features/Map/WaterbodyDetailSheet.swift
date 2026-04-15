@@ -115,6 +115,9 @@ struct WaterbodyDetailSheet: View {
                 }
                 .padding()
             }
+            .navigationDestination(for: Species.self) { sp in
+                SpeciesDetailView(species: sp)
+            }
             .navigationTitle(waterbody.name)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -269,60 +272,14 @@ struct WaterbodyDetailSheet: View {
                 .foregroundStyle(.secondary)
 
             ForEach(Array(observedFish.prefix(20).enumerated()), id: \.offset) { _, fish in
-                HStack(spacing: 10) {
-                    ZStack {
-                        Circle()
-                            .fill(fish.localSpecies != nil
-                                  ? habitatColor(fish.localSpecies!).opacity(0.15)
-                                  : Color.gray.opacity(0.15))
-                            .frame(width: 36, height: 36)
-                        Image(systemName: "fish.fill")
-                            .font(.system(size: 16))
-                            .foregroundStyle(fish.localSpecies != nil
-                                             ? habitatColor(fish.localSpecies!)
-                                             : .gray)
-                    }
-
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(fish.commonName)
-                            .font(.subheadline.bold())
-                        HStack(spacing: 6) {
-                            Text(fish.scientificName)
-                                .font(.caption2)
-                                .italic()
-                                .foregroundStyle(.secondary)
-                            if fish.observationCount > 1 {
-                                Text("·")
-                                    .foregroundStyle(.tertiary)
-                                Text("\(fish.observationCount) obs")
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                            }
+                Group {
+                    if let local = fish.localSpecies {
+                        NavigationLink(value: local) {
+                            observedFishRow(fish)
                         }
-                        // Show baits if matched to our species DB
-                        if let local = fish.localSpecies, !local.parsedBaits.isEmpty {
-                            Text(local.parsedBaits.prefix(3).joined(separator: " · "))
-                                .font(.caption2)
-                                .foregroundStyle(CurrentsTheme.accent)
-                                .lineLimit(1)
-                        }
-                    }
-
-                    Spacer()
-
-                    // Source badge
-                    Text(fish.source == "iNaturalist" ? "iNat" : "GBIF")
-                        .font(.system(size: 8, weight: .bold))
-                        .padding(.horizontal, 4)
-                        .padding(.vertical, 2)
-                        .background(fish.source == "iNaturalist" ? Color.green.opacity(0.2) : Color.blue.opacity(0.2))
-                        .foregroundStyle(fish.source == "iNaturalist" ? .green : .blue)
-                        .clipShape(Capsule())
-
-                    if fish.localSpecies != nil {
-                        Image(systemName: "checkmark.circle.fill")
-                            .font(.caption2)
-                            .foregroundStyle(.green)
+                        .buttonStyle(.plain)
+                    } else {
+                        observedFishRow(fish)
                     }
                 }
                 if fish.scientificName != observedFish.prefix(20).last?.scientificName {
@@ -371,51 +328,54 @@ struct WaterbodyDetailSheet: View {
                 .foregroundStyle(.secondary)
 
             ForEach(species) { sp in
-                HStack(spacing: 10) {
-                    ZStack {
-                        Circle()
-                            .fill(habitatColor(sp).opacity(0.15))
-                            .frame(width: 36, height: 36)
-                        Image(systemName: "fish.fill")
-                            .font(.system(size: 16))
-                            .foregroundStyle(habitatColor(sp))
-                    }
+                NavigationLink(value: sp) {
+                    HStack(spacing: 10) {
+                        ZStack {
+                            Circle()
+                                .fill(habitatColor(sp).opacity(0.15))
+                                .frame(width: 36, height: 36)
+                            Image(systemName: "fish.fill")
+                                .font(.system(size: 16))
+                                .foregroundStyle(habitatColor(sp))
+                        }
 
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(sp.commonName)
-                            .font(.subheadline.bold())
-                        HStack(spacing: 8) {
-                            if let habitat = sp.habitat {
-                                Text(habitat.rawValue.capitalized)
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(sp.commonName)
+                                .font(.subheadline.bold())
+                            HStack(spacing: 8) {
+                                if let habitat = sp.habitat {
+                                    Text(habitat.rawValue.capitalized)
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                }
+                                if let opt = sp.optimalTempC {
+                                    Text("Best at \(Int(opt))°C")
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                }
                             }
-                            if let opt = sp.optimalTempC {
-                                Text("Best at \(Int(opt))°C")
+                            // Show baits if available
+                            if let baits = sp.recommendedBaits,
+                               let data = baits.data(using: .utf8),
+                               let parsed = try? JSONDecoder().decode([String].self, from: data),
+                               !parsed.isEmpty {
+                                Text(parsed.prefix(3).joined(separator: " · "))
                                     .font(.caption2)
-                                    .foregroundStyle(.secondary)
+                                    .foregroundStyle(CurrentsTheme.accent)
+                                    .lineLimit(1)
                             }
                         }
-                        // Show baits if available
-                        if let baits = sp.recommendedBaits,
-                           let data = baits.data(using: .utf8),
-                           let parsed = try? JSONDecoder().decode([String].self, from: data),
-                           !parsed.isEmpty {
-                            Text(parsed.prefix(3).joined(separator: " · "))
+
+                        Spacer()
+
+                        if let min = sp.minTempC, let max = sp.maxTempC {
+                            Text("\(Int(min))-\(Int(max))°")
                                 .font(.caption2)
-                                .foregroundStyle(CurrentsTheme.accent)
-                                .lineLimit(1)
+                                .foregroundStyle(.secondary)
                         }
-                    }
-
-                    Spacer()
-
-                    if let min = sp.minTempC, let max = sp.maxTempC {
-                        Text("\(Int(min))-\(Int(max))°")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
                     }
                 }
+                .buttonStyle(.plain)
                 if sp.id != species.last?.id {
                     Divider()
                 }
@@ -497,12 +457,73 @@ struct WaterbodyDetailSheet: View {
         .glassCard()
     }
 
+    // MARK: - Observed Fish Row
+
+    private func observedFishRow(_ fish: ObservedSpeciesRepository.FishResult) -> some View {
+        HStack(spacing: 10) {
+            ZStack {
+                Circle()
+                    .fill(fish.localSpecies != nil
+                          ? habitatColor(fish.localSpecies!).opacity(0.15)
+                          : Color.gray.opacity(0.15))
+                    .frame(width: 36, height: 36)
+                Image(systemName: "fish.fill")
+                    .font(.system(size: 16))
+                    .foregroundStyle(fish.localSpecies != nil
+                                     ? habitatColor(fish.localSpecies!)
+                                     : .gray)
+            }
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(fish.commonName)
+                    .font(.subheadline.bold())
+                HStack(spacing: 6) {
+                    Text(fish.scientificName)
+                        .font(.caption2)
+                        .italic()
+                        .foregroundStyle(.secondary)
+                    if fish.observationCount > 1 {
+                        Text("·")
+                            .foregroundStyle(.tertiary)
+                        Text("\(fish.observationCount) obs")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                // Show baits if matched to our species DB
+                if let local = fish.localSpecies, !local.parsedBaits.isEmpty {
+                    Text(local.parsedBaits.prefix(3).joined(separator: " · "))
+                        .font(.caption2)
+                        .foregroundStyle(CurrentsTheme.accent)
+                        .lineLimit(1)
+                }
+            }
+
+            Spacer()
+
+            // Source badge
+            Text(fish.source == "iNaturalist" ? "iNat" : "GBIF")
+                .font(.system(size: 8, weight: .bold))
+                .padding(.horizontal, 4)
+                .padding(.vertical, 2)
+                .background(fish.source == "iNaturalist" ? Color.green.opacity(0.2) : Color.blue.opacity(0.2))
+                .foregroundStyle(fish.source == "iNaturalist" ? .green : .blue)
+                .clipShape(Capsule())
+
+            if fish.localSpecies != nil {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.caption2)
+                    .foregroundStyle(.green)
+            }
+        }
+    }
+
     // MARK: - Helpers
 
     private func habitatColor(_ sp: Species) -> Color {
         switch sp.habitat {
         case .freshwater: .green
-        case .marine: .blue
+        case .marine: CurrentsTheme.accent
         case .brackish: .teal
         case nil: .gray
         }

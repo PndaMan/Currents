@@ -82,7 +82,7 @@ struct SpeciesDetailView: View {
     private var habitatColor: Color {
         switch species.habitat {
         case .freshwater: return .green
-        case .marine: return .blue
+        case .marine: return CurrentsTheme.accent
         case .brackish: return .teal
         case nil: return .gray
         }
@@ -305,7 +305,7 @@ struct SpeciesDetailView: View {
     private func tipRow(icon: String, text: String) -> some View {
         HStack(alignment: .top, spacing: 8) {
             Image(systemName: icon)
-                .foregroundStyle(.blue)
+                .foregroundStyle(CurrentsTheme.accent)
                 .frame(width: 20)
             Text(text)
                 .font(.caption)

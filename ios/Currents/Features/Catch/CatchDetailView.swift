@@ -66,7 +66,7 @@ struct CatchDetailView: View {
                         if let spot = detail.spot {
                             HStack(spacing: 4) {
                                 Image(systemName: "mappin.circle.fill")
-                                    .foregroundStyle(.blue)
+                                    .foregroundStyle(CurrentsTheme.accent)
                                     .font(.caption)
                                 Text(spot.name)
                                     .font(.caption.bold())
@@ -113,7 +113,7 @@ struct CatchDetailView: View {
                             .font(.headline)
                         HStack {
                             Image(systemName: "tent.fill")
-                                .foregroundStyle(.blue)
+                                .foregroundStyle(CurrentsTheme.accent)
                             Text(trip.name)
                                 .font(.subheadline.bold())
                             Spacer()
@@ -444,7 +444,7 @@ struct EditCatchSheet: View {
                     } label: {
                         HStack {
                             Image(systemName: "fish.fill")
-                                .foregroundStyle(.blue)
+                                .foregroundStyle(CurrentsTheme.accent)
                             if selectedSpeciesId != nil {
                                 Text(selectedSpeciesName)
                                     .foregroundStyle(.primary)

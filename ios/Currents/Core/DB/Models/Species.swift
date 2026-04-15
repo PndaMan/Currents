@@ -1,7 +1,7 @@
 import Foundation
 import GRDB
 
-struct Species: Codable, Identifiable, Sendable {
+struct Species: Codable, Identifiable, Hashable, Sendable {
     var id: Int64
     var scientificName: String
     var commonName: String

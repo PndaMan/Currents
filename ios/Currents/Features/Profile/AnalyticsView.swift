@@ -163,7 +163,7 @@ struct AnalyticsView: View {
                     x: .value("Count", item.count),
                     y: .value("Species", item.commonName)
                 )
-                .foregroundStyle(.blue.gradient)
+                .foregroundStyle(CurrentsTheme.accent.gradient)
             }
             .frame(height: CGFloat(min(speciesCounts.count, 8)) * 36)
         }
@@ -183,7 +183,7 @@ struct AnalyticsView: View {
                 ForEach(sortedSpots.prefix(5), id: \.key) { spotName, spotCatches in
                     HStack {
                         Image(systemName: "mappin.circle.fill")
-                            .foregroundStyle(.blue)
+                            .foregroundStyle(CurrentsTheme.accent)
                         Text(spotName)
                         Spacer()
                         Text("\(spotCatches.count)")
@@ -212,7 +212,7 @@ struct AnalyticsView: View {
                     x: .value("Month", item.month),
                     y: .value("Catches", item.count)
                 )
-                .foregroundStyle(.blue.gradient)
+                .foregroundStyle(CurrentsTheme.accent.gradient)
             }
             .chartXAxis {
                 AxisMarks(values: .automatic) { value in
@@ -258,7 +258,7 @@ struct AnalyticsView: View {
             ForEach(personalBests, id: \.speciesId) { pb in
                 HStack {
                     Image(systemName: "fish.fill")
-                        .foregroundStyle(.blue)
+                        .foregroundStyle(CurrentsTheme.accent)
                         .frame(width: 32)
 
                     VStack(alignment: .leading, spacing: 2) {
@@ -326,7 +326,7 @@ struct AnalyticsView: View {
                             .frame(width: 30)
                             .foregroundStyle(index < 3 ? .yellow : .secondary)
                         Image(systemName: "fish.fill")
-                            .foregroundStyle(.blue)
+                            .foregroundStyle(CurrentsTheme.accent)
                         Text(item.commonName)
                             .font(.subheadline)
                         Spacer()
@@ -412,7 +412,7 @@ struct AnalyticsView: View {
                             .frame(width: 30)
                             .foregroundStyle(index < 3 ? .yellow : .secondary)
                         Image(systemName: "mappin.circle.fill")
-                            .foregroundStyle(.blue)
+                            .foregroundStyle(CurrentsTheme.accent)
                         VStack(alignment: .leading) {
                             Text(item.key)
                                 .font(.subheadline)
@@ -447,7 +447,7 @@ struct AnalyticsView: View {
                                 x: .value("Count", item.value.count),
                                 y: .value("Species", item.key)
                             )
-                            .foregroundStyle(.blue.gradient)
+                            .foregroundStyle(CurrentsTheme.accent.gradient)
                             .annotation(position: .trailing, spacing: 4) {
                                 Text("\(item.value.count)")
                                     .font(.caption2.monospacedDigit())
@@ -599,7 +599,7 @@ struct AnalyticsView: View {
             // Legend
             HStack(spacing: 16) {
                 legendItem(color: .orange, label: "Dawn/Dusk")
-                legendItem(color: .blue, label: "Day")
+                legendItem(color: CurrentsTheme.accent, label: "Day")
                 legendItem(color: .indigo, label: "Night")
             }
             .font(.caption2)
@@ -703,7 +703,7 @@ struct AnalyticsView: View {
         switch hour {
         case 5...8: return .orange
         case 16...19: return .orange
-        case 9...15: return .blue
+        case 9...15: return CurrentsTheme.accent
         default: return .indigo
         }
     }

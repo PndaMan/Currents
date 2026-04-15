@@ -180,7 +180,7 @@ struct StatCard: View {
         VStack(spacing: 6) {
             Image(systemName: icon)
                 .font(.title3)
-                .foregroundStyle(.blue)
+                .foregroundStyle(CurrentsTheme.accent)
             Text(value)
                 .font(.title3.bold())
                 .monospacedDigit()

@@ -16,7 +16,6 @@ struct GearTab: View {
         case items = "My Gear"
         case presets = "Presets"
         case effectiveness = "Effectiveness"
-        case catalog = "Catalog"
     }
 
     var body: some View {
@@ -38,8 +37,6 @@ struct GearTab: View {
                         loadoutList
                     case .effectiveness:
                         effectivenessList
-                    case .catalog:
-                        GearCatalogBrowser()
                     }
                 }
             }
@@ -236,7 +233,7 @@ struct GearTab: View {
         case .rod: .brown
         case .reel: .gray
         case .lure: .green
-        case .line: .blue
+        case .line: CurrentsTheme.accent
         case .technique: .purple
         case .bait: .orange
         case .hook: .red
@@ -396,7 +393,7 @@ struct GearCatalogRow: View {
                         addToMyGear()
                     } label: {
                         Image(systemName: "plus.circle.fill")
-                            .foregroundStyle(.blue)
+                            .foregroundStyle(CurrentsTheme.accent)
                     }
                     .buttonStyle(.plain)
                 }
@@ -413,8 +410,8 @@ struct GearCatalogRow: View {
                         .font(.caption2)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
-                        .background(.blue.opacity(0.1))
-                        .foregroundStyle(.blue)
+                        .background(CurrentsTheme.accent.opacity(0.1))
+                        .foregroundStyle(CurrentsTheme.accent)
                         .clipShape(Capsule())
                 }
             }
@@ -464,7 +461,7 @@ struct GearCatalogRow: View {
         case .reel: .gray
         case .lure: .green
         case .bait: .orange
-        case .line: .blue
+        case .line: CurrentsTheme.accent
         case .hook: .red
         case .terminal: .purple
         case .accessory: .teal

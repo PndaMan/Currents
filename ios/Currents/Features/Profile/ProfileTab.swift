@@ -82,7 +82,7 @@ struct ProfileTab: View {
                         ForEach(mapRegions) { region in
                             HStack {
                                 Image(systemName: "map.fill")
-                                    .foregroundStyle(.blue)
+                                    .foregroundStyle(CurrentsTheme.accent)
                                 VStack(alignment: .leading) {
                                     Text(region.name)
                                     Text(region.formattedSize)

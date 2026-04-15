@@ -51,7 +51,7 @@ struct SpeciesBrowserView: View {
                 NavigationLink(value: SpeciesNavID(id: sp.id)) {
                     HStack {
                         Image(systemName: "fish.fill")
-                            .foregroundStyle(.blue)
+                            .foregroundStyle(CurrentsTheme.accent)
                             .frame(width: 40)
                         VStack(alignment: .leading) {
                             Text(sp.commonName)
