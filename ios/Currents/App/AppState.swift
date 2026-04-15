@@ -18,6 +18,8 @@ final class AppState {
     let tripRepository: TripRepository
     let gearCatalogRepository: GearCatalogRepository
     let ownedGearRepository: OwnedGearRepository
+    let waterbodyRepository: WaterbodyRepository
+    let observedSpeciesRepository: ObservedSpeciesRepository
 
     init() {
         do {
@@ -34,6 +36,8 @@ final class AppState {
         self.tripRepository = TripRepository(db: db)
         self.gearCatalogRepository = GearCatalogRepository(db: db)
         self.ownedGearRepository = OwnedGearRepository(db: db)
+        self.waterbodyRepository = WaterbodyRepository(db: db)
+        self.observedSpeciesRepository = ObservedSpeciesRepository(db: db)
 
         // Boot async work
         Task {
@@ -41,6 +45,7 @@ final class AppState {
         }
         try? speciesRepository.seedIfEmpty()
         try? gearCatalogRepository.seedIfEmpty()
+        try? waterbodyRepository.seedIfEmpty()
 
         locationManager.requestPermission()
         mapManager.refreshDownloadedRegions()

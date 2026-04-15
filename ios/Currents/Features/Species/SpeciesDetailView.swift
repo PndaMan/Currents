@@ -60,6 +60,11 @@ struct SpeciesDetailView: View {
                     catchHistoryCard
                 }
 
+                // Bait recommendations
+                if !species.parsedBaits.isEmpty {
+                    baitCard
+                }
+
                 // Tips
                 tipsCard
             }
@@ -249,6 +254,32 @@ struct SpeciesDetailView: View {
                 Text("+ \(catches.count - 10) more")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+            }
+        }
+        .glassCard()
+    }
+
+    private var baitCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Recommended Baits & Lures")
+                .font(.headline)
+
+            ForEach(species.parsedBaits, id: \.self) { bait in
+                HStack(spacing: 8) {
+                    Image(systemName: "circle.fill")
+                        .font(.system(size: 6))
+                        .foregroundStyle(CurrentsTheme.accent)
+                    Text(bait.capitalized)
+                        .font(.subheadline)
+                }
+            }
+
+            if let notes = species.baitNotes, !notes.isEmpty {
+                Text(notes)
+                    .font(.caption)
+                    .italic()
+                    .foregroundStyle(.secondary)
+                    .padding(.top, 4)
             }
         }
         .glassCard()

@@ -62,10 +62,17 @@ struct SpeciesBrowserView: View {
                                 .foregroundStyle(.secondary)
                         }
                         Spacer()
-                        if let habitat = sp.habitat {
-                            Text(habitat.rawValue)
-                                .font(.caption2)
-                                .glassPill()
+                        VStack(alignment: .trailing, spacing: 4) {
+                            if let habitat = sp.habitat {
+                                Text(habitat.rawValue)
+                                    .font(.caption2)
+                                    .glassPill()
+                            }
+                            if !sp.parsedBaits.isEmpty {
+                                Text("\(sp.parsedBaits.count) baits")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
                         }
                     }
                 }

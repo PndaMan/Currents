@@ -28,6 +28,11 @@ struct MapTab: View {
     @State private var isSearching = false
     @State private var searchDebounceTask: Task<Void, Never>?
     @State private var needsRefresh = false
+    @State private var showWaterbodies = true
+    @State private var waterbodies: [Waterbody] = []
+    @State private var waterbodyScores: [Int64: Int] = [:] // keyed by id ?? 0
+    @State private var selectedWaterbody: Waterbody?
+    @State private var isLoadingWaterbodies = false
 
     enum MapStyleOption: String, CaseIterable {
         case standard = "Standard"
@@ -75,10 +80,37 @@ struct MapTab: View {
                             }
                         }
                     }
+
+                    // Water body overlays
+                    if showWaterbodies {
+                        ForEach(waterbodies) { wb in
+                            MapCircle(
+                                center: CLLocationCoordinate2D(latitude: wb.latitude, longitude: wb.longitude),
+                                radius: CLLocationDistance(min(wb.approximateRadiusM, 50000))
+                            )
+                            .foregroundStyle(CurrentsTheme.accent.opacity(0.2))
+                            .stroke(CurrentsTheme.accent.opacity(0.6), lineWidth: 2)
+
+                            Annotation(wb.name, coordinate: CLLocationCoordinate2D(
+                                latitude: wb.latitude, longitude: wb.longitude
+                            )) {
+                                WaterbodyPin(
+                                    waterbody: wb,
+                                    biteScore: waterbodyScores[wb.id ?? 0]
+                                )
+                                .onTapGesture {
+                                    selectedWaterbody = wb
+                                }
+                            }
+                        }
+                    }
                 }
                 .mapStyle(activeMapStyle)
                 .mapControls {
                     MapCompass()
+                }
+                .onMapCameraChange(frequency: .onEnd) { context in
+                    Task { await loadWaterbodies(region: context.region) }
                 }
                 .onTapGesture(coordinateSpace: .local) { screenPoint in
                     if let coord = proxy.convert(screenPoint, from: .local) {
@@ -114,6 +146,14 @@ struct MapTab: View {
                         showingAddSpot = true
                     } label: {
                         mapButton(icon: "mappin.and.ellipse")
+                    }
+
+                    // Toggle water body overlays
+                    Button {
+                        showWaterbodies.toggle()
+                    } label: {
+                        mapButton(icon: showWaterbodies ? "water.waves" : "water.waves")
+                            .opacity(showWaterbodies ? 1.0 : 0.5)
                     }
 
                     // Toggle catch pins
@@ -264,10 +304,24 @@ struct MapTab: View {
 
                         Spacer()
 
+                        if showWaterbodies && !waterbodies.isEmpty {
+                            HStack(spacing: 4) {
+                                Image(systemName: "water.waves")
+                                    .foregroundStyle(CurrentsTheme.accent)
+                                    .font(.caption)
+                                Text("\(waterbodies.count)")
+                                    .font(.caption.bold())
+                                if isLoadingWaterbodies {
+                                    ProgressView()
+                                        .controlSize(.mini)
+                                }
+                            }
+                        }
+
                         if !spots.isEmpty {
                             HStack(spacing: 8) {
                                 Image(systemName: "mappin.circle.fill")
-                                    .foregroundStyle(.blue)
+                                    .foregroundStyle(CurrentsTheme.accent)
                                 Text("\(spots.count) spots")
                                     .font(.subheadline.bold())
                                 let totalCatches = catchCounts.values.reduce(0, +)
@@ -319,6 +373,11 @@ struct MapTab: View {
                 Task { await loadData() }
             }) { wrapper in
                 LocationInspectorSheet(coordinate: wrapper.coord)
+                    .presentationDetents([.medium, .large])
+                    .presentationBackground(.ultraThinMaterial)
+            }
+            .sheet(item: $selectedWaterbody) { wb in
+                WaterbodyDetailSheet(waterbody: wb)
                     .presentationDetents([.medium, .large])
                     .presentationBackground(.ultraThinMaterial)
             }
@@ -405,6 +464,14 @@ struct MapTab: View {
             CLLocationCoordinate2D(latitude: -33.9, longitude: 18.4)
         weather = await WeatherService.shared.current(for: coord)
 
+        // Load waterbodies near user (camera change will fetch more via Overpass)
+        let userLat = coord.latitude
+        let userLon = coord.longitude
+        waterbodies = (try? await appState.waterbodyRepository.fetchForRegionWithOverpass(
+            minLat: userLat - 0.5, maxLat: userLat + 0.5,
+            minLon: userLon - 0.5, maxLon: userLon + 0.5
+        )) ?? []
+
         // Compute bite scores for each spot
         for spot in spots {
             let spotCoord = CLLocationCoordinate2D(latitude: spot.latitude, longitude: spot.longitude)
@@ -420,6 +487,42 @@ struct MapTab: View {
                 isInSpawningZone: false
             )
             spotScores[spot.id] = result.score
+        }
+
+        // Compute bite scores for waterbodies
+        await computeWaterbodyScores()
+    }
+
+    private func loadWaterbodies(region: MKCoordinateRegion) async {
+        isLoadingWaterbodies = true
+        let minLat = region.center.latitude - region.span.latitudeDelta / 2
+        let maxLat = region.center.latitude + region.span.latitudeDelta / 2
+        let minLon = region.center.longitude - region.span.longitudeDelta / 2
+        let maxLon = region.center.longitude + region.span.longitudeDelta / 2
+
+        // Fetch from local DB + Overpass API (caches new results automatically)
+        waterbodies = (try? await appState.waterbodyRepository.fetchForRegionWithOverpass(
+            minLat: minLat, maxLat: maxLat, minLon: minLon, maxLon: maxLon
+        )) ?? []
+        isLoadingWaterbodies = false
+        await computeWaterbodyScores()
+    }
+
+    private func computeWaterbodyScores() async {
+        for wb in waterbodies where waterbodyScores[wb.id ?? 0] == nil {
+            let coord = CLLocationCoordinate2D(latitude: wb.latitude, longitude: wb.longitude)
+            let w = await WeatherService.shared.current(for: coord)
+            let result = ForecastEngine.forecast(
+                coordinate: coord,
+                currentPressureHpa: w?.pressureHpa,
+                pressureChange6h: w?.pressureChange6h,
+                waterTempC: w?.waterTempC,
+                windSpeedKmh: w?.windSpeedKmh,
+                windDirection: w?.windDirectionDeg,
+                species: nil,
+                isInSpawningZone: false
+            )
+            waterbodyScores[wb.id ?? 0] = result.score
         }
     }
 }
@@ -948,6 +1051,59 @@ struct EditSpotSheet: View {
                 latitude = String(format: "%.6f", spot.latitude)
                 longitude = String(format: "%.6f", spot.longitude)
             }
+        }
+    }
+}
+
+// MARK: - Waterbody Pin
+
+struct WaterbodyPin: View {
+    let waterbody: Waterbody
+    var biteScore: Int?
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ZStack(alignment: .topTrailing) {
+                ZStack {
+                    Circle()
+                        .fill(CurrentsTheme.accent.opacity(0.85))
+                        .frame(width: 36, height: 36)
+                        .shadow(color: CurrentsTheme.accent.opacity(0.4), radius: 4, y: 2)
+
+                    Image(systemName: waterbodyIcon)
+                        .font(.system(size: 16))
+                        .foregroundStyle(.white)
+                }
+
+                if let score = biteScore {
+                    Text("\(score)")
+                        .font(.system(size: 9, weight: .heavy))
+                        .monospacedDigit()
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 1)
+                        .background(CurrentsTheme.scoreColor(score))
+                        .clipShape(Capsule())
+                        .offset(x: 8, y: -6)
+                }
+            }
+            Text(waterbody.name)
+                .font(.system(size: 9).bold())
+                .padding(.horizontal, 4)
+                .padding(.vertical, 1)
+                .background(.ultraThinMaterial)
+                .clipShape(Capsule())
+                .lineLimit(1)
+        }
+    }
+
+    private var waterbodyIcon: String {
+        switch waterbody.type {
+        case .lake: "water.waves"
+        case .dam: "water.waves.and.arrow.down"
+        case .river: "arrow.left.arrow.right"
+        case .estuary: "water.waves.slash"
+        case .coast: "sailboat.fill"
         }
     }
 }

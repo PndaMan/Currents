@@ -144,6 +144,18 @@ struct ProfileTab: View {
                 // Settings
                 Section("Settings") {
                     NavigationLink {
+                        AppearanceSettingsView()
+                    } label: {
+                        Label("Appearance", systemImage: "paintbrush")
+                    }
+
+                    NavigationLink {
+                        AppIconSelectorView()
+                    } label: {
+                        Label("App Icon", systemImage: "app.badge")
+                    }
+
+                    NavigationLink {
                         UnitsSettingsView()
                     } label: {
                         Label("Units", systemImage: "ruler")

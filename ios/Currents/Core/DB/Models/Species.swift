@@ -12,6 +12,14 @@ struct Species: Codable, Identifiable, Sendable {
     var optimalTempC: Double?
     var fishbaseId: Int64?
     var imageUrl: String?
+    var recommendedBaits: String? // JSON array of strings
+    var baitNotes: String?
+
+    /// Decoded bait recommendations from JSON string.
+    var parsedBaits: [String] {
+        guard let data = recommendedBaits?.data(using: .utf8) else { return [] }
+        return (try? JSONDecoder().decode([String].self, from: data)) ?? []
+    }
 
     enum Habitat: String, Codable, Sendable, CaseIterable {
         case freshwater

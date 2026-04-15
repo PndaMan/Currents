@@ -222,6 +222,45 @@ final class AppDatabase: Sendable {
             try db.create(indexOn: "ownedGear", columns: ["category"])
         }
 
+        migrator.registerMigration("v5_species_baits") { db in
+            try db.alter(table: "species") { t in
+                t.add(column: "recommendedBaits", .text)
+                t.add(column: "baitNotes", .text)
+            }
+        }
+
+        migrator.registerMigration("v6_waterbody_enhancements") { db in
+            try db.alter(table: "waterbody") { t in
+                t.add(column: "isPublic", .boolean).defaults(to: true)
+                t.add(column: "structureTypes", .text)
+                t.add(column: "description", .text)
+                t.add(column: "fishSpeciesIds", .text)
+                t.add(column: "averageDepthM", .double)
+                t.add(column: "elevation", .double)
+                t.add(column: "osmId", .integer)
+            }
+            try db.create(indexOn: "waterbody", columns: ["osmId"])
+            try db.create(indexOn: "waterbody", columns: ["latitude", "longitude"])
+        }
+
+        migrator.registerMigration("v7_observed_species_cache") { db in
+            // Cache for iNaturalist/GBIF fish species observations near locations
+            try db.create(table: "observedSpeciesCache") { t in
+                t.autoIncrementedPrimaryKey("id")
+                t.column("geohashCell", .text).notNull()   // geohash-3 cell for the query location
+                t.column("scientificName", .text).notNull()
+                t.column("commonName", .text)
+                t.column("observationCount", .integer).notNull().defaults(to: 1)
+                t.column("source", .text).notNull()         // "iNaturalist" or "GBIF"
+                t.column("iNaturalistTaxonId", .integer)
+                t.column("photoUrl", .text)
+                t.column("localSpeciesId", .integer)        // FK to species table if matched
+                t.column("fetchedAt", .datetime).notNull()
+            }
+            try db.create(indexOn: "observedSpeciesCache", columns: ["geohashCell"])
+            try db.create(indexOn: "observedSpeciesCache", columns: ["localSpeciesId"])
+        }
+
         return migrator
     }
 }
