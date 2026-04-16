@@ -147,7 +147,7 @@ struct ForecastTab: View {
                     VStack(alignment: .trailing, spacing: 2) {
                         HStack(spacing: 4) {
                             Image(systemName: "water.waves")
-                                .foregroundStyle(.cyan)
+                                .foregroundStyle(CurrentsTheme.accent)
                             Text("\(Int(waterTemp))°C")
                                 .font(.title2.bold())
                                 .monospacedDigit()
@@ -296,10 +296,10 @@ struct ForecastTab: View {
                         HStack(spacing: 4) {
                             Image(systemName: "clock.fill")
                                 .font(.caption)
-                                .foregroundStyle(.green)
+                                .foregroundStyle(CurrentsTheme.accent)
                             Text("Best: " + forecast.bestHours.map { formatHour($0) }.joined(separator: ", "))
                                 .font(.caption.bold())
-                                .foregroundStyle(.green)
+                                .foregroundStyle(CurrentsTheme.accent)
                         }
                     }
 
@@ -396,8 +396,8 @@ struct ForecastTab: View {
                                     .font(.caption2.bold())
                                     .padding(.horizontal, 6)
                                     .padding(.vertical, 2)
-                                    .background(Color.orange.opacity(0.2))
-                                    .foregroundStyle(.orange)
+                                    .background(CurrentsTheme.accent.opacity(0.2))
+                                    .foregroundStyle(CurrentsTheme.accent)
                                     .clipShape(Capsule())
                             }
                         }
@@ -473,7 +473,7 @@ struct ForecastTab: View {
     private func feedingRow(_ window: SolunarEngine.FeedingWindow, isMajor: Bool) -> some View {
         HStack {
             RoundedRectangle(cornerRadius: 2)
-                .fill(isMajor ? Color.orange : CurrentsTheme.accent)
+                .fill(CurrentsTheme.accent.opacity(isMajor ? 1.0 : 0.5))
                 .frame(width: 4, height: 32)
 
             VStack(alignment: .leading, spacing: 2) {
@@ -490,8 +490,8 @@ struct ForecastTab: View {
                 .font(.caption2.bold())
                 .padding(.horizontal, 8)
                 .padding(.vertical, 3)
-                .background(isMajor ? Color.orange.opacity(0.2) : CurrentsTheme.accent.opacity(0.2))
-                .foregroundStyle(isMajor ? .orange : CurrentsTheme.accent)
+                .background(CurrentsTheme.accent.opacity(isMajor ? 0.3 : 0.15))
+                .foregroundStyle(CurrentsTheme.accent)
                 .clipShape(Capsule())
         }
     }
@@ -509,14 +509,14 @@ struct ForecastTab: View {
                     y: .value("Height", point.height)
                 )
                 .interpolationMethod(.catmullRom)
-                .foregroundStyle(.cyan.gradient)
+                .foregroundStyle(CurrentsTheme.accent.gradient)
 
                 AreaMark(
                     x: .value("Time", point.time),
                     y: .value("Height", point.height)
                 )
                 .interpolationMethod(.catmullRom)
-                .foregroundStyle(.cyan.opacity(0.15).gradient)
+                .foregroundStyle(CurrentsTheme.accent.opacity(0.15).gradient)
             }
             .chartYScale(domain: -1.2...1.2)
             .chartXAxis {
@@ -531,7 +531,7 @@ struct ForecastTab: View {
                 ForEach(tide.highTides) { event in
                     Label("\(event.time, style: .time)", systemImage: "arrow.up")
                         .font(.caption)
-                        .foregroundStyle(.cyan)
+                        .foregroundStyle(CurrentsTheme.accent)
                 }
                 ForEach(tide.lowTides) { event in
                     Label("\(event.time, style: .time)", systemImage: "arrow.down")
@@ -725,12 +725,7 @@ struct ForecastTab: View {
     }
 
     private func barColor(score: Int) -> Color {
-        switch score {
-        case 0..<25: return .red.opacity(0.7)
-        case 25..<50: return .orange.opacity(0.7)
-        case 50..<75: return .yellow.opacity(0.7)
-        default: return .green.opacity(0.8)
-        }
+        CurrentsTheme.scoreColor(score).opacity(0.8)
     }
 
     private func ratingIcon(_ rating: SolunarEngine.DayRating) -> String {
@@ -744,10 +739,10 @@ struct ForecastTab: View {
 
     private func ratingColor(_ rating: SolunarEngine.DayRating) -> Color {
         switch rating {
-        case .poor: .red
-        case .fair: .orange
-        case .good: .green
-        case .best: .yellow
+        case .poor: CurrentsTheme.scoreColor(15)
+        case .fair: CurrentsTheme.scoreColor(40)
+        case .good: CurrentsTheme.scoreColor(80)
+        case .best: CurrentsTheme.scoreColor(95)
         }
     }
 
@@ -769,10 +764,10 @@ struct ForecastTab: View {
     }
 
     private func pressureTrendColor(_ trend: Double) -> Color {
-        if trend < -2 { return .green }
-        if trend < -0.5 { return .green.opacity(0.7) }
-        if trend > 2 { return .red }
-        if trend > 0.5 { return .orange }
+        if trend < -2 { return CurrentsTheme.accent }
+        if trend < -0.5 { return CurrentsTheme.accent.opacity(0.7) }
+        if trend > 2 { return CurrentsTheme.scoreColor(15) }
+        if trend > 0.5 { return CurrentsTheme.scoreColor(40) }
         return .secondary
     }
 
@@ -816,7 +811,7 @@ struct MiniBreakdownCell: View {
     var body: some View {
         HStack(spacing: 6) {
             Circle()
-                .fill(value > 0.7 ? Color.green : value < 0.4 ? Color.red : Color.orange)
+                .fill(CurrentsTheme.scoreColor(Int(value * 100)))
                 .frame(width: 8, height: 8)
             Text(label)
                 .font(.caption2)
@@ -929,7 +924,7 @@ struct ForecastSpeciesPickerSheet: View {
                                     if let temp = sp.optimalTempC {
                                         Text("\(Int(temp))°")
                                             .font(.caption.bold())
-                                            .foregroundStyle(.green)
+                                            .foregroundStyle(CurrentsTheme.accent)
                                     }
                                     if selectedSpecies?.id == sp.id {
                                         Image(systemName: "checkmark.circle.fill")
@@ -956,9 +951,9 @@ struct ForecastSpeciesPickerSheet: View {
 
     private func habitatColor(_ habitat: Species.Habitat?) -> Color {
         switch habitat {
-        case .freshwater: .green
-        case .marine: CurrentsTheme.accent
-        case .brackish: .teal
+        case .freshwater: CurrentsTheme.accent
+        case .marine: CurrentsTheme.accent.opacity(0.7)
+        case .brackish: CurrentsTheme.accent.opacity(0.5)
         case nil: .gray
         }
     }
@@ -979,7 +974,7 @@ struct BreakdownRow: View {
                 Text("\(Int(value * weight))/\(Int(weight))")
                     .font(.caption.bold())
                     .monospacedDigit()
-                    .foregroundStyle(value > 0.7 ? .green : value < 0.4 ? .red : .orange)
+                    .foregroundStyle(CurrentsTheme.scoreColor(Int(value * 100)))
                 Spacer()
                 Text("\(Int(value * 100))%")
                     .font(.caption2)
@@ -990,7 +985,7 @@ struct BreakdownRow: View {
                     RoundedRectangle(cornerRadius: 2)
                         .fill(.secondary.opacity(0.15))
                     RoundedRectangle(cornerRadius: 2)
-                        .fill(value > 0.7 ? Color.green : value < 0.4 ? Color.red : Color.orange)
+                        .fill(CurrentsTheme.scoreColor(Int(value * 100)))
                         .frame(width: geo.size.width * min(1, max(0, value)))
                 }
             }

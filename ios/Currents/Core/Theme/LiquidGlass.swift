@@ -90,18 +90,16 @@ enum CurrentsTheme {
 
     /// Dynamic accent color that follows the user's selected theme.
     static var accent: Color { ThemeOption.current.primary }
-    static let accentGreen = Color.green
-    static let warning = Color.orange
     static let danger = Color.red
 
-    /// Score color ramp: red (0) → orange (40) → yellow (60) → green (80) → blue (100)
+    /// Score color ramp: red (0) → orange (40) → yellow (60) → green (80) → accent (100)
     static func scoreColor(_ score: Int) -> Color {
         switch score {
         case 0..<25: return .red
         case 25..<50: return .orange
         case 50..<75: return .yellow
         case 75..<90: return .green
-        default: return .blue
+        default: return accent
         }
     }
 

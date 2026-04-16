@@ -243,7 +243,7 @@ struct CatchRow: View {
                     .foregroundStyle(.secondary)
                 if detail.catchRecord.released {
                     Image(systemName: "arrow.uturn.backward.circle.fill")
-                        .foregroundStyle(.green)
+                        .foregroundStyle(CurrentsTheme.accent)
                         .font(.caption)
                 }
             }

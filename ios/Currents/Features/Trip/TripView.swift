@@ -93,7 +93,7 @@ struct ActiveTripBanner: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Image(systemName: "tent.fill")
-                    .foregroundStyle(.green)
+                    .foregroundStyle(CurrentsTheme.accent)
                 Text(trip.name)
                     .font(.headline)
                 Spacer()
@@ -101,8 +101,8 @@ struct ActiveTripBanner: View {
                     .font(.caption2.bold())
                     .padding(.horizontal, 8)
                     .padding(.vertical, 3)
-                    .background(.green.opacity(0.2))
-                    .foregroundStyle(.green)
+                    .background(CurrentsTheme.accent.opacity(0.2))
+                    .foregroundStyle(CurrentsTheme.accent)
                     .clipShape(Capsule())
             }
 

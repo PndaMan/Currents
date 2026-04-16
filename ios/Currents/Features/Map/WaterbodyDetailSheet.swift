@@ -52,10 +52,10 @@ struct WaterbodyDetailSheet: View {
                     // Access status
                     HStack(spacing: 6) {
                         Image(systemName: waterbody.isPublic ? "checkmark.shield.fill" : "lock.fill")
-                            .foregroundStyle(waterbody.isPublic ? .green : .red)
+                            .foregroundStyle(waterbody.isPublic ? CurrentsTheme.accent : .secondary)
                         Text(waterbody.isPublic ? "Public Access" : "Private — Permission Required")
                             .font(.subheadline.bold())
-                            .foregroundStyle(waterbody.isPublic ? .green : .red)
+                            .foregroundStyle(waterbody.isPublic ? CurrentsTheme.accent : .secondary)
                     }
 
                     // Bite Score
@@ -187,7 +187,7 @@ struct WaterbodyDetailSheet: View {
                     if let wt = weather.waterTempC {
                         VStack(spacing: 2) {
                             Image(systemName: "drop.fill")
-                                .foregroundStyle(.cyan)
+                                .foregroundStyle(CurrentsTheme.accent)
                             Text("\(Int(wt))°")
                                 .font(.subheadline.bold().monospacedDigit())
                             Text("Water")
@@ -506,8 +506,8 @@ struct WaterbodyDetailSheet: View {
                 .font(.system(size: 8, weight: .bold))
                 .padding(.horizontal, 4)
                 .padding(.vertical, 2)
-                .background(fish.source == "iNaturalist" ? Color.green.opacity(0.2) : Color.blue.opacity(0.2))
-                .foregroundStyle(fish.source == "iNaturalist" ? .green : .blue)
+                .background(CurrentsTheme.accent.opacity(0.2))
+                .foregroundStyle(CurrentsTheme.accent)
                 .clipShape(Capsule())
 
             if fish.localSpecies != nil {
@@ -522,9 +522,9 @@ struct WaterbodyDetailSheet: View {
 
     private func habitatColor(_ sp: Species) -> Color {
         switch sp.habitat {
-        case .freshwater: .green
-        case .marine: CurrentsTheme.accent
-        case .brackish: .teal
+        case .freshwater: CurrentsTheme.accent
+        case .marine: CurrentsTheme.accent.opacity(0.7)
+        case .brackish: CurrentsTheme.accent.opacity(0.5)
         case nil: .gray
         }
     }

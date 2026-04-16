@@ -199,7 +199,7 @@ struct LogCatchView: View {
                     } label: {
                         HStack {
                             Image(systemName: "brain")
-                                .foregroundStyle(.purple)
+                                .foregroundStyle(CurrentsTheme.accent)
                             Text(prediction.species)
                             Spacer()
                             Text("\(Int(prediction.confidence * 100))%")
@@ -839,7 +839,7 @@ struct SpeciesPickerSheet: View {
                         HStack(spacing: 12) {
                             Image(systemName: "brain")
                                 .font(.title2)
-                                .foregroundStyle(.purple)
+                                .foregroundStyle(CurrentsTheme.accent)
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("AI Fish ID")
                                     .font(.subheadline.bold())
@@ -852,8 +852,8 @@ struct SpeciesPickerSheet: View {
                                 .font(.caption2.bold())
                                 .padding(.horizontal, 8)
                                 .padding(.vertical, 4)
-                                .background(.purple.opacity(0.2))
-                                .foregroundStyle(.purple)
+                                .background(CurrentsTheme.accent.opacity(0.2))
+                                .foregroundStyle(CurrentsTheme.accent)
                                 .clipShape(Capsule())
                         }
                     }
@@ -896,7 +896,7 @@ struct SpeciesPickerSheet: View {
                                         VStack(spacing: 2) {
                                             Text("\(Int(opt))°C")
                                                 .font(.caption.bold())
-                                                .foregroundStyle(.green)
+                                                .foregroundStyle(CurrentsTheme.accent)
                                             Text("optimal")
                                                 .font(.caption2)
                                                 .foregroundStyle(.secondary)
@@ -935,9 +935,9 @@ struct SpeciesPickerSheet: View {
 
     private func habitatColor(_ habitat: Species.Habitat?) -> Color {
         switch habitat {
-        case .freshwater: return .green
-        case .marine: return CurrentsTheme.accent
-        case .brackish: return .teal
+        case .freshwater: return CurrentsTheme.accent
+        case .marine: return CurrentsTheme.accent.opacity(0.7)
+        case .brackish: return CurrentsTheme.accent.opacity(0.5)
         case nil: return .gray
         }
     }

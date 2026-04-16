@@ -81,9 +81,9 @@ struct SpeciesDetailView: View {
 
     private var habitatColor: Color {
         switch species.habitat {
-        case .freshwater: return .green
-        case .marine: return CurrentsTheme.accent
-        case .brackish: return .teal
+        case .freshwater: return CurrentsTheme.accent
+        case .marine: return CurrentsTheme.accent.opacity(0.7)
+        case .brackish: return CurrentsTheme.accent.opacity(0.5)
         case nil: return .gray
         }
     }
@@ -95,13 +95,13 @@ struct SpeciesDetailView: View {
 
             HStack(spacing: 0) {
                 if let min = species.minTempC {
-                    tempBlock(value: min, label: "Min", color: .blue)
+                    tempBlock(value: min, label: "Min", color: CurrentsTheme.accent.opacity(0.5))
                 }
                 if let optimal = species.optimalTempC {
-                    tempBlock(value: optimal, label: "Optimal", color: .green)
+                    tempBlock(value: optimal, label: "Optimal", color: CurrentsTheme.accent)
                 }
                 if let max = species.maxTempC {
-                    tempBlock(value: max, label: "Max", color: .red)
+                    tempBlock(value: max, label: "Max", color: CurrentsTheme.accent.opacity(0.7))
                 }
             }
 
@@ -112,7 +112,7 @@ struct SpeciesDetailView: View {
                         RoundedRectangle(cornerRadius: 4)
                             .fill(
                                 LinearGradient(
-                                    colors: [.blue, .green, .yellow, .red],
+                                    colors: [CurrentsTheme.accent.opacity(0.4), CurrentsTheme.accent, CurrentsTheme.accent.opacity(0.7), CurrentsTheme.accent.opacity(0.3)],
                                     startPoint: .leading,
                                     endPoint: .trailing
                                 )

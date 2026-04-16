@@ -230,14 +230,14 @@ struct GearTab: View {
 
     private func categoryColor(_ cat: OwnedGear.Category) -> Color {
         switch cat {
-        case .rod: .brown
-        case .reel: .gray
-        case .lure: .green
-        case .line: CurrentsTheme.accent
-        case .technique: .purple
-        case .bait: .orange
-        case .hook: .red
-        case .accessory: .teal
+        case .rod: CurrentsTheme.accent.opacity(0.9)
+        case .reel: CurrentsTheme.accent.opacity(0.7)
+        case .lure: CurrentsTheme.accent
+        case .line: CurrentsTheme.accent.opacity(0.8)
+        case .technique: CurrentsTheme.accent.opacity(0.6)
+        case .bait: CurrentsTheme.accent.opacity(0.75)
+        case .hook: CurrentsTheme.accent.opacity(0.85)
+        case .accessory: CurrentsTheme.accent.opacity(0.5)
         }
     }
 
@@ -387,7 +387,7 @@ struct GearCatalogRow: View {
                 Spacer()
                 if isOwned {
                     Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(.green)
+                        .foregroundStyle(CurrentsTheme.accent)
                 } else {
                     Button {
                         addToMyGear()
@@ -457,14 +457,14 @@ struct GearCatalogRow: View {
 
     private func categoryColor(_ cat: GearItem.GearCategory) -> Color {
         switch cat {
-        case .rod: .brown
-        case .reel: .gray
-        case .lure: .green
-        case .bait: .orange
-        case .line: CurrentsTheme.accent
-        case .hook: .red
-        case .terminal: .purple
-        case .accessory: .teal
+        case .rod: CurrentsTheme.accent.opacity(0.9)
+        case .reel: CurrentsTheme.accent.opacity(0.7)
+        case .lure: CurrentsTheme.accent
+        case .bait: CurrentsTheme.accent.opacity(0.75)
+        case .line: CurrentsTheme.accent.opacity(0.8)
+        case .hook: CurrentsTheme.accent.opacity(0.85)
+        case .terminal: CurrentsTheme.accent.opacity(0.6)
+        case .accessory: CurrentsTheme.accent.opacity(0.5)
         }
     }
 }

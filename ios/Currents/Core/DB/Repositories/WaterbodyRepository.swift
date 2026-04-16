@@ -24,12 +24,14 @@ final class WaterbodyRepository: ObservableObject {
 
     /// Fetch waterbodies within the visible map region.
     /// - `minSurfaceAreaKm2`: only return waterbodies at least this large (0 = all)
+    /// - `includeNilArea`: if false, exclude waterbodies without known area (keeps zoomed-out view clean)
     /// - `limit`: max results returned, ordered by surface area descending
     func fetchForRegion(
         minLat: Double, maxLat: Double,
         minLon: Double, maxLon: Double,
         minSurfaceAreaKm2: Double = 0,
-        limit: Int = 150
+        includeNilArea: Bool = true,
+        limit: Int = 60
     ) throws -> [Waterbody] {
         try db.db.read { db in
             var query = Waterbody
@@ -37,12 +39,16 @@ final class WaterbodyRepository: ObservableObject {
                 .filter(Column("longitude") >= minLon && Column("longitude") <= maxLon)
 
             if minSurfaceAreaKm2 > 0 {
-                // Show waterbodies above the size threshold, plus any without area data
-                // (seed data / Overpass entries without area get shown at closer zoom)
-                query = query.filter(
-                    Column("surfaceAreaKm2") >= minSurfaceAreaKm2 ||
-                    Column("surfaceAreaKm2") == nil
-                )
+                if includeNilArea {
+                    // Show waterbodies above threshold + unknown-size ones (zoomed in)
+                    query = query.filter(
+                        Column("surfaceAreaKm2") >= minSurfaceAreaKm2 ||
+                        Column("surfaceAreaKm2") == nil
+                    )
+                } else {
+                    // Only show waterbodies with known area above threshold (zoomed out)
+                    query = query.filter(Column("surfaceAreaKm2") >= minSurfaceAreaKm2)
+                }
             }
 
             return try query

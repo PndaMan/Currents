@@ -33,6 +33,8 @@ struct MapTab: View {
     @State private var waterbodyScores: [Int64: Int] = [:] // keyed by id ?? 0
     @State private var selectedWaterbody: Waterbody?
     @State private var isLoadingWaterbodies = false
+    @State private var waterbodyDebounceTask: Task<Void, Never>?
+    @State private var currentLatSpan: Double = 1.0 // track zoom level for rendering decisions
 
     enum MapStyleOption: String, CaseIterable {
         case standard = "Standard"
@@ -84,12 +86,15 @@ struct MapTab: View {
                     // Water body overlays
                     if showWaterbodies {
                         ForEach(waterbodies) { wb in
-                            MapCircle(
-                                center: CLLocationCoordinate2D(latitude: wb.latitude, longitude: wb.longitude),
-                                radius: CLLocationDistance(min(wb.approximateRadiusM, 50000))
-                            )
-                            .foregroundStyle(CurrentsTheme.accent.opacity(0.2))
-                            .stroke(CurrentsTheme.accent.opacity(0.6), lineWidth: 2)
+                            // Only render circles when zoomed in enough to see them
+                            if currentLatSpan < 1.0 {
+                                MapCircle(
+                                    center: CLLocationCoordinate2D(latitude: wb.latitude, longitude: wb.longitude),
+                                    radius: CLLocationDistance(min(wb.approximateRadiusM, 50000))
+                                )
+                                .foregroundStyle(CurrentsTheme.accent.opacity(0.2))
+                                .stroke(CurrentsTheme.accent.opacity(0.6), lineWidth: 2)
+                            }
 
                             Annotation(wb.name, coordinate: CLLocationCoordinate2D(
                                 latitude: wb.latitude, longitude: wb.longitude
@@ -110,7 +115,14 @@ struct MapTab: View {
                     MapCompass()
                 }
                 .onMapCameraChange(frequency: .onEnd) { context in
-                    Task { await loadWaterbodies(region: context.region) }
+                    currentLatSpan = context.region.span.latitudeDelta
+                    // Debounce: cancel prior pending load, wait 300ms before firing
+                    waterbodyDebounceTask?.cancel()
+                    waterbodyDebounceTask = Task {
+                        try? await Task.sleep(for: .milliseconds(300))
+                        guard !Task.isCancelled else { return }
+                        await loadWaterbodies(region: context.region)
+                    }
                 }
                 .onTapGesture(coordinateSpace: .local) { screenPoint in
                     if let coord = proxy.convert(screenPoint, from: .local) {
@@ -471,7 +483,8 @@ struct MapTab: View {
             minLat: userLat - 0.5, maxLat: userLat + 0.5,
             minLon: userLon - 0.5, maxLon: userLon + 0.5,
             minSurfaceAreaKm2: 0,
-            limit: 80
+            includeNilArea: true,
+            limit: 50
         )) ?? []
 
         // Background Overpass fetch for new data
@@ -485,7 +498,8 @@ struct MapTab: View {
                     minLat: userLat - 0.5, maxLat: userLat + 0.5,
                     minLon: userLon - 0.5, maxLon: userLon + 0.5,
                     minSurfaceAreaKm2: 0,
-                    limit: 80
+                    includeNilArea: true,
+                    limit: 50
                 )) ?? []
             }
         }
@@ -522,13 +536,16 @@ struct MapTab: View {
         let maxLon = region.center.longitude + region.span.longitudeDelta / 2
         let latSpan = region.span.latitudeDelta
 
-        // Zoom-adaptive filtering — bigger zoom = only big waterbodies
-        let (minArea, limit): (Double, Int) = switch latSpan {
-        case 10...: (500, 30)
-        case 3..<10: (50, 50)
-        case 1..<3: (5, 80)
-        case 0.3..<1: (0.5, 120)
-        default: (0, 150)
+        // Zoom-adaptive filtering — way fewer at zoom-out for performance + API savings
+        let (minArea, limit, showNilArea): (Double, Int, Bool) = switch latSpan {
+        case 20...:         (2000, 5, false)   // Continental: only Great Lakes-scale
+        case 10..<20:       (500, 8, false)    // Very zoomed out: major bodies only
+        case 5..<10:        (100, 15, false)   // Country level
+        case 3..<5:         (20, 20, false)    // Regional
+        case 1..<3:         (5, 30, false)     // State/province level
+        case 0.5..<1:       (1, 40, false)     // Metro area
+        case 0.2..<0.5:     (0.1, 50, true)    // City level — start showing small + unknown
+        default:            (0, 60, true)      // Street level — show everything
         }
 
         // 1) Show cached DB results INSTANTLY (no network wait)
@@ -536,13 +553,19 @@ struct MapTab: View {
             minLat: minLat, maxLat: maxLat,
             minLon: minLon, maxLon: maxLon,
             minSurfaceAreaKm2: minArea,
+            includeNilArea: showNilArea,
             limit: limit
         )) ?? []
 
-        // 2) Compute a single bite score for the region center (shared across all pins)
-        await computeRegionScore(region: region)
+        // 2) Compute bite score in background — don't block waterbody display
+        Task { await computeRegionScore(region: region) }
 
-        // 3) Fetch new waterbodies from Overpass in background — don't block UI
+        // 3) Only hit Overpass when zoomed in enough (< 1.5° span) to avoid API spam
+        guard latSpan < 1.5 else {
+            isLoadingWaterbodies = false
+            return
+        }
+
         isLoadingWaterbodies = true
         Task {
             if let overpassResults = await OverpassService.shared.fetchWaterbodies(
@@ -555,6 +578,7 @@ struct MapTab: View {
                     minLat: minLat, maxLat: maxLat,
                     minLon: minLon, maxLon: maxLon,
                     minSurfaceAreaKm2: minArea,
+                    includeNilArea: showNilArea,
                     limit: limit
                 )) ?? []
             }
@@ -768,7 +792,7 @@ struct SpotDetailSheet: View {
                                 if let wt = weather.waterTempC {
                                     VStack(spacing: 2) {
                                         Image(systemName: "drop.fill")
-                                            .foregroundStyle(.cyan)
+                                            .foregroundStyle(CurrentsTheme.accent)
                                         Text("\(Int(wt))°")
                                             .font(.subheadline.bold().monospacedDigit())
                                         Text("Water")
