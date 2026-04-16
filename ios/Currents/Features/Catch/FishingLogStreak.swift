@@ -74,7 +74,7 @@ struct FishingStreakView: View {
             if streakDays > 0 {
                 HStack(spacing: 8) {
                     Image(systemName: "flame.fill")
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(CurrentsTheme.accent)
                         .font(.title3)
                     VStack(alignment: .leading) {
                         Text("\(streakDays)-day fishing streak!")

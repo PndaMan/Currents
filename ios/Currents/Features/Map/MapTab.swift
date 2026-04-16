@@ -792,7 +792,7 @@ struct SpotDetailSheet: View {
                                 if let wt = weather.waterTempC {
                                     VStack(spacing: 2) {
                                         Image(systemName: "drop.fill")
-                                            .foregroundStyle(.cyan)
+                                            .foregroundStyle(CurrentsTheme.accent)
                                         Text("\(Int(wt))°")
                                             .font(.subheadline.bold().monospacedDigit())
                                         Text("Water")

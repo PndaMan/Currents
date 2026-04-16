@@ -136,7 +136,7 @@ struct CatchDetailView: View {
                             if let temp = weather.temperatureC {
                                 VStack(spacing: 2) {
                                     Image(systemName: "thermometer")
-                                        .foregroundStyle(.orange)
+                                        .foregroundStyle(CurrentsTheme.accent)
                                     Text("\(Int(temp))°C")
                                         .font(.subheadline.bold().monospacedDigit())
                                     Text("Air")
@@ -147,7 +147,7 @@ struct CatchDetailView: View {
                             if let waterTemp = weather.waterTempC {
                                 VStack(spacing: 2) {
                                     Image(systemName: "drop.fill")
-                                        .foregroundStyle(.cyan)
+                                        .foregroundStyle(CurrentsTheme.accent)
                                     Text("\(Int(waterTemp))°C")
                                         .font(.subheadline.bold().monospacedDigit())
                                     Text("Water")
@@ -202,7 +202,7 @@ struct CatchDetailView: View {
                         ForEach(predictions, id: \.label) { pred in
                             HStack {
                                 Image(systemName: "brain")
-                                    .foregroundStyle(.purple)
+                                    .foregroundStyle(CurrentsTheme.accent)
                                     .frame(width: 20)
                                 Text(pred.label)
                                     .font(.subheadline)

@@ -141,7 +141,7 @@ struct AnalyticsView: View {
             if let peak = hourCounts.max(by: { $0.count < $1.count }) {
                 HStack {
                     Image(systemName: "clock.fill")
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(CurrentsTheme.accent)
                     Text("Peak: \(formatHour(peak.hour))")
                         .font(.subheadline.bold())
                     Text("(\(peak.count) catches)")
@@ -501,7 +501,7 @@ struct AnalyticsView: View {
                         x: .value("Catches", item.value.count),
                         y: .value("Gear", item.key)
                     )
-                    .foregroundStyle(.green.gradient)
+                    .foregroundStyle(CurrentsTheme.accent.gradient)
                 }
                 .frame(height: CGFloat(min(sorted.count, 8)) * 36)
             }
@@ -520,7 +520,7 @@ struct AnalyticsView: View {
                     ForEach(sortedTech.prefix(6), id: \.key) { technique, uses in
                         HStack {
                             Image(systemName: "hand.raised.fill")
-                                .foregroundStyle(.purple)
+                                .foregroundStyle(CurrentsTheme.accent)
                                 .frame(width: 24)
                             Text(technique)
                                 .font(.subheadline)
@@ -598,7 +598,7 @@ struct AnalyticsView: View {
 
             // Legend
             HStack(spacing: 16) {
-                legendItem(color: .orange, label: "Dawn/Dusk")
+                legendItem(color: CurrentsTheme.accent.opacity(0.6), label: "Dawn/Dusk")
                 legendItem(color: CurrentsTheme.accent, label: "Day")
                 legendItem(color: .indigo, label: "Night")
             }
@@ -624,7 +624,7 @@ struct AnalyticsView: View {
                         x: .value("Day", item.day),
                         y: .value("Catches", item.count)
                     )
-                    .foregroundStyle(.purple.gradient)
+                    .foregroundStyle(CurrentsTheme.accent.gradient)
                 }
                 .frame(height: 120)
             }
@@ -650,7 +650,7 @@ struct AnalyticsView: View {
                     if rate > 80 {
                         Text("Great conservation practice!")
                             .font(.caption)
-                            .foregroundStyle(.green)
+                            .foregroundStyle(CurrentsTheme.accent)
                     }
                 }
             }
@@ -701,8 +701,8 @@ struct AnalyticsView: View {
 
     private func hourColor(_ hour: Int) -> Color {
         switch hour {
-        case 5...8: return .orange
-        case 16...19: return .orange
+        case 5...8: return CurrentsTheme.accent.opacity(0.6)
+        case 16...19: return CurrentsTheme.accent.opacity(0.6)
         case 9...15: return CurrentsTheme.accent
         default: return .indigo
         }

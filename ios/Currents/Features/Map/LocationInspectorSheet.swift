@@ -62,7 +62,7 @@ struct LocationInspectorSheet: View {
                 distance: 2500
             ))) {
                 Marker("", coordinate: coordinate)
-                    .tint(.orange)
+                    .tint(CurrentsTheme.accent)
             }
             .mapStyle(.hybrid)
             .frame(height: 160)
@@ -71,7 +71,7 @@ struct LocationInspectorSheet: View {
 
             HStack {
                 Image(systemName: "scope")
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(CurrentsTheme.accent)
                 Text(placeName ?? String(format: "%.4f, %.4f", coordinate.latitude, coordinate.longitude))
                     .font(.subheadline.monospacedDigit())
                     .foregroundStyle(.secondary)
@@ -103,7 +103,7 @@ struct LocationInspectorSheet: View {
                     Text("Pressure \(sign) \(String(format: "%.1f", abs(w.pressureChange6h))) hPa / 6h")
                         .font(.caption)
                 }
-                .foregroundStyle(w.pressureChange6h < 0 ? .green : .orange)
+                .foregroundStyle(CurrentsTheme.accent)
             }
         }
         .glassCard()

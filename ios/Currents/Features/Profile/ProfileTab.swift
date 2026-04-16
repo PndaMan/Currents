@@ -187,7 +187,7 @@ struct ProfileTab: View {
                         HStack(spacing: 12) {
                             Image(systemName: "heart.fill")
                                 .font(.title3)
-                                .foregroundStyle(.pink)
+                                .foregroundStyle(CurrentsTheme.accent)
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("Support Currents")
                                     .font(.subheadline.bold())
@@ -370,7 +370,7 @@ struct ProfileTab: View {
             if let msg = backupMessage {
                 Text(msg)
                     .font(.caption)
-                    .foregroundStyle(msg.contains("Error") ? .red : .green)
+                    .foregroundStyle(msg.contains("Error") ? .secondary : CurrentsTheme.accent)
             }
         } header: {
             Text("iCloud Backup")
@@ -413,7 +413,7 @@ struct ProfileTab: View {
             if let msg = backupMessage {
                 Text(msg)
                     .font(.caption)
-                    .foregroundStyle(msg.contains("Error") ? .red : .green)
+                    .foregroundStyle(msg.contains("Error") ? .secondary : CurrentsTheme.accent)
             }
         } header: {
             Text("Backup & Restore")
