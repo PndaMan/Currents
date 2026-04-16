@@ -14,7 +14,7 @@ actor OverpassService {
 
     /// Minimum seconds between queries to be polite to the public Overpass server.
     private var lastQueryTime: Date = .distantPast
-    private let minQueryInterval: TimeInterval = 5
+    private let minQueryInterval: TimeInterval = 8
 
     /// Fetch water bodies in a map region from Overpass, parse them, and return.
     /// Returns nil if the region was already fetched or if offline.
@@ -22,10 +22,10 @@ actor OverpassService {
         minLat: Double, maxLat: Double,
         minLon: Double, maxLon: Double
     ) async -> [OverpassWaterbody]? {
-        // Compute the geohash-3 cell key for this region center to avoid re-fetching
+        // Coarser cell key (~22km cells instead of ~11km) to reduce redundant queries
         let centerLat = (minLat + maxLat) / 2
         let centerLon = (minLon + maxLon) / 2
-        let cellKey = "\(Int(centerLat * 10))_\(Int(centerLon * 10))"
+        let cellKey = "\(Int(centerLat * 5))_\(Int(centerLon * 5))"
 
         if fetchedCells.contains(cellKey) { return nil }
 
@@ -33,10 +33,10 @@ actor OverpassService {
         let elapsed = Date.now.timeIntervalSince(lastQueryTime)
         if elapsed < minQueryInterval { return nil }
 
-        // Limit query area to avoid overloading the API (max ~0.5° span)
+        // Don't query when zoomed too far out — caller should gate this too
         let latSpan = maxLat - minLat
         let lonSpan = maxLon - minLon
-        guard latSpan < 3.0 && lonSpan < 3.0 else { return nil } // Don't query when zoomed too far out
+        guard latSpan < 1.5 && lonSpan < 1.5 else { return nil }
 
         lastQueryTime = .now
 
@@ -56,7 +56,7 @@ actor OverpassService {
           way["landuse"="reservoir"]["name"~"."](\(bbox));
           relation["landuse"="reservoir"]["name"~"."](\(bbox));
         );
-        out center tags 300;
+        out center tags 100;
         """
 
         let urlString = "https://overpass-api.de/api/interpreter"
