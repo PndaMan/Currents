@@ -328,7 +328,7 @@ struct LogCatchView: View {
                 if let coord = pinCoordinate {
                     HStack {
                         Image(systemName: "mappin.circle.fill")
-                            .foregroundStyle(.red)
+                            .foregroundStyle(CurrentsTheme.accent)
                         VStack(alignment: .leading) {
                             Text("Pin dropped")
                                 .font(.subheadline)
@@ -632,7 +632,7 @@ struct LocationPickerSheet: View {
                         Annotation("Catch Location", coordinate: pin) {
                             Image(systemName: "mappin.circle.fill")
                                 .font(.title)
-                                .foregroundStyle(.red)
+                                .foregroundStyle(CurrentsTheme.accent)
                         }
                     }
                 }
@@ -647,7 +647,7 @@ struct LocationPickerSheet: View {
                     Spacer()
                     Image(systemName: "plus.circle.fill")
                         .font(.system(size: 32))
-                        .foregroundStyle(.red)
+                        .foregroundStyle(CurrentsTheme.accent)
                         .shadow(radius: 3)
                     Spacer()
                 }

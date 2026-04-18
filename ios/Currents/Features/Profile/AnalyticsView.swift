@@ -90,20 +90,26 @@ struct AnalyticsView: View {
 
     private var overviewStatsRow: some View {
         VStack(spacing: 10) {
+            // Primary stats — always 3 across
             HStack(spacing: 12) {
                 StatCard(value: "\(totalCatches)", label: "Catches", icon: "fish.fill")
                 StatCard(value: "\(personalBests.count)", label: "Species", icon: "leaf.fill")
-                if let biggest = personalBests.compactMap(\.heaviestKg).max() {
-                    StatCard(value: String(format: "%.1fkg", biggest), label: "Biggest", icon: "trophy.fill")
+                if totalCatches > 0 {
+                    let released = allCatches.filter { $0.catchRecord.released }.count
+                    let releaseRate = Int(Double(released) / Double(totalCatches) * 100)
+                    StatCard(value: "\(releaseRate)%", label: "Released", icon: "arrow.uturn.backward")
+                } else {
+                    StatCard(value: "0%", label: "Released", icon: "arrow.uturn.backward")
                 }
             }
+            // Secondary stats
             if totalCatches > 0 {
-                let released = allCatches.filter { $0.catchRecord.released }.count
-                let releaseRate = totalCatches > 0 ? Int(Double(released) / Double(totalCatches) * 100) : 0
                 let weights = allCatches.compactMap(\.catchRecord.weightKg)
                 let avgWeight = weights.isEmpty ? 0.0 : weights.reduce(0, +) / Double(weights.count)
                 HStack(spacing: 12) {
-                    StatCard(value: "\(releaseRate)%", label: "Released", icon: "arrow.uturn.backward")
+                    if let biggest = personalBests.compactMap(\.heaviestKg).max() {
+                        StatCard(value: String(format: "%.1fkg", biggest), label: "Biggest", icon: "trophy.fill")
+                    }
                     if avgWeight > 0 {
                         StatCard(value: String(format: "%.1fkg", avgWeight), label: "Avg Weight", icon: "scalemass")
                     }
@@ -324,7 +330,7 @@ struct AnalyticsView: View {
                         Text("#\(index + 1)")
                             .font(.caption.bold())
                             .frame(width: 30)
-                            .foregroundStyle(index < 3 ? .yellow : .secondary)
+                            .foregroundStyle(index < 3 ? CurrentsTheme.accent : .secondary)
                         Image(systemName: "fish.fill")
                             .foregroundStyle(CurrentsTheme.accent)
                         Text(item.commonName)
@@ -410,7 +416,7 @@ struct AnalyticsView: View {
                         Text("#\(index + 1)")
                             .font(.caption.bold())
                             .frame(width: 30)
-                            .foregroundStyle(index < 3 ? .yellow : .secondary)
+                            .foregroundStyle(index < 3 ? CurrentsTheme.accent : .secondary)
                         Image(systemName: "mappin.circle.fill")
                             .foregroundStyle(CurrentsTheme.accent)
                         VStack(alignment: .leading) {
@@ -593,14 +599,14 @@ struct AnalyticsView: View {
             if let bestHour = hourCounts.max(by: { $0.count < $1.count }) {
                 Label("Peak: \(formatHour(bestHour.hour))", systemImage: "star.fill")
                     .font(.caption)
-                    .foregroundStyle(.yellow)
+                    .foregroundStyle(CurrentsTheme.accent)
             }
 
             // Legend
             HStack(spacing: 16) {
                 legendItem(color: CurrentsTheme.accent.opacity(0.6), label: "Dawn/Dusk")
                 legendItem(color: CurrentsTheme.accent, label: "Day")
-                legendItem(color: .indigo, label: "Night")
+                legendItem(color: CurrentsTheme.accent.opacity(0.3), label: "Night")
             }
             .font(.caption2)
         }
@@ -704,7 +710,7 @@ struct AnalyticsView: View {
         case 5...8: return CurrentsTheme.accent.opacity(0.6)
         case 16...19: return CurrentsTheme.accent.opacity(0.6)
         case 9...15: return CurrentsTheme.accent
-        default: return .indigo
+        default: return CurrentsTheme.accent.opacity(0.3)
         }
     }
 

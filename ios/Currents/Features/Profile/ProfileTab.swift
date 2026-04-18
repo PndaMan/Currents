@@ -129,6 +129,18 @@ struct ProfileTab: View {
                     }
 
                     NavigationLink {
+                        CatchComparisonView()
+                    } label: {
+                        Label("Compare Catches", systemImage: "arrow.left.arrow.right")
+                    }
+
+                    NavigationLink {
+                        SeasonalCalendarView()
+                    } label: {
+                        Label("Seasonal Calendar", systemImage: "calendar")
+                    }
+
+                    NavigationLink {
                         PhotoGalleryView()
                     } label: {
                         Label("Photo Gallery", systemImage: "photo.on.rectangle.angled")
@@ -159,6 +171,12 @@ struct ProfileTab: View {
                         UnitsSettingsView()
                     } label: {
                         Label("Units", systemImage: "ruler")
+                    }
+
+                    NavigationLink {
+                        AlertSettingsView()
+                    } label: {
+                        Label("Bite Alerts", systemImage: "bell.badge")
                     }
 
                     NavigationLink {
@@ -276,7 +294,7 @@ struct ProfileTab: View {
                     HStack(spacing: 10) {
                         Image(systemName: "trophy.fill")
                             .font(.title3)
-                            .foregroundStyle(.yellow)
+                            .foregroundStyle(CurrentsTheme.accent)
                         VStack(alignment: .leading, spacing: 2) {
                             Text("Badge Earned!")
                                 .font(.caption.bold())

@@ -84,9 +84,11 @@ struct WaterbodyDetailSheet: View {
                     // Underwater Profile
                     underwaterProfileCard
 
-                    // Bait Recommendations (from matched species)
+                    // Bait Recommendations (from matched species, or generic by type)
                     if !allSpeciesWithBaits.isEmpty {
                         baitRecommendationsCard
+                    } else {
+                        genericBaitCard
                     }
 
                     // Description
@@ -551,6 +553,45 @@ struct WaterbodyDetailSheet: View {
             return String(format: "%.1fkm²", km2)
         } else {
             return String(format: "%.0fha", km2 * 100)
+        }
+    }
+
+    // MARK: - Generic Bait Card (fallback when no species matched)
+
+    private var genericBaitCard: some View {
+        let baits = genericBaitsForType(waterbody.type)
+        return VStack(alignment: .leading, spacing: 8) {
+            Text("Suggested Baits")
+                .font(.headline)
+            Text("General recommendations for \(waterbody.type.rawValue)s")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            ForEach(baits, id: \.self) { bait in
+                HStack(spacing: 8) {
+                    Image(systemName: "circle.fill")
+                        .font(.system(size: 6))
+                        .foregroundStyle(CurrentsTheme.accent)
+                    Text(bait)
+                        .font(.subheadline)
+                }
+            }
+        }
+        .glassCard()
+    }
+
+    private func genericBaitsForType(_ type: Waterbody.WaterbodyType) -> [String] {
+        switch type {
+        case .lake:
+            return ["Plastic worms (Texas rig)", "Crankbaits", "Spinnerbaits", "Live worms", "Jigs", "Topwater frogs", "Drop shot rigs", "Swimbaits"]
+        case .dam:
+            return ["Deep diving crankbaits", "Spoons", "Soft plastics (Carolina rig)", "Live bait (shad)", "Jerkbaits", "Football jigs", "Umbrella rigs", "Cut bait"]
+        case .river:
+            return ["Spinners (inline)", "Nymphs & flies", "Live minnows", "Rooster tails", "Rapala lures", "Dough bait", "Crawfish imitations", "Drift worms"]
+        case .estuary:
+            return ["Shrimp (live or artificial)", "Soft plastic jerkbaits", "Topwater poppers", "Spoons (gold)", "Cut mullet", "Bucktail jigs", "Suspending lures", "DOA shrimp"]
+        case .coast:
+            return ["Poppers", "Stickbaits", "Metal jigs", "Live bait (pilchards)", "Trolling lures", "Squid strips", "Bucktail jigs", "Surface plugs"]
         }
     }
 
