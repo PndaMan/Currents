@@ -243,7 +243,7 @@ struct MapTab: View {
                                     } label: {
                                         HStack(spacing: 8) {
                                             Image(systemName: "mappin.circle.fill")
-                                                .foregroundStyle(.red)
+                                                .foregroundStyle(CurrentsTheme.accent)
                                                 .font(.caption)
                                             VStack(alignment: .leading, spacing: 2) {
                                                 Text(item.name ?? "Unknown")
@@ -403,6 +403,7 @@ struct MapTab: View {
     private func mapButton(icon: String) -> some View {
         Image(systemName: icon)
             .font(.title3)
+            .foregroundStyle(CurrentsTheme.accent)
             .frame(width: 44, height: 44)
             .background(.ultraThinMaterial)
             .clipShape(Circle())
@@ -536,16 +537,16 @@ struct MapTab: View {
         let maxLon = region.center.longitude + region.span.longitudeDelta / 2
         let latSpan = region.span.latitudeDelta
 
-        // Zoom-adaptive filtering — way fewer at zoom-out for performance + API savings
+        // Zoom-adaptive filtering — fewer at zoom-out, show nil-area from metro level
         let (minArea, limit, showNilArea): (Double, Int, Bool) = switch latSpan {
-        case 20...:         (2000, 5, false)   // Continental: only Great Lakes-scale
-        case 10..<20:       (500, 8, false)    // Very zoomed out: major bodies only
-        case 5..<10:        (100, 15, false)   // Country level
-        case 3..<5:         (20, 20, false)    // Regional
-        case 1..<3:         (5, 30, false)     // State/province level
-        case 0.5..<1:       (1, 40, false)     // Metro area
-        case 0.2..<0.5:     (0.1, 50, true)    // City level — start showing small + unknown
-        default:            (0, 60, true)      // Street level — show everything
+        case 20...:         (2000, 8, false)   // Continental: only Great Lakes-scale
+        case 10..<20:       (500, 12, false)   // Very zoomed out: major bodies only
+        case 5..<10:        (100, 20, false)   // Country level
+        case 3..<5:         (20, 25, false)    // Regional
+        case 1..<3:         (5, 35, true)      // State/province — start showing unknown-size
+        case 0.5..<1:       (0.5, 50, true)    // Metro area
+        case 0.2..<0.5:     (0.05, 60, true)   // City level
+        default:            (0, 80, true)      // Street level — show everything
         }
 
         // 1) Show cached DB results INSTANTLY (no network wait)
@@ -560,8 +561,8 @@ struct MapTab: View {
         // 2) Compute bite score in background — don't block waterbody display
         Task { await computeRegionScore(region: region) }
 
-        // 3) Only hit Overpass when zoomed in enough (< 1.5° span) to avoid API spam
-        guard latSpan < 1.5 else {
+        // 3) Only hit Overpass when zoomed in enough (< 2.5° span) to avoid API spam
+        guard latSpan < 2.5 else {
             isLoadingWaterbodies = false
             return
         }
@@ -985,7 +986,7 @@ struct AddSpotSheet: View {
                         if let coord = pinCoordinate {
                             HStack {
                                 Image(systemName: "mappin.circle.fill")
-                                    .foregroundStyle(.red)
+                                    .foregroundStyle(CurrentsTheme.accent)
                                 Text(String(format: "%.4f, %.4f", coord.latitude, coord.longitude))
                                     .font(.caption)
                                     .foregroundStyle(.secondary)

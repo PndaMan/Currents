@@ -14,7 +14,7 @@ actor OverpassService {
 
     /// Minimum seconds between queries to be polite to the public Overpass server.
     private var lastQueryTime: Date = .distantPast
-    private let minQueryInterval: TimeInterval = 8
+    private let minQueryInterval: TimeInterval = 6
 
     /// Fetch water bodies in a map region from Overpass, parse them, and return.
     /// Returns nil if the region was already fetched or if offline.
@@ -36,7 +36,7 @@ actor OverpassService {
         // Don't query when zoomed too far out — caller should gate this too
         let latSpan = maxLat - minLat
         let lonSpan = maxLon - minLon
-        guard latSpan < 1.5 && lonSpan < 1.5 else { return nil }
+        guard latSpan < 2.5 && lonSpan < 2.5 else { return nil }
 
         lastQueryTime = .now
 

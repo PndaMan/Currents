@@ -92,7 +92,7 @@ enum CatchShareCard {
                 )
                 let pinConfig = UIImage.SymbolConfiguration(pointSize: pinSize, weight: .bold)
                 if let pinImage = UIImage(systemName: "mappin.circle.fill", withConfiguration: pinConfig) {
-                    pinImage.withTintColor(.red, renderingMode: .alwaysOriginal).draw(in: pinRect)
+                    pinImage.withTintColor(UIColor(CurrentsTheme.accent), renderingMode: .alwaysOriginal).draw(in: pinRect)
                 }
             }
 
@@ -223,13 +223,7 @@ enum CatchShareCard {
     }
 
     private static func scoreUIColor(_ score: Int) -> UIColor {
-        switch score {
-        case 0..<25: return .systemRed
-        case 25..<50: return .systemOrange
-        case 50..<75: return .systemYellow
-        case 75..<90: return .systemGreen
-        default: return .systemBlue
-        }
+        UIColor(CurrentsTheme.scoreColor(score))
     }
 
     // MARK: - Map Snapshot

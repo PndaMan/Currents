@@ -565,7 +565,7 @@ struct ForecastTab: View {
             VStack(spacing: 4) {
                 Image(systemName: "sun.max.fill")
                     .font(.title3)
-                    .foregroundStyle(.yellow)
+                    .foregroundStyle(CurrentsTheme.accent)
                 Text("Golden Hours")
                     .font(.subheadline.bold())
                 Text("\(solunar.dawnGoldenHour.lowerBound, style: .time)–\(solunar.dawnGoldenHour.upperBound, style: .time)")
@@ -671,7 +671,7 @@ struct ForecastTab: View {
                         recompute()
                     }
                     .font(.caption)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(CurrentsTheme.accent)
                 }
             }
         }

@@ -115,7 +115,7 @@ struct BadgesGridView: View {
                     VStack(spacing: 4) {
                         Image(systemName: badge.icon)
                             .font(.title3)
-                            .foregroundStyle(.yellow)
+                            .foregroundStyle(CurrentsTheme.accent)
                         Text(badge.title)
                             .font(.system(size: 9).bold())
                             .multilineTextAlignment(.center)

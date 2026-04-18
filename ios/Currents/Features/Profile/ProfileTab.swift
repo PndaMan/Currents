@@ -276,7 +276,7 @@ struct ProfileTab: View {
                     HStack(spacing: 10) {
                         Image(systemName: "trophy.fill")
                             .font(.title3)
-                            .foregroundStyle(.yellow)
+                            .foregroundStyle(CurrentsTheme.accent)
                         VStack(alignment: .leading, spacing: 2) {
                             Text("Badge Earned!")
                                 .font(.caption.bold())

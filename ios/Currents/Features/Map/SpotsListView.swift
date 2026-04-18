@@ -26,25 +26,20 @@ struct SpotsListView: View {
                     description: Text("Add spots from the map or when logging a catch")
                 )
             } else {
-                List {
-                    ForEach(filtered) { spot in
-                        Button {
-                            selectedSpot = spot
-                        } label: {
-                            SpotRow(spot: spot, catchCount: catchCounts[spot.id] ?? 0)
+                ScrollView {
+                    LazyVStack(spacing: 12) {
+                        ForEach(filtered) { spot in
+                            Button {
+                                selectedSpot = spot
+                            } label: {
+                                SpotCard(spot: spot, catchCount: catchCounts[spot.id] ?? 0)
+                            }
+                            .buttonStyle(.plain)
                         }
-                        .tint(.primary)
                     }
-                    .onDelete { offsets in
-                        let toDelete = offsets.map { filtered[$0] }
-                        for spot in toDelete {
-                            try? appState.spotRepository.delete(spot)
-                        }
-                        Task { await loadData() }
-                    }
+                    .padding(.horizontal)
+                    .padding(.top, 8)
                 }
-                .listStyle(.plain)
-                .searchable(text: $searchText, prompt: "Search spots")
             }
         }
         .navigationTitle("Spots")
@@ -84,51 +79,59 @@ struct SpotsListView: View {
     }
 }
 
-struct SpotRow: View {
+struct SpotCard: View {
     let spot: Spot
     let catchCount: Int
 
     var body: some View {
-        HStack(spacing: 12) {
-            // Mini map
+        ZStack(alignment: .bottomLeading) {
             Map(initialPosition: .camera(.init(
                 centerCoordinate: CLLocationCoordinate2D(
                     latitude: spot.latitude, longitude: spot.longitude
                 ),
-                distance: 3000
+                distance: 4000
             ))) {
                 Annotation("", coordinate: CLLocationCoordinate2D(
                     latitude: spot.latitude, longitude: spot.longitude
                 )) {
                     Circle()
                         .fill(CurrentsTheme.accent)
-                        .frame(width: 8, height: 8)
+                        .frame(width: 10, height: 10)
+                        .shadow(color: CurrentsTheme.accent.opacity(0.6), radius: 6)
                 }
             }
             .mapStyle(.hybrid)
-            .frame(width: 56, height: 56)
-            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .frame(height: 140)
             .allowsHitTesting(false)
 
-            VStack(alignment: .leading, spacing: 4) {
-                Text(spot.name)
-                    .font(.headline)
-                HStack(spacing: 8) {
-                    Label("\(catchCount)", systemImage: "fish.fill")
-                    if spot.isPrivate {
-                        Label("Private", systemImage: "lock.fill")
+            LinearGradient(
+                colors: [.clear, .black.opacity(0.75)],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(spot.name)
+                        .font(.headline)
+                        .foregroundStyle(.white)
+                    HStack(spacing: 10) {
+                        Label("\(catchCount) catches", systemImage: "fish.fill")
+                        if spot.isPrivate {
+                            Label("Private", systemImage: "lock.fill")
+                        }
+                        Text(spot.createdAt, style: .date)
                     }
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(0.7))
                 }
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(0.5))
             }
-
-            Spacer()
-
-            Text(spot.createdAt, style: .date)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
+            .padding(12)
         }
-        .padding(.vertical, 4)
+        .clipShape(RoundedRectangle(cornerRadius: CurrentsTheme.cornerRadius))
     }
 }

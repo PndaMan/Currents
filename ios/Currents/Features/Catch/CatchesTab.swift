@@ -148,26 +148,14 @@ struct CatchStatsHeader: View {
         let released = catches.filter { $0.catchRecord.released }.count
         return Int(Double(released) / Double(catches.count) * 100)
     }
-    var biggestCatch: CatchDetail? {
-        catches.max(by: { ($0.catchRecord.weightKg ?? 0) < ($1.catchRecord.weightKg ?? 0) })
-    }
 
     var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 12) {
-                StatCard(value: "\(totalCatches)", label: "Total", icon: "fish.fill")
-                StatCard(value: "\(uniqueSpecies)", label: "Species", icon: "leaf.fill")
-                StatCard(value: "\(releaseRate)%", label: "Released", icon: "arrow.uturn.backward")
-                if let biggest = biggestCatch, let weight = biggest.catchRecord.weightKg {
-                    StatCard(
-                        value: String(format: "%.1fkg", weight),
-                        label: biggest.species?.commonName ?? "PB",
-                        icon: "trophy.fill"
-                    )
-                }
-            }
-            .padding()
+        HStack(spacing: 12) {
+            StatCard(value: "\(totalCatches)", label: "Total", icon: "fish.fill")
+            StatCard(value: "\(uniqueSpecies)", label: "Species", icon: "leaf.fill")
+            StatCard(value: "\(releaseRate)%", label: "Released", icon: "arrow.uturn.backward")
         }
+        .padding()
     }
 }
 
@@ -199,55 +187,76 @@ struct CatchRow: View {
     let detail: CatchDetail
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 14) {
             // Photo thumbnail or species icon
             if let photoPath = detail.catchRecord.allPhotoPaths.first,
                let image = PhotoManager.load(photoPath) {
                 Image(uiImage: image)
                     .resizable()
                     .scaledToFill()
-                    .frame(width: 56, height: 56)
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                    .frame(width: 64, height: 64)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
             } else {
-                Image(systemName: "fish.fill")
-                    .font(.title2)
-                    .frame(width: 56, height: 56)
-                    .background(.ultraThinMaterial)
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                ZStack {
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(CurrentsTheme.accent.opacity(0.15))
+                    Image(systemName: "fish.fill")
+                        .font(.title2)
+                        .foregroundStyle(CurrentsTheme.accent)
+                }
+                .frame(width: 64, height: 64)
             }
 
-            VStack(alignment: .leading, spacing: 4) {
-                Text(detail.species?.commonName ?? "Unknown Species")
-                    .font(.headline)
-
-                HStack(spacing: 8) {
-                    if let spot = detail.spot {
-                        Label(spot.name, systemImage: "mappin")
-                    }
-                    if let weight = detail.catchRecord.weightKg {
-                        Label(String(format: "%.1f kg", weight), systemImage: "scalemass")
-                    }
-                    if let length = detail.catchRecord.lengthCm {
-                        Label(String(format: "%.0f cm", length), systemImage: "ruler")
+            VStack(alignment: .leading, spacing: 5) {
+                HStack {
+                    Text(detail.species?.commonName ?? "Unknown Species")
+                        .font(.subheadline.bold())
+                    if detail.catchRecord.released {
+                        Image(systemName: "arrow.uturn.backward.circle.fill")
+                            .foregroundStyle(CurrentsTheme.accent)
+                            .font(.caption)
                     }
                 }
-                .font(.caption)
-                .foregroundStyle(.secondary)
+
+                if let spot = detail.spot {
+                    Label(spot.name, systemImage: "mappin")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                HStack(spacing: 10) {
+                    if let weight = detail.catchRecord.weightKg {
+                        Text(String(format: "%.1f kg", weight))
+                            .font(.caption.bold())
+                            .foregroundStyle(CurrentsTheme.accent)
+                    }
+                    if let length = detail.catchRecord.lengthCm {
+                        Text(String(format: "%.0f cm", length))
+                            .font(.caption.bold())
+                            .foregroundStyle(CurrentsTheme.accent.opacity(0.7))
+                    }
+                    if let score = detail.catchRecord.forecastScoreAtCapture {
+                        HStack(spacing: 2) {
+                            Image(systemName: "gauge.medium")
+                                .font(.system(size: 9))
+                            Text("\(score)")
+                        }
+                        .font(.caption2.bold())
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 2)
+                        .background(CurrentsTheme.scoreColor(score).opacity(0.2))
+                        .foregroundStyle(CurrentsTheme.scoreColor(score))
+                        .clipShape(Capsule())
+                    }
+                }
             }
 
             Spacer()
 
-            VStack(alignment: .trailing, spacing: 4) {
-                Text(detail.catchRecord.caughtAt, style: .date)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                if detail.catchRecord.released {
-                    Image(systemName: "arrow.uturn.backward.circle.fill")
-                        .foregroundStyle(CurrentsTheme.accent)
-                        .font(.caption)
-                }
-            }
+            Text(detail.catchRecord.caughtAt, style: .date)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, 6)
     }
 }
