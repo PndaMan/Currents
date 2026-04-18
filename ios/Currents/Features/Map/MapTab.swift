@@ -34,7 +34,8 @@ struct MapTab: View {
     @State private var selectedWaterbody: Waterbody?
     @State private var isLoadingWaterbodies = false
     @State private var waterbodyDebounceTask: Task<Void, Never>?
-    @State private var currentLatSpan: Double = 1.0 // track zoom level for rendering decisions
+    @State private var currentLatSpan: Double = 1.0
+    @State private var showHeatmap = false
 
     enum MapStyleOption: String, CaseIterable {
         case standard = "Standard"
@@ -80,6 +81,23 @@ struct MapTab: View {
                             ) {
                                 CatchPin(detail: detail)
                             }
+                        }
+                    }
+
+                    // Catch heatmap overlay
+                    if showHeatmap {
+                        ForEach(catches, id: \.catchRecord.id) { detail in
+                            MapCircle(
+                                center: CLLocationCoordinate2D(
+                                    latitude: detail.catchRecord.latitude,
+                                    longitude: detail.catchRecord.longitude
+                                ),
+                                radius: currentLatSpan < 0.05 ? 50 : currentLatSpan < 0.5 ? 300 : 1000
+                            )
+                            .foregroundStyle(
+                                heatColor(for: detail).opacity(0.35)
+                            )
+                            .stroke(heatColor(for: detail).opacity(0.6), lineWidth: 1)
                         }
                     }
 
@@ -173,6 +191,14 @@ struct MapTab: View {
                         showCatchPins.toggle()
                     } label: {
                         mapButton(icon: showCatchPins ? "fish.fill" : "fish")
+                    }
+
+                    // Catch heatmap
+                    Button {
+                        showHeatmap.toggle()
+                    } label: {
+                        mapButton(icon: "circle.hexagongrid.fill")
+                            .opacity(showHeatmap ? 1.0 : 0.5)
                     }
 
                     // Species browser
@@ -397,6 +423,13 @@ struct MapTab: View {
                 await loadData()
             }
         }
+    }
+
+    private func heatColor(for detail: CatchDetail) -> Color {
+        if let score = detail.catchRecord.forecastScoreAtCapture {
+            return CurrentsTheme.scoreColor(score)
+        }
+        return CurrentsTheme.accent
     }
 
     @ViewBuilder

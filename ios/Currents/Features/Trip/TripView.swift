@@ -88,27 +88,38 @@ struct TripListView: View {
 struct ActiveTripBanner: View {
     let trip: Trip
     let onEnd: () -> Void
+    @State private var elapsed: TimeInterval = 0
+    @State private var timer: Timer?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Image(systemName: "tent.fill")
                     .foregroundStyle(CurrentsTheme.accent)
                 Text(trip.name)
                     .font(.headline)
                 Spacer()
-                Text("ACTIVE")
-                    .font(.caption2.bold())
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 3)
-                    .background(CurrentsTheme.accent.opacity(0.2))
-                    .foregroundStyle(CurrentsTheme.accent)
-                    .clipShape(Capsule())
+                HStack(spacing: 4) {
+                    Circle()
+                        .fill(CurrentsTheme.accent)
+                        .frame(width: 6, height: 6)
+                    Text("LIVE")
+                        .font(.caption2.bold())
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .background(CurrentsTheme.accent.opacity(0.2))
+                .foregroundStyle(CurrentsTheme.accent)
+                .clipShape(Capsule())
             }
 
-            Text("Started \(trip.startDate, style: .relative) ago")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            // Live timer
+            HStack(spacing: 16) {
+                timerUnit(value: Int(elapsed) / 3600, label: "hr")
+                timerUnit(value: (Int(elapsed) % 3600) / 60, label: "min")
+                timerUnit(value: Int(elapsed) % 60, label: "sec")
+            }
+            .frame(maxWidth: .infinity)
 
             if let conditions = trip.weatherConditions {
                 Label(conditions, systemImage: "cloud.fill")
@@ -123,6 +134,23 @@ struct ActiveTripBanner: View {
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.bordered)
+        }
+        .onAppear {
+            elapsed = Date.now.timeIntervalSince(trip.startDate)
+            timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { _ in
+                elapsed = Date.now.timeIntervalSince(trip.startDate)
+            }
+        }
+        .onDisappear { timer?.invalidate() }
+    }
+
+    private func timerUnit(value: Int, label: String) -> some View {
+        VStack(spacing: 2) {
+            Text("\(value)")
+                .font(.title.bold().monospacedDigit())
+            Text(label)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
         }
     }
 }
