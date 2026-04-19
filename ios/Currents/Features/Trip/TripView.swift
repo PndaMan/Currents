@@ -298,6 +298,7 @@ struct NewTripSheet: View {
     @State private var selectedSpotId: String?
     @State private var weatherConditions = ""
     @State private var allSpots: [Spot] = []
+    @State private var isLoadingWeather = true
 
     var body: some View {
         NavigationStack {
@@ -317,8 +318,21 @@ struct NewTripSheet: View {
                     }
                 }
 
-                Section("Conditions") {
-                    TextField("Weather (e.g. Overcast, light breeze)", text: $weatherConditions)
+                Section {
+                    if isLoadingWeather {
+                        HStack(spacing: 8) {
+                            ProgressView().controlSize(.small)
+                            Text("Fetching weather...")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    } else {
+                        TextField("Weather conditions", text: $weatherConditions)
+                    }
+                } header: {
+                    Text("Conditions")
+                } footer: {
+                    Text("Auto-filled from current weather. You can edit.")
                 }
             }
             .navigationTitle("New Trip")
@@ -334,6 +348,21 @@ struct NewTripSheet: View {
             }
             .task {
                 allSpots = (try? appState.spotRepository.fetchAll()) ?? []
+
+                // Auto-fill name
+                let formatter = DateFormatter()
+                formatter.dateFormat = "EEEE d MMM"
+                if name.isEmpty {
+                    name = "\(formatter.string(from: .now)) Session"
+                }
+
+                // Auto-fill weather
+                let coord = appState.locationManager.currentLocation?.coordinate ??
+                    CLLocationCoordinate2D(latitude: -33.9, longitude: 18.4)
+                if let w = await WeatherService.shared.current(for: coord) {
+                    weatherConditions = "\(w.condition.capitalized), \(Int(w.temperatureC))°C, \(Int(w.windSpeedKmh))km/h wind"
+                }
+                isLoadingWeather = false
             }
         }
     }

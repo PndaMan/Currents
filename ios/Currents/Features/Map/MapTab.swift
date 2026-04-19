@@ -17,6 +17,7 @@ struct MapTab: View {
     @State private var selectedSpot: Spot?
     @State private var showingLiveTrip = false
     @State private var activeTrip: Trip?
+    @State private var showingNewTrip = false
     @State private var mapStyle: MapStyleOption = .fishing
     @State private var showCatchPins = true
     @State private var showingSpeciesBrowser = false
@@ -196,7 +197,7 @@ struct MapTab: View {
                         if activeTrip != nil {
                             showingLiveTrip = true
                         } else {
-                            startQuickTrip()
+                            showingNewTrip = true
                         }
                     } label: {
                         mapButton(icon: activeTrip != nil ? "timer" : "play.fill")
@@ -414,6 +415,16 @@ struct MapTab: View {
                     .presentationDetents([.medium, .large])
                     .presentationBackground(.ultraThinMaterial)
             }
+            .sheet(isPresented: $showingNewTrip, onDismiss: {
+                Task { @MainActor in
+                    activeTrip = (try? appState.tripRepository.fetchAll())?.first(where: { $0.endDate == nil })
+                    if activeTrip != nil { showingLiveTrip = true }
+                }
+            }) {
+                NewTripSheet()
+                    .presentationDetents([.medium])
+                    .presentationBackground(.ultraThinMaterial)
+            }
             .fullScreenCover(isPresented: $showingLiveTrip, onDismiss: {
                 Task { @MainActor in
                     activeTrip = (try? appState.tripRepository.fetchAll())?.first(where: { $0.endDate == nil })
@@ -435,21 +446,6 @@ struct MapTab: View {
                 activeTrip = (try? appState.tripRepository.fetchAll())?.first(where: { $0.endDate == nil })
             }
         }
-    }
-
-    private func startQuickTrip() {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "EEEE d MMM"
-        var trip = Trip(
-            name: "\(formatter.string(from: .now)) Session",
-            startDate: .now,
-            spotId: nil,
-            notes: nil,
-            weatherConditions: nil
-        )
-        try? appState.tripRepository.save(&trip)
-        activeTrip = trip
-        showingLiveTrip = true
     }
 
     @ViewBuilder

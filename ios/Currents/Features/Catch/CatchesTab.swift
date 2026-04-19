@@ -163,6 +163,7 @@ struct StatCard: View {
     let value: String
     let label: String
     let icon: String
+    @AppStorage("selectedTheme") private var selectedTheme = ""
 
     var body: some View {
         VStack(spacing: 6) {
@@ -185,6 +186,7 @@ struct StatCard: View {
 
 struct CatchRow: View {
     let detail: CatchDetail
+    @AppStorage("selectedTheme") private var selectedTheme = ""
 
     var body: some View {
         HStack(spacing: 14) {

@@ -82,6 +82,11 @@ struct LogCatchView: View {
                 allTrips = (try? appState.tripRepository.fetchAll()) ?? []
                 ownedGear = (try? appState.ownedGearRepository.fetchAll()) ?? []
 
+                // Auto-select active trip so catches link automatically
+                if selectedTripId == nil {
+                    selectedTripId = allTrips.first(where: { $0.endDate == nil })?.id
+                }
+
                 if let loc = appState.locationManager.currentLocation {
                     pinCoordinate = loc.coordinate
                 }
