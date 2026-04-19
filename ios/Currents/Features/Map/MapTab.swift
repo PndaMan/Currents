@@ -15,8 +15,6 @@ struct MapTab: View {
     @State private var catchCounts: [String: Int] = [:]
     @State private var showingAddSpot = false
     @State private var selectedSpot: Spot?
-    @State private var showingLiveTrip = false
-    @State private var activeTrip: Trip?
     @State private var mapStyle: MapStyleOption = .fishing
     @State private var showCatchPins = true
     @State private var showingSpeciesBrowser = false
@@ -37,6 +35,7 @@ struct MapTab: View {
     @State private var isLoadingWaterbodies = false
     @State private var waterbodyDebounceTask: Task<Void, Never>?
     @State private var currentLatSpan: Double = 1.0
+    @State private var showHeatmap = false
 
     enum MapStyleOption: String, CaseIterable {
         case standard = "Standard"
@@ -82,6 +81,23 @@ struct MapTab: View {
                             ) {
                                 CatchPin(detail: detail)
                             }
+                        }
+                    }
+
+                    // Catch heatmap overlay
+                    if showHeatmap {
+                        ForEach(catches, id: \.catchRecord.id) { detail in
+                            MapCircle(
+                                center: CLLocationCoordinate2D(
+                                    latitude: detail.catchRecord.latitude,
+                                    longitude: detail.catchRecord.longitude
+                                ),
+                                radius: currentLatSpan < 0.05 ? 50 : currentLatSpan < 0.5 ? 300 : 1000
+                            )
+                            .foregroundStyle(
+                                heatColor(for: detail).opacity(0.35)
+                            )
+                            .stroke(heatColor(for: detail).opacity(0.6), lineWidth: 1)
                         }
                     }
 
@@ -177,6 +193,14 @@ struct MapTab: View {
                         mapButton(icon: showCatchPins ? "fish.fill" : "fish")
                     }
 
+                    // Catch heatmap
+                    Button {
+                        showHeatmap.toggle()
+                    } label: {
+                        mapButton(icon: "circle.hexagongrid.fill")
+                            .opacity(showHeatmap ? 1.0 : 0.5)
+                    }
+
                     // Species browser
                     Button {
                         showingSpeciesBrowser = true
@@ -189,25 +213,6 @@ struct MapTab: View {
                         showingForecast = true
                     } label: {
                         mapButton(icon: "cloud.sun.fill")
-                    }
-
-                    // Start/view trip
-                    Button {
-                        if activeTrip != nil {
-                            showingLiveTrip = true
-                        } else {
-                            startQuickTrip()
-                        }
-                    } label: {
-                        mapButton(icon: activeTrip != nil ? "timer" : "play.fill")
-                            .overlay(alignment: .topTrailing) {
-                                if activeTrip != nil {
-                                    Circle()
-                                        .fill(CurrentsTheme.accent)
-                                        .frame(width: 8, height: 8)
-                                        .offset(x: 2, y: -2)
-                                }
-                            }
                     }
                 }
                 .padding(.top, 60)
@@ -414,38 +419,17 @@ struct MapTab: View {
                     .presentationDetents([.medium, .large])
                     .presentationBackground(.ultraThinMaterial)
             }
-            .fullScreenCover(isPresented: $showingLiveTrip) {
-                if let trip = activeTrip {
-                    NavigationStack {
-                        LiveTripView(trip: trip)
-                            .toolbar {
-                                ToolbarItem(placement: .cancellationAction) {
-                                    Button("Minimise") { showingLiveTrip = false }
-                                }
-                            }
-                    }
-                }
-            }
             .task {
                 await loadData()
-                activeTrip = (try? appState.tripRepository.fetchAll())?.first(where: { $0.endDate == nil })
             }
         }
     }
 
-    private func startQuickTrip() {
-        let dateFormatter = DateFormatter()
-        dateFormatter.dateFormat = "EEEE d MMM"
-        var trip = Trip(
-            name: "\(dateFormatter.string(from: .now)) Session",
-            startDate: .now,
-            spotId: nil,
-            notes: nil,
-            weatherConditions: nil
-        )
-        try? appState.tripRepository.save(&trip)
-        activeTrip = trip
-        showingLiveTrip = true
+    private func heatColor(for detail: CatchDetail) -> Color {
+        if let score = detail.catchRecord.forecastScoreAtCapture {
+            return CurrentsTheme.scoreColor(score)
+        }
+        return CurrentsTheme.accent
     }
 
     @ViewBuilder

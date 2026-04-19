@@ -1,9 +1,5 @@
 import SwiftUI
 
-struct TripNavID: Hashable {
-    let id: String
-}
-
 struct TripListView: View {
     @Environment(AppState.self) private var appState
     @State private var trips: [Trip] = []
@@ -34,7 +30,7 @@ struct TripListView: View {
                     if !pastTrips.isEmpty {
                         Section("Past Trips") {
                             ForEach(pastTrips) { trip in
-                                NavigationLink(value: TripNavID(id: trip.id)) {
+                                NavigationLink(value: trip.id) {
                                     TripRow(trip: trip, appState: appState)
                                 }
                             }
@@ -65,9 +61,9 @@ struct TripListView: View {
             NewTripSheet()
                 .presentationBackground(.ultraThinMaterial)
         }
-        .navigationDestination(for: TripNavID.self) { nav in
-            if let trip = trips.first(where: { $0.id == nav.id }) {
-                TripTimelineView(trip: trip)
+        .navigationDestination(for: String.self) { tripId in
+            if let trip = trips.first(where: { $0.id == tripId }) {
+                TripDetailView(trip: trip)
             }
         }
         .task { await refresh() }
