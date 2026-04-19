@@ -7,8 +7,6 @@ struct LiveTripView: View {
 
     let trip: Trip
 
-    @State private var elapsed: TimeInterval = 0
-    @State private var timer: Timer?
     @State private var catches: [CatchDetail] = []
     @State private var weather: WeatherService.WeatherData?
     @State private var forecast: ForecastEngine.ForecastResult?
@@ -16,43 +14,46 @@ struct LiveTripView: View {
     @State private var showingEndConfirm = false
     @State private var nearbySpot: Spot?
 
-    private var timerString: String {
-        let hours = Int(elapsed) / 3600
-        let minutes = (Int(elapsed) % 3600) / 60
-        let seconds = Int(elapsed) % 60
+    private func timerString(for date: Date) -> String {
+        let elapsed = Int(date.timeIntervalSince(trip.startDate))
+        let hours = elapsed / 3600
+        let minutes = (elapsed % 3600) / 60
+        let seconds = elapsed % 60
         return String(format: "%02d:%02d:%02d", hours, minutes, seconds)
     }
 
     var body: some View {
         ScrollView {
             VStack(spacing: 16) {
-                // Live timer
-                VStack(spacing: 8) {
-                    HStack(spacing: 6) {
-                        Circle()
-                            .fill(CurrentsTheme.accent)
-                            .frame(width: 8, height: 8)
-                        Text("LIVE")
-                            .font(.caption.bold())
-                            .foregroundStyle(CurrentsTheme.accent)
+                // Live timer using TimelineView (MainActor-safe)
+                TimelineView(.periodic(from: trip.startDate, by: 1)) { context in
+                    VStack(spacing: 8) {
+                        HStack(spacing: 6) {
+                            Circle()
+                                .fill(CurrentsTheme.accent)
+                                .frame(width: 8, height: 8)
+                            Text("LIVE")
+                                .font(.caption.bold())
+                                .foregroundStyle(CurrentsTheme.accent)
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 4)
+                        .background(CurrentsTheme.accent.opacity(0.15))
+                        .clipShape(Capsule())
+
+                        Text(timerString(for: context.date))
+                            .font(.system(size: 52, weight: .bold, design: .monospaced))
+                            .monospacedDigit()
+                            .foregroundStyle(.white)
+
+                        Text("Trip Duration")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 4)
-                    .background(CurrentsTheme.accent.opacity(0.15))
-                    .clipShape(Capsule())
-
-                    Text(timerString)
-                        .font(.system(size: 52, weight: .bold, design: .monospaced))
-                        .monospacedDigit()
-                        .foregroundStyle(.white)
-
-                    Text("Trip Duration")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 20)
+                    .glassCard()
                 }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 20)
-                .glassCard()
 
                 // Weather + bite score
                 if let w = weather, let f = forecast {
@@ -132,20 +133,11 @@ struct LiveTripView: View {
         .background(Color.black.ignoresSafeArea())
         .navigationTitle(trip.name)
         .navigationBarTitleDisplayMode(.inline)
-        .onAppear {
-            elapsed = Date.now.timeIntervalSince(trip.startDate)
-            timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { _ in
-                Task { @MainActor in
-                    elapsed = Date.now.timeIntervalSince(trip.startDate)
-                }
-            }
-            Task { @MainActor in
-                await loadData()
-            }
+        .task {
+            await loadData()
         }
-        .onDisappear { timer?.invalidate() }
         .fullScreenCover(isPresented: $showingLogCatch, onDismiss: {
-            Task { @MainActor in await loadCatches() }
+            Task { await loadCatches() }
         }) {
             LogCatchView()
         }
