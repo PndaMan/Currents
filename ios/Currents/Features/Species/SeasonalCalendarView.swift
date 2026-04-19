@@ -4,6 +4,16 @@ struct SeasonalCalendarView: View {
     @Environment(AppState.self) private var appState
     @State private var species: [Species] = []
     @State private var selectedMonth: Int = Calendar.current.component(.month, from: .now)
+    @State private var searchText = ""
+    @State private var habitatFilter: Species.Habitat?
+    @State private var sortOrder: SortOrder = .match
+
+    enum SortOrder: String, CaseIterable, Identifiable {
+        case match = "Best Match"
+        case name = "Name"
+        case temp = "Optimal Temp"
+        var id: String { rawValue }
+    }
 
     /// Approximate monthly water temperatures in Celsius (Northern Hemisphere).
     /// Index 1 = January, 12 = December.
@@ -29,7 +39,6 @@ struct SeasonalCalendarView: View {
 
     private func waterTemp(for month: Int) -> Double {
         if isSouthernHemisphere {
-            // Flip by 6 months
             let flipped = ((month - 1 + 6) % 12) + 1
             return Self.northernTemps[flipped] ?? 15
         }
@@ -42,7 +51,6 @@ struct SeasonalCalendarView: View {
         guard let optimal = sp.optimalTempC else { return 0 }
         let temp = waterTemp(for: month)
         let diff = abs(temp - optimal)
-        // Score from 100 (exact match) down to 0 at 20 degrees off
         return max(0, 100 - diff * 5)
     }
 
@@ -52,16 +60,37 @@ struct SeasonalCalendarView: View {
         return abs(temp - optimal) <= 5
     }
 
+    private var filteredSpecies: [Species] {
+        var result = species
+        if !searchText.isEmpty {
+            result = result.filter {
+                $0.commonName.localizedCaseInsensitiveContains(searchText) ||
+                $0.scientificName.localizedCaseInsensitiveContains(searchText)
+            }
+        }
+        if let habitat = habitatFilter {
+            result = result.filter { $0.habitat == habitat }
+        }
+        return result
+    }
+
+    private func sorted(_ list: [Species]) -> [Species] {
+        switch sortOrder {
+        case .match:
+            return list.sorted { matchScore(species: $0, month: selectedMonth) > matchScore(species: $1, month: selectedMonth) }
+        case .name:
+            return list.sorted { $0.commonName < $1.commonName }
+        case .temp:
+            return list.sorted { ($0.optimalTempC ?? 0) < ($1.optimalTempC ?? 0) }
+        }
+    }
+
     private var inSeasonSpecies: [Species] {
-        species
-            .filter { isInSeason(species: $0, month: selectedMonth) }
-            .sorted { matchScore(species: $0, month: selectedMonth) > matchScore(species: $1, month: selectedMonth) }
+        sorted(filteredSpecies.filter { isInSeason(species: $0, month: selectedMonth) })
     }
 
     private var offSeasonSpecies: [Species] {
-        species
-            .filter { !isInSeason(species: $0, month: selectedMonth) }
-            .sorted { matchScore(species: $0, month: selectedMonth) > matchScore(species: $1, month: selectedMonth) }
+        sorted(filteredSpecies.filter { !isInSeason(species: $0, month: selectedMonth) })
     }
 
     // MARK: - Body
@@ -70,7 +99,7 @@ struct SeasonalCalendarView: View {
         ScrollView {
             VStack(spacing: CurrentsTheme.paddingM) {
                 monthSelector
-
+                searchAndFilterBar
                 tempBanner
 
                 if !inSeasonSpecies.isEmpty {
@@ -92,6 +121,9 @@ struct SeasonalCalendarView: View {
             .padding()
         }
         .navigationTitle("Seasonal Calendar")
+        .navigationDestination(for: Species.self) { sp in
+            SpeciesDetailView(species: sp)
+        }
         .task {
             species = (try? appState.speciesRepository.fetchAll()) ?? []
         }
@@ -119,6 +151,46 @@ struct SeasonalCalendarView: View {
             }
             .onAppear {
                 proxy.scrollTo(selectedMonth, anchor: .center)
+            }
+        }
+    }
+
+    // MARK: - Search and Filter Bar
+
+    private var searchAndFilterBar: some View {
+        HStack(spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(.secondary)
+                TextField("Search species...", text: $searchText)
+                    .textFieldStyle(.plain)
+                if !searchText.isEmpty {
+                    Button { searchText = "" } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .background(.ultraThinMaterial)
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+
+            Menu {
+                Picker("Sort by", selection: $sortOrder) {
+                    ForEach(SortOrder.allCases) { order in
+                        Text(order.rawValue).tag(order)
+                    }
+                }
+                Divider()
+                Button("All Habitats") { habitatFilter = nil }
+                Button("Freshwater") { habitatFilter = .freshwater }
+                Button("Marine") { habitatFilter = .marine }
+                Button("Brackish") { habitatFilter = .brackish }
+            } label: {
+                Image(systemName: "line.3.horizontal.decrease.circle.fill")
+                    .font(.title3)
+                    .foregroundStyle(CurrentsTheme.accent)
             }
         }
     }
@@ -157,7 +229,7 @@ struct SeasonalCalendarView: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 8) {
                 Circle()
-                    .fill(dimmed ? .secondary.opacity(0.4) : CurrentsTheme.accent)
+                    .fill(dimmed ? Color.secondary.opacity(0.4) : CurrentsTheme.accent)
                     .frame(width: 8, height: 8)
                 Text(title)
                     .font(.headline)
@@ -167,7 +239,10 @@ struct SeasonalCalendarView: View {
             }
 
             ForEach(list) { sp in
-                speciesRow(sp, dimmed: dimmed)
+                NavigationLink(value: sp) {
+                    speciesRow(sp, dimmed: dimmed)
+                }
+                .buttonStyle(.plain)
             }
         }
     }
@@ -180,18 +255,18 @@ struct SeasonalCalendarView: View {
             let score = Int(matchScore(species: sp, month: selectedMonth))
             ZStack {
                 Circle()
-                    .stroke(dimmed ? .secondary.opacity(0.2) : CurrentsTheme.accent.opacity(0.3), lineWidth: 3)
+                    .stroke(dimmed ? Color.secondary.opacity(0.2) : CurrentsTheme.accent.opacity(0.3), lineWidth: 3)
                 Circle()
                     .trim(from: 0, to: CGFloat(score) / 100)
                     .stroke(
-                        dimmed ? .secondary : CurrentsTheme.accent,
+                        dimmed ? Color.secondary : CurrentsTheme.accent,
                         style: StrokeStyle(lineWidth: 3, lineCap: .round)
                     )
                     .rotationEffect(.degrees(-90))
                 Text("\(score)")
                     .font(.caption2.bold())
                     .monospacedDigit()
-                    .foregroundStyle(dimmed ? .secondary : CurrentsTheme.accent)
+                    .foregroundStyle(dimmed ? Color.secondary : CurrentsTheme.accent)
             }
             .frame(width: 40, height: 40)
 
@@ -214,10 +289,10 @@ struct SeasonalCalendarView: View {
                             .padding(.vertical, 2)
                             .background(
                                 dimmed
-                                    ? .secondary.opacity(0.1)
+                                    ? Color.secondary.opacity(0.1)
                                     : CurrentsTheme.accent.opacity(0.15)
                             )
-                            .foregroundStyle(dimmed ? .secondary : CurrentsTheme.accent)
+                            .foregroundStyle(dimmed ? Color.secondary : CurrentsTheme.accent)
                             .clipShape(Capsule())
                     }
                 }
@@ -234,12 +309,9 @@ struct SeasonalCalendarView: View {
 
             Spacer()
 
-            // Match indicator
-            if !dimmed {
-                Image(systemName: "checkmark.seal.fill")
-                    .foregroundStyle(CurrentsTheme.accent)
-                    .font(.body)
-            }
+            Image(systemName: "chevron.right")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
         }
         .padding(CurrentsTheme.paddingS)
         .background(.ultraThinMaterial)
