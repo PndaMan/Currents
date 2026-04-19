@@ -1,4 +1,5 @@
 import SwiftUI
+import CoreLocation
 
 struct TripNavID: Hashable {
     let id: String
