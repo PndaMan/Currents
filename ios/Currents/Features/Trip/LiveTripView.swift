@@ -381,7 +381,7 @@ struct LiveTripView: View {
         appState.locationManager.startUpdating()
 
         // Fetch weather and forecast
-        Task {
+        Task { @MainActor in
             guard let location = appState.locationManager.currentLocation else {
                 // Wait briefly for a location fix
                 try? await Task.sleep(for: .seconds(2))

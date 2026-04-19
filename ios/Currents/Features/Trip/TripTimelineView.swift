@@ -174,7 +174,7 @@ struct TripTimelineView: View {
 
     private func generateShareCard() {
         isGeneratingCard = true
-        Task {
+        Task { @MainActor in
             let card = Self.generateShareCard(trip: trip, catches: catches)
             shareImage = card
             showingShareSheet = true
