@@ -1,15 +1,11 @@
 import SwiftUI
 
-enum BadgeRarity: Int, CaseIterable, Comparable {
+enum BadgeRarity: Int, CaseIterable {
     case common = 0
     case uncommon = 1
     case rare = 2
     case epic = 3
     case legendary = 4
-
-    static func < (lhs: BadgeRarity, rhs: BadgeRarity) -> Bool {
-        lhs.rawValue < rhs.rawValue
-    }
 
     var color: Color {
         switch self {
@@ -158,8 +154,8 @@ struct BadgesGridView: View {
     }
 
     var body: some View {
-        let earned = allBadges.filter(\.earned).sorted { $0.rarity > $1.rarity }
-        let locked = allBadges.filter { !$0.earned }.sorted { $0.rarity < $1.rarity }
+        let earned = allBadges.filter(\.earned).sorted { $0.rarity.rawValue > $1.rarity.rawValue }
+        let locked = allBadges.filter { !$0.earned }.sorted { $0.rarity.rawValue < $1.rarity.rawValue }
 
         VStack(alignment: .leading, spacing: 12) {
             if !earned.isEmpty {
