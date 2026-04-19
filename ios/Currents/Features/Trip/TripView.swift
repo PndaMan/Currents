@@ -351,16 +351,16 @@ struct NewTripSheet: View {
                 allSpots = (try? appState.spotRepository.fetchAll()) ?? []
 
                 // Auto-fill name
-                let formatter = DateFormatter()
-                formatter.dateFormat = "EEEE d MMM"
                 if name.isEmpty {
+                    let formatter = DateFormatter()
+                    formatter.dateFormat = "EEEE d MMM"
                     name = "\(formatter.string(from: .now)) Session"
                 }
 
-                // Auto-fill weather
-                let coord = appState.locationManager.currentLocation?.coordinate ??
-                    CLLocationCoordinate2D(latitude: -33.9, longitude: 18.4)
-                if let w = await WeatherService.shared.current(for: coord) {
+                // Auto-fill weather (best effort)
+                let coord = appState.locationManager.currentLocation?.coordinate
+                if let coord,
+                   let w = await WeatherService.shared.current(for: coord) {
                     weatherConditions = "\(w.condition.capitalized), \(Int(w.temperatureC))°C, \(Int(w.windSpeedKmh))km/h wind"
                 }
                 isLoadingWeather = false
