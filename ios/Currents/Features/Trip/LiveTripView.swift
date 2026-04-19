@@ -6,7 +6,7 @@ struct LiveTripView: View {
     @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss
 
-    let trip: Trip
+    @State var trip: Trip
 
     @State private var catches: [CatchDetail] = []
     @State private var weather: WeatherService.WeatherData?
@@ -28,7 +28,6 @@ struct LiveTripView: View {
 
     var body: some View {
         ZStack {
-            // Animated gradient background
             animatedBackground
 
             ScrollView {
@@ -50,7 +49,10 @@ struct LiveTripView: View {
         }
         .navigationTitle(trip.name)
         .navigationBarTitleDisplayMode(.inline)
-        .task { await loadData() }
+        .task {
+            await loadData()
+            await loadExistingPhotos()
+        }
         .onAppear {
             withAnimation(.linear(duration: 8).repeatForever(autoreverses: true)) {
                 animateGradient.toggle()
@@ -62,7 +64,7 @@ struct LiveTripView: View {
             LogCatchView()
         }
         .onChange(of: photoPickerItems) { _, items in
-            Task { await loadPhotos(items) }
+            Task { await loadNewPhotos(items) }
         }
         .alert("End Trip?", isPresented: $showingEndConfirm) {
             Button("End Trip", role: .destructive) { endTrip() }
@@ -85,10 +87,7 @@ struct LiveTripView: View {
             endPoint: animateGradient ? .bottomTrailing : .topLeading
         )
         .ignoresSafeArea()
-        .overlay(
-            // Subtle wave shimmer
-            Color.black.opacity(0.3).ignoresSafeArea()
-        )
+        .overlay(Color.black.opacity(0.3).ignoresSafeArea())
     }
 
     // MARK: - Live Timer Card
@@ -96,7 +95,6 @@ struct LiveTripView: View {
     private var liveTimerCard: some View {
         TimelineView(.periodic(from: trip.startDate, by: 1)) { context in
             VStack(spacing: 12) {
-                // LIVE pill with pulsing dot
                 HStack(spacing: 6) {
                     PulsingDot(color: CurrentsTheme.accent)
                     Text("LIVE SESSION")
@@ -109,7 +107,6 @@ struct LiveTripView: View {
                 .background(CurrentsTheme.accent.opacity(0.15))
                 .clipShape(Capsule())
 
-                // Big timer
                 Text(timerString(for: context.date))
                     .font(.system(size: 64, weight: .heavy, design: .monospaced))
                     .monospacedDigit()
@@ -422,12 +419,31 @@ struct LiveTripView: View {
         catches = (try? appState.tripRepository.catches(tripId: trip.id)) ?? []
     }
 
-    private func loadPhotos(_ items: [PhotosPickerItem]) async {
+    private func loadExistingPhotos() async {
+        // Reload trip to get latest photoPaths
+        if let fresh = try? appState.tripRepository.fetch(trip.id) {
+            trip = fresh
+        }
+        tripPhotos = trip.allPhotoPaths.compactMap { PhotoManager.load($0) }
+    }
+
+    private func loadNewPhotos(_ items: [PhotosPickerItem]) async {
+        var newFilenames: [String] = []
         for item in items {
-            if let data = try? await item.loadTransferable(type: Data.self),
-               let img = UIImage(data: data) {
+            guard let data = try? await item.loadTransferable(type: Data.self),
+                  let img = UIImage(data: data) else { continue }
+            let photoId = "trip_\(trip.id)_\(UUID().uuidString)"
+            if let saved = try? PhotoManager.save(img, id: photoId) {
+                newFilenames.append(saved)
                 tripPhotos.append(img)
             }
+        }
+        if !newFilenames.isEmpty {
+            let combined = trip.allPhotoPaths + newFilenames
+            var updated = trip
+            updated.photoPaths = Trip.encodePhotoPaths(combined)
+            try? appState.tripRepository.save(&updated)
+            trip = updated
         }
         photoPickerItems = []
     }

@@ -9,6 +9,7 @@ struct Trip: Codable, Identifiable, Sendable {
     var spotId: String?
     var notes: String?
     var weatherConditions: String? // "clear", "cloudy", "rain", etc.
+    var photoPaths: String? // JSON array of photo filenames stored via PhotoManager
     var createdAt: Date
 
     init(
@@ -18,7 +19,8 @@ struct Trip: Codable, Identifiable, Sendable {
         endDate: Date? = nil,
         spotId: String? = nil,
         notes: String? = nil,
-        weatherConditions: String? = nil
+        weatherConditions: String? = nil,
+        photoPaths: String? = nil
     ) {
         self.id = id
         self.name = name
@@ -27,7 +29,21 @@ struct Trip: Codable, Identifiable, Sendable {
         self.spotId = spotId
         self.notes = notes
         self.weatherConditions = weatherConditions
+        self.photoPaths = photoPaths
         self.createdAt = .now
+    }
+
+    /// Decoded photo filenames.
+    var allPhotoPaths: [String] {
+        guard let photoPaths, let data = photoPaths.data(using: .utf8) else { return [] }
+        return (try? JSONDecoder().decode([String].self, from: data)) ?? []
+    }
+
+    /// Encode filenames to JSON for storage.
+    static func encodePhotoPaths(_ paths: [String]) -> String? {
+        guard let data = try? JSONEncoder().encode(paths),
+              let str = String(data: data, encoding: .utf8) else { return nil }
+        return str
     }
 }
 

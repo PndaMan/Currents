@@ -40,13 +40,14 @@ struct TripListView: View {
                                 } label: {
                                     TripRow(trip: trip, appState: appState)
                                 }
-                            }
-                            .onDelete { offsets in
-                                let toDelete = offsets.map { pastTrips[$0] }
-                                for trip in toDelete {
-                                    try? appState.tripRepository.delete(trip)
+                                .swipeActions(edge: .trailing) {
+                                    Button(role: .destructive) {
+                                        try? appState.tripRepository.delete(trip)
+                                        Task { await refresh() }
+                                    } label: {
+                                        Label("Delete", systemImage: "trash")
+                                    }
                                 }
-                                Task { await refresh() }
                             }
                         }
                     }

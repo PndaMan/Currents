@@ -261,6 +261,12 @@ final class AppDatabase: Sendable {
             try db.create(indexOn: "observedSpeciesCache", columns: ["localSpeciesId"])
         }
 
+        migrator.registerMigration("v8_trip_photos") { db in
+            try db.alter(table: "trip") { t in
+                t.add(column: "photoPaths", .text)
+            }
+        }
+
         return migrator
     }
 }
