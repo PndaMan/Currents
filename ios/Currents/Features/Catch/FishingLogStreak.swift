@@ -63,24 +63,24 @@ struct BadgeDefinition {
                 let h = Calendar.current.component(.hour, from: $0.catchRecord.caughtAt)
                 return h >= 5 && h < 7
             }),
-            BadgeDefinition(icon: "scalemass.fill", title: "Heavy Hitter", rarity: .rare, earned: heaviest >= 5),
-            BadgeDefinition(icon: "ruler.fill", title: "Long One", rarity: .rare, earned: longest >= 50),
+            BadgeDefinition(icon: "scalemass", title: "Heavy Hitter", rarity: .rare, earned: heaviest >= 5),
+            BadgeDefinition(icon: "ruler", title: "Long One", rarity: .rare, earned: longest >= 50),
             BadgeDefinition(icon: "leaf.fill", title: "Diversified", rarity: .rare, earned: species >= 10),
             BadgeDefinition(icon: "flame.fill", title: "On Fire", rarity: .rare, earned: streakDays >= 7),
 
             // Epic
             BadgeDefinition(icon: "crown.fill", title: "Century", rarity: .epic, earned: total >= 100),
             BadgeDefinition(icon: "globe.americas.fill", title: "Nomad", rarity: .epic, earned: spots >= 10),
-            BadgeDefinition(icon: "gauge.high", title: "Perfect Read", rarity: .epic, earned: highScore >= 90),
+            BadgeDefinition(icon: "gauge.medium", title: "Perfect Read", rarity: .epic, earned: highScore >= 90),
             BadgeDefinition(icon: "calendar.badge.checkmark", title: "Year-Round", rarity: .epic, earned: uniqueMonths >= 10),
-            BadgeDefinition(icon: "scalemass.fill", title: "Monster", rarity: .epic, earned: heaviest >= 15),
+            BadgeDefinition(icon: "scalemass", title: "Monster", rarity: .epic, earned: heaviest >= 15),
             BadgeDefinition(icon: "camera.fill", title: "Portfolio", rarity: .epic, earned: withPhoto >= 50),
 
             // Legendary
             BadgeDefinition(icon: "sparkles", title: "500 Club", rarity: .legendary, earned: total >= 500),
             BadgeDefinition(icon: "crown.fill", title: "Species Master", rarity: .legendary, earned: species >= 25),
             BadgeDefinition(icon: "flame.fill", title: "Unstoppable", rarity: .legendary, earned: streakDays >= 30),
-            BadgeDefinition(icon: "scalemass.fill", title: "Trophy Hunter", rarity: .legendary, earned: heaviest >= 30),
+            BadgeDefinition(icon: "scalemass", title: "Trophy Hunter", rarity: .legendary, earned: heaviest >= 30),
         ]
     }
 
