@@ -15,6 +15,8 @@ struct MapTab: View {
     @State private var catchCounts: [String: Int] = [:]
     @State private var showingAddSpot = false
     @State private var selectedSpot: Spot?
+    @State private var showingLiveTrip = false
+    @State private var activeTrip: Trip?
     @State private var mapStyle: MapStyleOption = .fishing
     @State private var showCatchPins = true
     @State private var showingSpeciesBrowser = false
@@ -187,6 +189,25 @@ struct MapTab: View {
                         showingForecast = true
                     } label: {
                         mapButton(icon: "cloud.sun.fill")
+                    }
+
+                    // Start/view trip
+                    Button {
+                        if activeTrip != nil {
+                            showingLiveTrip = true
+                        } else {
+                            startQuickTrip()
+                        }
+                    } label: {
+                        mapButton(icon: activeTrip != nil ? "timer" : "play.fill")
+                            .overlay(alignment: .topTrailing) {
+                                if activeTrip != nil {
+                                    Circle()
+                                        .fill(CurrentsTheme.accent)
+                                        .frame(width: 8, height: 8)
+                                        .offset(x: 2, y: -2)
+                                }
+                            }
                     }
                 }
                 .padding(.top, 60)
@@ -393,10 +414,38 @@ struct MapTab: View {
                     .presentationDetents([.medium, .large])
                     .presentationBackground(.ultraThinMaterial)
             }
+            .fullScreenCover(isPresented: $showingLiveTrip) {
+                if let trip = activeTrip {
+                    NavigationStack {
+                        LiveTripView(trip: trip)
+                            .toolbar {
+                                ToolbarItem(placement: .cancellationAction) {
+                                    Button("Minimise") { showingLiveTrip = false }
+                                }
+                            }
+                    }
+                }
+            }
             .task {
                 await loadData()
+                activeTrip = (try? appState.tripRepository.fetchAll())?.first(where: { $0.endDate == nil })
             }
         }
+    }
+
+    private func startQuickTrip() {
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "EEEE d MMM"
+        var trip = Trip(
+            name: "\(dateFormatter.string(from: .now)) Session",
+            startDate: .now,
+            spotId: nil,
+            notes: nil,
+            weatherConditions: nil
+        )
+        try? appState.tripRepository.save(&trip)
+        activeTrip = trip
+        showingLiveTrip = true
     }
 
     @ViewBuilder

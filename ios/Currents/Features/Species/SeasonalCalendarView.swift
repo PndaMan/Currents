@@ -4,6 +4,8 @@ struct SeasonalCalendarView: View {
     @Environment(AppState.self) private var appState
     @State private var species: [Species] = []
     @State private var selectedMonth: Int = Calendar.current.component(.month, from: .now)
+    @State private var searchText = ""
+    @State private var habitatFilter: Species.Habitat?
 
     /// Approximate monthly water temperatures in Celsius (Northern Hemisphere).
     /// Index 1 = January, 12 = December.
@@ -52,14 +54,28 @@ struct SeasonalCalendarView: View {
         return abs(temp - optimal) <= 5
     }
 
+    private var filteredSpecies: [Species] {
+        var result = species
+        if !searchText.isEmpty {
+            result = result.filter {
+                $0.commonName.localizedCaseInsensitiveContains(searchText) ||
+                $0.scientificName.localizedCaseInsensitiveContains(searchText)
+            }
+        }
+        if let habitat = habitatFilter {
+            result = result.filter { $0.habitat == habitat }
+        }
+        return result
+    }
+
     private var inSeasonSpecies: [Species] {
-        species
+        filteredSpecies
             .filter { isInSeason(species: $0, month: selectedMonth) }
             .sorted { matchScore(species: $0, month: selectedMonth) > matchScore(species: $1, month: selectedMonth) }
     }
 
     private var offSeasonSpecies: [Species] {
-        species
+        filteredSpecies
             .filter { !isInSeason(species: $0, month: selectedMonth) }
             .sorted { matchScore(species: $0, month: selectedMonth) > matchScore(species: $1, month: selectedMonth) }
     }
@@ -70,6 +86,30 @@ struct SeasonalCalendarView: View {
         ScrollView {
             VStack(spacing: CurrentsTheme.paddingM) {
                 monthSelector
+
+                // Search + habitat filter
+                HStack(spacing: 8) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "magnifyingglass")
+                            .foregroundStyle(.secondary)
+                        TextField("Search species...", text: $searchText)
+                            .textFieldStyle(.plain)
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 8)
+                    .background(.ultraThinMaterial)
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+
+                    Menu {
+                        Button("All") { habitatFilter = nil }
+                        Button("Freshwater") { habitatFilter = .freshwater }
+                        Button("Marine") { habitatFilter = .marine }
+                        Button("Brackish") { habitatFilter = .brackish }
+                    } label: {
+                        Image(systemName: habitatFilter == nil ? "line.3.horizontal.decrease.circle" : "line.3.horizontal.decrease.circle.fill")
+                            .foregroundStyle(CurrentsTheme.accent)
+                    }
+                }
 
                 tempBanner
 
