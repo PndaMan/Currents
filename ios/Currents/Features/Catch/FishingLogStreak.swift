@@ -1,11 +1,14 @@
 import SwiftUI
 
-enum BadgeRarity: String, Comparable {
-    case common, uncommon, rare, epic, legendary
+enum BadgeRarity: Int, CaseIterable, Comparable {
+    case common = 0
+    case uncommon = 1
+    case rare = 2
+    case epic = 3
+    case legendary = 4
 
     static func < (lhs: BadgeRarity, rhs: BadgeRarity) -> Bool {
-        let order: [BadgeRarity] = [.common, .uncommon, .rare, .epic, .legendary]
-        return order.firstIndex(of: lhs)! < order.firstIndex(of: rhs)!
+        lhs.rawValue < rhs.rawValue
     }
 
     var color: Color {
@@ -18,7 +21,15 @@ enum BadgeRarity: String, Comparable {
         }
     }
 
-    var label: String { rawValue.capitalized }
+    var label: String {
+        switch self {
+        case .common:    return "Common"
+        case .uncommon:  return "Uncommon"
+        case .rare:      return "Rare"
+        case .epic:      return "Epic"
+        case .legendary: return "Legendary"
+        }
+    }
 }
 
 struct BadgeDefinition {

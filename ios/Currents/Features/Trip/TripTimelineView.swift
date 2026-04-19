@@ -44,7 +44,7 @@ struct TripTimelineView: View {
         var entries: [TimelineEntry] = []
 
         for detail in catches {
-            entries.append(.catch(detail))
+            entries.append(.`catch`(detail))
         }
 
         for photo in tripPhotos {
@@ -399,7 +399,7 @@ enum TimelineEntry: Identifiable {
 
     var id: String {
         switch self {
-        case .catch(let detail):
+        case .`catch`(let detail):
             return "catch-\(detail.catchRecord.id)"
         case .tripPhoto(let filename, _):
             return "photo-\(filename)"
@@ -408,7 +408,7 @@ enum TimelineEntry: Identifiable {
 
     var date: Date {
         switch self {
-        case .catch(let detail):
+        case .`catch`(let detail):
             return detail.catchRecord.caughtAt
         case .tripPhoto(_, let date):
             return date
@@ -457,7 +457,7 @@ struct TimelineNodeView: View {
             // Content
             VStack(alignment: .leading, spacing: 6) {
                 switch entry {
-                case .catch(let detail):
+                case .`catch`(let detail):
                     catchNodeContent(detail: detail)
                 case .tripPhoto(let filename, _):
                     tripPhotoNodeContent(filename: filename)
