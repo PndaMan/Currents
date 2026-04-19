@@ -46,6 +46,7 @@ final class NotificationManager: @unchecked Sendable {
             }
 
             let result = ForecastEngine.forecast(
+                date: .now,
                 coordinate: coordinate,
                 currentPressureHpa: weather.pressureHpa,
                 pressureChange6h: weather.pressureChange6h,

@@ -1,5 +1,6 @@
 import SwiftUI
 import CoreLocation
+import UserNotifications
 
 struct AlertSettingsView: View {
     @Environment(AppState.self) private var appState
@@ -163,6 +164,7 @@ struct AlertSettingsView: View {
 
             if let weather = await WeatherService.shared.current(for: coordinate) {
                 let result = ForecastEngine.forecast(
+                    date: .now,
                     coordinate: coordinate,
                     currentPressureHpa: weather.pressureHpa,
                     pressureChange6h: weather.pressureChange6h,
