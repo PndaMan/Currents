@@ -34,7 +34,9 @@ struct TripListView: View {
                     if !pastTrips.isEmpty {
                         Section("Past Trips") {
                             ForEach(pastTrips) { trip in
-                                NavigationLink(value: TripNavID(id: trip.id)) {
+                                NavigationLink {
+                                    TripTimelineView(trip: trip)
+                                } label: {
                                     TripRow(trip: trip, appState: appState)
                                 }
                             }
@@ -64,11 +66,6 @@ struct TripListView: View {
         .sheet(isPresented: $showingNewTrip) {
             NewTripSheet()
                 .presentationBackground(.ultraThinMaterial)
-        }
-        .navigationDestination(for: TripNavID.self) { nav in
-            if let trip = trips.first(where: { $0.id == nav.id }) {
-                TripTimelineView(trip: trip)
-            }
         }
         .task { await refresh() }
         .refreshable { await refresh() }

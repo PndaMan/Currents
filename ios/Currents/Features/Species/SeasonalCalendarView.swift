@@ -121,9 +121,6 @@ struct SeasonalCalendarView: View {
             .padding()
         }
         .navigationTitle("Seasonal Calendar")
-        .navigationDestination(for: Species.self) { sp in
-            SpeciesDetailView(species: sp)
-        }
         .task {
             species = (try? appState.speciesRepository.fetchAll()) ?? []
         }
@@ -239,7 +236,9 @@ struct SeasonalCalendarView: View {
             }
 
             ForEach(list) { sp in
-                NavigationLink(value: sp) {
+                NavigationLink {
+                    SpeciesDetailView(species: sp)
+                } label: {
                     speciesRow(sp, dimmed: dimmed)
                 }
                 .buttonStyle(.plain)

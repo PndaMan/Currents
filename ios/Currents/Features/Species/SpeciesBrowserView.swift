@@ -48,7 +48,9 @@ struct SpeciesBrowserView: View {
             .padding(.vertical, 4)
 
             ForEach(filtered) { sp in
-                NavigationLink(value: SpeciesNavID(id: sp.id)) {
+                NavigationLink {
+                    SpeciesDetailView(species: sp)
+                } label: {
                     HStack {
                         Image(systemName: "fish.fill")
                             .foregroundStyle(CurrentsTheme.accent)
@@ -81,11 +83,6 @@ struct SpeciesBrowserView: View {
         .listStyle(.plain)
         .searchable(text: $searchText, prompt: "Search species")
         .navigationTitle("Species")
-        .navigationDestination(for: SpeciesNavID.self) { nav in
-            if let sp = species.first(where: { $0.id == nav.id }) {
-                SpeciesDetailView(species: sp)
-            }
-        }
         .task {
             species = (try? appState.speciesRepository.fetchAll()) ?? []
         }
