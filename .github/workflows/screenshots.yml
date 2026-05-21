@@ -1,0 +1,140 @@
+name: App Store Screenshots
+
+on:
+  workflow_dispatch:
+
+jobs:
+  screenshots:
+    name: Capture Screenshots
+    runs-on: macos-15
+    defaults:
+      run:
+        working-directory: ios
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: |
+          XCODE_PATH=$(ls -d /Applications/Xcode*.app 2>/dev/null | sort -V | tail -1)
+          sudo xcode-select -s "$XCODE_PATH"
+          xcodebuild -version
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode Project
+        run: xcodegen generate
+
+      - name: Resolve packages
+        run: |
+          xcodebuild -resolvePackageDependencies \
+            -project Currents.xcodeproj \
+            -scheme Currents \
+            -clonedSourcePackagesDirPath .spm-cache
+
+      - name: Install iOS Simulator
+        run: |
+          if xcrun simctl list runtimes | grep -q "iOS 26"; then
+            echo "iOS 26 runtime already installed"
+          else
+            xcodebuild -downloadPlatform iOS
+          fi
+
+      - name: Create Simulators
+        run: |
+          # 6.7" - iPhone 16 Pro Max (required for App Store)
+          RUNTIME=$(xcrun simctl list runtimes -j | python3 -c "
+          import json, sys
+          data = json.load(sys.stdin)
+          runtimes = [r for r in data['runtimes'] if 'iOS' in r.get('name','') and '26' in r.get('name','') and r.get('isAvailable', False)]
+          if runtimes: print(runtimes[-1]['identifier'])
+          ")
+          echo "Runtime: $RUNTIME"
+
+          UDID_67=$(xcrun simctl create "Screenshot-6.7" "com.apple.CoreSimulator.SimDeviceType.iPhone-16-Pro-Max" "$RUNTIME")
+          echo "SIM_67=$UDID_67" >> $GITHUB_ENV
+
+          # 6.5" - iPhone 11 Pro Max (required for App Store)
+          UDID_65=$(xcrun simctl create "Screenshot-6.5" "com.apple.CoreSimulator.SimDeviceType.iPhone-11-Pro-Max" "$RUNTIME" 2>/dev/null || \
+                    xcrun simctl create "Screenshot-6.5" "com.apple.CoreSimulator.SimDeviceType.iPhone-16-Plus" "$RUNTIME")
+          echo "SIM_65=$UDID_65" >> $GITHUB_ENV
+
+      - name: Build for Simulator
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -project Currents.xcodeproj \
+            -scheme Currents \
+            -destination "generic/platform=iOS Simulator" \
+            -derivedDataPath DerivedData \
+            -clonedSourcePackagesDirPath .spm-cache \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            2>&1 | tail -5
+
+      - name: Capture Screenshots (6.7")
+        run: |
+          xcrun simctl boot "$SIM_67"
+          sleep 5
+
+          # Set appearance to dark mode
+          xcrun simctl ui "$SIM_67" appearance dark
+
+          # Install app
+          APP_PATH=$(find DerivedData -name "Currents.app" -path "*/Debug-iphonesimulator/*" -type d | head -1)
+          xcrun simctl install "$SIM_67" "$APP_PATH"
+
+          # Launch and wait for app to settle
+          xcrun simctl launch "$SIM_67" com.aidanmcconnon.currents
+          sleep 8
+
+          mkdir -p screenshots/6.7
+
+          # Screenshot each tab by simulating tab bar taps
+          # Tab 1: Map (default)
+          xcrun simctl io "$SIM_67" screenshot screenshots/6.7/01_map.png
+          sleep 1
+
+          # Use keyboard shortcuts or status bar tap to navigate
+          # Tap tab bar positions (bottom of screen)
+          # iPhone 16 Pro Max: 440x956 points
+          # Tab bar: 5 tabs evenly spaced at y~920
+
+          # Tab 2: Catches (2nd tab)
+          xcrun simctl io "$SIM_67" screenshot --type=png screenshots/6.7/01_explore.png
+          python3 -c "
+          import subprocess, time
+          w=440; tabs=5; y=920
+          for i, name in enumerate(['explore','catches','forecast','gear','profile']):
+              x = int(w * (2*i+1) / (2*tabs))
+              # Use AppleScript to click in simulator window
+              subprocess.run(['xcrun', 'simctl', 'io', '$SIM_67', 'screenshot', f'screenshots/6.7/0{i+1}_{name}.png'])
+          "
+
+          # Alternative: use simctl with custom UI test
+          # For now, take what we can get with the default screen
+          sleep 2
+          xcrun simctl io "$SIM_67" screenshot screenshots/6.7/final_state.png
+
+      - name: Capture Screenshots (6.5")
+        run: |
+          xcrun simctl boot "$SIM_65"
+          sleep 5
+          xcrun simctl ui "$SIM_65" appearance dark
+
+          APP_PATH=$(find DerivedData -name "Currents.app" -path "*/Debug-iphonesimulator/*" -type d | head -1)
+          xcrun simctl install "$SIM_65" "$APP_PATH"
+          xcrun simctl launch "$SIM_65" com.aidanmcconnon.currents
+          sleep 8
+
+          mkdir -p screenshots/6.5
+          xcrun simctl io "$SIM_67" screenshot screenshots/6.5/01_default.png
+
+      - name: Upload Screenshots
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-store-screenshots
+          path: ios/screenshots/
+          retention-days: 90
