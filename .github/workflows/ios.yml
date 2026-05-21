@@ -222,6 +222,104 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "Download **Currents-simulator** artifact to test on [Appetize.io](https://appetize.io)" >> $GITHUB_STEP_SUMMARY
 
+  testflight:
+    name: Archive & Upload to TestFlight
+    needs: build-and-test
+    runs-on: macos-15
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    defaults:
+      run:
+        working-directory: ios
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: |
+          XCODE_PATH=$(ls -d /Applications/Xcode*.app 2>/dev/null | sort -V | tail -1)
+          sudo xcode-select -s "$XCODE_PATH"
+          xcodebuild -version
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode Project
+        run: xcodegen generate
+
+      - name: Install App Store Connect API Key
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
+        run: |
+          mkdir -p ~/private_keys
+          echo "$ASC_PRIVATE_KEY" > ~/private_keys/AuthKey_${ASC_KEY_ID}.p8
+
+      - name: Resolve packages
+        run: |
+          xcodebuild -resolvePackageDependencies \
+            -project Currents.xcodeproj \
+            -scheme Currents \
+            -clonedSourcePackagesDirPath .spm-cache
+
+      - name: Archive
+        run: |
+          set -o pipefail
+          xcodebuild archive \
+            -project Currents.xcodeproj \
+            -scheme Currents \
+            -configuration Release \
+            -destination "generic/platform=iOS" \
+            -archivePath $RUNNER_TEMP/Currents.xcarchive \
+            -clonedSourcePackagesDirPath .spm-cache \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath ~/private_keys/AuthKey_${{ secrets.ASC_KEY_ID }}.p8 \
+            -authenticationKeyID ${{ secrets.ASC_KEY_ID }} \
+            -authenticationKeyIssuerID ${{ secrets.ASC_ISSUER_ID }} \
+            DEVELOPMENT_TEAM=DBC26UPRGK \
+            2>&1 | tee archive.log
+
+      - name: Create ExportOptions.plist
+        run: |
+          cat > $RUNNER_TEMP/ExportOptions.plist << 'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key>
+            <string>app-store-connect</string>
+            <key>teamID</key>
+            <string>DBC26UPRGK</string>
+            <key>destination</key>
+            <string>upload</string>
+            <key>signingStyle</key>
+            <string>automatic</string>
+          </dict>
+          </plist>
+          PLIST
+
+      - name: Export & Upload to TestFlight
+        run: |
+          set -o pipefail
+          xcodebuild -exportArchive \
+            -archivePath $RUNNER_TEMP/Currents.xcarchive \
+            -exportOptionsPlist $RUNNER_TEMP/ExportOptions.plist \
+            -exportPath $RUNNER_TEMP/export \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath ~/private_keys/AuthKey_${{ secrets.ASC_KEY_ID }}.p8 \
+            -authenticationKeyID ${{ secrets.ASC_KEY_ID }} \
+            -authenticationKeyIssuerID ${{ secrets.ASC_ISSUER_ID }} \
+            2>&1 | tee export.log
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: testflight-logs
+          path: |
+            ios/archive.log
+            ios/export.log
+
   release-ipa:
     name: Create Release
     needs: build-and-test

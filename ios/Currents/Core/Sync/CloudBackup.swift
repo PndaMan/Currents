@@ -9,7 +9,7 @@ import GRDB
 actor CloudBackup {
     static let shared = CloudBackup()
 
-    private let containerID = "iCloud.com.currents.app"
+    private let containerID = "iCloud.com.aidanmcconnon.currents"
     private let backupFileName = "currents_backup.sqlite"
 
     enum BackupError: Error, LocalizedError {
