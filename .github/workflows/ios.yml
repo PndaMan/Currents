@@ -253,7 +253,13 @@ jobs:
           ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
         run: |
           mkdir -p ~/private_keys
-          echo "$ASC_PRIVATE_KEY" > ~/private_keys/AuthKey_${ASC_KEY_ID}.p8
+          KEY_PATH=~/private_keys/AuthKey_${ASC_KEY_ID}.p8
+          printf '%s\n' "$ASC_PRIVATE_KEY" > "$KEY_PATH"
+          chmod 600 "$KEY_PATH"
+          # Verify key format
+          echo "Key file size: $(wc -c < "$KEY_PATH") bytes"
+          head -1 "$KEY_PATH"
+          tail -1 "$KEY_PATH"
 
       - name: Resolve packages
         run: |
