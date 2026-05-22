@@ -256,10 +256,86 @@ jobs:
           KEY_PATH=~/private_keys/AuthKey_${ASC_KEY_ID}.p8
           printf '%s\n' "$ASC_PRIVATE_KEY" > "$KEY_PATH"
           chmod 600 "$KEY_PATH"
-          # Verify key format
           echo "Key file size: $(wc -c < "$KEY_PATH") bytes"
           head -1 "$KEY_PATH"
           tail -1 "$KEY_PATH"
+
+      - name: Create signing certificate
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          # Generate a new private key and CSR for Apple Distribution certificate
+          openssl req -new -newkey rsa:2048 -nodes \
+            -keyout ~/private_keys/dist.key \
+            -out ~/private_keys/dist.csr \
+            -subj "/CN=Currents Distribution/O=Aidan McConnon/C=US"
+
+          # Generate JWT for App Store Connect API
+          NOW=$(date +%s)
+          EXP=$((NOW + 1200))
+          HEADER=$(printf '{"alg":"ES256","kid":"%s","typ":"JWT"}' "$ASC_KEY_ID" | openssl base64 -e -A | tr '+/' '-_' | tr -d '=')
+          PAYLOAD=$(printf '{"iss":"%s","iat":%d,"exp":%d,"aud":"appstoreconnect-v1"}' "$ASC_ISSUER_ID" "$NOW" "$EXP" | openssl base64 -e -A | tr '+/' '-_' | tr -d '=')
+          SIGNATURE=$(printf '%s.%s' "$HEADER" "$PAYLOAD" | openssl dgst -sha256 -sign ~/private_keys/AuthKey_${ASC_KEY_ID}.p8 -binary | openssl base64 -e -A | tr '+/' '-_' | tr -d '=')
+          JWT="${HEADER}.${PAYLOAD}.${SIGNATURE}"
+
+          # Check if a distribution cert already exists
+          CERTS=$(curl -s -H "Authorization: Bearer $JWT" \
+            "https://api.appstoreconnect.apple.com/v1/certificates?filter[certificateType]=IOS_DISTRIBUTION")
+          EXISTING=$(echo "$CERTS" | python3 -c "
+          import json, sys
+          data = json.load(sys.stdin)
+          certs = data.get('data', [])
+          active = [c for c in certs if c['attributes'].get('certificateContent')]
+          if active:
+              print(active[0]['attributes']['certificateContent'])
+          " 2>/dev/null || true)
+
+          if [ -n "$EXISTING" ]; then
+            echo "Using existing distribution certificate"
+            echo "$EXISTING" | base64 --decode > ~/private_keys/dist.cer
+          else
+            echo "Creating new distribution certificate..."
+            CSR_CONTENT=$(base64 -i ~/private_keys/dist.csr -b 0)
+            RESPONSE=$(curl -s -X POST \
+              -H "Authorization: Bearer $JWT" \
+              -H "Content-Type: application/json" \
+              "https://api.appstoreconnect.apple.com/v1/certificates" \
+              -d "{\"data\":{\"type\":\"certificates\",\"attributes\":{\"certificateType\":\"IOS_DISTRIBUTION\",\"csrContent\":\"$CSR_CONTENT\"}}}")
+            echo "$RESPONSE" | python3 -c "
+          import json, sys
+          data = json.load(sys.stdin)
+          if 'errors' in data:
+              for e in data['errors']: print(f'Error: {e[\"detail\"]}')
+              sys.exit(1)
+          cert = data['data']['attributes']['certificateContent']
+          print(cert)
+          " | base64 --decode > ~/private_keys/dist.cer
+          fi
+
+          # Import into keychain
+          KEYCHAIN_PATH=$RUNNER_TEMP/signing.keychain-db
+          KEYCHAIN_PASSWORD=$(openssl rand -hex 12)
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          # Create p12 from key + cert and import
+          openssl x509 -inform DER -in ~/private_keys/dist.cer -out ~/private_keys/dist.pem
+          openssl pkcs12 -export -out ~/private_keys/dist.p12 \
+            -inkey ~/private_keys/dist.key \
+            -in ~/private_keys/dist.pem \
+            -passout pass:temp123
+
+          security import ~/private_keys/dist.p12 \
+            -P "temp123" -A -t cert -f pkcs12 \
+            -k "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple: \
+            -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH" login.keychain-db
+
+          echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> $GITHUB_ENV
+          echo "Distribution certificate installed successfully"
 
       - name: Resolve packages
         run: |
@@ -316,6 +392,12 @@ jobs:
             -authenticationKeyID ${{ secrets.ASC_KEY_ID }} \
             -authenticationKeyIssuerID ${{ secrets.ASC_ISSUER_ID }} \
             2>&1 | tee export.log
+
+      - name: Cleanup keychain
+        if: always()
+        run: |
+          security delete-keychain $KEYCHAIN_PATH 2>/dev/null || true
+          rm -rf ~/private_keys
 
       - name: Upload logs
         if: always()
