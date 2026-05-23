@@ -274,10 +274,11 @@ jobs:
           # Generate JWT for App Store Connect API
           NOW=$(date +%s)
           EXP=$((NOW + 1200))
-          HEADER=$(printf '{"alg":"ES256","kid":"%s","typ":"JWT"}' "$ASC_KEY_ID" | openssl base64 -e -A | tr '+/' '-_' | tr -d '=')
-          PAYLOAD=$(printf '{"iss":"%s","iat":%d,"exp":%d,"aud":"appstoreconnect-v1"}' "$ASC_ISSUER_ID" "$NOW" "$EXP" | openssl base64 -e -A | tr '+/' '-_' | tr -d '=')
-          SIGNATURE=$(printf '%s.%s' "$HEADER" "$PAYLOAD" | openssl dgst -sha256 -sign ~/private_keys/AuthKey_${ASC_KEY_ID}.p8 -binary | openssl base64 -e -A | tr '+/' '-_' | tr -d '=')
+          HEADER=$(printf '{"alg":"ES256","kid":"%s","typ":"JWT"}' "$ASC_KEY_ID" | base64 | tr -d '\n' | tr '+/' '-_' | tr -d '=')
+          PAYLOAD=$(printf '{"iss":"%s","iat":%d,"exp":%d,"aud":"appstoreconnect-v1"}' "$ASC_ISSUER_ID" "$NOW" "$EXP" | base64 | tr -d '\n' | tr '+/' '-_' | tr -d '=')
+          SIGNATURE=$(printf '%s.%s' "$HEADER" "$PAYLOAD" | openssl dgst -sha256 -sign ~/private_keys/AuthKey_${ASC_KEY_ID}.p8 -binary | base64 | tr -d '\n' | tr '+/' '-_' | tr -d '=')
           JWT="${HEADER}.${PAYLOAD}.${SIGNATURE}"
+          echo "JWT generated (length: ${#JWT})"
 
           # Check if a distribution cert already exists
           CERTS=$(curl -s -H "Authorization: Bearer $JWT" \
