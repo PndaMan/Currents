@@ -260,68 +260,118 @@ jobs:
           head -1 "$KEY_PATH"
           tail -1 "$KEY_PATH"
 
-      - name: Create signing certificate
+      - name: Setup keychain and signing certificate
         env:
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
         run: |
-          # Generate a new private key and CSR for Apple Distribution certificate
+          set -euo pipefail
+
+          # --- 1. Generate a fresh private key + CSR ---
           openssl req -new -newkey rsa:2048 -nodes \
             -keyout ~/private_keys/dist.key \
             -out ~/private_keys/dist.csr \
             -subj "/CN=Currents Distribution/O=Aidan McConnon/C=US"
 
-          # Generate JWT for App Store Connect API
-          NOW=$(date +%s)
-          EXP=$((NOW + 1200))
-          HEADER=$(printf '{"alg":"ES256","kid":"%s","typ":"JWT"}' "$ASC_KEY_ID" | base64 | tr -d '\n' | tr '+/' '-_' | tr -d '=')
-          PAYLOAD=$(printf '{"iss":"%s","iat":%d,"exp":%d,"aud":"appstoreconnect-v1"}' "$ASC_ISSUER_ID" "$NOW" "$EXP" | base64 | tr -d '\n' | tr '+/' '-_' | tr -d '=')
-          SIGNATURE=$(printf '%s.%s' "$HEADER" "$PAYLOAD" | openssl dgst -sha256 -sign ~/private_keys/AuthKey_${ASC_KEY_ID}.p8 -binary | base64 | tr -d '\n' | tr '+/' '-_' | tr -d '=')
-          JWT="${HEADER}.${PAYLOAD}.${SIGNATURE}"
-          echo "JWT generated (length: ${#JWT})"
+          # --- 2. Generate JWT for App Store Connect API ---
+          python3 - "$ASC_KEY_ID" "$ASC_ISSUER_ID" ~/private_keys/AuthKey_${ASC_KEY_ID}.p8 <<'PYSCRIPT'
+          import json, sys, time, subprocess, base64
 
-          # Check if a distribution cert already exists
-          CERTS=$(curl -s -H "Authorization: Bearer $JWT" \
-            "https://api.appstoreconnect.apple.com/v1/certificates?filter[certificateType]=IOS_DISTRIBUTION")
-          EXISTING=$(echo "$CERTS" | python3 -c "
+          key_id, issuer_id, key_path = sys.argv[1], sys.argv[2], sys.argv[3]
+
+          def b64url(data):
+              if isinstance(data, str): data = data.encode()
+              return base64.urlsafe_b64encode(data).rstrip(b'=').decode()
+
+          header = b64url(json.dumps({"alg": "ES256", "kid": key_id, "typ": "JWT"}))
+          now = int(time.time())
+          payload = b64url(json.dumps({"iss": issuer_id, "iat": now, "exp": now + 1200, "aud": "appstoreconnect-v1"}))
+          signing_input = f"{header}.{payload}"
+
+          sig = subprocess.run(
+              ["openssl", "dgst", "-sha256", "-sign", key_path, "-binary"],
+              input=signing_input.encode(), capture_output=True, check=True
+          ).stdout
+          jwt_token = f"{signing_input}.{b64url(sig)}"
+
+          with open("/tmp/asc_jwt.txt", "w") as f:
+              f.write(jwt_token)
+          print(f"JWT generated (length: {len(jwt_token)})")
+          PYSCRIPT
+
+          JWT=$(cat /tmp/asc_jwt.txt)
+
+          # --- 3. Revoke existing distribution certs (key is lost between runs) ---
+          for CERT_TYPE in DISTRIBUTION IOS_DISTRIBUTION; do
+            CERTS=$(curl -s -H "Authorization: Bearer $JWT" \
+              "https://api.appstoreconnect.apple.com/v1/certificates?filter[certificateType]=$CERT_TYPE")
+            echo "$CERTS" | python3 -c "
           import json, sys
           data = json.load(sys.stdin)
-          certs = data.get('data', [])
-          active = [c for c in certs if c['attributes'].get('certificateContent')]
-          if active:
-              print(active[0]['attributes']['certificateContent'])
-          " 2>/dev/null || true)
+          for cert in data.get('data', []):
+              print(cert['id'])
+          " 2>/dev/null | while read -r CERT_ID; do
+              echo "Revoking old $CERT_TYPE certificate: $CERT_ID"
+              curl -s -X DELETE \
+                -H "Authorization: Bearer $JWT" \
+                "https://api.appstoreconnect.apple.com/v1/certificates/$CERT_ID" || true
+            done
+          done
 
-          if [ -n "$EXISTING" ]; then
-            echo "Using existing distribution certificate"
-            echo "$EXISTING" | base64 --decode > ~/private_keys/dist.cer
-          else
-            echo "Creating new distribution certificate..."
-            CSR_CONTENT=$(base64 -i ~/private_keys/dist.csr -b 0)
-            RESPONSE=$(curl -s -X POST \
-              -H "Authorization: Bearer $JWT" \
-              -H "Content-Type: application/json" \
-              "https://api.appstoreconnect.apple.com/v1/certificates" \
-              -d "{\"data\":{\"type\":\"certificates\",\"attributes\":{\"certificateType\":\"IOS_DISTRIBUTION\",\"csrContent\":\"$CSR_CONTENT\"}}}")
-            echo "$RESPONSE" | python3 -c "
+          # --- 4. Create new Apple Distribution certificate with our CSR ---
+          python3 - ~/private_keys/dist.csr <<'PYSCRIPT'
           import json, sys
+          csr_path = sys.argv[1]
+          csr_content = open(csr_path).read()
+          payload = {
+              "data": {
+                  "type": "certificates",
+                  "attributes": {
+                      "certificateType": "DISTRIBUTION",
+                      "csrContent": csr_content
+                  }
+              }
+          }
+          with open("/tmp/cert_request.json", "w") as f:
+              json.dump(payload, f)
+          PYSCRIPT
+
+          RESPONSE=$(curl -s -X POST \
+            -H "Authorization: Bearer $JWT" \
+            -H "Content-Type: application/json" \
+            "https://api.appstoreconnect.apple.com/v1/certificates" \
+            -d @/tmp/cert_request.json)
+
+          echo "$RESPONSE" | python3 -c "
+          import json, sys, base64
           data = json.load(sys.stdin)
           if 'errors' in data:
-              for e in data['errors']: print(f'Error: {e[\"detail\"]}')
+              for e in data['errors']:
+                  print(f'API Error: {e.get(\"detail\", e)}', file=sys.stderr)
               sys.exit(1)
-          cert = data['data']['attributes']['certificateContent']
-          print(cert)
-          " | base64 --decode > ~/private_keys/dist.cer
-          fi
+          cert_b64 = data['data']['attributes']['certificateContent']
+          cert_der = base64.b64decode(cert_b64)
+          with open('$HOME/private_keys/dist.cer', 'wb') as f:
+              f.write(cert_der)
+          print('Apple Distribution certificate created successfully')
+          "
 
-          # Import into keychain
+          # --- 5. Setup keychain ---
           KEYCHAIN_PATH=$RUNNER_TEMP/signing.keychain-db
           KEYCHAIN_PASSWORD=$(openssl rand -hex 12)
           security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
           security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
 
-          # Create p12 from key + cert and import
+          # --- 6. Install Apple WWDR intermediate + root certificates ---
+          curl -sL "https://www.apple.com/certificateauthority/AppleWWDRCAG3.cer" \
+            -o ~/private_keys/AppleWWDRCAG3.cer
+          security import ~/private_keys/AppleWWDRCAG3.cer -k "$KEYCHAIN_PATH" -T /usr/bin/codesign
+          curl -sL "https://www.apple.com/appleca/AppleIncRootCertificate.cer" \
+            -o ~/private_keys/AppleRoot.cer
+          security import ~/private_keys/AppleRoot.cer -k "$KEYCHAIN_PATH" -T /usr/bin/codesign
+
+          # --- 7. Create p12 from matching key + cert and import ---
           openssl x509 -inform DER -in ~/private_keys/dist.cer -out ~/private_keys/dist.pem
           openssl pkcs12 -export -out ~/private_keys/dist.p12 \
             -inkey ~/private_keys/dist.key \
@@ -334,6 +384,10 @@ jobs:
           security set-key-partition-list -S apple-tool:,apple: \
             -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
           security list-keychains -d user -s "$KEYCHAIN_PATH" login.keychain-db
+
+          # --- 8. Verify signing identity ---
+          echo "Installed signing identities:"
+          security find-identity -v -p codesigning "$KEYCHAIN_PATH"
 
           echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> $GITHUB_ENV
           echo "Distribution certificate installed successfully"
@@ -360,6 +414,8 @@ jobs:
             -authenticationKeyID ${{ secrets.ASC_KEY_ID }} \
             -authenticationKeyIssuerID ${{ secrets.ASC_ISSUER_ID }} \
             DEVELOPMENT_TEAM=DBC26UPRGK \
+            CODE_SIGN_IDENTITY="Apple Distribution" \
+            CURRENT_PROJECT_VERSION=${{ github.run_number }} \
             2>&1 | tee archive.log
 
       - name: Create ExportOptions.plist
