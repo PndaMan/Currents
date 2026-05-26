@@ -289,16 +289,31 @@ jobs:
               if isinstance(data, str): data = data.encode()
               return base64.urlsafe_b64encode(data).rstrip(b'=').decode()
 
+          def der_to_raw(der):
+              """Convert DER ECDSA signature to raw R||S for JWT ES256."""
+              assert der[0] == 0x30
+              idx = 2
+              assert der[idx] == 0x02
+              r_len = der[idx + 1]
+              r = der[idx + 2 : idx + 2 + r_len]
+              idx += 2 + r_len
+              assert der[idx] == 0x02
+              s_len = der[idx + 1]
+              s = der[idx + 2 : idx + 2 + s_len]
+              r = r.lstrip(b'\x00').rjust(32, b'\x00')
+              s = s.lstrip(b'\x00').rjust(32, b'\x00')
+              return r + s
+
           header = b64url(json.dumps({"alg": "ES256", "kid": key_id, "typ": "JWT"}))
           now = int(time.time())
           payload = b64url(json.dumps({"iss": issuer_id, "iat": now, "exp": now + 1200, "aud": "appstoreconnect-v1"}))
           signing_input = f"{header}.{payload}"
 
-          sig = subprocess.run(
+          der_sig = subprocess.run(
               ["openssl", "dgst", "-sha256", "-sign", key_path, "-binary"],
               input=signing_input.encode(), capture_output=True, check=True
           ).stdout
-          jwt_token = f"{signing_input}.{b64url(sig)}"
+          jwt_token = f"{signing_input}.{b64url(der_to_raw(der_sig))}"
 
           with open("/tmp/asc_jwt.txt", "w") as f:
               f.write(jwt_token)
