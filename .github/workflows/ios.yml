@@ -255,6 +255,7 @@ jobs:
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
           ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
         run: |
+          set -euo pipefail
           mkdir -p ~/private_keys
           KEY_PATH=~/private_keys/AuthKey_${ASC_KEY_ID}.p8
           printf '%s\n' "$ASC_PRIVATE_KEY" > "$KEY_PATH"
@@ -262,13 +263,15 @@ jobs:
           echo "Key file size: $(wc -c < "$KEY_PATH") bytes"
           head -1 "$KEY_PATH"
           tail -1 "$KEY_PATH"
+          echo "ASC_KEY_ID length: ${#ASC_KEY_ID}"
+          echo "ASC_ISSUER_ID length: ${#ASC_ISSUER_ID}"
 
       - name: Setup keychain and signing certificate
         env:
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
         run: |
-          set -euo pipefail
+          set -euxo pipefail
 
           # --- 1. Generate a fresh private key + CSR ---
           openssl req -new -newkey rsa:2048 -nodes \
@@ -306,19 +309,25 @@ jobs:
 
           # --- 3. Revoke existing distribution certs (key is lost between runs) ---
           for CERT_TYPE in DISTRIBUTION IOS_DISTRIBUTION; do
-            CERTS=$(curl -s -H "Authorization: Bearer $JWT" \
-              "https://api.appstoreconnect.apple.com/v1/certificates?filter[certificateType]=$CERT_TYPE")
-            echo "$CERTS" | python3 -c "
+            echo "Checking for existing $CERT_TYPE certificates..."
+            CERTS=$(curl -sf -H "Authorization: Bearer $JWT" \
+              "https://api.appstoreconnect.apple.com/v1/certificates?filter[certificateType]=$CERT_TYPE" || echo '{"data":[]}')
+            CERT_IDS=$(echo "$CERTS" | python3 -c "
           import json, sys
           data = json.load(sys.stdin)
           for cert in data.get('data', []):
               print(cert['id'])
-          " 2>/dev/null | while read -r CERT_ID; do
-              echo "Revoking old $CERT_TYPE certificate: $CERT_ID"
-              curl -s -X DELETE \
-                -H "Authorization: Bearer $JWT" \
-                "https://api.appstoreconnect.apple.com/v1/certificates/$CERT_ID" || true
-            done
+          " || true)
+            if [ -n "$CERT_IDS" ]; then
+              echo "$CERT_IDS" | while read -r CERT_ID; do
+                echo "Revoking old $CERT_TYPE certificate: $CERT_ID"
+                curl -s -X DELETE \
+                  -H "Authorization: Bearer $JWT" \
+                  "https://api.appstoreconnect.apple.com/v1/certificates/$CERT_ID" || true
+              done
+            else
+              echo "No existing $CERT_TYPE certificates found"
+            fi
           done
 
           # --- 4. Create new Apple Distribution certificate with our CSR ---
