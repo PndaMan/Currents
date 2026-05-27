@@ -260,18 +260,13 @@ jobs:
           KEY_PATH=~/private_keys/AuthKey_${ASC_KEY_ID}.p8
           printf '%s\n' "$ASC_PRIVATE_KEY" > "$KEY_PATH"
           chmod 600 "$KEY_PATH"
-          echo "Key file size: $(wc -c < "$KEY_PATH") bytes"
-          head -1 "$KEY_PATH"
-          tail -1 "$KEY_PATH"
-          echo "ASC_KEY_ID length: ${#ASC_KEY_ID}"
-          echo "ASC_ISSUER_ID length: ${#ASC_ISSUER_ID}"
 
       - name: Setup keychain and signing certificate
         env:
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
         run: |
-          set -euxo pipefail
+          set -euo pipefail
 
           # --- 1. Generate a fresh private key + CSR ---
           openssl req -new -newkey rsa:2048 -nodes \
@@ -322,9 +317,8 @@ jobs:
 
           JWT=$(cat /tmp/asc_jwt.txt)
 
-          # --- 3. Revoke existing distribution certs (key is lost between runs) ---
-          for CERT_TYPE in DISTRIBUTION IOS_DISTRIBUTION; do
-            echo "Checking for existing $CERT_TYPE certificates..."
+          # --- 3. Revoke existing certs (private key is lost between runs) ---
+          for CERT_TYPE in DISTRIBUTION IOS_DISTRIBUTION DEVELOPMENT IOS_DEVELOPMENT; do
             CERTS=$(curl -sf -H "Authorization: Bearer $JWT" \
               "https://api.appstoreconnect.apple.com/v1/certificates?filter[certificateType]=$CERT_TYPE" || echo '{"data":[]}')
             CERT_IDS=$(echo "$CERTS" | python3 -c "
@@ -340,21 +334,20 @@ jobs:
                   -H "Authorization: Bearer $JWT" \
                   "https://api.appstoreconnect.apple.com/v1/certificates/$CERT_ID" || true
               done
-            else
-              echo "No existing $CERT_TYPE certificates found"
             fi
           done
 
-          # --- 4. Create new Apple Distribution certificate with our CSR ---
-          python3 - ~/private_keys/dist.csr <<'PYSCRIPT'
+          # --- 4. Create Development + Distribution certificates ---
+          CSR_CONTENT=$(cat ~/private_keys/dist.csr)
+          for CERT_TYPE in DEVELOPMENT DISTRIBUTION; do
+            python3 - "$CERT_TYPE" "$CSR_CONTENT" <<'PYSCRIPT'
           import json, sys
-          csr_path = sys.argv[1]
-          csr_content = open(csr_path).read()
+          cert_type, csr_content = sys.argv[1], sys.argv[2]
           payload = {
               "data": {
                   "type": "certificates",
                   "attributes": {
-                      "certificateType": "DISTRIBUTION",
+                      "certificateType": cert_type,
                       "csrContent": csr_content
                   }
               }
@@ -363,25 +356,27 @@ jobs:
               json.dump(payload, f)
           PYSCRIPT
 
-          RESPONSE=$(curl -s -X POST \
-            -H "Authorization: Bearer $JWT" \
-            -H "Content-Type: application/json" \
-            "https://api.appstoreconnect.apple.com/v1/certificates" \
-            -d @/tmp/cert_request.json)
+            RESPONSE=$(curl -s -X POST \
+              -H "Authorization: Bearer $JWT" \
+              -H "Content-Type: application/json" \
+              "https://api.appstoreconnect.apple.com/v1/certificates" \
+              -d @/tmp/cert_request.json)
 
-          echo "$RESPONSE" | python3 -c "
+            echo "$RESPONSE" | python3 -c "
           import json, sys, base64
           data = json.load(sys.stdin)
           if 'errors' in data:
               for e in data['errors']:
-                  print(f'API Error: {e.get(\"detail\", e)}', file=sys.stderr)
+                  print(f'API Error ({sys.argv[1]}): {e.get(\"detail\", e)}', file=sys.stderr)
               sys.exit(1)
           cert_b64 = data['data']['attributes']['certificateContent']
           cert_der = base64.b64decode(cert_b64)
-          with open('$HOME/private_keys/dist.cer', 'wb') as f:
+          out = f'$HOME/private_keys/{sys.argv[1].lower()}.cer'
+          with open(out, 'wb') as f:
               f.write(cert_der)
-          print('Apple Distribution certificate created successfully')
-          "
+          print(f'{sys.argv[1]} certificate created successfully')
+          " "$CERT_TYPE"
+          done
 
           # --- 5. Setup keychain ---
           KEYCHAIN_PATH=$RUNNER_TEMP/signing.keychain-db
@@ -398,26 +393,25 @@ jobs:
             -o ~/private_keys/AppleRoot.cer
           security import ~/private_keys/AppleRoot.cer -k "$KEYCHAIN_PATH" -T /usr/bin/codesign
 
-          # --- 7. Create p12 from matching key + cert and import ---
-          openssl x509 -inform DER -in ~/private_keys/dist.cer -out ~/private_keys/dist.pem
-          openssl pkcs12 -export -out ~/private_keys/dist.p12 \
-            -inkey ~/private_keys/dist.key \
-            -in ~/private_keys/dist.pem \
-            -passout pass:temp123
-
-          security import ~/private_keys/dist.p12 \
-            -P "temp123" -A -t cert -f pkcs12 \
-            -k "$KEYCHAIN_PATH"
+          # --- 7. Create p12 from matching key + cert and import both ---
+          for CERT_NAME in development distribution; do
+            openssl x509 -inform DER -in ~/private_keys/${CERT_NAME}.cer -out ~/private_keys/${CERT_NAME}.pem
+            openssl pkcs12 -export -out ~/private_keys/${CERT_NAME}.p12 \
+              -inkey ~/private_keys/dist.key \
+              -in ~/private_keys/${CERT_NAME}.pem \
+              -passout pass:temp123
+            security import ~/private_keys/${CERT_NAME}.p12 \
+              -P "temp123" -A -t cert -f pkcs12 \
+              -k "$KEYCHAIN_PATH"
+          done
           security set-key-partition-list -S apple-tool:,apple: \
             -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
           security list-keychains -d user -s "$KEYCHAIN_PATH" login.keychain-db
 
-          # --- 8. Verify signing identity ---
           echo "Installed signing identities:"
           security find-identity -v -p codesigning "$KEYCHAIN_PATH"
 
           echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> $GITHUB_ENV
-          echo "Distribution certificate installed successfully"
 
       - name: Resolve packages
         run: |
@@ -441,7 +435,6 @@ jobs:
             -authenticationKeyID ${{ secrets.ASC_KEY_ID }} \
             -authenticationKeyIssuerID ${{ secrets.ASC_ISSUER_ID }} \
             DEVELOPMENT_TEAM=DBC26UPRGK \
-            CODE_SIGN_IDENTITY="Apple Distribution" \
             CURRENT_PROJECT_VERSION=${{ github.run_number }} \
             2>&1 | tee archive.log
 
