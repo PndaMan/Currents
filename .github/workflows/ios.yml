@@ -413,6 +413,123 @@ jobs:
 
           echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> $GITHUB_ENV
 
+          # --- 8. Register bundle ID (if not already), then create App Store profile ---
+          BUNDLE_IDENTIFIER="com.aidanmcconnon.currents"
+          BUNDLE_ID_RESP=$(curl -s -H "Authorization: Bearer $JWT" \
+            "https://api.appstoreconnect.apple.com/v1/bundleIds?filter[identifier]=${BUNDLE_IDENTIFIER}")
+          BUNDLE_ID_RESOURCE=$(echo "$BUNDLE_ID_RESP" | python3 -c "
+          import json, sys
+          data = json.load(sys.stdin)
+          ids = data.get('data', [])
+          print(ids[0]['id'] if ids else '')
+          ")
+
+          if [ -z "$BUNDLE_ID_RESOURCE" ]; then
+            echo "Registering bundle ID ${BUNDLE_IDENTIFIER}..."
+            python3 - "$BUNDLE_IDENTIFIER" <<'PYSCRIPT' > /tmp/bundle_request.json
+          import json, sys
+          print(json.dumps({"data": {"type": "bundleIds", "attributes": {
+              "identifier": sys.argv[1], "name": "Currents", "platform": "IOS"
+          }}}))
+          PYSCRIPT
+            RESPONSE=$(curl -s -X POST \
+              -H "Authorization: Bearer $JWT" \
+              -H "Content-Type: application/json" \
+              "https://api.appstoreconnect.apple.com/v1/bundleIds" \
+              -d @/tmp/bundle_request.json)
+            BUNDLE_ID_RESOURCE=$(echo "$RESPONSE" | python3 -c "
+          import json, sys
+          data = json.load(sys.stdin)
+          if 'errors' in data:
+              for e in data['errors']:
+                  print(f'API Error: {e.get(\"detail\", e)}', file=sys.stderr)
+              sys.exit(1)
+          print(data['data']['id'])
+          ")
+          fi
+          echo "Bundle ID resource: $BUNDLE_ID_RESOURCE"
+
+          # Get the freshly-created Distribution cert ID
+          DIST_CERT_ID=$(curl -s -H "Authorization: Bearer $JWT" \
+            "https://api.appstoreconnect.apple.com/v1/certificates?filter[certificateType]=DISTRIBUTION" \
+            | python3 -c "
+          import json, sys
+          data = json.load(sys.stdin)
+          ids = [c['id'] for c in data.get('data', [])]
+          print(ids[0] if ids else '')
+          ")
+          echo "Distribution cert ID: $DIST_CERT_ID"
+
+          # Delete any existing IOS_APP_STORE profile with the same name to avoid conflicts
+          PROFILE_NAME="Currents AppStore ${{ github.run_number }}"
+          EXISTING_PROFILES=$(curl -s -H "Authorization: Bearer $JWT" \
+            "https://api.appstoreconnect.apple.com/v1/profiles?filter[profileType]=IOS_APP_STORE" \
+            | python3 -c "
+          import json, sys
+          data = json.load(sys.stdin)
+          for p in data.get('data', []):
+              print(p['id'])
+          ")
+          if [ -n "$EXISTING_PROFILES" ]; then
+            echo "$EXISTING_PROFILES" | while read -r PID; do
+              echo "Deleting old IOS_APP_STORE profile: $PID"
+              curl -s -X DELETE \
+                -H "Authorization: Bearer $JWT" \
+                "https://api.appstoreconnect.apple.com/v1/profiles/$PID" || true
+            done
+          fi
+
+          # Create a new IOS_APP_STORE provisioning profile
+          python3 - "$PROFILE_NAME" "$BUNDLE_ID_RESOURCE" "$DIST_CERT_ID" <<'PYSCRIPT' > /tmp/profile_request.json
+          import json, sys
+          name, bundle_resource, cert_id = sys.argv[1], sys.argv[2], sys.argv[3]
+          print(json.dumps({
+              "data": {
+                  "type": "profiles",
+                  "attributes": {"name": name, "profileType": "IOS_APP_STORE"},
+                  "relationships": {
+                      "bundleId": {"data": {"id": bundle_resource, "type": "bundleIds"}},
+                      "certificates": {"data": [{"id": cert_id, "type": "certificates"}]}
+                  }
+              }
+          }))
+          PYSCRIPT
+
+          PROFILE_RESPONSE=$(curl -s -X POST \
+            -H "Authorization: Bearer $JWT" \
+            -H "Content-Type: application/json" \
+            "https://api.appstoreconnect.apple.com/v1/profiles" \
+            -d @/tmp/profile_request.json)
+
+          echo "$PROFILE_RESPONSE" | python3 -c "
+          import json, sys, base64, plistlib, subprocess, os
+          data = json.load(sys.stdin)
+          if 'errors' in data:
+              for e in data['errors']:
+                  print(f'API Error: {e.get(\"detail\", e)}', file=sys.stderr)
+              sys.exit(1)
+          content = base64.b64decode(data['data']['attributes']['profileContent'])
+          tmp = '/tmp/profile.mobileprovision'
+          with open(tmp, 'wb') as f:
+              f.write(content)
+          # CMS-signed plist - decode with security tool
+          result = subprocess.run(['security', 'cms', '-D', '-i', tmp], capture_output=True, check=True)
+          plist = plistlib.loads(result.stdout)
+          uuid, name = plist['UUID'], plist['Name']
+          dest = os.path.expanduser('~/Library/MobileDevice/Provisioning Profiles')
+          os.makedirs(dest, exist_ok=True)
+          with open(f'{dest}/{uuid}.mobileprovision', 'wb') as f:
+              f.write(content)
+          with open('/tmp/profile_meta', 'w') as f:
+              f.write(f'{uuid}\n{name}\n')
+          print(f'Profile installed: {name} (UUID: {uuid})')
+          "
+
+          PROFILE_UUID=$(sed -n '1p' /tmp/profile_meta)
+          PROFILE_NAME=$(sed -n '2p' /tmp/profile_meta)
+          echo "PROFILE_UUID=$PROFILE_UUID" >> $GITHUB_ENV
+          echo "PROFILE_NAME=$PROFILE_NAME" >> $GITHUB_ENV
+
       - name: Resolve packages
         run: |
           xcodebuild -resolvePackageDependencies \
@@ -430,32 +547,29 @@ jobs:
             -destination "generic/platform=iOS" \
             -archivePath $RUNNER_TEMP/Currents.xcarchive \
             -clonedSourcePackagesDirPath .spm-cache \
-            -allowProvisioningUpdates \
-            -authenticationKeyPath ~/private_keys/AuthKey_${{ secrets.ASC_KEY_ID }}.p8 \
-            -authenticationKeyID ${{ secrets.ASC_KEY_ID }} \
-            -authenticationKeyIssuerID ${{ secrets.ASC_ISSUER_ID }} \
             DEVELOPMENT_TEAM=DBC26UPRGK \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY="Apple Distribution" \
+            PROVISIONING_PROFILE_SPECIFIER="$PROFILE_NAME" \
             CURRENT_PROJECT_VERSION=${{ github.run_number }} \
             2>&1 | tee archive.log
 
       - name: Create ExportOptions.plist
         run: |
-          cat > $RUNNER_TEMP/ExportOptions.plist << 'PLIST'
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-            <key>method</key>
-            <string>app-store-connect</string>
-            <key>teamID</key>
-            <string>DBC26UPRGK</string>
-            <key>destination</key>
-            <string>upload</string>
-            <key>signingStyle</key>
-            <string>automatic</string>
-          </dict>
-          </plist>
-          PLIST
+          python3 - "$PROFILE_NAME" > $RUNNER_TEMP/ExportOptions.plist <<'PYSCRIPT'
+          import sys, plistlib
+          profile_name = sys.argv[1]
+          options = {
+              "method": "app-store-connect",
+              "teamID": "DBC26UPRGK",
+              "destination": "upload",
+              "signingStyle": "manual",
+              "provisioningProfiles": {
+                  "com.aidanmcconnon.currents": profile_name
+              }
+          }
+          sys.stdout.buffer.write(plistlib.dumps(options))
+          PYSCRIPT
 
       - name: Export & Upload to TestFlight
         run: |
@@ -464,7 +578,6 @@ jobs:
             -archivePath $RUNNER_TEMP/Currents.xcarchive \
             -exportOptionsPlist $RUNNER_TEMP/ExportOptions.plist \
             -exportPath $RUNNER_TEMP/export \
-            -allowProvisioningUpdates \
             -authenticationKeyPath ~/private_keys/AuthKey_${{ secrets.ASC_KEY_ID }}.p8 \
             -authenticationKeyID ${{ secrets.ASC_KEY_ID }} \
             -authenticationKeyIssuerID ${{ secrets.ASC_ISSUER_ID }} \
