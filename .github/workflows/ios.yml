@@ -319,21 +319,28 @@ jobs:
 
           # --- 3. Revoke existing Distribution certs (private key is lost between runs) ---
           for CERT_TYPE in DISTRIBUTION IOS_DISTRIBUTION; do
-            CERTS=$(curl -sf -H "Authorization: Bearer $JWT" \
-              "https://api.appstoreconnect.apple.com/v1/certificates?filter[certificateType]=$CERT_TYPE" || echo '{"data":[]}')
+            echo "Looking up existing $CERT_TYPE certificates..."
+            CERTS=$(curl -s -H "Authorization: Bearer $JWT" \
+              "https://api.appstoreconnect.apple.com/v1/certificates?filter%5BcertificateType%5D=$CERT_TYPE")
             CERT_IDS=$(echo "$CERTS" | python3 -c "
           import json, sys
           data = json.load(sys.stdin)
+          if 'errors' in data:
+              print(f'LIST error: {data[\"errors\"]}', file=sys.stderr)
+              sys.exit(0)
           for cert in data.get('data', []):
               print(cert['id'])
-          " || true)
+          ")
             if [ -n "$CERT_IDS" ]; then
               echo "$CERT_IDS" | while read -r CERT_ID; do
                 echo "Revoking old $CERT_TYPE certificate: $CERT_ID"
-                curl -s -X DELETE \
+                STATUS=$(curl -s -o /dev/null -w '%{http_code}' -X DELETE \
                   -H "Authorization: Bearer $JWT" \
-                  "https://api.appstoreconnect.apple.com/v1/certificates/$CERT_ID" || true
+                  "https://api.appstoreconnect.apple.com/v1/certificates/$CERT_ID")
+                echo "  -> HTTP $STATUS"
               done
+            else
+              echo "No existing $CERT_TYPE certificates found"
             fi
           done
 
