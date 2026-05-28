@@ -317,8 +317,8 @@ jobs:
 
           JWT=$(cat /tmp/asc_jwt.txt)
 
-          # --- 3. Revoke existing certs (private key is lost between runs) ---
-          for CERT_TYPE in DISTRIBUTION IOS_DISTRIBUTION DEVELOPMENT IOS_DEVELOPMENT; do
+          # --- 3. Revoke existing Distribution certs (private key is lost between runs) ---
+          for CERT_TYPE in DISTRIBUTION IOS_DISTRIBUTION; do
             CERTS=$(curl -sf -H "Authorization: Bearer $JWT" \
               "https://api.appstoreconnect.apple.com/v1/certificates?filter[certificateType]=$CERT_TYPE" || echo '{"data":[]}')
             CERT_IDS=$(echo "$CERTS" | python3 -c "
@@ -337,46 +337,32 @@ jobs:
             fi
           done
 
-          # --- 4. Create Development + Distribution certificates ---
-          CSR_CONTENT=$(cat ~/private_keys/dist.csr)
-          for CERT_TYPE in DEVELOPMENT DISTRIBUTION; do
-            python3 - "$CERT_TYPE" "$CSR_CONTENT" <<'PYSCRIPT'
+          # --- 4. Create Distribution certificate ---
+          python3 - "$(cat ~/private_keys/dist.csr)" <<'PYSCRIPT' > /tmp/cert_request.json
           import json, sys
-          cert_type, csr_content = sys.argv[1], sys.argv[2]
-          payload = {
-              "data": {
-                  "type": "certificates",
-                  "attributes": {
-                      "certificateType": cert_type,
-                      "csrContent": csr_content
-                  }
-              }
-          }
-          with open("/tmp/cert_request.json", "w") as f:
-              json.dump(payload, f)
+          print(json.dumps({"data": {"type": "certificates", "attributes": {
+              "certificateType": "DISTRIBUTION", "csrContent": sys.argv[1]
+          }}}))
           PYSCRIPT
 
-            RESPONSE=$(curl -s -X POST \
-              -H "Authorization: Bearer $JWT" \
-              -H "Content-Type: application/json" \
-              "https://api.appstoreconnect.apple.com/v1/certificates" \
-              -d @/tmp/cert_request.json)
+          RESPONSE=$(curl -s -X POST \
+            -H "Authorization: Bearer $JWT" \
+            -H "Content-Type: application/json" \
+            "https://api.appstoreconnect.apple.com/v1/certificates" \
+            -d @/tmp/cert_request.json)
 
-            echo "$RESPONSE" | python3 -c "
+          echo "$RESPONSE" | python3 -c "
           import json, sys, base64
           data = json.load(sys.stdin)
           if 'errors' in data:
               for e in data['errors']:
-                  print(f'API Error ({sys.argv[1]}): {e.get(\"detail\", e)}', file=sys.stderr)
+                  print(f'API Error: {e.get(\"detail\", e)}', file=sys.stderr)
               sys.exit(1)
           cert_b64 = data['data']['attributes']['certificateContent']
-          cert_der = base64.b64decode(cert_b64)
-          out = f'$HOME/private_keys/{sys.argv[1].lower()}.cer'
-          with open(out, 'wb') as f:
-              f.write(cert_der)
-          print(f'{sys.argv[1]} certificate created successfully')
-          " "$CERT_TYPE"
-          done
+          with open('$HOME/private_keys/distribution.cer', 'wb') as f:
+              f.write(base64.b64decode(cert_b64))
+          print('Apple Distribution certificate created successfully')
+          "
 
           # --- 5. Setup keychain ---
           KEYCHAIN_PATH=$RUNNER_TEMP/signing.keychain-db
@@ -393,17 +379,15 @@ jobs:
             -o ~/private_keys/AppleRoot.cer
           security import ~/private_keys/AppleRoot.cer -k "$KEYCHAIN_PATH" -T /usr/bin/codesign
 
-          # --- 7. Create p12 from matching key + cert and import both ---
-          for CERT_NAME in development distribution; do
-            openssl x509 -inform DER -in ~/private_keys/${CERT_NAME}.cer -out ~/private_keys/${CERT_NAME}.pem
-            openssl pkcs12 -export -out ~/private_keys/${CERT_NAME}.p12 \
-              -inkey ~/private_keys/dist.key \
-              -in ~/private_keys/${CERT_NAME}.pem \
-              -passout pass:temp123
-            security import ~/private_keys/${CERT_NAME}.p12 \
-              -P "temp123" -A -t cert -f pkcs12 \
-              -k "$KEYCHAIN_PATH"
-          done
+          # --- 7. Create p12 from matching key + Distribution cert and import ---
+          openssl x509 -inform DER -in ~/private_keys/distribution.cer -out ~/private_keys/distribution.pem
+          openssl pkcs12 -export -out ~/private_keys/distribution.p12 \
+            -inkey ~/private_keys/dist.key \
+            -in ~/private_keys/distribution.pem \
+            -passout pass:temp123
+          security import ~/private_keys/distribution.p12 \
+            -P "temp123" -A -t cert -f pkcs12 \
+            -k "$KEYCHAIN_PATH"
           security set-key-partition-list -S apple-tool:,apple: \
             -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
           security list-keychains -d user -s "$KEYCHAIN_PATH" login.keychain-db
