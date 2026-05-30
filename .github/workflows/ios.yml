@@ -152,6 +152,8 @@ jobs:
             -derivedDataPath DerivedData-Device \
             -clonedSourcePackagesDirPath .spm-cache \
             CODE_SIGN_IDENTITY="" \
+            CODE_SIGN_STYLE=Manual \
+            PROVISIONING_PROFILE_SPECIFIER="" \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO \
             2>&1 | tee device-build.log
@@ -452,7 +454,7 @@ jobs:
           echo "Distribution cert ID: $DIST_CERT_ID"
 
           # Delete any existing IOS_APP_STORE profile with the same name to avoid conflicts
-          PROFILE_NAME="Currents AppStore ${{ github.run_number }}"
+          PROFILE_NAME="Currents AppStore Manual"
           EXISTING_PROFILES=$(curl -s -H "Authorization: Bearer $JWT" \
             "https://api.appstoreconnect.apple.com/v1/profiles?filter%5BprofileType%5D=IOS_APP_STORE" \
             | python3 -c "
@@ -538,10 +540,6 @@ jobs:
             -destination "generic/platform=iOS" \
             -archivePath $RUNNER_TEMP/Currents.xcarchive \
             -clonedSourcePackagesDirPath .spm-cache \
-            DEVELOPMENT_TEAM=DBC26UPRGK \
-            CODE_SIGN_STYLE=Manual \
-            CODE_SIGN_IDENTITY="Apple Distribution" \
-            PROVISIONING_PROFILE_SPECIFIER="$PROFILE_NAME" \
             CURRENT_PROJECT_VERSION=${{ github.run_number }} \
             2>&1 | tee archive.log
 
