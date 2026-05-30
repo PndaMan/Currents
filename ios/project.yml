@@ -5,6 +5,15 @@ options:
     iOS: "26.0"
   minimumXcodeGenVersion: "2.42.0"
 
+settings:
+  configs:
+    Debug:
+      CODE_SIGN_STYLE: Automatic
+      CODE_SIGN_IDENTITY: "Apple Development"
+    Release:
+      CODE_SIGN_STYLE: Manual
+      CODE_SIGN_IDENTITY: "Apple Distribution"
+
 packages:
   GRDB:
     url: https://github.com/groue/GRDB.swift.git
@@ -37,11 +46,18 @@ targets:
         MARKETING_VERSION: "1.0.0"
         CURRENT_PROJECT_VERSION: "1"
         SWIFT_VERSION: "5"
-        CODE_SIGN_IDENTITY: "Apple Development"
-        CODE_SIGN_STYLE: "Automatic"
         CODE_SIGNING_REQUIRED: "YES"
         CODE_SIGNING_ALLOWED: "YES"
-        CODE_SIGN_ENTITLEMENTS: Currents/App/Currents.entitlements
+        # CODE_SIGN_ENTITLEMENTS disabled until iCloud + Push capabilities
+        # are enabled on the App ID in the Apple Developer Portal. Re-enable
+        # by uncommenting and adding the matching capabilities via the web UI:
+        #   developer.apple.com -> Identifiers -> com.aidanmcconnon.currents
+        #   -> enable iCloud (Include CloudKit), select the iCloud.* container
+        #   -> enable Push Notifications
+        # CODE_SIGN_ENTITLEMENTS: Currents/App/Currents.entitlements
+      configs:
+        Release:
+          PROVISIONING_PROFILE_SPECIFIER: "Currents AppStore Manual"
     dependencies:
       - package: GRDB
         product: GRDB
