@@ -407,7 +407,7 @@ jobs:
           # --- 8. Register bundle ID (if not already), then create App Store profile ---
           BUNDLE_IDENTIFIER="com.aidanmcconnon.currents"
           BUNDLE_ID_RESP=$(curl -s -H "Authorization: Bearer $JWT" \
-            "https://api.appstoreconnect.apple.com/v1/bundleIds?filter[identifier]=${BUNDLE_IDENTIFIER}")
+            "https://api.appstoreconnect.apple.com/v1/bundleIds?filter%5Bidentifier%5D=${BUNDLE_IDENTIFIER}")
           BUNDLE_ID_RESOURCE=$(echo "$BUNDLE_ID_RESP" | python3 -c "
           import json, sys
           data = json.load(sys.stdin)
@@ -442,7 +442,7 @@ jobs:
 
           # Get the freshly-created Distribution cert ID
           DIST_CERT_ID=$(curl -s -H "Authorization: Bearer $JWT" \
-            "https://api.appstoreconnect.apple.com/v1/certificates?filter[certificateType]=DISTRIBUTION" \
+            "https://api.appstoreconnect.apple.com/v1/certificates?filter%5BcertificateType%5D=DISTRIBUTION" \
             | python3 -c "
           import json, sys
           data = json.load(sys.stdin)
@@ -454,7 +454,7 @@ jobs:
           # Delete any existing IOS_APP_STORE profile with the same name to avoid conflicts
           PROFILE_NAME="Currents AppStore ${{ github.run_number }}"
           EXISTING_PROFILES=$(curl -s -H "Authorization: Bearer $JWT" \
-            "https://api.appstoreconnect.apple.com/v1/profiles?filter[profileType]=IOS_APP_STORE" \
+            "https://api.appstoreconnect.apple.com/v1/profiles?filter%5BprofileType%5D=IOS_APP_STORE" \
             | python3 -c "
           import json, sys
           data = json.load(sys.stdin)
