@@ -544,7 +544,6 @@ jobs:
             CODE_SIGN_STYLE=Manual \
             DEVELOPMENT_TEAM=DBC26UPRGK \
             CODE_SIGN_IDENTITY="Apple Distribution" \
-            PROVISIONING_PROFILE_SPECIFIER="$PROFILE_NAME" \
             2>&1 | tee archive.log
 
       - name: Create ExportOptions.plist
