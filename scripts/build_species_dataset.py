@@ -65,6 +65,11 @@ HABITAT_HINTS = {
 }
 
 
+def _norm(name: str) -> str:
+    """Normalise a scientific name for matching."""
+    return " ".join(name.strip().lower().split())
+
+
 def fetch_species(target: int) -> list[dict]:
     """Page iNaturalist taxa by observation count (desc)."""
     out: list[dict] = []
@@ -172,27 +177,51 @@ def main() -> None:
                     help="Only write species_seed.json, no artwork")
     args = ap.parse_args()
 
+    # ADDITIVE: preserve the existing curated species (IDs 1..N) and their
+    # bait mappings verbatim, then append new species with continuing IDs.
+    # This avoids renumbering, which would misalign BaitSeedData (keyed by id).
+    existing: list[dict] = []
+    if SEED_JSON.exists():
+        existing = json.loads(SEED_JSON.read_text())
+    by_sci = {_norm(e["scientificName"]): e for e in existing}
+    max_id = max((int(e["id"]) for e in existing), default=0)
+    print(f"Preserving {len(existing)} existing species (max id {max_id}).")
+
     print(f"Fetching up to {args.count} species from iNaturalist…")
-    species = fetch_species(args.count)
-    print(f"Got {len(species)} species. Assigning rarity…")
-    assign_rarity(species)
+    fetched = fetch_species(args.count)
+
+    # Split fetched into: photos for existing (matched by scientific name) and
+    # genuinely new species.
+    matched_photo: dict[int, dict] = {}
+    new_species: list[dict] = []
+    for s in fetched:
+        key = _norm(s["scientificName"])
+        if key in by_sci:
+            matched_photo[int(by_sci[key]["id"])] = s["photo"]
+        else:
+            new_species.append(s)
+    print(f"{len(matched_photo)} matched existing, {len(new_species)} new.")
+
+    assign_rarity(new_species)  # quantile rarity over the newly added set
 
     ASSET_DIR.mkdir(parents=True, exist_ok=True)
     (ASSET_DIR / "Contents.json").write_text(
         json.dumps({"info": {"author": "xcode", "version": 1}}, indent=2)
     )
 
-    seed: list[dict] = []
+    seed: list[dict] = list(existing)
     attribution: list[tuple] = []
     tmp = REPO / "build/species_thumbs"
+    new_id_photo: dict[int, dict] = {}
 
-    for i, s in enumerate(species, start=1):
+    next_id = max_id + 1
+    for s in new_species:
         entry = {
-            "id": i,
+            "id": next_id,
             "scientificName": s["scientificName"],
             "commonName": s["commonName"],
             "family": s["family"],
-            "habitat": "freshwater",  # refined by BaitSeedData / manual curation
+            "habitat": "freshwater",  # refined by curation
             "minTempC": None,
             "maxTempC": None,
             "optimalTempC": None,
@@ -201,21 +230,26 @@ def main() -> None:
             "rarityRank": s.get("rarityRank", 0),
         }
         seed.append(entry)
+        new_id_photo[next_id] = s["photo"]
+        next_id += 1
 
-        if not args.skip_images:
-            photo_url = s["photo"].get("square_url") or s["photo"].get("url")
+    seed.sort(key=lambda e: int(e["id"]))
+
+    # Generate artwork for BOTH matched-existing and new species.
+    if not args.skip_images:
+        all_photos = {**matched_photo, **new_id_photo}
+        for idx, (sid, photo) in enumerate(all_photos.items(), start=1):
+            photo_url = photo.get("square_url") or photo.get("url")
             if photo_url:
-                png = tmp / f"fish_{i}.png"
+                png = tmp / f"fish_{sid}.png"
                 if build_thumbnail(photo_url, png, args.force):
-                    write_imageset(i, png)
-                    attribution.append(
-                        (i, s["commonName"], s["photo"].get("attribution", ""))
-                    )
-        if i % 50 == 0:
-            print(f"  processed {i}/{len(species)}")
+                    write_imageset(sid, png)
+                    attribution.append((sid, "", photo.get("attribution", "")))
+            if idx % 50 == 0:
+                print(f"  artwork {idx}/{len(all_photos)}")
 
     SEED_JSON.write_text(json.dumps(seed, indent=2))
-    print(f"Wrote {len(seed)} species → {SEED_JSON.relative_to(REPO)}")
+    print(f"Wrote {len(seed)} species ({len(existing)} kept + {len(new_species)} new) → {SEED_JSON.relative_to(REPO)}")
 
     ATTRIB_CSV.parent.mkdir(parents=True, exist_ok=True)
     with ATTRIB_CSV.open("w", newline="") as f:
