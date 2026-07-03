@@ -267,6 +267,12 @@ final class AppDatabase: Sendable {
             }
         }
 
+        migrator.registerMigration("v9_favorite_catches") { db in
+            try db.alter(table: "catch") { t in
+                t.add(column: "isFavorite", .boolean).notNull().defaults(to: false)
+            }
+        }
+
         return migrator
     }
 }

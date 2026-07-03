@@ -22,6 +22,7 @@ struct Catch: Codable, Identifiable, Sendable {
     var gearLoadoutId: String?
     var tripId: String?
     var notes: String?
+    var isFavorite: Bool
     var createdAt: Date
 
     init(
@@ -43,7 +44,8 @@ struct Catch: Codable, Identifiable, Sendable {
         tideSnapshot: String? = nil,
         gearLoadoutId: String? = nil,
         tripId: String? = nil,
-        notes: String? = nil
+        notes: String? = nil,
+        isFavorite: Bool = false
     ) {
         self.id = id
         self.speciesId = speciesId
@@ -65,6 +67,7 @@ struct Catch: Codable, Identifiable, Sendable {
         self.gearLoadoutId = gearLoadoutId
         self.tripId = tripId
         self.notes = notes
+        self.isFavorite = isFavorite
         self.createdAt = .now
     }
 }

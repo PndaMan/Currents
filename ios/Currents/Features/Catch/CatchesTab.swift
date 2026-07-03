@@ -6,6 +6,14 @@ struct CatchesTab: View {
     @State private var showingLogCatch = false
     @State private var searchText = ""
     @State private var sortOrder: SortOrder = .recent
+    @State private var filter: CatchFilter = .all
+
+    enum CatchFilter: String, CaseIterable {
+        case all = "All"
+        case favourites = "Favourites"
+        case released = "Released"
+        case kept = "Kept"
+    }
 
     enum SortOrder: String, CaseIterable {
         case recent = "Recent"
@@ -19,6 +27,12 @@ struct CatchesTab: View {
 
     var filteredCatches: [CatchDetail] {
         var result = catches
+        switch filter {
+        case .all: break
+        case .favourites: result = result.filter { $0.catchRecord.isFavorite }
+        case .released: result = result.filter { $0.catchRecord.released }
+        case .kept: result = result.filter { !$0.catchRecord.released }
+        }
         if !searchText.isEmpty {
             result = result.filter { detail in
                 detail.species?.commonName.localizedCaseInsensitiveContains(searchText) == true ||
@@ -69,6 +83,24 @@ struct CatchesTab: View {
                                 .listRowInsets(EdgeInsets())
                                 .padding(.horizontal)
                         }
+
+                        // Filter chips
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 8) {
+                                ForEach(CatchFilter.allCases, id: \.self) { f in
+                                    FilterChip(title: f.rawValue, isSelected: filter == f) {
+                                        withAnimation(.easeInOut(duration: 0.15)) {
+                                            filter = f
+                                        }
+                                    }
+                                }
+                            }
+                            .padding(.horizontal)
+                            .padding(.vertical, 4)
+                        }
+                        .listRowBackground(Color.clear)
+                        .listRowInsets(EdgeInsets())
+                        .listRowSeparator(.hidden)
 
                         ForEach(filteredCatches, id: \.catchRecord.id) { detail in
                             NavigationLink(value: detail.catchRecord.id) {
@@ -213,6 +245,11 @@ struct CatchRow: View {
                 HStack {
                     Text(detail.species?.commonName ?? "Unknown Species")
                         .font(.subheadline.bold())
+                    if detail.catchRecord.isFavorite {
+                        Image(systemName: "star.fill")
+                            .foregroundStyle(.yellow)
+                            .font(.caption)
+                    }
                     if detail.catchRecord.released {
                         Image(systemName: "arrow.uturn.backward.circle.fill")
                             .foregroundStyle(CurrentsTheme.accent)
