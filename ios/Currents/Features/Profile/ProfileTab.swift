@@ -122,16 +122,12 @@ struct ProfileTab: View {
                         Label("My Spots", systemImage: "mappin.circle.fill")
                     }
 
-                    NavigationLink {
-                        TripListView()
-                    } label: {
-                        Label("Trips", systemImage: "tent.fill")
-                    }
-
-                    NavigationLink {
-                        CatchComparisonView()
-                    } label: {
-                        Label("Compare Catches", systemImage: "arrow.left.arrow.right")
+                    if FeatureFlags.liveTrips {
+                        NavigationLink {
+                            TripListView()
+                        } label: {
+                            Label("Trips", systemImage: "tent.fill")
+                        }
                     }
 
                     NavigationLink {
