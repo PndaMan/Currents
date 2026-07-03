@@ -59,7 +59,9 @@ struct LogCatchView: View {
                 speciesSection
                 measurementsSection
                 locationSection
-                tripSection
+                if FeatureFlags.liveTrips {
+                    tripSection
+                }
                 gearSection
                 notesSection
                 timeSection

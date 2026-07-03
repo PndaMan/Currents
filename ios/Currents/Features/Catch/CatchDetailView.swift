@@ -107,7 +107,7 @@ struct CatchDetailView: View {
                 }
 
                 // Trip
-                if let trip {
+                if FeatureFlags.liveTrips, let trip {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Trip")
                             .font(.headline)
@@ -493,11 +493,13 @@ struct EditCatchSheet: View {
                     }
                 }
 
-                Section("Trip") {
-                    Picker("Trip", selection: $selectedTripId) {
-                        Text("None").tag(nil as String?)
-                        ForEach(allTrips) { trip in
-                            Text(trip.name).tag(trip.id as String?)
+                if FeatureFlags.liveTrips {
+                    Section("Trip") {
+                        Picker("Trip", selection: $selectedTripId) {
+                            Text("None").tag(nil as String?)
+                            ForEach(allTrips) { trip in
+                                Text(trip.name).tag(trip.id as String?)
+                            }
                         }
                     }
                 }

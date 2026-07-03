@@ -192,23 +192,25 @@ struct MapTab: View {
                         mapButton(icon: "cloud.sun.fill")
                     }
 
-                    // Start/view live trip
-                    Button {
-                        if activeTrip != nil {
-                            showingLiveTrip = true
-                        } else {
-                            showingNewTrip = true
-                        }
-                    } label: {
-                        mapButton(icon: activeTrip != nil ? "timer" : "play.fill")
-                            .overlay(alignment: .topTrailing) {
-                                if activeTrip != nil {
-                                    Circle()
-                                        .fill(CurrentsTheme.accent)
-                                        .frame(width: 8, height: 8)
-                                        .offset(x: 2, y: -2)
-                                }
+                    // Start/view live trip (hidden until a later release)
+                    if FeatureFlags.liveTrips {
+                        Button {
+                            if activeTrip != nil {
+                                showingLiveTrip = true
+                            } else {
+                                showingNewTrip = true
                             }
+                        } label: {
+                            mapButton(icon: activeTrip != nil ? "timer" : "play.fill")
+                                .overlay(alignment: .topTrailing) {
+                                    if activeTrip != nil {
+                                        Circle()
+                                            .fill(CurrentsTheme.accent)
+                                            .frame(width: 8, height: 8)
+                                            .offset(x: 2, y: -2)
+                                    }
+                                }
+                        }
                     }
                 }
                 .padding(.top, 60)
