@@ -52,14 +52,6 @@ struct ProfileTab: View {
                     .listRowInsets(EdgeInsets())
                 }
 
-                // Badges
-                Section("Badges") {
-                    BadgesGridView(catches: catches)
-                        .listRowBackground(Color.clear)
-                        .listRowInsets(EdgeInsets())
-                        .padding(.horizontal)
-                }
-
                 // Offline maps
                 Section {
                     Button {
@@ -151,6 +143,13 @@ struct ProfileTab: View {
 
                 // Settings
                 Section("Settings") {
+                    DisclosureGroup {
+                        BadgesGridView(catches: catches)
+                            .padding(.vertical, 8)
+                    } label: {
+                        Label("Achievements & Badges", systemImage: "trophy")
+                    }
+
                     NavigationLink {
                         AppearanceSettingsView()
                     } label: {
