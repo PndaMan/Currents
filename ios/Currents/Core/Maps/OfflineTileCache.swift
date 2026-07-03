@@ -41,7 +41,7 @@ final class OfflineTileOverlay: MKTileOverlay {
     }
 
     override func url(forTilePath path: MKTileOverlayPath) -> URL {
-        URL(string: template
+        URL(string: Self.template
             .replacingOccurrences(of: "{z}", with: "\(path.z)")
             .replacingOccurrences(of: "{x}", with: "\(path.x)")
             .replacingOccurrences(of: "{y}", with: "\(path.y)"))!
