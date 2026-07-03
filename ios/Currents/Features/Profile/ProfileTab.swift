@@ -139,6 +139,12 @@ struct ProfileTab: View {
                     } label: {
                         Label("Species Guide", systemImage: "fish.fill")
                     }
+
+                    NavigationLink {
+                        GearTab()
+                    } label: {
+                        Label("Gear & Tackle", systemImage: "wrench.and.screwdriver.fill")
+                    }
                 }
 
                 // Settings

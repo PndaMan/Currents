@@ -8,6 +8,7 @@ struct SpeciesNavID: Hashable {
 struct SpeciesBrowserView: View {
     @Environment(AppState.self) private var appState
     @State private var species: [Species] = []
+    @State private var caughtIds: Set<Int64> = []
     @State private var searchText = ""
     @State private var selectedHabitat: Species.Habitat?
 
@@ -51,11 +52,10 @@ struct SpeciesBrowserView: View {
                 NavigationLink {
                     SpeciesDetailView(species: sp)
                 } label: {
-                    HStack {
-                        Image(systemName: "fish.fill")
-                            .foregroundStyle(CurrentsTheme.accent)
-                            .frame(width: 40)
-                        VStack(alignment: .leading) {
+                    HStack(spacing: 12) {
+                        SpeciesArtworkView(species: sp, caught: caughtIds.contains(sp.id), size: 44)
+                            .frame(width: 44, height: 44)
+                        VStack(alignment: .leading, spacing: 2) {
                             Text(sp.commonName)
                                 .font(.headline)
                             Text(sp.scientificName)
@@ -65,13 +65,11 @@ struct SpeciesBrowserView: View {
                         }
                         Spacer()
                         VStack(alignment: .trailing, spacing: 4) {
+                            Label(sp.rarity.label, systemImage: sp.rarity.symbol)
+                                .font(.caption2.bold())
+                                .foregroundStyle(sp.rarity.color)
                             if let habitat = sp.habitat {
                                 Text(habitat.rawValue)
-                                    .font(.caption2)
-                                    .glassPill()
-                            }
-                            if !sp.parsedBaits.isEmpty {
-                                Text("\(sp.parsedBaits.count) baits")
                                     .font(.caption2)
                                     .foregroundStyle(.secondary)
                             }
@@ -85,6 +83,7 @@ struct SpeciesBrowserView: View {
         .navigationTitle("Species")
         .task {
             species = (try? appState.speciesRepository.fetchAll()) ?? []
+            caughtIds = (try? appState.speciesRepository.caughtSpeciesIds()) ?? []
         }
     }
 }

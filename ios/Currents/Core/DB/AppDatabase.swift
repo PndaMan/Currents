@@ -273,6 +273,12 @@ final class AppDatabase: Sendable {
             }
         }
 
+        migrator.registerMigration("v10_species_rarity") { db in
+            try db.alter(table: "species") { t in
+                t.add(column: "rarityRank", .integer)
+            }
+        }
+
         return migrator
     }
 }
