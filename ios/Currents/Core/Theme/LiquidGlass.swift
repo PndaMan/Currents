@@ -132,6 +132,58 @@ extension View {
     }
 }
 
+// MARK: - Dividers & Section Headers
+
+/// A soft, slightly inset divider that reads more gently than the default
+/// full-contrast `Divider()` inside glass cards and lists.
+struct SoftDivider: View {
+    var inset: CGFloat = 0
+
+    var body: some View {
+        Rectangle()
+            .fill(.secondary.opacity(0.15))
+            .frame(height: 1)
+            .padding(.leading, inset)
+    }
+}
+
+extension View {
+    /// Replace a raw `Divider()` with the softer app-standard rule.
+    func softDivider(inset: CGFloat = 0) -> some View {
+        overlay(alignment: .bottom) { SoftDivider(inset: inset) }
+    }
+}
+
+/// A consistent card/section header: title + optional trailing accessory,
+/// with an optional leading SF Symbol tinted to the accent.
+struct SectionHeaderView<Trailing: View>: View {
+    let title: String
+    var systemImage: String? = nil
+    @ViewBuilder var trailing: () -> Trailing
+
+    var body: some View {
+        HStack {
+            if let systemImage {
+                Image(systemName: systemImage)
+                    .font(.subheadline)
+                    .foregroundStyle(CurrentsTheme.accent)
+            }
+            Text(title)
+                .font(.headline)
+            Spacer()
+            trailing()
+        }
+    }
+}
+
+extension SectionHeaderView where Trailing == EmptyView {
+    init(title: String, systemImage: String? = nil) {
+        self.title = title
+        self.systemImage = systemImage
+        self.trailing = { EmptyView() }
+    }
+}
+
 // MARK: - Score Gauge View
 
 struct ScoreGauge: View {

@@ -276,7 +276,7 @@ struct WaterbodyDetailSheet: View {
                     }
                 }
                 if fish.scientificName != observedFish.prefix(20).last?.scientificName {
-                    Divider()
+                    SoftDivider()
                 }
             }
 
@@ -370,7 +370,7 @@ struct WaterbodyDetailSheet: View {
                 }
                 .buttonStyle(.plain)
                 if sp.id != species.last?.id {
-                    Divider()
+                    SoftDivider()
                 }
             }
         }

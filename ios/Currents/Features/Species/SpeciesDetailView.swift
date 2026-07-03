@@ -233,7 +233,7 @@ struct SpeciesDetailView: View {
                             .font(.title3.bold())
                             .monospacedDigit()
                     }
-                    Divider()
+                    SoftDivider()
                 }
             }
         }
@@ -247,7 +247,7 @@ struct SpeciesDetailView: View {
 
             ForEach(catches.prefix(10), id: \.catchRecord.id) { detail in
                 CatchRow(detail: detail)
-                Divider()
+                SoftDivider()
             }
 
             if catches.count > 10 {
