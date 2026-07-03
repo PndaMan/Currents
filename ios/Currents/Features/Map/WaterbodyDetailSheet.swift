@@ -49,15 +49,6 @@ struct WaterbodyDetailSheet: View {
                             .glassPill()
                     }
 
-                    // Access status
-                    HStack(spacing: 6) {
-                        Image(systemName: waterbody.isPublic ? "checkmark.shield.fill" : "lock.fill")
-                            .foregroundStyle(waterbody.isPublic ? CurrentsTheme.accent : .secondary)
-                        Text(waterbody.isPublic ? "Public Access" : "Private — Permission Required")
-                            .font(.subheadline.bold())
-                            .foregroundStyle(waterbody.isPublic ? CurrentsTheme.accent : .secondary)
-                    }
-
                     // Bite Score
                     biteScoreCard
 
@@ -389,22 +380,67 @@ struct WaterbodyDetailSheet: View {
     // MARK: - Underwater Profile Card
 
     private var underwaterProfileCard: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Underwater Profile")
+        VStack(alignment: .leading, spacing: 12) {
+            Label("Underwater Profile", systemImage: "water.waves.and.arrow.down")
                 .font(.headline)
 
-            HStack(spacing: 12) {
+            // Stylised depth cross-section when we know how deep it goes
+            if let maxD = waterbody.maxDepthM, maxD > 0 {
+                DepthProfileView(
+                    maxDepthM: maxD,
+                    avgDepthM: waterbody.averageDepthM
+                )
+                .frame(height: 110)
+            }
+
+            let stats: [(String, String, String)] = {
+                var s: [(String, String, String)] = []
                 if let maxD = waterbody.maxDepthM {
-                    depthStat(value: String(format: "%.0fm", maxD), label: "Max Depth", icon: "arrow.down.to.line")
+                    s.append((String(format: "%.0f m", maxD), "Max Depth", "arrow.down.to.line"))
                 }
                 if let avgD = waterbody.averageDepthM {
-                    depthStat(value: String(format: "%.0fm", avgD), label: "Avg Depth", icon: "minus")
+                    s.append((String(format: "%.0f m", avgD), "Avg Depth", "water.waves"))
                 }
                 if let area = waterbody.surfaceAreaKm2 {
-                    depthStat(value: formatArea(area), label: "Area", icon: "square.dashed")
+                    s.append((formatArea(area), "Surface Area", "square.dashed"))
                 }
                 if let elev = waterbody.elevation {
-                    depthStat(value: String(format: "%.0fm", elev), label: "Elevation", icon: "mountain.2.fill")
+                    s.append((String(format: "%.0f m", elev), "Elevation", "mountain.2.fill"))
+                }
+                return s
+            }()
+
+            if stats.isEmpty {
+                HStack(spacing: 8) {
+                    Image(systemName: "questionmark.circle")
+                        .foregroundStyle(.secondary)
+                    Text("No bathymetry data recorded for this water yet.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            } else {
+                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
+                    ForEach(stats, id: \.1) { value, label, icon in
+                        HStack(spacing: 10) {
+                            Image(systemName: icon)
+                                .font(.subheadline)
+                                .foregroundStyle(CurrentsTheme.accent)
+                                .frame(width: 28, height: 28)
+                                .background(CurrentsTheme.accent.opacity(0.12), in: Circle())
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(value)
+                                    .font(.subheadline.bold())
+                                    .monospacedDigit()
+                                Text(label)
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer(minLength: 0)
+                        }
+                        .padding(8)
+                        .background(.secondary.opacity(0.08))
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                    }
                 }
             }
 
@@ -418,7 +454,11 @@ struct WaterbodyDetailSheet: View {
                     ForEach(structures, id: \.self) { structure in
                         Text(structure.replacingOccurrences(of: "_", with: " ").capitalized)
                             .font(.caption)
-                            .glassPill()
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 5)
+                            .background(CurrentsTheme.accent.opacity(0.12))
+                            .foregroundStyle(CurrentsTheme.accent)
+                            .clipShape(Capsule())
                     }
                 }
             }
@@ -429,30 +469,56 @@ struct WaterbodyDetailSheet: View {
     // MARK: - Bait Recommendations Card
 
     private var baitRecommendationsCard: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Recommended Baits")
-                .font(.headline)
-            Text("Top baits for species in this water")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Label("Recommended Baits", systemImage: "sparkles")
+                    .font(.headline)
+                Spacer()
+                Text("ranked by species")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
 
-            // Aggregate baits across all species
+            // Aggregate baits across all species, ranked by how many species hit them
             let baitMap = aggregateBaits()
-            let sortedBaits = baitMap.sorted { $0.value.count > $1.value.count }
+            let sortedBaits = baitMap.sorted {
+                ($0.value.count, $0.key) > ($1.value.count, $1.key)
+            }
 
-            ForEach(sortedBaits.prefix(10), id: \.key) { bait, speciesNames in
-                HStack(spacing: 8) {
-                    Image(systemName: "circle.fill")
-                        .font(.system(size: 6))
-                        .foregroundStyle(CurrentsTheme.accent)
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(bait.capitalized)
-                            .font(.subheadline.bold())
-                        Text("For: \(speciesNames.joined(separator: ", "))")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
+            VStack(spacing: 0) {
+                ForEach(Array(sortedBaits.prefix(8).enumerated()), id: \.element.key) { index, entry in
+                    let (bait, speciesNames) = entry
+                    HStack(spacing: 12) {
+                        Text("\(index + 1)")
+                            .font(.caption.bold())
+                            .monospacedDigit()
+                            .foregroundStyle(index < 3 ? .white : .secondary)
+                            .frame(width: 24, height: 24)
+                            .background(
+                                index < 3 ? CurrentsTheme.accent : Color.secondary.opacity(0.15),
+                                in: Circle()
+                            )
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(bait.capitalized)
+                                .font(.subheadline.bold())
+                            let shown = speciesNames.prefix(3).joined(separator: ", ")
+                            let extra = speciesNames.count > 3 ? " +\(speciesNames.count - 3) more" : ""
+                            Text("Works for \(shown)\(extra)")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+                        Spacer()
+                        Text("\(speciesNames.count)")
+                            .font(.caption2.bold())
+                            .monospacedDigit()
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 3)
+                            .background(CurrentsTheme.accent.opacity(0.12))
+                            .foregroundStyle(CurrentsTheme.accent)
+                            .clipShape(Capsule())
                     }
+                    .padding(.vertical, 8)
                 }
             }
         }
@@ -531,21 +597,6 @@ struct WaterbodyDetailSheet: View {
         }
     }
 
-    private func depthStat(value: String, label: String, icon: String) -> some View {
-        VStack(spacing: 2) {
-            Image(systemName: icon)
-                .foregroundStyle(CurrentsTheme.accent)
-                .font(.caption)
-            Text(value)
-                .font(.subheadline.bold())
-                .monospacedDigit()
-            Text(label)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity)
-    }
-
     private func formatArea(_ km2: Double) -> String {
         if km2 >= 1000 {
             return String(format: "%.0fkm²", km2)
@@ -560,20 +611,26 @@ struct WaterbodyDetailSheet: View {
 
     private var genericBaitCard: some View {
         let baits = genericBaitsForType(waterbody.type)
-        return VStack(alignment: .leading, spacing: 8) {
-            Text("Suggested Baits")
-                .font(.headline)
-            Text("General recommendations for \(waterbody.type.rawValue)s")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+        return VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Label("Suggested Baits", systemImage: "sparkles")
+                    .font(.headline)
+                Spacer()
+                Text("for \(waterbody.type.rawValue)s")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
 
-            ForEach(baits, id: \.self) { bait in
-                HStack(spacing: 8) {
-                    Image(systemName: "circle.fill")
-                        .font(.system(size: 6))
-                        .foregroundStyle(CurrentsTheme.accent)
+            FlowLayout(spacing: 8) {
+                ForEach(baits, id: \.self) { bait in
                     Text(bait)
-                        .font(.subheadline)
+                        .font(.caption)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 7)
+                        .background(CurrentsTheme.accent.opacity(0.12))
+                        .foregroundStyle(.primary)
+                        .clipShape(Capsule())
+                        .overlay(Capsule().stroke(CurrentsTheme.accent.opacity(0.25)))
                 }
             }
         }
@@ -612,6 +669,98 @@ struct WaterbodyDetailSheet: View {
             }
         }
         return result
+    }
+}
+
+// MARK: - Depth Profile Cross-Section
+
+/// Stylised cross-section of the water column: shoreline on both sides
+/// sloping down to the maximum depth, with a dashed average-depth line.
+struct DepthProfileView: View {
+    let maxDepthM: Double
+    var avgDepthM: Double?
+
+    var body: some View {
+        GeometryReader { geo in
+            let size = geo.size
+            ZStack(alignment: .topLeading) {
+                // Water fill
+                bedPath(in: size)
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                CurrentsTheme.accent.opacity(0.45),
+                                CurrentsTheme.accent.opacity(0.08),
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+
+                // Lakebed outline
+                bedPath(in: size)
+                    .stroke(CurrentsTheme.accent.opacity(0.55), lineWidth: 1.5)
+
+                // Surface line
+                Path { p in
+                    p.move(to: CGPoint(x: 0, y: 1))
+                    p.addLine(to: CGPoint(x: size.width, y: 1))
+                }
+                .stroke(CurrentsTheme.accent.opacity(0.8), lineWidth: 2)
+
+                // Average depth dashed line
+                if let avg = avgDepthM, maxDepthM > 0, avg < maxDepthM {
+                    let y = size.height * CGFloat(min(0.9, avg / maxDepthM))
+                    Path { p in
+                        p.move(to: CGPoint(x: 0, y: y))
+                        p.addLine(to: CGPoint(x: size.width, y: y))
+                    }
+                    .stroke(style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
+                    .foregroundStyle(.secondary)
+
+                    Text("avg \(Int(avg)) m")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 4)
+                        .background(.ultraThinMaterial, in: Capsule())
+                        .offset(x: 6, y: y - 14)
+                }
+
+                // Max depth label at the deepest point
+                Text("\(Int(maxDepthM)) m")
+                    .font(.system(size: 10, weight: .bold))
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+                    .position(x: size.width * 0.55, y: size.height - 10)
+
+                // Surface label
+                Text("0 m")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .offset(x: 6, y: 5)
+            }
+        }
+    }
+
+    /// Asymmetric basin: gentle slope from the left shore, deepest at ~55%
+    /// of the width, steeper climb to the right shore.
+    private func bedPath(in size: CGSize) -> Path {
+        let w = size.width
+        let h = size.height
+        return Path { p in
+            p.move(to: .zero)
+            p.addCurve(
+                to: CGPoint(x: w * 0.55, y: h * 0.92),
+                control1: CGPoint(x: w * 0.12, y: h * 0.25),
+                control2: CGPoint(x: w * 0.38, y: h * 0.92)
+            )
+            p.addCurve(
+                to: CGPoint(x: w, y: 0),
+                control1: CGPoint(x: w * 0.75, y: h * 0.92),
+                control2: CGPoint(x: w * 0.9, y: h * 0.3)
+            )
+            p.closeSubpath()
+        }
     }
 }
 
