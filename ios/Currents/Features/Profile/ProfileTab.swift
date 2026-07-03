@@ -26,6 +26,7 @@ struct ProfileTab: View {
     @State private var showingCSVImport = false
     @State private var importMessage: String?
     @State private var showingImportAlert = false
+    @State private var tileCacheSize = "0 KB"
 
     var body: some View {
         NavigationStack {
@@ -52,21 +53,37 @@ struct ProfileTab: View {
                     .listRowInsets(EdgeInsets())
                 }
 
-                // Badges
-                Section("Badges") {
-                    BadgesGridView(catches: catches)
-                        .listRowBackground(Color.clear)
-                        .listRowInsets(EdgeInsets())
-                        .padding(.horizontal)
-                }
-
                 // Offline maps
                 Section {
+                    Toggle(isOn: Binding(
+                        get: { appState.mapManager.autoCacheEnabled },
+                        set: { appState.mapManager.autoCacheEnabled = $0 }
+                    )) {
+                        Label("Auto-cache maps nearby", systemImage: "square.and.arrow.down.on.square")
+                    }
+
+                    HStack {
+                        Label("Cached tiles", systemImage: "internaldrive")
+                        Spacer()
+                        Text(tileCacheSize)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Button(role: .destructive) {
+                        appState.mapManager.clearTileCache()
+                        tileCacheSize = ByteCountFormatter.string(
+                            fromByteCount: appState.mapManager.tileCacheSizeBytes, countStyle: .file
+                        )
+                    } label: {
+                        Label("Clear Tile Cache", systemImage: "trash")
+                    }
+
                     Button {
                         showingSaveRegion = true
                     } label: {
                         HStack {
-                            Label("Save Map Region", systemImage: "square.and.arrow.down")
+                            Label("Save Map Snapshot", systemImage: "camera")
                             Spacer()
                             if appState.mapManager.isDownloading {
                                 ProgressView()
@@ -105,7 +122,7 @@ struct ProfileTab: View {
                 } header: {
                     Text("Offline Maps")
                 } footer: {
-                    Text("Save satellite snapshots of your fishing areas for offline reference.")
+                    Text("With auto-cache on, satellite tiles around you are saved as you browse so the offline map works without signal. Snapshots capture a fixed area as an image.")
                 }
 
                 // Browse & Analytics
@@ -122,16 +139,12 @@ struct ProfileTab: View {
                         Label("My Spots", systemImage: "mappin.circle.fill")
                     }
 
-                    NavigationLink {
-                        TripListView()
-                    } label: {
-                        Label("Trips", systemImage: "tent.fill")
-                    }
-
-                    NavigationLink {
-                        CatchComparisonView()
-                    } label: {
-                        Label("Compare Catches", systemImage: "arrow.left.arrow.right")
+                    if FeatureFlags.liveTrips {
+                        NavigationLink {
+                            TripListView()
+                        } label: {
+                            Label("Trips", systemImage: "tent.fill")
+                        }
                     }
 
                     NavigationLink {
@@ -151,10 +164,23 @@ struct ProfileTab: View {
                     } label: {
                         Label("Species Guide", systemImage: "fish.fill")
                     }
+
+                    NavigationLink {
+                        GearTab()
+                    } label: {
+                        Label("Gear & Tackle", systemImage: "wrench.and.screwdriver.fill")
+                    }
                 }
 
                 // Settings
                 Section("Settings") {
+                    DisclosureGroup {
+                        BadgesGridView(catches: catches)
+                            .padding(.vertical, 8)
+                    } label: {
+                        Label("Achievements & Badges", systemImage: "trophy")
+                    }
+
                     NavigationLink {
                         AppearanceSettingsView()
                     } label: {
@@ -249,6 +275,9 @@ struct ProfileTab: View {
                 speciesCounts = (try? appState.catchRepository.speciesCounts()) ?? []
                 appState.mapManager.refreshDownloadedRegions()
                 mapRegions = appState.mapManager.downloadedRegions
+                tileCacheSize = ByteCountFormatter.string(
+                    fromByteCount: appState.mapManager.tileCacheSizeBytes, countStyle: .file
+                )
                 iCloudAvailable = await CloudBackup.shared.isAvailable
                 if iCloudAvailable {
                     lastBackupDate = await CloudBackup.shared.lastBackupDate

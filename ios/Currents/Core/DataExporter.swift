@@ -228,11 +228,25 @@ struct ShareSheet: UIViewControllerRepresentable {
 }
 
 /// Share sheet for images (catch share cards).
+///
+/// Shares a real JPEG file URL rather than a raw `UIImage` — several share
+/// targets (WhatsApp, Telegram, Messenger) silently reject in-memory image
+/// activity items while accepting image files. Save Image keeps working.
 struct ImageShareSheet: UIViewControllerRepresentable {
     let image: UIImage
+    var filename: String = "Currents-Catch"
 
     func makeUIViewController(context: Context) -> UIActivityViewController {
-        UIActivityViewController(activityItems: [image], applicationActivities: nil)
+        var items: [Any] = [image]
+        if let data = image.jpegData(compressionQuality: 0.92) {
+            let safeName = filename.replacingOccurrences(of: "/", with: "-")
+            let url = FileManager.default.temporaryDirectory
+                .appendingPathComponent("\(safeName).jpg")
+            if (try? data.write(to: url, options: .atomic)) != nil {
+                items = [url]
+            }
+        }
+        return UIActivityViewController(activityItems: items, applicationActivities: nil)
     }
 
     func updateUIViewController(_ controller: UIActivityViewController, context: Context) {}

@@ -12,9 +12,12 @@ enum CatchShareCard {
         let mapSize: CGFloat = 240
 
         // Get a map snapshot — square, zoomed in tight
-        let mapSnapshot = await captureMapSnapshot(
+        let coordinate = CLLocationCoordinate2D(
             latitude: detail.catchRecord.latitude,
-            longitude: detail.catchRecord.longitude,
+            longitude: detail.catchRecord.longitude
+        )
+        let mapSnapshot = await captureMapSnapshot(
+            coordinate: coordinate,
             size: CGSize(width: mapSize * 2, height: mapSize * 2)
         )
 
@@ -71,10 +74,11 @@ enum CatchShareCard {
                 height: mapSize
             )
             if let mapSnapshot {
+                let mapImage = mapSnapshot.image
                 let mapPath = UIBezierPath(roundedRect: mapRect, cornerRadius: 20)
                 cgCtx.saveGState()
                 mapPath.addClip()
-                mapSnapshot.draw(in: mapRect)
+                mapImage.draw(in: mapRect)
                 cgCtx.restoreGState()
 
                 // Map border
@@ -82,11 +86,21 @@ enum CatchShareCard {
                 mapPath.lineWidth = 3
                 mapPath.stroke()
 
-                // Pin icon in center of map
+                // Pin at the EXACT catch coordinate. The snapshotter adjusts
+                // the requested region to fit its size, so the coordinate is
+                // not guaranteed to land at the image centre — resolve it
+                // through snapshot.point(for:).
+                let snapshotPoint = mapSnapshot.point(for: coordinate)
+                let scaleX = mapRect.width / mapImage.size.width
+                let scaleY = mapRect.height / mapImage.size.height
+                let pinCenter = CGPoint(
+                    x: mapRect.minX + snapshotPoint.x * scaleX,
+                    y: mapRect.minY + snapshotPoint.y * scaleY
+                )
                 let pinSize: CGFloat = 32
                 let pinRect = CGRect(
-                    x: mapRect.midX - pinSize / 2,
-                    y: mapRect.midY - pinSize,
+                    x: pinCenter.x - pinSize / 2,
+                    y: pinCenter.y - pinSize / 2,
                     width: pinSize,
                     height: pinSize
                 )
@@ -229,21 +243,20 @@ enum CatchShareCard {
     // MARK: - Map Snapshot
 
     private static func captureMapSnapshot(
-        latitude: Double,
-        longitude: Double,
+        coordinate: CLLocationCoordinate2D,
         size: CGSize
-    ) async -> UIImage? {
+    ) async -> MKMapSnapshotter.Snapshot? {
         let options = MKMapSnapshotter.Options()
         options.region = MKCoordinateRegion(
-            center: CLLocationCoordinate2D(latitude: latitude, longitude: longitude),
-            latitudinalMeters: 500,
-            longitudinalMeters: 500
+            center: coordinate,
+            latitudinalMeters: 1000,
+            longitudinalMeters: 1000
         )
         options.size = size
         options.mapType = .hybrid
         options.traitCollection = UITraitCollection(userInterfaceStyle: .dark)
 
         let snapshotter = MKMapSnapshotter(options: options)
-        return try? await snapshotter.start().image
+        return try? await snapshotter.start()
     }
 }

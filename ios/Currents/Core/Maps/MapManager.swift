@@ -9,6 +9,33 @@ final class MapManager {
     var downloadedRegions: [OfflineRegion] = []
     var isDownloading = false
 
+    /// Shared cacheable satellite overlay + background prefetcher used for the
+    /// offline map. Not observed (they aren't view state), and @Observable
+    /// rewrites stored vars into computed properties which can't be `lazy`.
+    @ObservationIgnored let offlineOverlay = OfflineTileOverlay()
+    @ObservationIgnored private(set) lazy var prefetcher = OfflineTilePrefetcher(overlay: offlineOverlay)
+
+    /// Whether to automatically cache surrounding tiles as the user moves.
+    var autoCacheEnabled: Bool {
+        get { UserDefaults.standard.object(forKey: "autoCacheMaps") as? Bool ?? true }
+        set { UserDefaults.standard.set(newValue, forKey: "autoCacheMaps") }
+    }
+
+    /// Bytes of satellite tiles cached on disk for offline viewing.
+    var tileCacheSizeBytes: Int64 { offlineOverlay.cacheSizeBytes }
+
+    /// Prefetch tiles around a coordinate for offline use (background, bounded).
+    func prefetchOfflineTiles(around center: CLLocationCoordinate2D) {
+        guard autoCacheEnabled else { return }
+        Task.detached(priority: .background) { [prefetcher] in
+            await prefetcher.prefetch(around: center)
+        }
+    }
+
+    func clearTileCache() {
+        offlineOverlay.clearCache()
+    }
+
     /// Path to the app's tile storage directory.
     var tilesDirectory: URL {
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!

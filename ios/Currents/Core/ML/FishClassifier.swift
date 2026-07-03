@@ -21,6 +21,19 @@ actor FishClassifier {
     private(set) var isCustomModel = false
     private var isLoaded = false
 
+    /// Release-hosted CoreML model produced by the `ml/` build pipeline
+    /// (see .github/workflows/fish-model.yml). Auto-downloaded on first use
+    /// when the model isn't bundled. Override via the `FishModelURL` Info.plist
+    /// key so the URL can change without an app update.
+    private static var remoteModelURL: URL? {
+        if let s = Bundle.main.object(forInfoDictionaryKey: "FishModelURL") as? String,
+           let url = URL(string: s), !s.isEmpty {
+            return url
+        }
+        // A single-file .mlmodel (compiled on-device) — no unzip dependency.
+        return URL(string: "https://github.com/PndaMan/Currents/releases/latest/download/FishID.mlmodel")
+    }
+
     /// Where downloaded models are cached
     private static var modelCacheURL: URL {
         let cache = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
@@ -40,18 +53,56 @@ actor FishClassifier {
         }
 
         // 2. Try cached (previously downloaded) compiled model
-        let cachedModelURL = Self.modelCacheURL.appendingPathComponent("FishID.mlmodelc")
-        if FileManager.default.fileExists(atPath: cachedModelURL.path),
-           let mlModel = try? MLModel(contentsOf: cachedModelURL),
-           let vnModel = try? VNCoreMLModel(for: mlModel) {
-            self.model = vnModel
-            self.isCustomModel = true
-            self.isLoaded = true
+        if loadCachedModel() {
             return
         }
 
-        // 3. No custom model — Vision framework fallback (still neural network based)
+        // 3. No custom model yet — Vision framework fallback for now, and kick
+        //    off a background download of the accurate model for next time.
         self.isLoaded = true
+        Task { await downloadModelIfNeeded() }
+    }
+
+    @discardableResult
+    private func loadCachedModel() -> Bool {
+        let cachedModelURL = Self.modelCacheURL.appendingPathComponent("FishID.mlmodelc")
+        guard FileManager.default.fileExists(atPath: cachedModelURL.path),
+              let mlModel = try? MLModel(contentsOf: cachedModelURL),
+              let vnModel = try? VNCoreMLModel(for: mlModel) else {
+            return false
+        }
+        self.model = vnModel
+        self.isCustomModel = true
+        self.isLoaded = true
+        return true
+    }
+
+    /// Download + compile the accurate model in the background if we don't
+    /// already have it. Safe to call repeatedly; no-ops once loaded.
+    func downloadModelIfNeeded() async {
+        guard model == nil, let remote = Self.remoteModelURL else { return }
+        do {
+            let (tempURL, response) = try await URLSession.shared.download(from: remote)
+            guard (response as? HTTPURLResponse)?.statusCode == 200 else { return }
+
+            try FileManager.default.createDirectory(
+                at: Self.modelCacheURL, withIntermediateDirectories: true
+            )
+            // Persist the downloaded .mlmodel, then compile to the .mlmodelc
+            // directory that MLModel(contentsOf:) loads at runtime.
+            let rawModel = Self.modelCacheURL.appendingPathComponent("FishID.mlmodel")
+            try? FileManager.default.removeItem(at: rawModel)
+            try FileManager.default.moveItem(at: tempURL, to: rawModel)
+
+            let compiled = try await MLModel.compileModel(at: rawModel)
+            let dest = Self.modelCacheURL.appendingPathComponent("FishID.mlmodelc")
+            try? FileManager.default.removeItem(at: dest)
+            try FileManager.default.moveItem(at: compiled, to: dest)
+
+            _ = loadCachedModel()
+        } catch {
+            // Offline or asset not published yet — keep using Vision fallback.
+        }
     }
 
     /// Classify a fish in the given image. Returns top-N predictions.

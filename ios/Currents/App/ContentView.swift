@@ -7,16 +7,16 @@ struct ContentView: View {
     enum Tab: String, CaseIterable {
         case map
         case catches
+        case collection
         case forecast
-        case gear
         case profile
 
         var title: String {
             switch self {
             case .map: "Explore"
             case .catches: "Catches"
+            case .collection: "Collection"
             case .forecast: "Forecast"
-            case .gear: "Gear"
             case .profile: "Profile"
             }
         }
@@ -25,8 +25,8 @@ struct ContentView: View {
             switch self {
             case .map: "map.fill"
             case .catches: "fish.fill"
+            case .collection: "square.grid.2x2.fill"
             case .forecast: "cloud.sun.fill"
-            case .gear: "wrench.and.screwdriver.fill"
             case .profile: "person.fill"
             }
         }
@@ -41,10 +41,10 @@ struct ContentView: View {
                         MapTab()
                     case .catches:
                         CatchesTab()
+                    case .collection:
+                        FishCollectionView()
                     case .forecast:
                         ForecastTab()
-                    case .gear:
-                        GearTab()
                     case .profile:
                         ProfileTab()
                     }

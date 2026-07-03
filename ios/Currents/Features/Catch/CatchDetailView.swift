@@ -11,6 +11,9 @@ struct CatchDetailView: View {
     @State private var shareImage: UIImage?
     @State private var showingShareSheet = false
     @State private var trip: Trip?
+    @State private var showingPhotoViewer = false
+    @State private var carouselIndex = 0
+    @State private var isFavorite = false
 
     var body: some View {
         ScrollView {
@@ -107,7 +110,7 @@ struct CatchDetailView: View {
                 }
 
                 // Trip
-                if let trip {
+                if FeatureFlags.liveTrips, let trip {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Trip")
                             .font(.headline)
@@ -264,6 +267,14 @@ struct CatchDetailView: View {
             ToolbarItem(placement: .primaryAction) {
                 HStack(spacing: 12) {
                     Button {
+                        toggleFavorite()
+                    } label: {
+                        Image(systemName: isFavorite ? "star.fill" : "star")
+                            .foregroundStyle(isFavorite ? Color.yellow : CurrentsTheme.accent)
+                            .symbolEffect(.bounce, value: isFavorite)
+                    }
+
+                    Button {
                         generateShareCard()
                     } label: {
                         if isGeneratingShareCard {
@@ -310,14 +321,33 @@ struct CatchDetailView: View {
         }
         .sheet(isPresented: $showingShareSheet) {
             if let shareImage {
-                ImageShareSheet(image: shareImage)
+                ImageShareSheet(
+                    image: shareImage,
+                    filename: "Currents-\(detail.species?.commonName ?? "Catch")"
+                )
             }
         }
+        .fullScreenCover(isPresented: $showingPhotoViewer) {
+            FullscreenPhotoViewer(
+                photoPaths: detail.catchRecord.allPhotoPaths,
+                currentIndex: carouselIndex
+            )
+        }
         .task {
+            isFavorite = detail.catchRecord.isFavorite
             if let tripId = detail.catchRecord.tripId {
                 trip = try? appState.tripRepository.fetch(tripId)
             }
         }
+    }
+
+    private func toggleFavorite() {
+        withAnimation(.spring(duration: 0.25)) {
+            isFavorite.toggle()
+        }
+        var record = detail.catchRecord
+        record.isFavorite = isFavorite
+        try? appState.catchRepository.save(&record)
     }
 
     private func generateShareCard() {
@@ -343,25 +373,43 @@ struct CatchDetailView: View {
     private var photoCarousel: some View {
         let photos = detail.catchRecord.allPhotoPaths
         if photos.count > 1 {
-            TabView {
-                ForEach(photos, id: \.self) { path in
+            TabView(selection: $carouselIndex) {
+                ForEach(Array(photos.enumerated()), id: \.offset) { index, path in
                     if let image = PhotoManager.load(path) {
                         Image(uiImage: image)
                             .resizable()
                             .scaledToFit()
                             .clipShape(RoundedRectangle(cornerRadius: 16))
+                            .tag(index)
+                            .onTapGesture { showingPhotoViewer = true }
                     }
                 }
             }
             .tabViewStyle(.page)
             .frame(height: 280)
+            .overlay(alignment: .bottomTrailing) { expandHint }
         } else if let photoPath = photos.first,
                   let image = PhotoManager.load(photoPath) {
             Image(uiImage: image)
                 .resizable()
                 .scaledToFit()
                 .clipShape(RoundedRectangle(cornerRadius: 16))
+                .onTapGesture {
+                    carouselIndex = 0
+                    showingPhotoViewer = true
+                }
+                .overlay(alignment: .bottomTrailing) { expandHint }
         }
+    }
+
+    private var expandHint: some View {
+        Image(systemName: "arrow.up.left.and.arrow.down.right")
+            .font(.caption.bold())
+            .foregroundStyle(.white)
+            .padding(8)
+            .background(.black.opacity(0.45), in: Circle())
+            .padding(10)
+            .allowsHitTesting(false)
     }
 
     private var locationCard: some View {
@@ -493,11 +541,13 @@ struct EditCatchSheet: View {
                     }
                 }
 
-                Section("Trip") {
-                    Picker("Trip", selection: $selectedTripId) {
-                        Text("None").tag(nil as String?)
-                        ForEach(allTrips) { trip in
-                            Text(trip.name).tag(trip.id as String?)
+                if FeatureFlags.liveTrips {
+                    Section("Trip") {
+                        Picker("Trip", selection: $selectedTripId) {
+                            Text("None").tag(nil as String?)
+                            ForEach(allTrips) { trip in
+                                Text(trip.name).tag(trip.id as String?)
+                            }
                         }
                     }
                 }

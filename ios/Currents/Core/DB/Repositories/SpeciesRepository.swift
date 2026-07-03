@@ -42,6 +42,18 @@ final class SpeciesRepository: ObservableObject {
         }
     }
 
+    /// Set of species IDs the user has logged at least one catch for.
+    /// Drives the collection's caught / not-yet-caught state.
+    func caughtSpeciesIds() throws -> Set<Int64> {
+        try db.db.read { db in
+            let ids = try Int64.fetchAll(
+                db,
+                sql: "SELECT DISTINCT speciesId FROM catch WHERE speciesId IS NOT NULL"
+            )
+            return Set(ids)
+        }
+    }
+
     /// Seed species from embedded data (compiled into binary).
     func seedIfEmpty() throws {
         let count = try db.db.read { db in try Species.fetchCount(db) }

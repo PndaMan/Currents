@@ -72,12 +72,20 @@ def convert_resnet50(checkpoint_path: Path, classes_path: Path, output: Path, qu
     example = torch.randn(1, 3, 224, 224)
     traced = torch.jit.trace(model, example)
 
-    mlmodel = ct.convert(
-        traced,
+    # The Currents app auto-downloads a SINGLE-FILE .mlmodel and compiles it
+    # on-device (no zip / mlpackage-directory handling needed), so target the
+    # neuralnetwork backend when the output path ends in .mlmodel.
+    single_file = output.suffix == ".mlmodel"
+    convert_kwargs = dict(
         inputs=[ct.ImageType(name="image", shape=(1, 3, 224, 224), scale=1 / 255.0)],
         classifier_config=ct.ClassifierConfig(classes),
-        minimum_deployment_target=ct.target.iOS17,
     )
+    if single_file:
+        convert_kwargs["convert_to"] = "neuralnetwork"
+    else:
+        convert_kwargs["minimum_deployment_target"] = ct.target.iOS17
+
+    mlmodel = ct.convert(traced, **convert_kwargs)
     mlmodel.author = "Currents"
     mlmodel.short_description = f"FishNet fish species classifier ({num_classes} species)"
     mlmodel.version = "1.0"
@@ -87,7 +95,10 @@ def convert_resnet50(checkpoint_path: Path, classes_path: Path, output: Path, qu
         mlmodel = ct.compression_utils.affine_quantize_weights(mlmodel, dtype="int8")
 
     mlmodel.save(str(output))
-    total_bytes = sum(f.stat().st_size for f in output.rglob("*") if f.is_file())
+    if output.is_dir():
+        total_bytes = sum(f.stat().st_size for f in output.rglob("*") if f.is_file())
+    else:
+        total_bytes = output.stat().st_size
     print(f"Saved {output} ({total_bytes / 1024 / 1024:.1f} MB)")
 
 

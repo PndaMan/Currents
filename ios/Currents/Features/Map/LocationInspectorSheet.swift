@@ -118,7 +118,7 @@ struct LocationInspectorSheet: View {
                 .font(.headline)
 
             if probableSpots.isEmpty {
-                Text("Tap a spot closer to water to see suggestions.")
+                Text("No mapped dams or lakes near this tap — try closer to water.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             } else {
@@ -164,7 +164,7 @@ struct LocationInspectorSheet: View {
                     .font(.headline)
                 ForEach(nearbySpots) { entry in
                     HStack(spacing: 12) {
-                        Image(systemName: entry.spot.isPrivate ? "lock.fill" : "mappin.circle.fill")
+                        Image(systemName: "mappin.circle.fill")
                             .foregroundStyle(CurrentsTheme.accent)
                             .frame(width: 24)
                         VStack(alignment: .leading, spacing: 2) {
@@ -262,15 +262,15 @@ struct LocationInspectorSheet: View {
     }
 
     private func computeSpotInsights() async -> ([ScoredSpot], [ProbableSpot]) {
-        guard let spots = try? appState.spotRepository.fetchNearby(
+        let origin = CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)
+
+        // Nearby saved spots — shown in "Your Spots Nearby".
+        let spots = (try? appState.spotRepository.fetchNearby(
             latitude: coordinate.latitude,
             longitude: coordinate.longitude,
             radiusKm: 50
-        ) else {
-            return ([], [])
-        }
+        )) ?? []
 
-        let origin = CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)
         let scored: [ScoredSpot] = spots.compactMap { spot in
             let loc = CLLocation(latitude: spot.latitude, longitude: spot.longitude)
             let distM = origin.distance(from: loc)
@@ -280,32 +280,70 @@ struct LocationInspectorSheet: View {
         }
         .sorted { $0.distanceMeters < $1.distanceMeters }
 
-        // Probable spots: rank saved spots by (catchHistory * 2 + (1/distance))
-        // and add the top scoring historical producers.
-        let probable = scored
-            .sorted { scoreForProbable($0) > scoreForProbable($1) }
-            .prefix(3)
-            .map { entry -> ProbableSpot in
-                let score = Int(min(100, max(10, scoreForProbable(entry) * 10)))
-                let reason = entry.catchCount > 0
-                    ? "\(entry.catchCount) historical catches — proven producer"
-                    : "Saved spot within reach of this tap"
+        // Probable fishing spots — real dams/lakes/rivers around the tap
+        // (OpenStreetMap-backed waterbody DB), NOT the user's saved spots.
+        let delta = 0.45 // ≈ 50 km
+        let minLat = coordinate.latitude - delta
+        let maxLat = coordinate.latitude + delta
+        let minLon = coordinate.longitude - delta
+        let maxLon = coordinate.longitude + delta
+
+        func cachedBodies() -> [Waterbody] {
+            (try? appState.waterbodyRepository.fetchForRegion(
+                minLat: minLat, maxLat: maxLat,
+                minLon: minLon, maxLon: maxLon,
+                minSurfaceAreaKm2: 0,
+                includeNilArea: true,
+                limit: 200
+            )) ?? []
+        }
+
+        var bodies = cachedBodies()
+
+        // Top up from Overpass when online so we surface as many dams as possible.
+        if let fresh = await OverpassService.shared.fetchWaterbodies(
+            minLat: minLat, maxLat: maxLat,
+            minLon: minLon, maxLon: maxLon
+        ) {
+            _ = try? appState.waterbodyRepository.insertFromOverpass(fresh)
+            bodies = cachedBodies()
+        }
+
+        let baseScore = forecast?.score ?? 50
+        let probable = bodies
+            .map { wb -> (Waterbody, Double) in
+                let d = origin.distance(from: CLLocation(latitude: wb.latitude, longitude: wb.longitude))
+                return (wb, d)
+            }
+            .sorted { $0.1 < $1.1 }
+            .prefix(15)
+            .map { wb, distM -> ProbableSpot in
+                // Bite score for the area, slightly decayed by distance.
+                let score = max(5, min(100, baseScore - Int(distM / 1000 / 3)))
                 return ProbableSpot(
-                    id: entry.id,
-                    name: entry.spot.name,
+                    id: "waterbody-\(wb.id ?? 0)-\(wb.name)",
+                    name: wb.name,
                     score: score,
-                    reason: reason,
-                    distanceMeters: entry.distanceMeters
+                    reason: probableReason(for: wb),
+                    distanceMeters: distM
                 )
             }
 
-        return (Array(scored.prefix(5)), probable)
+        return (Array(scored.prefix(5)), Array(probable))
     }
 
-    private func scoreForProbable(_ entry: ScoredSpot) -> Double {
-        let distanceKm = entry.distanceMeters / 1000.0
-        let proximityScore = max(0, 10 - distanceKm)
-        return proximityScore + Double(entry.catchCount) * 2
+    private func probableReason(for wb: Waterbody) -> String {
+        let typeLabel = switch wb.type {
+        case .dam: "Dam"
+        case .lake: "Lake"
+        case .river: "River"
+        case .estuary: "Estuary"
+        case .coast: "Coastline"
+        }
+        if let area = wb.surfaceAreaKm2, area > 0 {
+            return "\(typeLabel) • \(String(format: "%.1f", area)) km² of water"
+        }
+        return "\(typeLabel) • mapped water body"
     }
 }
 

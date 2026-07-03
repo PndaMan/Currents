@@ -1,0 +1,55 @@
+name: Build Species Dataset
+
+# Runs on an internet-connected runner to (re)build the full species list and
+# collection artwork, then commits the result to the branch. The app build
+# sandbox has no outbound network, so this cannot run there.
+
+on:
+  workflow_dispatch:
+    inputs:
+      count:
+        description: "Number of species to include"
+        required: false
+        default: "1500"
+      skip_images:
+        description: "Skip artwork download (data only)"
+        required: false
+        default: "false"
+
+permissions:
+  contents: write
+
+jobs:
+  build-dataset:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install requests pillow
+
+      - name: Build dataset
+        run: |
+          ARGS="--count ${{ github.event.inputs.count }}"
+          if [ "${{ github.event.inputs.skip_images }}" = "true" ]; then
+            ARGS="$ARGS --skip-images"
+          fi
+          python scripts/build_species_dataset.py $ARGS
+
+      - name: Commit dataset
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add ios/Currents/Resources/Data/species_seed.json \
+                  ios/Currents/Resources/Assets.xcassets/Fish \
+                  docs/species_attribution.csv
+          if git diff --cached --quiet; then
+            echo "No dataset changes."
+          else
+            git commit -m "Rebuild species dataset + collection artwork (${{ github.event.inputs.count }} species)"
+            git push
+          fi
