@@ -14,7 +14,9 @@ struct LogCatchView: View {
 
     // ML
     @State private var mlPredictions: [FishClassifier.Prediction] = []
+    @State private var speciesMatches: [SpeciesMatcher.Match] = []
     @State private var isClassifying = false
+    @State private var autoSelectedFromML = false
 
     // Catch data
     @State private var selectedSpeciesId: Int64?
@@ -187,53 +189,104 @@ struct LogCatchView: View {
             Section("AI Fish ID") {
                 HStack(spacing: 10) {
                     ProgressView()
-                    Text("Identifying fish...")
+                    Text("Identifying species…")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
             }
-        } else if !mlPredictions.isEmpty {
+        } else if !speciesMatches.isEmpty {
             Section {
-                ForEach(mlPredictions, id: \.species) { prediction in
-                    Button {
-                        let match = allSpecies.first {
-                            $0.commonName.localizedCaseInsensitiveContains(prediction.species)
-                        }
-                        if let match {
-                            selectedSpeciesId = match.id
-                            selectedSpeciesName = match.commonName
-                        }
-                    } label: {
-                        HStack {
-                            Image(systemName: "brain")
-                                .foregroundStyle(CurrentsTheme.accent)
-                            Text(prediction.species)
-                            Spacer()
-                            Text("\(Int(prediction.confidence * 100))%")
+                // Top match — presented as the auto-selected result.
+                if let top = speciesMatches.first {
+                    let isSelected = selectedSpeciesId == top.species.id
+                    HStack(spacing: 12) {
+                        SpeciesArtworkView(species: top.species, caught: true, size: 40)
+                            .frame(width: 40, height: 40)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(top.species.commonName)
+                                .font(.subheadline.bold())
+                            Text(top.species.scientificName)
+                                .font(.caption2).italic()
                                 .foregroundStyle(.secondary)
-                            if let match = allSpecies.first(where: {
-                                $0.commonName.localizedCaseInsensitiveContains(prediction.species)
-                            }), selectedSpeciesId == match.id {
-                                Image(systemName: "checkmark.circle.fill")
-                                    .foregroundStyle(CurrentsTheme.accent)
+                        }
+                        Spacer()
+                        VStack(alignment: .trailing, spacing: 2) {
+                            Text("\(Int(top.confidence * 100))%")
+                                .font(.subheadline.bold())
+                                .foregroundStyle(CurrentsTheme.accent)
+                            Text(confidenceLabel(top.confidence))
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                        Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                            .foregroundStyle(isSelected ? CurrentsTheme.accent : .secondary)
+                    }
+                    .contentShape(Rectangle())
+                    .onTapGesture { selectSpecies(top.species) }
+                }
+
+                // Alternative matches
+                if speciesMatches.count > 1 {
+                    DisclosureGroup("Other possibilities") {
+                        ForEach(speciesMatches.dropFirst(), id: \.species.id) { m in
+                            Button {
+                                selectSpecies(m.species)
+                            } label: {
+                                HStack {
+                                    Text(m.species.commonName)
+                                        .foregroundStyle(.primary)
+                                    Spacer()
+                                    Text("\(Int(m.confidence * 100))%")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                    if selectedSpeciesId == m.species.id {
+                                        Image(systemName: "checkmark")
+                                            .foregroundStyle(CurrentsTheme.accent)
+                                    }
+                                }
                             }
+                            .tint(.primary)
                         }
                     }
-                    .tint(.primary)
                 }
             } header: {
                 HStack {
-                    Text("AI Fish ID")
+                    Label("AI Fish ID", systemImage: "sparkles")
                     Spacer()
                     Button("Re-scan") {
-                        if let first = capturedImages.first {
-                            classifyImage(first)
-                        }
+                        if let first = capturedImages.first { classifyImage(first) }
                     }
                     .font(.caption)
                 }
+            } footer: {
+                if autoSelectedFromML {
+                    Text("Auto-selected the top match. Tap to change, or pick manually below.")
+                }
+            }
+        } else if !mlPredictions.isEmpty {
+            // Model returned labels that didn't map to a known species.
+            Section {
+                Text("Couldn't match a known species — pick it manually below.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } header: {
+                Label("AI Fish ID", systemImage: "sparkles")
             }
         }
+    }
+
+    private func confidenceLabel(_ c: Float) -> String {
+        switch c {
+        case 0.85...: "Very confident"
+        case 0.6..<0.85: "Likely"
+        case 0.4..<0.6: "Best guess"
+        default: "Uncertain"
+        }
+    }
+
+    private func selectSpecies(_ species: Species) {
+        selectedSpeciesId = species.id
+        selectedSpeciesName = species.commonName
     }
 
     // MARK: - Species Section
@@ -517,19 +570,18 @@ struct LogCatchView: View {
 
     private func classifyImage(_ image: UIImage) {
         isClassifying = true
+        autoSelectedFromML = false
         Task {
-            let predictions = try? await appState.fishClassifier.classify(image: image)
-            mlPredictions = predictions ?? []
+            let predictions = (try? await appState.fishClassifier.classify(image: image)) ?? []
+            mlPredictions = predictions
+            speciesMatches = SpeciesMatcher.matches(for: predictions, in: allSpecies)
             isClassifying = false
 
-            if let top = predictions?.first, top.confidence > 0.7 {
-                let match = allSpecies.first {
-                    $0.commonName.localizedCaseInsensitiveContains(top.species)
-                }
-                if let match {
-                    selectedSpeciesId = match.id
-                    selectedSpeciesName = match.commonName
-                }
+            // Auto-select the top matched species unless the user already
+            // chose one. This is the "auto-select instead of keywords" behaviour.
+            if let top = speciesMatches.first, selectedSpeciesId == nil {
+                selectSpecies(top.species)
+                autoSelectedFromML = true
             }
         }
     }

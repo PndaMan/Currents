@@ -1,0 +1,66 @@
+name: Build Fish ID Model
+
+# Builds the on-device CoreML fish classifier and publishes it as a release
+# asset (FishID.mlmodel). The app auto-downloads and compiles it on first run.
+#
+# The app build sandbox has no network, so this cannot run there. Provide the
+# FishNet checkpoint + classes as workflow inputs (URLs) or commit them to an
+# ml/artifacts/ path the job can read.
+
+on:
+  workflow_dispatch:
+    inputs:
+      checkpoint_url:
+        description: "URL of the FishNet .pth checkpoint"
+        required: true
+      classes_url:
+        description: "URL of the newline-delimited classes.txt (scientific names)"
+        required: true
+      quantize:
+        description: "INT8 quantize to shrink the model"
+        required: false
+        default: "true"
+
+permissions:
+  contents: write
+
+jobs:
+  build-model:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install torch torchvision coremltools requests tqdm
+
+      - name: Fetch checkpoint + classes
+        run: |
+          curl -L "${{ github.event.inputs.checkpoint_url }}" -o checkpoint.pth
+          curl -L "${{ github.event.inputs.classes_url }}" -o classes.txt
+          wc -l classes.txt
+
+      - name: Convert to single-file CoreML
+        run: |
+          QFLAG=""
+          if [ "${{ github.event.inputs.quantize }}" = "false" ]; then QFLAG="--no-quantize"; fi
+          python ml/download_and_convert.py \
+            --checkpoint checkpoint.pth \
+            --classes classes.txt \
+            --output FishID.mlmodel \
+            $QFLAG
+          ls -lh FishID.mlmodel
+
+      - name: Publish to release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: fish-model
+          name: Fish ID Model
+          files: FishID.mlmodel
+          body: |
+            On-device CoreML fish classifier. The app downloads this from
+            the `latest` release automatically; keep this tag as the newest
+            release, or set the `FishModelURL` Info.plist key to pin a URL.
