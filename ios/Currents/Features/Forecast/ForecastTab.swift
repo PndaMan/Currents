@@ -338,10 +338,9 @@ struct ForecastTab: View {
                 Text("Hourly Forecast")
                     .font(.headline)
                 Spacer()
-                if selectedHour != nil {
-                    Button("Clear") { selectedHour = nil; hourDetail = nil }
-                        .font(.caption)
-                }
+                Text(selectedHour == nil ? "Tap a bar for details" : "Tap again to dismiss")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
             }
 
             Chart(forecast.hourlyScores, id: \.hour) { point in
@@ -374,7 +373,25 @@ struct ForecastTab: View {
                     }
                 }
             }
-            .chartXSelection(value: $selectedHour)
+            // Tap to select an hour and keep it pinned; tap the same bar
+            // again to dismiss. (chartXSelection required press-and-hold.)
+            .chartOverlay { proxy in
+                GeometryReader { geo in
+                    Rectangle()
+                        .fill(Color.clear)
+                        .contentShape(Rectangle())
+                        .onTapGesture { location in
+                            guard let plotFrame = proxy.plotFrame else { return }
+                            let origin = geo[plotFrame].origin
+                            let x = location.x - origin.x
+                            guard let hour: Int = proxy.value(atX: x) else { return }
+                            let clamped = min(23, max(0, hour))
+                            withAnimation(.easeInOut(duration: 0.15)) {
+                                selectedHour = (selectedHour == clamped) ? nil : clamped
+                            }
+                        }
+                }
+            }
             .frame(height: 160)
 
             // Hourly drill-down detail
