@@ -10,10 +10,10 @@ final class MapManager {
     var isDownloading = false
 
     /// Shared cacheable satellite overlay + background prefetcher used for the
-    /// offline map. Lazily created so the tile cache dir isn't touched unless
-    /// the feature is used.
-    let offlineOverlay = OfflineTileOverlay()
-    private(set) lazy var prefetcher = OfflineTilePrefetcher(overlay: offlineOverlay)
+    /// offline map. Not observed (they aren't view state), and @Observable
+    /// rewrites stored vars into computed properties which can't be `lazy`.
+    @ObservationIgnored let offlineOverlay = OfflineTileOverlay()
+    @ObservationIgnored private(set) lazy var prefetcher = OfflineTilePrefetcher(overlay: offlineOverlay)
 
     /// Whether to automatically cache surrounding tiles as the user moves.
     var autoCacheEnabled: Bool {
