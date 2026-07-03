@@ -9,6 +9,9 @@ struct IdentifiableCoordinate: Identifiable {
 
 struct MapTab: View {
     @Environment(AppState.self) private var appState
+    // Observed so map pins re-render the moment the theme changes,
+    // instead of waiting for the next zoom-triggered rebuild.
+    @AppStorage("selectedTheme") private var selectedThemeRaw = ThemeOption.ocean.rawValue
     @State private var position: MapCameraPosition = .userLocation(fallback: .automatic)
     @State private var spots: [Spot] = []
     @State private var catches: [CatchDetail] = []
@@ -46,16 +49,43 @@ struct MapTab: View {
         case fishing = "Fishing"
     }
 
+    /// Theme accent, re-read whenever the stored theme changes so annotations
+    /// re-render immediately.
+    private var accent: Color {
+        (ThemeOption(rawValue: selectedThemeRaw) ?? .ocean).primary
+    }
+
+    /// Catches without an assigned spot — but hide any that sit on top of a
+    /// saved spot's marker so they don't render over the spot pin.
+    private var unassignedCatches: [CatchDetail] {
+        catches.filter { detail in
+            guard detail.catchRecord.spotId == nil else { return false }
+            let loc = CLLocation(
+                latitude: detail.catchRecord.latitude,
+                longitude: detail.catchRecord.longitude
+            )
+            return !spots.contains { spot in
+                CLLocation(latitude: spot.latitude, longitude: spot.longitude)
+                    .distance(from: loc) < 75
+            }
+        }
+    }
+
     var body: some View {
         NavigationStack {
             ZStack(alignment: .topTrailing) {
                 MapReader { proxy in
                 Map(position: $position) {
-                    UserAnnotation()
+                    UserAnnotation(anchor: .center) { _ in
+                        UserLocationMarker(
+                            heading: appState.locationManager.heading,
+                            accent: accent
+                        )
+                    }
 
-                    // Spot pins
+                    // Spot pins (empty annotation title — the pin renders its own label)
                     ForEach(spots) { spot in
-                        Annotation(spot.name, coordinate: CLLocationCoordinate2D(
+                        Annotation("", coordinate: CLLocationCoordinate2D(
                             latitude: spot.latitude,
                             longitude: spot.longitude
                         )) {
@@ -63,7 +93,8 @@ struct MapTab: View {
                                 spot: spot,
                                 catchCount: catchCounts[spot.id] ?? 0,
                                 isSelected: selectedSpot?.id == spot.id,
-                                biteScore: spotScores[spot.id]
+                                biteScore: spotScores[spot.id],
+                                accent: accent
                             )
                             .onTapGesture {
                                 selectedSpot = spot
@@ -73,15 +104,15 @@ struct MapTab: View {
 
                     // Catch location pins (individual catches without spots)
                     if showCatchPins {
-                        ForEach(catches.filter { $0.catchRecord.spotId == nil }, id: \.catchRecord.id) { detail in
+                        ForEach(unassignedCatches, id: \.catchRecord.id) { detail in
                             Annotation(
-                                detail.species?.commonName ?? "Catch",
+                                "",
                                 coordinate: CLLocationCoordinate2D(
                                     latitude: detail.catchRecord.latitude,
                                     longitude: detail.catchRecord.longitude
                                 )
                             ) {
-                                CatchPin(detail: detail)
+                                CatchPin(detail: detail, accent: accent)
                             }
                         }
                     }
@@ -95,16 +126,17 @@ struct MapTab: View {
                                     center: CLLocationCoordinate2D(latitude: wb.latitude, longitude: wb.longitude),
                                     radius: CLLocationDistance(min(wb.approximateRadiusM, 50000))
                                 )
-                                .foregroundStyle(CurrentsTheme.accent.opacity(0.2))
-                                .stroke(CurrentsTheme.accent.opacity(0.6), lineWidth: 2)
+                                .foregroundStyle(accent.opacity(0.2))
+                                .stroke(accent.opacity(0.6), lineWidth: 2)
                             }
 
-                            Annotation(wb.name, coordinate: CLLocationCoordinate2D(
+                            Annotation("", coordinate: CLLocationCoordinate2D(
                                 latitude: wb.latitude, longitude: wb.longitude
                             )) {
                                 WaterbodyPin(
                                     waterbody: wb,
-                                    biteScore: waterbodyScores[wb.id ?? 0]
+                                    biteScore: waterbodyScores[wb.id ?? 0],
+                                    accent: accent
                                 )
                                 .onTapGesture {
                                     selectedWaterbody = wb
@@ -213,100 +245,8 @@ struct MapTab: View {
                         }
                     }
                 }
-                .padding(.top, 60)
+                .padding(.top, 8)
                 .padding(.trailing, 12)
-
-                // Search overlay — pinned to top, above map scale
-                VStack(spacing: 4) {
-                    HStack(spacing: 8) {
-                        Image(systemName: "magnifyingglass")
-                            .foregroundStyle(.secondary)
-                        TextField("Search dams, rivers, places...", text: $searchText)
-                            .textFieldStyle(.plain)
-                            .onSubmit { performSearch() }
-                            .onChange(of: searchText) { _, newValue in
-                                searchDebounceTask?.cancel()
-                                if newValue.isEmpty {
-                                    searchResults = []
-                                    return
-                                }
-                                searchDebounceTask = Task {
-                                    try? await Task.sleep(for: .milliseconds(300))
-                                    guard !Task.isCancelled else { return }
-                                    performSearch()
-                                }
-                            }
-                        if isSearching {
-                            ProgressView()
-                                .controlSize(.small)
-                        }
-                        if !searchText.isEmpty {
-                            Button { searchText = ""; searchResults = [] } label: {
-                                Image(systemName: "xmark.circle.fill")
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 10)
-                    .background(.ultraThinMaterial)
-                    .clipShape(RoundedRectangle(cornerRadius: CurrentsTheme.cornerRadius))
-                    .shadow(color: .black.opacity(0.15), radius: 8, y: 2)
-                    .padding(.horizontal)
-
-                    if !searchResults.isEmpty {
-                        ScrollView {
-                            VStack(spacing: 0) {
-                                ForEach(searchResults, id: \.self) { item in
-                                    Button {
-                                        if let coord = item.placemark.location?.coordinate {
-                                            position = .camera(.init(centerCoordinate: coord, distance: 2000))
-                                        }
-                                        searchResults = []
-                                        searchText = item.name ?? ""
-                                    } label: {
-                                        HStack(spacing: 8) {
-                                            Image(systemName: "mappin.circle.fill")
-                                                .foregroundStyle(CurrentsTheme.accent)
-                                                .font(.caption)
-                                            VStack(alignment: .leading, spacing: 2) {
-                                                Text(item.name ?? "Unknown")
-                                                    .font(.subheadline)
-                                                    .foregroundStyle(.primary)
-                                                if let subtitle = item.placemark.title {
-                                                    Text(subtitle)
-                                                        .font(.caption)
-                                                        .foregroundStyle(.secondary)
-                                                        .lineLimit(1)
-                                                }
-                                            }
-                                            Spacer()
-                                            if let itemLocation = item.placemark.location,
-                                               let userLocation = appState.locationManager.currentLocation {
-                                                let distKm = itemLocation.distance(from: userLocation) / 1000
-                                                Text(distKm < 100 ? String(format: "%.0f km", distKm) : String(format: "%.0f km", distKm))
-                                                    .font(.caption2)
-                                                    .foregroundStyle(.secondary)
-                                            }
-                                        }
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                        .padding(.horizontal, 12)
-                                        .padding(.vertical, 8)
-                                    }
-                                    Divider()
-                                }
-                            }
-                            .background(.ultraThinMaterial)
-                            .clipShape(RoundedRectangle(cornerRadius: CurrentsTheme.cornerRadius))
-                        }
-                        .frame(maxHeight: 250)
-                        .padding(.horizontal)
-                    }
-
-                    Spacer()
-                }
-                .padding(.top, 4)
-                .frame(maxWidth: .infinity, alignment: .top)
 
                 // Bottom bar
                 VStack {
@@ -374,6 +314,9 @@ struct MapTab: View {
                     .padding(.horizontal)
                     .padding(.bottom, 8)
                 }
+            }
+            .safeAreaInset(edge: .top, spacing: 0) {
+                searchOverlay
             }
             .sheet(item: $selectedSpot, onDismiss: {
                 Task { await loadData() }
@@ -450,11 +393,104 @@ struct MapTab: View {
         }
     }
 
+    /// Search field + results, pinned to the very top of the screen via
+    /// `.safeAreaInset(edge: .top)`.
+    private var searchOverlay: some View {
+        VStack(spacing: 4) {
+            HStack(spacing: 8) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(.secondary)
+                TextField("Search dams, rivers, places...", text: $searchText)
+                    .textFieldStyle(.plain)
+                    .onSubmit { performSearch() }
+                    .onChange(of: searchText) { _, newValue in
+                        searchDebounceTask?.cancel()
+                        if newValue.isEmpty {
+                            searchResults = []
+                            return
+                        }
+                        searchDebounceTask = Task {
+                            try? await Task.sleep(for: .milliseconds(300))
+                            guard !Task.isCancelled else { return }
+                            performSearch()
+                        }
+                    }
+                if isSearching {
+                    ProgressView()
+                        .controlSize(.small)
+                }
+                if !searchText.isEmpty {
+                    Button { searchText = ""; searchResults = [] } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .background(.ultraThinMaterial)
+            .clipShape(RoundedRectangle(cornerRadius: CurrentsTheme.cornerRadius))
+            .shadow(color: .black.opacity(0.15), radius: 8, y: 2)
+            .padding(.horizontal, 12)
+
+            if !searchResults.isEmpty {
+                ScrollView {
+                    VStack(spacing: 0) {
+                        ForEach(searchResults, id: \.self) { item in
+                            Button {
+                                if let coord = item.placemark.location?.coordinate {
+                                    position = .camera(.init(centerCoordinate: coord, distance: 2000))
+                                }
+                                searchResults = []
+                                searchText = item.name ?? ""
+                            } label: {
+                                HStack(spacing: 8) {
+                                    Image(systemName: "mappin.circle.fill")
+                                        .foregroundStyle(accent)
+                                        .font(.caption)
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(item.name ?? "Unknown")
+                                            .font(.subheadline)
+                                            .foregroundStyle(.primary)
+                                        if let subtitle = item.placemark.title {
+                                            Text(subtitle)
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                                .lineLimit(1)
+                                        }
+                                    }
+                                    Spacer()
+                                    if let itemLocation = item.placemark.location,
+                                       let userLocation = appState.locationManager.currentLocation {
+                                        let distKm = itemLocation.distance(from: userLocation) / 1000
+                                        Text(String(format: "%.0f km", distKm))
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 8)
+                            }
+                            Divider()
+                        }
+                    }
+                    .background(.ultraThinMaterial)
+                    .clipShape(RoundedRectangle(cornerRadius: CurrentsTheme.cornerRadius))
+                }
+                .frame(maxHeight: 250)
+                .padding(.horizontal, 12)
+            }
+        }
+        .padding(.top, 2)
+        .padding(.bottom, 6)
+    }
+
     @ViewBuilder
     private func mapButton(icon: String) -> some View {
         Image(systemName: icon)
             .font(.title3)
-            .foregroundStyle(CurrentsTheme.accent)
+            .foregroundStyle(accent)
             .frame(width: 44, height: 44)
             .background(.ultraThinMaterial)
             .clipShape(Circle())
@@ -676,12 +712,13 @@ struct MapTab: View {
 
 struct CatchPin: View {
     let detail: CatchDetail
+    var accent: Color = CurrentsTheme.accent
 
     var body: some View {
-        VStack(spacing: 0) {
+        VStack(spacing: 2) {
             ZStack {
                 Circle()
-                    .fill(CurrentsTheme.accent)
+                    .fill(accent)
                     .frame(width: 28, height: 28)
                     .shadow(color: .black.opacity(0.3), radius: 3, y: 1)
                 Image(systemName: "fish.fill")
@@ -700,6 +737,58 @@ struct CatchPin: View {
     }
 }
 
+// MARK: - User Location Marker
+
+/// Precise location dot with a Life360-style heading cone showing which way
+/// the user is facing (driven by the compass/gyro).
+struct UserLocationMarker: View {
+    let heading: Double
+    var accent: Color = CurrentsTheme.accent
+
+    var body: some View {
+        ZStack {
+            // Facing-direction cone
+            HeadingCone()
+                .fill(
+                    LinearGradient(
+                        colors: [accent.opacity(0.55), accent.opacity(0.0)],
+                        startPoint: .center,
+                        endPoint: .top
+                    )
+                )
+                .frame(width: 72, height: 72)
+                .rotationEffect(.degrees(heading))
+                .animation(.easeOut(duration: 0.2), value: heading)
+
+            // Exact position dot
+            Circle()
+                .fill(accent)
+                .frame(width: 16, height: 16)
+                .overlay(Circle().stroke(.white, lineWidth: 3))
+                .shadow(color: .black.opacity(0.35), radius: 3, y: 1)
+        }
+    }
+}
+
+/// A ~56° wedge pointing north (up); rotate it by the device heading.
+struct HeadingCone: Shape {
+    func path(in rect: CGRect) -> Path {
+        var p = Path()
+        let center = CGPoint(x: rect.midX, y: rect.midY)
+        let radius = min(rect.width, rect.height) / 2
+        p.move(to: center)
+        p.addArc(
+            center: center,
+            radius: radius,
+            startAngle: .degrees(-118),
+            endAngle: .degrees(-62),
+            clockwise: false
+        )
+        p.closeSubpath()
+        return p
+    }
+}
+
 // MARK: - Spot Pin
 
 struct SpotPin: View {
@@ -707,25 +796,23 @@ struct SpotPin: View {
     let catchCount: Int
     let isSelected: Bool
     var biteScore: Int?
+    var accent: Color = CurrentsTheme.accent
 
     var body: some View {
-        VStack(spacing: 0) {
+        VStack(spacing: 2) {
             ZStack(alignment: .topTrailing) {
                 ZStack {
                     Circle()
-                        .fill(isSelected ? CurrentsTheme.accent : .white)
+                        .fill(accent)
                         .frame(width: 40, height: 40)
                         .shadow(color: .black.opacity(0.3), radius: 4, y: 2)
+                        .overlay(
+                            Circle().stroke(.white, lineWidth: isSelected ? 3 : 1.5)
+                        )
 
-                    if spot.isPrivate {
-                        Image(systemName: "lock.fill")
-                            .font(.system(size: 16))
-                            .foregroundStyle(isSelected ? .white : CurrentsTheme.accent)
-                    } else {
-                        Image(systemName: "mappin.circle.fill")
-                            .font(.system(size: 20))
-                            .foregroundStyle(isSelected ? .white : CurrentsTheme.accent)
-                    }
+                    Image(systemName: "mappin.and.ellipse")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(.white)
                 }
 
                 // Bite score badge
@@ -740,16 +827,19 @@ struct SpotPin: View {
                         .clipShape(Capsule())
                         .offset(x: 8, y: -6)
                 }
-            }
-            if catchCount > 0 {
-                Text("\(catchCount)")
-                    .font(.caption2.bold())
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(CurrentsTheme.accent)
-                    .foregroundStyle(.white)
-                    .clipShape(Capsule())
-                    .offset(y: -4)
+
+                // Catch count badge
+                if catchCount > 0 {
+                    Text("\(catchCount)")
+                        .font(.system(size: 9, weight: .heavy))
+                        .monospacedDigit()
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 1)
+                        .background(.black.opacity(0.65))
+                        .clipShape(Capsule())
+                        .offset(x: -26, y: -6)
+                }
             }
             Text(spot.name)
                 .font(.caption2.bold())
@@ -809,7 +899,7 @@ struct SpotDetailSheet: View {
                                 .foregroundStyle(.secondary)
                         }
                         Spacer()
-                        if spot.isPrivate {
+                        if FeatureFlags.spotPrivacy, spot.isPrivate {
                             Label("Private", systemImage: "lock.fill")
                                 .font(.caption)
                                 .glassPill()
@@ -1070,10 +1160,12 @@ struct AddSpotSheet: View {
                     }
                 }
 
-                Section {
-                    Toggle("Private Spot", isOn: $isPrivate)
-                } footer: {
-                    Text("Private spots are never shared.")
+                if FeatureFlags.spotPrivacy {
+                    Section {
+                        Toggle("Private Spot", isOn: $isPrivate)
+                    } footer: {
+                        Text("Private spots are never shared.")
+                    }
                 }
             }
             .navigationTitle("New Spot")
@@ -1162,10 +1254,12 @@ struct EditSpotSheet: View {
                     }
                 }
 
-                Section {
-                    Toggle("Private Spot", isOn: $isPrivate)
-                } footer: {
-                    Text("Private spots are never shared.")
+                if FeatureFlags.spotPrivacy {
+                    Section {
+                        Toggle("Private Spot", isOn: $isPrivate)
+                    } footer: {
+                        Text("Private spots are never shared.")
+                    }
                 }
             }
             .navigationTitle("Edit Spot")
@@ -1205,15 +1299,16 @@ struct EditSpotSheet: View {
 struct WaterbodyPin: View {
     let waterbody: Waterbody
     var biteScore: Int?
+    var accent: Color = CurrentsTheme.accent
 
     var body: some View {
-        VStack(spacing: 0) {
+        VStack(spacing: 2) {
             ZStack(alignment: .topTrailing) {
                 ZStack {
                     Circle()
-                        .fill(CurrentsTheme.accent.opacity(0.85))
+                        .fill(accent.opacity(0.85))
                         .frame(width: 36, height: 36)
-                        .shadow(color: CurrentsTheme.accent.opacity(0.4), radius: 4, y: 2)
+                        .shadow(color: accent.opacity(0.4), radius: 4, y: 2)
 
                     Image(systemName: waterbodyIcon)
                         .font(.system(size: 16))

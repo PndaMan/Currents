@@ -17,6 +17,7 @@ final class LocationManager: NSObject, CLLocationManagerDelegate {
         manager.delegate = self
         manager.desiredAccuracy = kCLLocationAccuracyBest
         manager.distanceFilter = 50 // meters
+        manager.headingFilter = 5 // degrees — throttle heading-cone updates
         authorizationStatus = manager.authorizationStatus
     }
 
@@ -63,6 +64,9 @@ final class LocationManager: NSObject, CLLocationManagerDelegate {
             self.authorizationStatus = status
             if status == .authorizedWhenInUse || status == .authorizedAlways {
                 manager.startUpdatingLocation()
+                if CLLocationManager.headingAvailable() {
+                    manager.startUpdatingHeading()
+                }
             }
         }
     }

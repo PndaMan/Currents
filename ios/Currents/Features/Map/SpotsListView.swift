@@ -117,7 +117,7 @@ struct SpotCard: View {
                         .foregroundStyle(.white)
                     HStack(spacing: 10) {
                         Label("\(catchCount) catches", systemImage: "fish.fill")
-                        if spot.isPrivate {
+                        if FeatureFlags.spotPrivacy, spot.isPrivate {
                             Label("Private", systemImage: "lock.fill")
                         }
                         Text(spot.createdAt, style: .date)

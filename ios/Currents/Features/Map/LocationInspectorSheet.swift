@@ -164,7 +164,7 @@ struct LocationInspectorSheet: View {
                     .font(.headline)
                 ForEach(nearbySpots) { entry in
                     HStack(spacing: 12) {
-                        Image(systemName: entry.spot.isPrivate ? "lock.fill" : "mappin.circle.fill")
+                        Image(systemName: "mappin.circle.fill")
                             .foregroundStyle(CurrentsTheme.accent)
                             .frame(width: 24)
                         VStack(alignment: .leading, spacing: 2) {
