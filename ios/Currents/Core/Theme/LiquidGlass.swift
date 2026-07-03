@@ -169,18 +169,55 @@ struct ScoreGauge: View {
 struct FilterChip: View {
     let title: String
     let isSelected: Bool
+    var systemImage: String? = nil
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            Text(title)
-                .font(.subheadline)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-                .background(isSelected ? CurrentsTheme.accent : Color.clear)
-                .foregroundStyle(isSelected ? .white : .primary)
-                .clipShape(Capsule())
-                .overlay(Capsule().stroke(.secondary.opacity(0.3)))
+            HStack(spacing: 5) {
+                if let systemImage {
+                    Image(systemName: systemImage)
+                        .font(.caption2)
+                }
+                Text(title)
+                    .font(.subheadline.weight(isSelected ? .semibold : .regular))
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 7)
+            .background {
+                if isSelected {
+                    Capsule().fill(CurrentsTheme.accent)
+                } else {
+                    Capsule().fill(.ultraThinMaterial)
+                }
+            }
+            .foregroundStyle(isSelected ? .white : .primary)
+            .overlay(
+                Capsule().stroke(.secondary.opacity(isSelected ? 0 : 0.25), lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+/// A horizontal, scrollable row of filter chips backed by any `CaseIterable`
+/// enum-like collection. Keeps the bubble UI identical across every tab.
+struct FilterChipRow<Item: Hashable>: View {
+    let items: [Item]
+    let title: (Item) -> String
+    @Binding var selection: Item
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(items, id: \.self) { item in
+                    FilterChip(title: title(item), isSelected: selection == item) {
+                        withAnimation(.easeInOut(duration: 0.15)) { selection = item }
+                    }
+                }
+            }
+            .padding(.horizontal, 2)
+            .padding(.vertical, 2)
         }
     }
 }

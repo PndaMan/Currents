@@ -245,28 +245,16 @@ struct ForecastTab: View {
             HStack(spacing: 8) {
                 ForEach(0..<7, id: \.self) { offset in
                     let date = Calendar.current.date(byAdding: .day, value: offset, to: .now) ?? .now
-                    Button {
-                        selectedDay = offset
-                    } label: {
-                        VStack(spacing: 4) {
-                            Text(offset == 0 ? "Today" : dayLabel(date))
-                                .font(.caption.bold())
-                            Text(date, format: .dateTime.day())
-                                .font(.title3.bold())
-                                .monospacedDigit()
-                        }
-                        .frame(width: 60)
-                        .padding(.vertical, 8)
-                        .background(selectedDay == offset ? CurrentsTheme.accent : Color.clear)
-                        .foregroundStyle(selectedDay == offset ? .white : .primary)
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 12)
-                                .stroke(.secondary.opacity(0.3))
-                        )
+                    let label = offset == 0
+                        ? "Today"
+                        : "\(dayLabel(date)) \(Calendar.current.component(.day, from: date))"
+                    FilterChip(title: label, isSelected: selectedDay == offset) {
+                        withAnimation(.easeInOut(duration: 0.15)) { selectedDay = offset }
                     }
                 }
             }
+            .padding(.horizontal, 2)
+            .padding(.vertical, 2)
         }
     }
 
