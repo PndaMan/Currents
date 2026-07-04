@@ -9,6 +9,7 @@ final class AppState {
     let locationManager = LocationManager()
     let fishClassifier = FishClassifier()
     let visualIdentifier = VisualSpeciesIdentifier()
+    let embeddingIdentifier = EmbeddingSpeciesIdentifier()
     let mapManager = MapManager()
 
     // Repositories (share the db)

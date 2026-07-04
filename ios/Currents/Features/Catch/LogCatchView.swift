@@ -572,18 +572,26 @@ struct LogCatchView: View {
         isClassifying = true
         autoSelectedFromML = false
         Task {
-            // Primary: visual similarity against the bundled species gallery —
-            // label space is exactly the app's species, so it distinguishes
-            // gamefish (e.g. largemouth bass vs brook trout).
             let byId = Dictionary(uniqueKeysWithValues: allSpecies.map { ($0.id, $0) })
-            let ranked = await appState.visualIdentifier.identify(image: image)
-            var matches: [SpeciesMatcher.Match] = ranked.compactMap { r in
-                guard let sp = byId[r.speciesId] else { return nil }
-                return SpeciesMatcher.Match(species: sp, confidence: r.confidence)
+            var matches: [SpeciesMatcher.Match] = []
+
+            // 1. BioCLIP embedding model (most accurate) — only if downloaded.
+            let embedRanked = await appState.embeddingIdentifier.identify(image: image)
+            matches = embedRanked.compactMap { r in
+                byId[r.speciesId].map { SpeciesMatcher.Match(species: $0, confidence: r.confidence) }
             }
 
-            // Fallback: if the gallery isn't ready yet, use the classifier +
-            // name matcher.
+            // 2. Visual similarity against the bundled species gallery (offline,
+            //    always available) — label space is exactly the app's species,
+            //    so it distinguishes gamefish (largemouth bass vs brook trout).
+            if matches.isEmpty {
+                let ranked = await appState.visualIdentifier.identify(image: image)
+                matches = ranked.compactMap { r in
+                    byId[r.speciesId].map { SpeciesMatcher.Match(species: $0, confidence: r.confidence) }
+                }
+            }
+
+            // 3. Last resort: Apple Vision classifier + name matcher.
             if matches.isEmpty {
                 let predictions = (try? await appState.fishClassifier.classify(image: image)) ?? []
                 mlPredictions = predictions
