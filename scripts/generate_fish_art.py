@@ -30,7 +30,7 @@ from io import BytesIO
 from pathlib import Path
 
 import requests
-from PIL import Image
+from PIL import Image, ImageFilter
 
 REPO = Path(__file__).resolve().parents[1]
 SEED_JSON = REPO / "ios/Currents/Resources/Data/species_seed.json"
@@ -97,22 +97,43 @@ def key_white_to_transparent(img: Image.Image) -> Image.Image:
 
 
 def facing_right(img: Image.Image) -> bool:
-    """Head-heavy side detection: a fish's head+body is bulkier than the
-    tapering tail, so the alpha centroid biases toward the head. If it sits
-    in the right half, the fish faces right and should be flipped to face
-    left (consistent direction across the whole set, like Catchr)."""
-    a = img.getchannel("A").resize((64, 64))
-    px = a.load()
-    total = 0
-    sx = 0
-    for y in range(64):
-        for x in range(64):
-            if px[x, y] > 25:
-                total += 1
-                sx += x
-    if total == 0:
+    """Detect head side by finding the EYE — the strongest dark-on-bright
+    local contrast in the upper-front head zone. Validated to correctly tell
+    left- from right-facing fish (a flared tail fools a simple centroid).
+    Returns True if the head is on the right, so it should be flipped to face
+    left for a consistent set (like Catchr)."""
+    img = img.convert("RGBA")
+    bbox = img.getchannel("A").getbbox()
+    if not bbox:
         return False
-    return (sx / total) > 32
+    fish = img.crop(bbox)
+    w, h = fish.size
+    if w < 8 or h < 8:
+        return False
+    gray = fish.convert("L")
+    mx = gray.filter(ImageFilter.MaxFilter(5))
+    mn = gray.filter(ImageFilter.MinFilter(5))
+    gp = gray.load()
+    mxp = mx.load()
+    mnp = mn.load()
+    ap = fish.getchannel("A").load()
+
+    def eye_score(x0: int, x1: int) -> int:
+        best = 0
+        for y in range(0, int(h * 0.62)):
+            for x in range(x0, x1):
+                if ap[x, y] < 120:
+                    continue
+                contrast = mxp[x, y] - mnp[x, y]
+                if gp[x, y] < 90 and contrast > 70:
+                    s = contrast + (120 - gp[x, y])
+                    if s > best:
+                        best = s
+        return best
+
+    left = eye_score(0, int(w * 0.38))
+    right = eye_score(int(w * 0.62), w)
+    return right > left
 
 
 def is_low_quality(img: Image.Image) -> bool:
