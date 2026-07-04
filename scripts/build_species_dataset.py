@@ -51,7 +51,7 @@ except ImportError:
 
 INAT_TAXA = "https://api.inaturalist.org/v1/taxa"
 ACTINOPTERYGII = 47178  # ray-finned fishes
-THUMB_PX = 320
+THUMB_PX = 160          # collection thumbnails; keeps the bundle small
 
 REPO = Path(__file__).resolve().parents[1]
 SEED_JSON = REPO / "ios/Currents/Resources/Data/species_seed.json"
@@ -149,7 +149,8 @@ def build_thumbnail(url: str, dest: Path, force: bool) -> bool:
             ((w - side) // 2, (h - side) // 2, (w + side) // 2, (h + side) // 2)
         ).resize((THUMB_PX, THUMB_PX), Image.LANCZOS)
         dest.parent.mkdir(parents=True, exist_ok=True)
-        img.save(dest, "PNG", optimize=True)
+        # JPEG keeps the bundle tiny (~10KB/species vs ~160KB PNG).
+        img.save(dest, "JPEG", quality=80, optimize=True)
         return True
     except Exception as e:  # noqa: BLE001
         print(f"    ! thumbnail failed for {dest.name}: {e}")
@@ -159,7 +160,7 @@ def build_thumbnail(url: str, dest: Path, force: bool) -> bool:
 def write_imageset(species_id: int, png_path: Path) -> None:
     imageset = ASSET_DIR / f"fish_{species_id}.imageset"
     imageset.mkdir(parents=True, exist_ok=True)
-    filename = f"fish_{species_id}.png"
+    filename = f"fish_{species_id}.jpg"
     (imageset / filename).write_bytes(png_path.read_bytes())
     contents = {
         "images": [{"filename": filename, "idiom": "universal", "scale": "1x"}],
@@ -241,7 +242,7 @@ def main() -> None:
         for idx, (sid, photo) in enumerate(all_photos.items(), start=1):
             photo_url = photo.get("square_url") or photo.get("url")
             if photo_url:
-                png = tmp / f"fish_{sid}.png"
+                png = tmp / f"fish_{sid}.jpg"
                 if build_thumbnail(photo_url, png, args.force):
                     write_imageset(sid, png)
                     attribution.append((sid, "", photo.get("attribution", "")))

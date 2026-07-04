@@ -14,12 +14,21 @@ struct SpeciesDetailView: View {
                 VStack(spacing: 8) {
                     ZStack {
                         Circle()
-                            .fill(habitatColor.opacity(0.15))
-                            .frame(width: 80, height: 80)
-                        Image(systemName: "fish.fill")
-                            .font(.system(size: 36))
-                            .foregroundStyle(habitatColor)
+                            .fill(species.rarity.color.opacity(0.15))
+                            .frame(width: 108, height: 108)
+                        SpeciesArtworkView(species: species, caught: !catches.isEmpty, size: 96)
+                            .frame(width: 96, height: 96)
                     }
+                    .overlay(alignment: .bottom) {
+                        Label(species.rarity.label, systemImage: species.rarity.symbol)
+                            .font(.caption2.bold())
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 4)
+                            .background(species.rarity.color.opacity(0.18), in: Capsule())
+                            .foregroundStyle(species.rarity.color)
+                            .offset(y: 10)
+                    }
+                    .padding(.bottom, 8)
 
                     Text(species.commonName)
                         .font(.title2.bold())
@@ -30,11 +39,13 @@ struct SpeciesDetailView: View {
 
                     HStack(spacing: 12) {
                         if let habitat = species.habitat {
-                            Text(habitat.rawValue.capitalized)
+                            Label(habitat.rawValue.capitalized, systemImage: "water.waves")
+                                .font(.caption)
                                 .glassPill()
                         }
                         if let family = species.family {
                             Text(family)
+                                .font(.caption)
                                 .glassPill()
                         }
                     }
