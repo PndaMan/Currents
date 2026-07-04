@@ -10,8 +10,9 @@ to the actual species (text-to-image just invents a plausible fish). Output is
 a transparent PNG at 160px that replaces the collection artwork; the app greys
 it out until caught.
 
-Model is `openai/gpt-image-1` by default (best accuracy/consistency), swappable
-via the OR_MODEL env var (e.g. `google/gemini-2.5-flash-image` — cheaper).
+Model is `google/gemini-2.5-flash-image` (Nano Banana) by default — the image
+model on OpenRouter that supports image-EDIT (image in, image out) through the
+chat endpoint. Swappable via the OR_MODEL env var.
 
 The job is RESUMABLE: species that already have a PNG imageset are skipped, so
 if the API rate-limits or the CI run times out, just re-run the workflow and it
@@ -20,8 +21,8 @@ continues where it left off.
 Env
 ---
     OPENROUTER_API_KEY   required — your OpenRouter key
-    OR_MODEL             optional — default "openai/gpt-image-1"
-    OR_QUALITY           optional — default "low" (cheap; plenty for a 160px thumb)
+    OR_MODEL             optional — default "google/gemini-2.5-flash-image"
+    OR_ASPECT            optional — image_config aspect_ratio (e.g. "1:1"); off if unset
 
 Usage
 -----
@@ -51,8 +52,8 @@ ASSET_DIR = REPO / "ios/Currents/Resources/Assets.xcassets/Fish"
 OUT_PX = 160
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
-OR_MODEL = os.environ.get("OR_MODEL", "openai/gpt-image-1")
-OR_QUALITY = os.environ.get("OR_QUALITY", "low")
+OR_MODEL = os.environ.get("OR_MODEL") or "google/gemini-2.5-flash-image"
+OR_ASPECT = os.environ.get("OR_ASPECT", "").strip()
 
 # img2img: redraw the REAL reference photo so the species stays accurate.
 INSTRUCTION = (
@@ -92,8 +93,8 @@ def openrouter_edit(prompt: str, ref: str, api_key: str) -> Image.Image | None:
             }
         ],
     }
-    if OR_QUALITY:
-        payload["image_config"] = {"quality": OR_QUALITY}
+    if OR_ASPECT:
+        payload["image_config"] = {"aspect_ratio": OR_ASPECT}
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
@@ -268,7 +269,7 @@ def main() -> None:
     api_key = os.environ.get("OPENROUTER_API_KEY", "").strip()
     if not api_key:
         raise SystemExit("OPENROUTER_API_KEY is not set (add it as a GitHub secret).")
-    print(f"Model: {OR_MODEL} (quality={OR_QUALITY or 'default'})")
+    print(f"Model: {OR_MODEL} (aspect={OR_ASPECT or 'default'})")
 
     species = json.loads(SEED_JSON.read_text())
     if args.ids:

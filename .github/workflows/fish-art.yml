@@ -1,8 +1,9 @@
 name: Generate Fish Illustrations
 
 # Generates flat per-species fish illustrations (Catchr style) by redrawing
-# each species' real reference photo with an image-edit model (gpt-image-1 via
-# OpenRouter) and commits them. Needs the OPENROUTER_API_KEY repo secret.
+# each species' real reference photo with an image-edit model (Gemini 2.5 Flash
+# Image / Nano Banana via OpenRouter) and commits them. Needs the
+# OPENROUTER_API_KEY repo secret.
 # Resumable: re-run until all species have art (the script skips ones already
 # done). Replaces the photo thumbnails.
 
@@ -24,11 +25,11 @@ on:
       model:
         description: "OpenRouter image model"
         required: false
-        default: "openai/gpt-image-1"
-      quality:
-        description: "Image quality (low/medium/high) — low is plenty for a 160px thumb"
+        default: "google/gemini-2.5-flash-image"
+      aspect:
+        description: "image_config aspect_ratio (e.g. 1:1); blank = model default"
         required: false
-        default: "low"
+        default: ""
 
 permissions:
   contents: write
@@ -51,7 +52,7 @@ jobs:
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           OR_MODEL: ${{ github.event.inputs.model }}
-          OR_QUALITY: ${{ github.event.inputs.quality }}
+          OR_ASPECT: ${{ github.event.inputs.aspect }}
         run: |
           ARGS="--limit ${{ github.event.inputs.limit }}"
           if [ "${{ github.event.inputs.force }}" = "true" ]; then ARGS="$ARGS --force"; fi
