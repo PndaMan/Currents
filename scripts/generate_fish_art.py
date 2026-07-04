@@ -117,18 +117,22 @@ def generate_one(sp: dict, force: bool) -> bool:
     if has_png(sid) and not force:
         return True
     url = pollinations_url(prompt_for(sp), seed=1000 + sid)
-    for attempt in range(4):
+    for attempt in range(3):
         try:
-            r = requests.get(url, timeout=120)
-            if r.status_code == 200 and r.headers.get("content-type", "").startswith("image"):
+            r = requests.get(url, timeout=45)
+            ctype = r.headers.get("content-type", "")
+            if r.status_code == 200 and ctype.startswith("image"):
                 img = Image.open(BytesIO(r.content)).convert("RGB")
                 img = key_white_to_transparent(img)
                 img = img.resize((OUT_PX, OUT_PX), Image.LANCZOS)
                 write_imageset(sid, img)
+                print(f"  ok fish_{sid} {sp.get('commonName')} ({len(r.content)//1024}KB)")
                 return True
+            print(f"  retry fish_{sid}: HTTP {r.status_code} {ctype} (attempt {attempt+1})")
             wait = 3 * (attempt + 1)
-        except Exception:  # noqa: BLE001
-            wait = 5 * (attempt + 1)
+        except Exception as e:  # noqa: BLE001
+            print(f"  retry fish_{sid}: {type(e).__name__} (attempt {attempt+1})")
+            wait = 4 * (attempt + 1)
         time.sleep(wait)
     print(f"  ! failed fish_{sid} ({sp.get('commonName')})")
     return False
