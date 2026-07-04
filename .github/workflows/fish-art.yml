@@ -15,6 +15,10 @@ on:
         description: "Regenerate everything"
         required: false
         default: "false"
+      ids:
+        description: "Comma-separated species ids to (re)generate (testing)"
+        required: false
+        default: ""
 
 permissions:
   contents: write
@@ -37,6 +41,7 @@ jobs:
         run: |
           ARGS="--limit ${{ github.event.inputs.limit }}"
           if [ "${{ github.event.inputs.force }}" = "true" ]; then ARGS="$ARGS --force"; fi
+          if [ -n "${{ github.event.inputs.ids }}" ]; then ARGS="$ARGS --ids ${{ github.event.inputs.ids }}"; fi
           python scripts/generate_fish_art.py $ARGS
 
       - name: Commit art

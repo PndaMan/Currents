@@ -39,31 +39,37 @@ ASSET_DIR = REPO / "ios/Currents/Resources/Assets.xcassets/Fish"
 OUT_PX = 160
 GEN_PX = 384  # generate larger, downscale for crisp edges
 
-STYLE = (
-    "flat 2D vector illustration in the style of a modern mobile fishing app, "
-    "side profile facing left, whole fish, single fish only, centered, "
-    "smooth flat color fields with clean gentle cel shading, crisp clean outline, "
-    "simple and stylized yet anatomically accurate fins body shape and proportions, "
-    "true-to-life species markings and natural coloration, "
-    "plain solid white background, sticker style, no text, no watermark, no border, "
-    "no fishing hook, no water"
+# img2img: redraw the REAL reference photo so the species stays accurate.
+INSTRUCTION = (
+    "Redraw this exact fish as a clean flat 2D vector illustration in a modern "
+    "fishing field-guide app style. Keep the real species body shape, fins, "
+    "proportions, markings and natural colors accurate to the photo. Side "
+    "profile facing left, whole single fish, smooth flat color fields with "
+    "gentle shading, crisp clean outline, plain solid white background, sticker "
+    "style, no text, no hook, no hands, no water, no background scenery."
+)
+
+# Reference photo: iNaturalist URL when present, else the bundled thumbnail on
+# master (raw GitHub) for the original curated species.
+GITHUB_RAW = (
+    "https://raw.githubusercontent.com/PndaMan/Currents/master/"
+    "ios/Currents/Resources/Assets.xcassets/Fish/fish_{id}.imageset/fish_{id}.jpg"
 )
 
 
-def prompt_for(sp: dict) -> str:
-    common = sp.get("commonName", "").strip()
-    sci = sp.get("scientificName", "").strip()
-    # Lead with the scientific name for species accuracy.
-    subject = f"{sci}" + (f", the {common}," if common else "")
-    return f"{subject} fish, {STYLE}"
+def ref_url(sp: dict) -> str:
+    return (sp.get("imageUrl") or "").strip() or GITHUB_RAW.format(id=int(sp["id"]))
 
 
-def pollinations_url(prompt: str, seed: int) -> str:
+def pollinations_url(prompt: str, seed: int, ref: str | None = None) -> str:
     enc = urllib.parse.quote(prompt, safe="")
-    return (
+    url = (
         f"https://image.pollinations.ai/prompt/{enc}"
-        f"?width={GEN_PX}&height={GEN_PX}&seed={seed}&model=flux&nologo=true&enhance=false"
+        f"?width={GEN_PX}&height={GEN_PX}&seed={seed}&model=kontext&nologo=true"
     )
+    if ref:
+        url += f"&image={urllib.parse.quote(ref, safe='')}"
+    return url
 
 
 def key_white_to_transparent(img: Image.Image) -> Image.Image:
@@ -180,12 +186,12 @@ def generate_one(sp: dict, force: bool) -> bool:
     sid = int(sp["id"])
     if has_png(sid) and not force:
         return True
-    prompt = prompt_for(sp)
+    ref = ref_url(sp)
     last: Image.Image | None = None
     for attempt in range(4):
         seed = 1000 + sid + attempt * 7919  # vary seed on retry
         try:
-            r = requests.get(pollinations_url(prompt, seed), timeout=45)
+            r = requests.get(pollinations_url(INSTRUCTION, seed, ref), timeout=90)
             ctype = r.headers.get("content-type", "")
             if r.status_code == 200 and ctype.startswith("image"):
                 img = Image.open(BytesIO(r.content)).convert("RGB")
@@ -216,17 +222,23 @@ def main() -> None:
     ap.add_argument("--limit", type=int, default=0, help="max to generate this run (0 = all)")
     ap.add_argument("--force", action="store_true")
     ap.add_argument("--delay", type=float, default=1.5, help="polite delay between requests (s)")
+    ap.add_argument("--ids", type=str, default="", help="comma-separated species ids to (re)generate for testing")
     args = ap.parse_args()
 
     species = json.loads(SEED_JSON.read_text())
-    todo = [s for s in species if args.force or not has_png(int(s["id"]))]
+    if args.ids:
+        want = {int(x) for x in args.ids.split(",") if x.strip()}
+        todo = [s for s in species if int(s["id"]) in want]
+    else:
+        todo = [s for s in species if args.force or not has_png(int(s["id"]))]
     if args.limit:
         todo = todo[: args.limit]
     print(f"{len(species)} species; {len(todo)} to generate this run.")
 
+    force = args.force or bool(args.ids)  # --ids always regenerates
     done = 0
     for i, sp in enumerate(todo, start=1):
-        if generate_one(sp, args.force):
+        if generate_one(sp, force):
             done += 1
         if i % 25 == 0:
             print(f"  {i}/{len(todo)} processed ({done} ok)")
