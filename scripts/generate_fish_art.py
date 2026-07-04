@@ -40,18 +40,22 @@ OUT_PX = 160
 GEN_PX = 384  # generate larger, downscale for crisp edges
 
 STYLE = (
-    "flat minimalist vector illustration, side profile, full body, single fish, "
-    "centered, clean simple shapes, smooth muted natural colors, soft shading, "
-    "plain solid white background, sticker style, no text, no watermark, "
-    "childrens field-guide illustration"
+    "flat 2D vector illustration in the style of a modern mobile fishing app, "
+    "side profile facing left, whole fish, single fish only, centered, "
+    "smooth flat color fields with clean gentle cel shading, crisp clean outline, "
+    "simple and stylized yet anatomically accurate fins body shape and proportions, "
+    "true-to-life species markings and natural coloration, "
+    "plain solid white background, sticker style, no text, no watermark, no border, "
+    "no fishing hook, no water"
 )
 
 
 def prompt_for(sp: dict) -> str:
     common = sp.get("commonName", "").strip()
     sci = sp.get("scientificName", "").strip()
-    subject = f"a {common} fish ({sci})" if common else f"a {sci} fish"
-    return f"{subject}, {STYLE}"
+    # Lead with the scientific name for species accuracy.
+    subject = f"{sci}" + (f", the {common}," if common else "")
+    return f"{subject} fish, {STYLE}"
 
 
 def pollinations_url(prompt: str, seed: int) -> str:
@@ -92,6 +96,45 @@ def key_white_to_transparent(img: Image.Image) -> Image.Image:
     return img
 
 
+def facing_right(img: Image.Image) -> bool:
+    """Head-heavy side detection: a fish's head+body is bulkier than the
+    tapering tail, so the alpha centroid biases toward the head. If it sits
+    in the right half, the fish faces right and should be flipped to face
+    left (consistent direction across the whole set, like Catchr)."""
+    a = img.getchannel("A").resize((64, 64))
+    px = a.load()
+    total = 0
+    sx = 0
+    for y in range(64):
+        for x in range(64):
+            if px[x, y] > 25:
+                total += 1
+                sx += x
+    if total == 0:
+        return False
+    return (sx / total) > 32
+
+
+def is_low_quality(img: Image.Image) -> bool:
+    """Reject near-black or near-greyscale renders (the 'dark crappie' failure)."""
+    rgb = img.convert("RGB").resize((48, 48))
+    a = img.getchannel("A").resize((48, 48))
+    rp = rgb.load()
+    ap = a.load()
+    lum = sat = 0.0
+    n = 0
+    for y in range(48):
+        for x in range(48):
+            if ap[x, y] > 25:
+                r, g, b = rp[x, y]
+                lum += (r + g + b) / 3
+                sat += max(r, g, b) - min(r, g, b)
+                n += 1
+    if n < 60:  # almost nothing drawn
+        return True
+    return (lum / n) < 48 or (sat / n) < 12
+
+
 def write_imageset(species_id: int, img: Image.Image) -> None:
     imageset = ASSET_DIR / f"fish_{species_id}.imageset"
     imageset.mkdir(parents=True, exist_ok=True)
@@ -116,24 +159,33 @@ def generate_one(sp: dict, force: bool) -> bool:
     sid = int(sp["id"])
     if has_png(sid) and not force:
         return True
-    url = pollinations_url(prompt_for(sp), seed=1000 + sid)
-    for attempt in range(3):
+    prompt = prompt_for(sp)
+    last: Image.Image | None = None
+    for attempt in range(4):
+        seed = 1000 + sid + attempt * 7919  # vary seed on retry
         try:
-            r = requests.get(url, timeout=45)
+            r = requests.get(pollinations_url(prompt, seed), timeout=45)
             ctype = r.headers.get("content-type", "")
             if r.status_code == 200 and ctype.startswith("image"):
                 img = Image.open(BytesIO(r.content)).convert("RGB")
                 img = key_white_to_transparent(img)
-                img = img.resize((OUT_PX, OUT_PX), Image.LANCZOS)
-                write_imageset(sid, img)
-                print(f"  ok fish_{sid} {sp.get('commonName')} ({len(r.content)//1024}KB)")
-                return True
-            print(f"  retry fish_{sid}: HTTP {r.status_code} {ctype} (attempt {attempt+1})")
-            wait = 3 * (attempt + 1)
+                if facing_right(img):
+                    img = img.transpose(Image.FLIP_LEFT_RIGHT)  # force facing-left
+                last = img
+                # Accept when the render is good, or on the final attempt.
+                if not is_low_quality(img) or attempt == 3:
+                    write_imageset(sid, img.resize((OUT_PX, OUT_PX), Image.LANCZOS))
+                    print(f"  ok fish_{sid} {sp.get('commonName')} (attempt {attempt+1})")
+                    return True
+                print(f"  redo fish_{sid}: low-quality render, retrying")
+            else:
+                print(f"  retry fish_{sid}: HTTP {r.status_code} {ctype} (attempt {attempt+1})")
         except Exception as e:  # noqa: BLE001
             print(f"  retry fish_{sid}: {type(e).__name__} (attempt {attempt+1})")
-            wait = 4 * (attempt + 1)
-        time.sleep(wait)
+        time.sleep(3 * (attempt + 1))
+    if last is not None:
+        write_imageset(sid, last.resize((OUT_PX, OUT_PX), Image.LANCZOS))
+        return True
     print(f"  ! failed fish_{sid} ({sp.get('commonName')})")
     return False
 
