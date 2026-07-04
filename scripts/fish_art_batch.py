@@ -1,0 +1,230 @@
+#!/usr/bin/env python3
+"""
+Generate the full fish-illustration set via the Gemini **Batch API** — same
+Nano Banana (gemini-2.5-flash-image) model as the live path, at a flat 50%
+discount ($0.0195/image vs $0.039), processed within a 24h window. This is how
+we cover all ~1500 species at top quality while staying under budget.
+
+Two phases (run as separate CI steps; the job persists on Google's side):
+
+    python scripts/fish_art_batch.py submit          # queue all missing
+    python scripts/fish_art_batch.py submit --force   # queue ALL (uniform set)
+    python scripts/fish_art_batch.py submit --ids 1,301   # tiny test batch
+    python scripts/fish_art_batch.py collect          # poll; write art when done
+
+`submit` uploads one JSONL request file (each line redraws a species' real photo
+into a flat facing-left illustration) and records the batch job name in
+.fish_batch/job.json. `collect` polls that job; once it SUCCEEDS it downloads the
+results, post-processes each image (white→transparent, force facing-left, resize)
+and writes the imagesets. Re-running `collect` before completion just reports the
+state and exits — so a daily/hourly CI re-run drives it to done.
+
+Results persist on Google's side, so re-running `collect` never re-charges — only
+`submit` costs money.
+
+Env: GEMINI_API_KEY (paid tier required for batch).
+"""
+
+from __future__ import annotations
+
+import argparse
+import base64
+import json
+import os
+import time
+from io import BytesIO
+from pathlib import Path
+
+import requests
+from google import genai
+from google.genai import types
+from PIL import Image
+
+# Reuse the exact post-processing + reference logic from the live pipeline so the
+# batch set is stylistically identical to the samples already approved.
+from generate_fish_art import (
+    ASSET_DIR,
+    INSTRUCTION,
+    SEED_JSON,
+    facing_right,
+    fetch_ref_bytes,
+    has_png,
+    is_low_quality,
+    key_white_to_transparent,
+    ref_url,
+    write_imageset,
+)
+
+MODEL = os.environ.get("GEMINI_MODEL") or "gemini-2.5-flash-image"
+OUT_PX = 320  # crisp on retina grids; generation cost is independent of this
+STATE_DIR = Path(__file__).resolve().parents[1] / ".fish_batch"
+JOB_FILE = STATE_DIR / "job.json"
+REQ_FILE = STATE_DIR / "requests.jsonl"
+
+DONE_STATES = {
+    "JOB_STATE_SUCCEEDED",
+    "JOB_STATE_FAILED",
+    "JOB_STATE_CANCELLED",
+    "JOB_STATE_EXPIRED",
+}
+
+
+def client() -> genai.Client:
+    key = os.environ.get("GEMINI_API_KEY", "").strip()
+    if not key:
+        raise SystemExit("GEMINI_API_KEY is not set (paid tier required for batch).")
+    return genai.Client(api_key=key)
+
+
+def select(species: list[dict], force: bool, ids: str) -> list[dict]:
+    if ids:
+        want = {int(x) for x in ids.split(",") if x.strip()}
+        return [s for s in species if int(s["id"]) in want]
+    return [s for s in species if force or not has_png(int(s["id"]))]
+
+
+def build_request_line(sp: dict) -> dict:
+    raw, mime = fetch_ref_bytes(ref_url(sp))
+    b64 = base64.b64encode(raw).decode()
+    return {
+        "key": str(int(sp["id"])),
+        "request": {
+            "contents": [
+                {
+                    "role": "user",
+                    "parts": [
+                        {"text": INSTRUCTION},
+                        {"inlineData": {"mimeType": mime, "data": b64}},
+                    ],
+                }
+            ],
+            "generationConfig": {"responseModalities": ["IMAGE"]},
+        },
+    }
+
+
+def submit(force: bool, ids: str) -> None:
+    species = json.loads(SEED_JSON.read_text())
+    todo = select(species, force, ids)
+    print(f"{len(species)} species; {len(todo)} to queue for batch.")
+    if not todo:
+        print("Nothing to queue.")
+        return
+
+    STATE_DIR.mkdir(exist_ok=True)
+    n = 0
+    with REQ_FILE.open("w") as f:
+        for i, sp in enumerate(todo, start=1):
+            try:
+                line = build_request_line(sp)
+            except Exception as e:  # noqa: BLE001
+                print(f"  skip fish_{sp['id']}: ref fetch failed ({e})")
+                continue
+            f.write(json.dumps(line) + "\n")
+            n += 1
+            if i % 100 == 0:
+                print(f"  prepared {i}/{len(todo)} requests")
+            time.sleep(0.1)  # be polite to iNaturalist
+    print(f"Wrote {n} requests to {REQ_FILE} ({REQ_FILE.stat().st_size/1e6:.1f} MB).")
+
+    c = client()
+    up = c.files.upload(
+        file=str(REQ_FILE),
+        config=types.UploadFileConfig(display_name="fish-art-batch", mime_type="jsonl"),
+    )
+    print(f"Uploaded input file: {up.name}")
+    job = c.batches.create(model=MODEL, src=up.name)
+    print(f"Created batch job: {job.name} (state {job.state})")
+    JOB_FILE.write_text(json.dumps({"job": job.name, "input": up.name, "n": n}, indent=2))
+    print(f"Saved {JOB_FILE}. Run `collect` (repeatedly) until it succeeds.")
+
+
+def _state_name(state) -> str:
+    return getattr(state, "name", str(state))
+
+
+def _extract_image(response: dict) -> Image.Image | None:
+    for cand in (response or {}).get("candidates", []):
+        content = cand.get("content") or {}
+        for part in content.get("parts", []):
+            inline = part.get("inlineData") or part.get("inline_data")
+            if inline and inline.get("data"):
+                blob = base64.b64decode(inline["data"])
+                return Image.open(BytesIO(blob)).convert("RGB")
+    return None
+
+
+def _write(sid: int, img: Image.Image) -> None:
+    img = key_white_to_transparent(img)
+    if facing_right(img):
+        img = img.transpose(Image.FLIP_LEFT_RIGHT)  # uniform: all face left
+    write_imageset(sid, img.resize((OUT_PX, OUT_PX), Image.LANCZOS))
+
+
+def collect() -> None:
+    if not JOB_FILE.exists():
+        raise SystemExit("No .fish_batch/job.json — run `submit` first.")
+    meta = json.loads(JOB_FILE.read_text())
+    c = client()
+    job = c.batches.get(name=meta["job"])
+    state = _state_name(job.state)
+    print(f"Batch {meta['job']}: {state}")
+    if state not in DONE_STATES:
+        print("Still processing — re-run `collect` later.")
+        return
+    if state != "JOB_STATE_SUCCEEDED":
+        raise SystemExit(f"Batch ended in {state}; inspect the job on Google's side.")
+
+    written = failed = 0
+    dest = job.dest
+
+    def handle(key: str, response: dict) -> None:
+        nonlocal written, failed
+        try:
+            sid = int(key)
+        except (TypeError, ValueError):
+            return
+        img = _extract_image(response)
+        if img is None or is_low_quality(key_white_to_transparent(img)):
+            failed += 1
+            print(f"  ! no/low image for fish_{key}")
+            return
+        _write(sid, img)
+        written += 1
+
+    if getattr(dest, "inlined_responses", None):
+        for item in dest.inlined_responses:
+            resp = item.response
+            resp = resp.to_json_dict() if hasattr(resp, "to_json_dict") else resp
+            handle(getattr(item, "key", None) or (item.metadata or {}).get("key"), resp)
+    else:
+        raw = c.files.download(file=dest.file_name)
+        for line in raw.decode("utf-8").strip().split("\n"):
+            if not line:
+                continue
+            obj = json.loads(line)
+            key = obj.get("key") or (obj.get("metadata") or {}).get("key")
+            handle(key, obj.get("response") or {})
+
+    print(f"Collected: {written} written, {failed} missing/low.")
+    remaining = sum(1 for s in json.loads(SEED_JSON.read_text()) if not has_png(int(s["id"])))
+    print(f"{remaining} species still without art.")
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser()
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    s = sub.add_parser("submit")
+    s.add_argument("--force", action="store_true", help="queue ALL species (uniform set)")
+    s.add_argument("--ids", type=str, default="", help="comma-separated ids (test batch)")
+    sub.add_parser("collect")
+    args = ap.parse_args()
+
+    if args.cmd == "submit":
+        submit(args.force, args.ids)
+    else:
+        collect()
+
+
+if __name__ == "__main__":
+    main()
