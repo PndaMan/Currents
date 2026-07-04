@@ -572,13 +572,27 @@ struct LogCatchView: View {
         isClassifying = true
         autoSelectedFromML = false
         Task {
-            let predictions = (try? await appState.fishClassifier.classify(image: image)) ?? []
-            mlPredictions = predictions
-            speciesMatches = SpeciesMatcher.matches(for: predictions, in: allSpecies)
+            // Primary: visual similarity against the bundled species gallery —
+            // label space is exactly the app's species, so it distinguishes
+            // gamefish (e.g. largemouth bass vs brook trout).
+            let byId = Dictionary(uniqueKeysWithValues: allSpecies.map { ($0.id, $0) })
+            let ranked = await appState.visualIdentifier.identify(image: image)
+            var matches: [SpeciesMatcher.Match] = ranked.compactMap { r in
+                guard let sp = byId[r.speciesId] else { return nil }
+                return SpeciesMatcher.Match(species: sp, confidence: r.confidence)
+            }
+
+            // Fallback: if the gallery isn't ready yet, use the classifier +
+            // name matcher.
+            if matches.isEmpty {
+                let predictions = (try? await appState.fishClassifier.classify(image: image)) ?? []
+                mlPredictions = predictions
+                matches = SpeciesMatcher.matches(for: predictions, in: allSpecies)
+            }
+
+            speciesMatches = matches
             isClassifying = false
 
-            // Auto-select the top matched species unless the user already
-            // chose one. This is the "auto-select instead of keywords" behaviour.
             if let top = speciesMatches.first, selectedSpeciesId == nil {
                 selectSpecies(top.species)
                 autoSelectedFromML = true

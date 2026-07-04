@@ -41,7 +41,6 @@ struct MapTab: View {
     @State private var isLoadingWaterbodies = false
     @State private var waterbodyDebounceTask: Task<Void, Never>?
     @State private var currentLatSpan: Double = 1.0
-    @State private var showingOfflineMap = false
     @State private var lastMapCenter: CLLocationCoordinate2D?
 
     enum MapStyleOption: String, CaseIterable {
@@ -215,13 +214,6 @@ struct MapTab: View {
                         mapButton(icon: showCatchPins ? "fish.fill" : "fish")
                     }
 
-                    // Offline cached map
-                    Button {
-                        showingOfflineMap = true
-                    } label: {
-                        mapButton(icon: "square.and.arrow.down.on.square")
-                    }
-
                     // Species browser
                     Button {
                         showingSpeciesBrowser = true
@@ -343,13 +335,6 @@ struct MapTab: View {
                 AddSpotSheet()
                     .presentationDetents([.medium])
                     .presentationBackground(.ultraThinMaterial)
-            }
-            .fullScreenCover(isPresented: $showingOfflineMap) {
-                OfflineMapView(
-                    center: lastMapCenter
-                        ?? appState.locationManager.currentLocation?.coordinate
-                        ?? CLLocationCoordinate2D(latitude: -33.9, longitude: 18.4)
-                )
             }
             .sheet(isPresented: $showingSpeciesBrowser) {
                 NavigationStack {
