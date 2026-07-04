@@ -1,25 +1,20 @@
-name: Build Fish ID Model
+name: Build Fish ID Model (BioCLIP)
 
-# Builds the on-device CoreML fish classifier and publishes it as a release
-# asset (FishID.mlmodel). The app auto-downloads and compiles it on first run.
+# Converts the BioCLIP image encoder to CoreML and precomputes a text
+# embedding for every app species, then publishes the model as a release
+# asset and commits the embeddings. The app auto-downloads the model and
+# cosine-matches image↔species embeddings on-device (offline) over the exact
+# app species list.
 #
-# The app build sandbox has no network, so this cannot run there. Provide the
-# FishNet checkpoint + classes as workflow inputs (URLs) or commit them to an
-# ml/artifacts/ path the job can read.
+# The app build sandbox has no network, so this runs on a GitHub runner.
 
 on:
   workflow_dispatch:
     inputs:
-      checkpoint_url:
-        description: "URL of the FishNet .pth checkpoint"
-        required: true
-      classes_url:
-        description: "URL of the newline-delimited classes.txt (scientific names)"
-        required: true
-      quantize:
-        description: "INT8 quantize to shrink the model"
+      variant:
+        description: "BioCLIP variant"
         required: false
-        default: "true"
+        default: "bioclip"
 
 permissions:
   contents: write
@@ -35,32 +30,33 @@ jobs:
           python-version: "3.11"
 
       - name: Install dependencies
-        run: pip install torch torchvision coremltools requests tqdm
+        run: pip install open_clip_torch torch coremltools numpy
 
-      - name: Fetch checkpoint + classes
+      - name: Convert BioCLIP → CoreML + species embeddings
         run: |
-          curl -L "${{ github.event.inputs.checkpoint_url }}" -o checkpoint.pth
-          curl -L "${{ github.event.inputs.classes_url }}" -o classes.txt
-          wc -l classes.txt
-
-      - name: Convert to single-file CoreML
-        run: |
-          QFLAG=""
-          if [ "${{ github.event.inputs.quantize }}" = "false" ]; then QFLAG="--no-quantize"; fi
-          python ml/download_and_convert.py \
-            --checkpoint checkpoint.pth \
-            --classes classes.txt \
-            --output FishID.mlmodel \
-            $QFLAG
+          python ml/bioclip_to_coreml.py --out FishID.mlmodel
           ls -lh FishID.mlmodel
+          ls -lh ios/Currents/Resources/Data/species_embeddings.bin
 
-      - name: Publish to release
+      - name: Commit species embeddings
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add ios/Currents/Resources/Data/species_embeddings.bin
+          if git diff --cached --quiet; then
+            echo "No embedding changes."
+          else
+            git commit -m "Update BioCLIP species text embeddings"
+            git push
+          fi
+
+      - name: Publish model to release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: fish-model
-          name: Fish ID Model
+          name: Fish ID Model (BioCLIP)
           files: FishID.mlmodel
           body: |
-            On-device CoreML fish classifier. The app downloads this from
-            the `latest` release automatically; keep this tag as the newest
-            release, or set the `FishModelURL` Info.plist key to pin a URL.
+            BioCLIP image encoder (512-d embeddings) for on-device fish ID.
+            The app downloads this from the `latest`/`fish-model` release and
+            cosine-matches against the bundled species_embeddings.bin.

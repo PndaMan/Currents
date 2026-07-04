@@ -8,6 +8,8 @@ final class AppState {
     let db: AppDatabase
     let locationManager = LocationManager()
     let fishClassifier = FishClassifier()
+    let visualIdentifier = VisualSpeciesIdentifier()
+    let embeddingIdentifier = EmbeddingSpeciesIdentifier()
     let mapManager = MapManager()
 
     // Repositories (share the db)
@@ -44,6 +46,12 @@ final class AppState {
             await fishClassifier.loadModel()
         }
         try? speciesRepository.seedIfEmpty()
+
+        // Build the visual species gallery in the background (cached to disk).
+        let speciesForIndex = (try? speciesRepository.fetchAll()) ?? []
+        Task.detached(priority: .utility) { [visualIdentifier] in
+            await visualIdentifier.build(species: speciesForIndex)
+        }
         try? gearCatalogRepository.seedIfEmpty()
         try? waterbodyRepository.seedIfEmpty()
 

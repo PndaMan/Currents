@@ -18,6 +18,11 @@ final class OfflineTileOverlay: MKTileOverlay {
     private let cacheDir: URL
     private let session: URLSession
 
+    /// Hard cap on the on-disk tile cache. Oldest tiles are evicted past this
+    /// so the automatic caching can't grow unbounded.
+    static let maxCacheBytes: Int64 = 180 * 1024 * 1024   // 180 MB
+    private var writesSinceSweep = 0
+
     init() {
         let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
         self.cacheDir = caches.appendingPathComponent("MapTiles", isDirectory: true)
@@ -60,16 +65,51 @@ final class OfflineTileOverlay: MKTileOverlay {
         }
 
         // 2. Fetch, cache to disk, return.
-        let task = session.dataTask(with: url(forTilePath: path)) { data, _, error in
+        let task = session.dataTask(with: url(forTilePath: path)) { [weak self] data, _, error in
             if let data {
                 try? FileManager.default.createDirectory(
                     at: cached.deletingLastPathComponent(), withIntermediateDirectories: true
                 )
                 try? data.write(to: cached, options: .atomic)
+                self?.noteWriteAndMaybeSweep()
             }
             result(data, error)
         }
         task.resume()
+    }
+
+    /// Periodically evict the oldest tiles once the cache exceeds the cap.
+    private func noteWriteAndMaybeSweep() {
+        writesSinceSweep += 1
+        guard writesSinceSweep >= 100 else { return }
+        writesSinceSweep = 0
+        DispatchQueue.global(qos: .utility).async { [cacheDir] in
+            Self.evictIfOverCap(cacheDir: cacheDir, cap: Self.maxCacheBytes)
+        }
+    }
+
+    private static func evictIfOverCap(cacheDir: URL, cap: Int64) {
+        let keys: [URLResourceKey] = [.fileSizeKey, .contentAccessDateKey, .isRegularFileKey]
+        guard let en = FileManager.default.enumerator(at: cacheDir, includingPropertiesForKeys: keys) else { return }
+        var files: [(url: URL, size: Int64, atime: Date)] = []
+        var total: Int64 = 0
+        for case let url as URL in en {
+            let v = try? url.resourceValues(forKeys: Set(keys))
+            guard v?.isRegularFile == true else { continue }
+            let size = Int64(v?.fileSize ?? 0)
+            total += size
+            files.append((url, size, v?.contentAccessDate ?? .distantPast))
+        }
+        guard total > cap else { return }
+        // Evict least-recently-accessed until we're at 80% of the cap.
+        files.sort { $0.atime < $1.atime }
+        var freed: Int64 = 0
+        let target = total - Int64(Double(cap) * 0.8)
+        for f in files {
+            if freed >= target { break }
+            try? FileManager.default.removeItem(at: f.url)
+            freed += f.size
+        }
     }
 
     /// Async wrapper used by the prefetcher.

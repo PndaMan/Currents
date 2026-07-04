@@ -572,13 +572,35 @@ struct LogCatchView: View {
         isClassifying = true
         autoSelectedFromML = false
         Task {
-            let predictions = (try? await appState.fishClassifier.classify(image: image)) ?? []
-            mlPredictions = predictions
-            speciesMatches = SpeciesMatcher.matches(for: predictions, in: allSpecies)
+            let byId = Dictionary(uniqueKeysWithValues: allSpecies.map { ($0.id, $0) })
+            var matches: [SpeciesMatcher.Match] = []
+
+            // 1. BioCLIP embedding model (most accurate) — only if downloaded.
+            let embedRanked = await appState.embeddingIdentifier.identify(image: image)
+            matches = embedRanked.compactMap { r in
+                byId[r.speciesId].map { SpeciesMatcher.Match(species: $0, confidence: r.confidence) }
+            }
+
+            // 2. Visual similarity against the bundled species gallery (offline,
+            //    always available) — label space is exactly the app's species,
+            //    so it distinguishes gamefish (largemouth bass vs brook trout).
+            if matches.isEmpty {
+                let ranked = await appState.visualIdentifier.identify(image: image)
+                matches = ranked.compactMap { r in
+                    byId[r.speciesId].map { SpeciesMatcher.Match(species: $0, confidence: r.confidence) }
+                }
+            }
+
+            // 3. Last resort: Apple Vision classifier + name matcher.
+            if matches.isEmpty {
+                let predictions = (try? await appState.fishClassifier.classify(image: image)) ?? []
+                mlPredictions = predictions
+                matches = SpeciesMatcher.matches(for: predictions, in: allSpecies)
+            }
+
+            speciesMatches = matches
             isClassifying = false
 
-            // Auto-select the top matched species unless the user already
-            // chose one. This is the "auto-select instead of keywords" behaviour.
             if let top = speciesMatches.first, selectedSpeciesId == nil {
                 selectSpecies(top.species)
                 autoSelectedFromML = true
