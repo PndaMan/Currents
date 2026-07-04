@@ -10,19 +10,24 @@ to the actual species (text-to-image just invents a plausible fish). Output is
 a transparent PNG at 160px that replaces the collection artwork; the app greys
 it out until caught.
 
-Model is `google/gemini-2.5-flash-image` (Nano Banana) by default — the image
-model on OpenRouter that supports image-EDIT (image in, image out) through the
-chat endpoint. Swappable via the OR_MODEL env var.
+Both providers use Google's Gemini 2.5 Flash Image ("Nano Banana"), which does
+image-EDIT (image in, image out) — the illustration stays accurate because it
+redraws the real photo. Provider is chosen by which key is set:
+  * GEMINI_API_KEY    → Google's native API directly (free tier ~500 img/day, $0)
+  * OPENROUTER_API_KEY→ same model via OpenRouter (paid, ~$0.039/img)
+GEMINI_API_KEY wins if both are present.
 
 The job is RESUMABLE: species that already have a PNG imageset are skipped, so
-if the API rate-limits or the CI run times out, just re-run the workflow and it
-continues where it left off.
+if the API rate-limits, hits the daily free quota, or the CI run times out, just
+re-run the workflow and it continues where it left off.
 
 Env
 ---
-    OPENROUTER_API_KEY   required — your OpenRouter key
+    GEMINI_API_KEY       Google AI Studio key (free tier) — preferred
+    OPENROUTER_API_KEY   OpenRouter key (paid fallback)
+    GEMINI_MODEL         optional — default "gemini-2.5-flash-image"
     OR_MODEL             optional — default "google/gemini-2.5-flash-image"
-    OR_ASPECT            optional — image_config aspect_ratio (e.g. "1:1"); off if unset
+    OR_ASPECT            optional — OpenRouter image_config aspect_ratio (e.g. "1:1")
 
 Usage
 -----
@@ -54,6 +59,15 @@ OUT_PX = 160
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 OR_MODEL = os.environ.get("OR_MODEL") or "google/gemini-2.5-flash-image"
 OR_ASPECT = os.environ.get("OR_ASPECT", "").strip()
+
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL") or "gemini-2.5-flash-image"
+GEMINI_URL = (
+    "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+)
+
+
+class QuotaExceeded(Exception):
+    """Raised on HTTP 429 — the daily free-tier quota is spent; stop and resume later."""
 
 # img2img: redraw the REAL reference photo so the species stays accurate.
 INSTRUCTION = (
@@ -116,6 +130,59 @@ def openrouter_edit(prompt: str, ref: str, api_key: str) -> Image.Image | None:
     else:  # provider returned a plain URL
         raw = requests.get(url, timeout=90).content
     return Image.open(BytesIO(raw)).convert("RGB")
+
+
+def fetch_ref_bytes(ref: str) -> tuple[bytes, str]:
+    """Download the reference photo so it can be sent inline to Gemini."""
+    r = requests.get(ref, timeout=60)
+    r.raise_for_status()
+    mime = (r.headers.get("content-type", "") or "").split(";")[0].strip()
+    if not mime.startswith("image"):
+        mime = "image/jpeg"
+    return r.content, mime
+
+
+def gemini_edit(prompt: str, ref: str, api_key: str) -> Image.Image | None:
+    """Google's native Gemini API in edit mode: prompt + reference photo in,
+    redrawn image out. Raises QuotaExceeded on 429 (daily free-tier limit)."""
+    raw, mime = fetch_ref_bytes(ref)
+    payload = {
+        "contents": [
+            {
+                "role": "user",
+                "parts": [
+                    {"text": prompt},
+                    {"inline_data": {"mime_type": mime,
+                                     "data": base64.b64encode(raw).decode()}},
+                ],
+            }
+        ],
+        "generationConfig": {"responseModalities": ["IMAGE"]},
+    }
+    r = requests.post(
+        GEMINI_URL.format(model=GEMINI_MODEL),
+        params={"key": api_key},
+        json=payload,
+        timeout=180,
+    )
+    if r.status_code == 429:
+        raise QuotaExceeded(r.text[:180])
+    if r.status_code != 200:
+        raise RuntimeError(f"HTTP {r.status_code}: {r.text[:180]}")
+    data = r.json()
+    for cand in data.get("candidates", []):
+        for part in cand.get("content", {}).get("parts", []):
+            inline = part.get("inlineData") or part.get("inline_data")
+            if inline and inline.get("data"):
+                blob = base64.b64decode(inline["data"])
+                return Image.open(BytesIO(blob)).convert("RGB")
+    raise RuntimeError(f"no image in response: {json.dumps(data)[:180]}")
+
+
+def edit_image(prompt: str, ref: str, api_key: str, provider: str) -> Image.Image | None:
+    if provider == "gemini":
+        return gemini_edit(prompt, ref, api_key)
+    return openrouter_edit(prompt, ref, api_key)
 
 
 def key_white_to_transparent(img: Image.Image) -> Image.Image:
@@ -228,7 +295,7 @@ def has_png(species_id: int) -> bool:
     return (ASSET_DIR / f"fish_{species_id}.imageset" / f"fish_{species_id}.png").exists()
 
 
-def generate_one(sp: dict, force: bool, api_key: str) -> bool:
+def generate_one(sp: dict, force: bool, api_key: str, provider: str) -> bool:
     sid = int(sp["id"])
     if has_png(sid) and not force:
         return True
@@ -236,7 +303,7 @@ def generate_one(sp: dict, force: bool, api_key: str) -> bool:
     last: Image.Image | None = None
     for attempt in range(4):
         try:
-            raw = openrouter_edit(INSTRUCTION, ref, api_key)
+            raw = edit_image(INSTRUCTION, ref, api_key, provider)
             if raw is not None:
                 img = key_white_to_transparent(raw)
                 if facing_right(img):
@@ -248,6 +315,8 @@ def generate_one(sp: dict, force: bool, api_key: str) -> bool:
                     print(f"  ok fish_{sid} {sp.get('commonName')} (attempt {attempt+1})")
                     return True
                 print(f"  redo fish_{sid}: low-quality render, retrying")
+        except QuotaExceeded:
+            raise  # stop the whole run; resume when quota resets
         except Exception as e:  # noqa: BLE001
             print(f"  retry fish_{sid}: {e} (attempt {attempt+1})")
         time.sleep(3 * (attempt + 1))
@@ -262,14 +331,23 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--limit", type=int, default=0, help="max to generate this run (0 = all)")
     ap.add_argument("--force", action="store_true")
-    ap.add_argument("--delay", type=float, default=1.5, help="polite delay between requests (s)")
+    ap.add_argument("--delay", type=float, default=0.0, help="delay between requests (s); 0 = auto per provider")
     ap.add_argument("--ids", type=str, default="", help="comma-separated species ids to (re)generate for testing")
     args = ap.parse_args()
 
-    api_key = os.environ.get("OPENROUTER_API_KEY", "").strip()
-    if not api_key:
-        raise SystemExit("OPENROUTER_API_KEY is not set (add it as a GitHub secret).")
-    print(f"Model: {OR_MODEL} (aspect={OR_ASPECT or 'default'})")
+    gem = os.environ.get("GEMINI_API_KEY", "").strip()
+    orr = os.environ.get("OPENROUTER_API_KEY", "").strip()
+    if gem:
+        provider, api_key = "gemini", gem
+        print(f"Provider: Gemini native (free tier) — model {GEMINI_MODEL}")
+    elif orr:
+        provider, api_key = "openrouter", orr
+        print(f"Provider: OpenRouter — model {OR_MODEL} (aspect={OR_ASPECT or 'default'})")
+    else:
+        raise SystemExit("Set GEMINI_API_KEY (free tier) or OPENROUTER_API_KEY as a GitHub secret.")
+
+    # Free Gemini tier allows ~15 req/min; pace to stay under it.
+    delay = args.delay if args.delay else (4.5 if provider == "gemini" else 1.5)
 
     species = json.loads(SEED_JSON.read_text())
     if args.ids:
@@ -284,11 +362,16 @@ def main() -> None:
     force = args.force or bool(args.ids)  # --ids always regenerates
     done = 0
     for i, sp in enumerate(todo, start=1):
-        if generate_one(sp, force, api_key):
-            done += 1
+        try:
+            if generate_one(sp, force, api_key, provider):
+                done += 1
+        except QuotaExceeded as e:
+            print(f"Daily free-tier quota reached after {done} — resume when it "
+                  f"resets (re-run the workflow). {e}")
+            break
         if i % 25 == 0:
             print(f"  {i}/{len(todo)} processed ({done} ok)")
-        time.sleep(args.delay)
+        time.sleep(delay)
 
     remaining = sum(1 for s in species if not has_png(int(s["id"])))
     print(f"Done: {done} generated. {remaining} still missing "
