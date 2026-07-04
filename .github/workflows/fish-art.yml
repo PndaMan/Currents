@@ -1,8 +1,10 @@
 name: Generate Fish Illustrations
 
-# Generates flat per-species fish illustrations (Catchr style) for free via
-# Pollinations.ai and commits them. Resumable: re-run until all species have
-# art (the script skips ones already done). Replaces the photo thumbnails.
+# Generates flat per-species fish illustrations (Catchr style) by redrawing
+# each species' real reference photo with an image-edit model (gpt-image-1 via
+# OpenRouter) and commits them. Needs the OPENROUTER_API_KEY repo secret.
+# Resumable: re-run until all species have art (the script skips ones already
+# done). Replaces the photo thumbnails.
 
 on:
   workflow_dispatch:
@@ -19,6 +21,14 @@ on:
         description: "Comma-separated species ids to (re)generate (testing)"
         required: false
         default: ""
+      model:
+        description: "OpenRouter image model"
+        required: false
+        default: "openai/gpt-image-1"
+      quality:
+        description: "Image quality (low/medium/high) — low is plenty for a 160px thumb"
+        required: false
+        default: "low"
 
 permissions:
   contents: write
@@ -38,6 +48,10 @@ jobs:
         run: pip install requests pillow
 
       - name: Generate illustrations
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          OR_MODEL: ${{ github.event.inputs.model }}
+          OR_QUALITY: ${{ github.event.inputs.quality }}
         run: |
           ARGS="--limit ${{ github.event.inputs.limit }}"
           if [ "${{ github.event.inputs.force }}" = "true" ]; then ARGS="$ARGS --force"; fi

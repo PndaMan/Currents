@@ -1,16 +1,27 @@
 #!/usr/bin/env python3
 """
-Generate flat per-species fish illustrations (Catchr style) for free.
+Generate flat per-species fish illustrations (Catchr style).
 
 No public database of consistent flat fish illustrations exists, so we
-generate them with Pollinations.ai — a free, no-key image API (Flux/SDXL).
-Each species gets a side-profile flat illustration in one consistent style,
-keyed on its common + scientific name. Output is a transparent PNG at 160px
-that replaces the collection artwork; the app greys it out until caught.
+generate them with an image-EDIT model via OpenRouter's unified image API:
+each species' REAL reference photo (iNaturalist / bundled thumbnail) is fed in
+and redrawn as a clean flat 2D vector fish, so the illustration stays accurate
+to the actual species (text-to-image just invents a plausible fish). Output is
+a transparent PNG at 160px that replaces the collection artwork; the app greys
+it out until caught.
 
-The job is RESUMABLE: species that already have a PNG imageset are skipped,
-so if Pollinations rate-limits or the CI run times out, just re-run the
-workflow and it continues where it left off.
+Model is `openai/gpt-image-1` by default (best accuracy/consistency), swappable
+via the OR_MODEL env var (e.g. `google/gemini-2.5-flash-image` — cheaper).
+
+The job is RESUMABLE: species that already have a PNG imageset are skipped, so
+if the API rate-limits or the CI run times out, just re-run the workflow and it
+continues where it left off.
+
+Env
+---
+    OPENROUTER_API_KEY   required — your OpenRouter key
+    OR_MODEL             optional — default "openai/gpt-image-1"
+    OR_QUALITY           optional — default "low" (cheap; plenty for a 160px thumb)
 
 Usage
 -----
@@ -23,9 +34,10 @@ Usage
 from __future__ import annotations
 
 import argparse
+import base64
 import json
+import os
 import time
-import urllib.parse
 from io import BytesIO
 from pathlib import Path
 
@@ -37,7 +49,10 @@ SEED_JSON = REPO / "ios/Currents/Resources/Data/species_seed.json"
 ASSET_DIR = REPO / "ios/Currents/Resources/Assets.xcassets/Fish"
 
 OUT_PX = 160
-GEN_PX = 384  # generate larger, downscale for crisp edges
+
+OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
+OR_MODEL = os.environ.get("OR_MODEL", "openai/gpt-image-1")
+OR_QUALITY = os.environ.get("OR_QUALITY", "low")
 
 # img2img: redraw the REAL reference photo so the species stays accurate.
 INSTRUCTION = (
@@ -61,15 +76,45 @@ def ref_url(sp: dict) -> str:
     return (sp.get("imageUrl") or "").strip() or GITHUB_RAW.format(id=int(sp["id"]))
 
 
-def pollinations_url(prompt: str, seed: int, ref: str | None = None) -> str:
-    enc = urllib.parse.quote(prompt, safe="")
-    url = (
-        f"https://image.pollinations.ai/prompt/{enc}"
-        f"?width={GEN_PX}&height={GEN_PX}&seed={seed}&model=kontext&nologo=true"
-    )
-    if ref:
-        url += f"&image={urllib.parse.quote(ref, safe='')}"
-    return url
+def openrouter_edit(prompt: str, ref: str, api_key: str) -> Image.Image | None:
+    """Call OpenRouter's unified image API in edit mode: prompt + reference photo
+    in, redrawn image out. Returns a PIL image, or None on failure."""
+    payload = {
+        "model": OR_MODEL,
+        "modalities": ["image", "text"],
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt},
+                    {"type": "image_url", "image_url": {"url": ref}},
+                ],
+            }
+        ],
+    }
+    if OR_QUALITY:
+        payload["image_config"] = {"quality": OR_QUALITY}
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://github.com/PndaMan/Currents",
+        "X-Title": "Currents Fish Art",
+    }
+    r = requests.post(OPENROUTER_URL, json=payload, headers=headers, timeout=180)
+    if r.status_code != 200:
+        raise RuntimeError(f"HTTP {r.status_code}: {r.text[:180]}")
+    data = r.json()
+    try:
+        images = data["choices"][0]["message"]["images"]
+        url = images[0]["image_url"]["url"]
+    except (KeyError, IndexError, TypeError):
+        raise RuntimeError(f"no image in response: {json.dumps(data)[:180]}")
+    if url.startswith("data:"):
+        b64 = url.split(",", 1)[1]
+        raw = base64.b64decode(b64)
+    else:  # provider returned a plain URL
+        raw = requests.get(url, timeout=90).content
+    return Image.open(BytesIO(raw)).convert("RGB")
 
 
 def key_white_to_transparent(img: Image.Image) -> Image.Image:
@@ -182,20 +227,17 @@ def has_png(species_id: int) -> bool:
     return (ASSET_DIR / f"fish_{species_id}.imageset" / f"fish_{species_id}.png").exists()
 
 
-def generate_one(sp: dict, force: bool) -> bool:
+def generate_one(sp: dict, force: bool, api_key: str) -> bool:
     sid = int(sp["id"])
     if has_png(sid) and not force:
         return True
     ref = ref_url(sp)
     last: Image.Image | None = None
     for attempt in range(4):
-        seed = 1000 + sid + attempt * 7919  # vary seed on retry
         try:
-            r = requests.get(pollinations_url(INSTRUCTION, seed, ref), timeout=90)
-            ctype = r.headers.get("content-type", "")
-            if r.status_code == 200 and ctype.startswith("image"):
-                img = Image.open(BytesIO(r.content)).convert("RGB")
-                img = key_white_to_transparent(img)
+            raw = openrouter_edit(INSTRUCTION, ref, api_key)
+            if raw is not None:
+                img = key_white_to_transparent(raw)
                 if facing_right(img):
                     img = img.transpose(Image.FLIP_LEFT_RIGHT)  # force facing-left
                 last = img
@@ -205,10 +247,8 @@ def generate_one(sp: dict, force: bool) -> bool:
                     print(f"  ok fish_{sid} {sp.get('commonName')} (attempt {attempt+1})")
                     return True
                 print(f"  redo fish_{sid}: low-quality render, retrying")
-            else:
-                print(f"  retry fish_{sid}: HTTP {r.status_code} {ctype} (attempt {attempt+1})")
         except Exception as e:  # noqa: BLE001
-            print(f"  retry fish_{sid}: {type(e).__name__} (attempt {attempt+1})")
+            print(f"  retry fish_{sid}: {e} (attempt {attempt+1})")
         time.sleep(3 * (attempt + 1))
     if last is not None:
         write_imageset(sid, last.resize((OUT_PX, OUT_PX), Image.LANCZOS))
@@ -225,6 +265,11 @@ def main() -> None:
     ap.add_argument("--ids", type=str, default="", help="comma-separated species ids to (re)generate for testing")
     args = ap.parse_args()
 
+    api_key = os.environ.get("OPENROUTER_API_KEY", "").strip()
+    if not api_key:
+        raise SystemExit("OPENROUTER_API_KEY is not set (add it as a GitHub secret).")
+    print(f"Model: {OR_MODEL} (quality={OR_QUALITY or 'default'})")
+
     species = json.loads(SEED_JSON.read_text())
     if args.ids:
         want = {int(x) for x in args.ids.split(",") if x.strip()}
@@ -238,7 +283,7 @@ def main() -> None:
     force = args.force or bool(args.ids)  # --ids always regenerates
     done = 0
     for i, sp in enumerate(todo, start=1):
-        if generate_one(sp, force):
+        if generate_one(sp, force, api_key):
             done += 1
         if i % 25 == 0:
             print(f"  {i}/{len(todo)} processed ({done} ok)")
