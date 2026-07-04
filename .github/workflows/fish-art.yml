@@ -1,34 +1,34 @@
 name: Generate Fish Illustrations
 
-# Generates flat per-species fish illustrations (Catchr style) by redrawing
-# each species' real reference photo with Gemini 2.5 Flash Image (Nano Banana)
-# and commits them. Uses the free Google tier if GEMINI_API_KEY is set, else
-# OpenRouter (OPENROUTER_API_KEY). Free tier is ~500 img/day, so it runs over a
-# few days; re-running just continues where it left off.
-# Resumable: re-run until all species have art (the script skips ones already
-# done). Replaces the photo thumbnails.
+# Flat per-species fish illustrations (Catchr style): each species' real photo is
+# redrawn into a facing-left flat illustration with Gemini 2.5 Flash Image (Nano
+# Banana). Needs the GEMINI_API_KEY repo secret (paid tier for batch).
+#
+# Modes (input `mode`):
+#   live     - synchronous, one image at a time (good for small/test runs);
+#              falls back to OpenRouter if only OPENROUTER_API_KEY is set
+#   submit   - queue the whole set as one Gemini Batch job (50% off); records
+#              .fish_batch/job.json
+#   collect  - poll the batch job; when it succeeds, download + write the art.
+#              Re-run collect until done (results persist, never re-charges).
 
 on:
   workflow_dispatch:
     inputs:
+      mode:
+        description: "live | submit | collect"
+        required: true
+        default: "collect"
       limit:
-        description: "Max images to generate this run (0 = all remaining)"
+        description: "live: max images this run (0 = all remaining)"
         required: false
         default: "0"
       force:
-        description: "Regenerate everything"
+        description: "regenerate ALL species (uniform set)"
         required: false
         default: "false"
       ids:
-        description: "Comma-separated species ids to (re)generate (testing)"
-        required: false
-        default: ""
-      model:
-        description: "OpenRouter image model"
-        required: false
-        default: "google/gemini-2.5-flash-image"
-      aspect:
-        description: "image_config aspect_ratio (e.g. 1:1); blank = model default"
+        description: "comma-separated species ids (test batch)"
         required: false
         default: ""
 
@@ -47,28 +47,36 @@ jobs:
           python-version: "3.12"
 
       - name: Install dependencies
-        run: pip install requests pillow
+        run: pip install requests pillow google-genai
 
-      - name: Generate illustrations
+      - name: Run
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-          OR_MODEL: ${{ github.event.inputs.model }}
-          OR_ASPECT: ${{ github.event.inputs.aspect }}
         run: |
-          ARGS="--limit ${{ github.event.inputs.limit }}"
-          if [ "${{ github.event.inputs.force }}" = "true" ]; then ARGS="$ARGS --force"; fi
-          if [ -n "${{ github.event.inputs.ids }}" ]; then ARGS="$ARGS --ids ${{ github.event.inputs.ids }}"; fi
-          python scripts/generate_fish_art.py $ARGS
+          MODE="${{ github.event.inputs.mode }}"
+          if [ "$MODE" = "submit" ]; then
+            ARGS="submit"
+            if [ "${{ github.event.inputs.force }}" = "true" ]; then ARGS="$ARGS --force"; fi
+            if [ -n "${{ github.event.inputs.ids }}" ]; then ARGS="$ARGS --ids ${{ github.event.inputs.ids }}"; fi
+            python scripts/fish_art_batch.py $ARGS
+          elif [ "$MODE" = "collect" ]; then
+            python scripts/fish_art_batch.py collect
+          else
+            ARGS="--limit ${{ github.event.inputs.limit }}"
+            if [ "${{ github.event.inputs.force }}" = "true" ]; then ARGS="$ARGS --force"; fi
+            if [ -n "${{ github.event.inputs.ids }}" ]; then ARGS="$ARGS --ids ${{ github.event.inputs.ids }}"; fi
+            python scripts/generate_fish_art.py $ARGS
+          fi
 
-      - name: Commit art
+      - name: Commit results
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add ios/Currents/Resources/Assets.xcassets/Fish
+          git add ios/Currents/Resources/Assets.xcassets/Fish .fish_batch/job.json 2>/dev/null || true
           if git diff --cached --quiet; then
-            echo "No new art."
+            echo "Nothing to commit."
           else
-            git commit -m "Add generated fish illustrations (batch)"
+            git commit -m "Fish art: ${{ github.event.inputs.mode }}"
             git push
           fi
