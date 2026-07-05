@@ -41,7 +41,12 @@ actor EmbeddingSpeciesIdentifier {
     func loadIfNeeded() {
         if !embeddingsLoaded {
             embeddingsLoaded = true
-            if let url = Bundle.main.url(forResource: "species_embeddings", withExtension: "bin"),
+            // The embeddings ship inside the Resources/Data FOLDER REFERENCE,
+            // so they live under "Data/" in the bundle — a root-level lookup
+            // returns nil, which silently killed this whole tier (the app then
+            // fell back to matching photos against the cartoon artwork).
+            if let url = Bundle.main.url(forResource: "species_embeddings", withExtension: "bin", subdirectory: "Data")
+                ?? Bundle.main.url(forResource: "species_embeddings", withExtension: "bin"),
                let data = try? Data(contentsOf: url) {
                 speciesEmbeddings = Self.parseEmbeddings(data)
             }

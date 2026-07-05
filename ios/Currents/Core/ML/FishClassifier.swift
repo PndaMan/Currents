@@ -70,7 +70,15 @@ actor FishClassifier {
     private func loadCachedModel() -> Bool {
         let cachedModelURL = Self.modelCacheURL.appendingPathComponent("FishID.mlmodelc")
         guard FileManager.default.fileExists(atPath: cachedModelURL.path),
-              let mlModel = try? MLModel(contentsOf: cachedModelURL),
+              let mlModel = try? MLModel(contentsOf: cachedModelURL) else {
+            return false
+        }
+        // The downloaded asset is the BioCLIP ENCODER (embedding output) used
+        // by EmbeddingSpeciesIdentifier — it is NOT a classifier. Only adopt
+        // it here when it actually predicts class labels; otherwise this
+        // classifier sticks to the Vision fallback and the encoder does its
+        // job in the embedding tier.
+        guard mlModel.modelDescription.predictedFeatureName != nil,
               let vnModel = try? VNCoreMLModel(for: mlModel) else {
             return false
         }
@@ -84,8 +92,14 @@ actor FishClassifier {
     /// already have it. Safe to call repeatedly; no-ops once loaded.
     func downloadModelIfNeeded() async {
         guard model == nil, let remote = Self.remoteModelURL else { return }
-        // Already compiled from a previous launch? Just load it.
-        if loadCachedModel() { return }
+        // Already compiled from a previous launch? Don't re-download — even
+        // when it's the encoder (unusable as a classifier here), the
+        // embedding identifier is the consumer of that file.
+        let compiledURL = Self.modelCacheURL.appendingPathComponent("FishID.mlmodelc")
+        if FileManager.default.fileExists(atPath: compiledURL.path) {
+            _ = loadCachedModel()
+            return
+        }
         do {
             let fm = FileManager.default
             let (tempURL, response) = try await URLSession.shared.download(from: remote)

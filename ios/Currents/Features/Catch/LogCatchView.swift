@@ -17,6 +17,7 @@ struct LogCatchView: View {
     @State private var speciesMatches: [SpeciesMatcher.Match] = []
     @State private var isClassifying = false
     @State private var autoSelectedFromML = false
+    @State private var usedAccurateModel = false
 
     // Catch data
     @State private var selectedSpeciesId: Int64?
@@ -259,7 +260,9 @@ struct LogCatchView: View {
                     .font(.caption)
                 }
             } footer: {
-                if autoSelectedFromML {
+                if !usedAccurateModel {
+                    Text("Rough visual guess — the accurate AI model is still downloading (needs internet once). Re-scan later or pick manually below.")
+                } else if autoSelectedFromML {
                     Text("Auto-selected the top match. Tap to change, or pick manually below.")
                 }
             }
@@ -576,10 +579,13 @@ struct LogCatchView: View {
             var matches: [SpeciesMatcher.Match] = []
 
             // 1. BioCLIP embedding model (most accurate) — only if downloaded.
+            // Nudge the download in case the startup attempt had no network.
+            await appState.fishClassifier.downloadModelIfNeeded()
             let embedRanked = await appState.embeddingIdentifier.identify(image: image)
             matches = embedRanked.compactMap { r in
                 byId[r.speciesId].map { SpeciesMatcher.Match(species: $0, confidence: r.confidence) }
             }
+            usedAccurateModel = !matches.isEmpty
 
             // 2. Visual similarity against the bundled species gallery (offline,
             //    always available) — label space is exactly the app's species,
