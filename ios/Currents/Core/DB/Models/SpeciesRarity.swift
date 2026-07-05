@@ -12,6 +12,10 @@ enum SpeciesRarity: Int, CaseIterable, Codable, Sendable, Comparable {
     case rare = 2
     case epic = 3
     case legendary = 4
+    /// Once-in-a-lifetime monsters that are, realistically, impossible to
+    /// catch on rod and line — great whites, whale sharks, oarfish. Only
+    /// assigned explicitly via `rarityRank`, never derived.
+    case mythical = 5
 
     static func < (lhs: SpeciesRarity, rhs: SpeciesRarity) -> Bool {
         lhs.rawValue < rhs.rawValue
@@ -24,6 +28,7 @@ enum SpeciesRarity: Int, CaseIterable, Codable, Sendable, Comparable {
         case .rare: "Rare"
         case .epic: "Epic"
         case .legendary: "Legendary"
+        case .mythical: "Mythical"
         }
     }
 
@@ -36,6 +41,7 @@ enum SpeciesRarity: Int, CaseIterable, Codable, Sendable, Comparable {
         case .rare: Color(red: 0.25, green: 0.55, blue: 0.95)        // blue
         case .epic: Color(red: 0.62, green: 0.35, blue: 0.90)        // purple
         case .legendary: Color(red: 0.95, green: 0.68, blue: 0.15)   // gold
+        case .mythical: Color(red: 0.90, green: 0.20, blue: 0.30)    // crimson
         }
     }
 
@@ -46,6 +52,7 @@ enum SpeciesRarity: Int, CaseIterable, Codable, Sendable, Comparable {
         case .rare: "seal.fill"
         case .epic: "hexagon.fill"
         case .legendary: "crown.fill"
+        case .mythical: "flame.fill"
         }
     }
 }
