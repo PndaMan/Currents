@@ -48,6 +48,12 @@ final class AppState {
         try? gearCatalogRepository.seedIfEmpty()
         try? waterbodyRepository.seedIfEmpty()
 
+        // Pull any newly published catalog gear (stored locally, so the
+        // whole catalog keeps working offline once synced).
+        Task { [db] in
+            await GearCatalogSync.syncIfDue(db: db)
+        }
+
         locationManager.requestPermission()
         mapManager.refreshDownloadedRegions()
     }

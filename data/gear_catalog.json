@@ -1,0 +1,3262 @@
+[
+ {
+  "id": 1,
+  "category": "Rod",
+  "brand": "Shimano",
+  "model": "Zodias 6ft 8in M",
+  "type": "Spinning",
+  "specs": "2-piece, fast action",
+  "targetSpecies": "Bass, Walleye",
+  "priceRange": "$$"
+ },
+ {
+  "id": 2,
+  "category": "Rod",
+  "brand": "St. Croix",
+  "model": "Premier 7ft MF",
+  "type": "Spinning",
+  "specs": "Medium fast, SCII graphite",
+  "targetSpecies": "Bass, Trout",
+  "priceRange": "$$"
+ },
+ {
+  "id": 3,
+  "category": "Rod",
+  "brand": "Daiwa",
+  "model": "Tatula XT 7ft M",
+  "type": "Spinning",
+  "specs": "1-piece, fast action",
+  "targetSpecies": "Bass, Pike",
+  "priceRange": "$$"
+ },
+ {
+  "id": 4,
+  "category": "Rod",
+  "brand": "G. Loomis",
+  "model": "NRX+ 6ft 8in ML",
+  "type": "Spinning",
+  "specs": "Fast action, Fuji guides",
+  "targetSpecies": "Bass, Trout",
+  "priceRange": "$$$$"
+ },
+ {
+  "id": 5,
+  "category": "Rod",
+  "brand": "Fenwick",
+  "model": "HMG 7ft M",
+  "type": "Spinning",
+  "specs": "Graphite blank, fast",
+  "targetSpecies": "Bass, Walleye",
+  "priceRange": "$$"
+ },
+ {
+  "id": 6,
+  "category": "Rod",
+  "brand": "Ugly Stik",
+  "model": "GX2 7ft M",
+  "type": "Spinning",
+  "specs": "Fiberglass/graphite composite",
+  "targetSpecies": "All species",
+  "priceRange": "$"
+ },
+ {
+  "id": 7,
+  "category": "Rod",
+  "brand": "Abu Garcia",
+  "model": "Veritas 7ft MH",
+  "type": "Spinning",
+  "specs": "30-ton graphite",
+  "targetSpecies": "Bass, Pike",
+  "priceRange": "$$"
+ },
+ {
+  "id": 8,
+  "category": "Rod",
+  "brand": "Okuma",
+  "model": "Celilo 6ft 6in UL",
+  "type": "Spinning",
+  "specs": "Ultra-light",
+  "targetSpecies": "Trout, Panfish",
+  "priceRange": "$"
+ },
+ {
+  "id": 9,
+  "category": "Rod",
+  "brand": "Shakespeare",
+  "model": "Ugly Stik Elite 6ft 6in M",
+  "type": "Spinning",
+  "specs": "Clear tip, sensitive",
+  "targetSpecies": "Bass, Trout",
+  "priceRange": "$"
+ },
+ {
+  "id": 10,
+  "category": "Rod",
+  "brand": "Berkley",
+  "model": "Lightning Rod 7ft M",
+  "type": "Spinning",
+  "specs": "24-ton graphite",
+  "targetSpecies": "Bass, Walleye",
+  "priceRange": "$"
+ },
+ {
+  "id": 11,
+  "category": "Rod",
+  "brand": "Berkley",
+  "model": "Cherrywood HD 6ft 6in M",
+  "type": "Spinning",
+  "specs": "Sensitive tip",
+  "targetSpecies": "Trout, Panfish",
+  "priceRange": "$"
+ },
+ {
+  "id": 12,
+  "category": "Rod",
+  "brand": "KastKing",
+  "model": "Perigee II 7ft M",
+  "type": "Spinning",
+  "specs": "2-piece, twin tips",
+  "targetSpecies": "Bass, Trout",
+  "priceRange": "$"
+ },
+ {
+  "id": 13,
+  "category": "Rod",
+  "brand": "Cadence",
+  "model": "CR5 7ft M",
+  "type": "Spinning",
+  "specs": "30-ton carbon",
+  "targetSpecies": "Bass, Crappie",
+  "priceRange": "$"
+ },
+ {
+  "id": 14,
+  "category": "Rod",
+  "brand": "St. Croix",
+  "model": "Triumph 6ft 6in ML",
+  "type": "Spinning",
+  "specs": "SCII carbon, mod-fast",
+  "targetSpecies": "Trout, Panfish",
+  "priceRange": "$$"
+ },
+ {
+  "id": 15,
+  "category": "Rod",
+  "brand": "Daiwa",
+  "model": "Presso Ultralight 6ft L",
+  "type": "Spinning",
+  "specs": "Trout-tuned blank",
+  "targetSpecies": "Trout",
+  "priceRange": "$$"
+ },
+ {
+  "id": 16,
+  "category": "Rod",
+  "brand": "Shimano",
+  "model": "Sedona 6ft 10in ML",
+  "type": "Spinning",
+  "specs": "Versatile all-rounder",
+  "targetSpecies": "Trout, Bass",
+  "priceRange": "$"
+ },
+ {
+  "id": 17,
+  "category": "Rod",
+  "brand": "Quantum",
+  "model": "Graphex 6ft 6in M",
+  "type": "Spinning",
+  "specs": "Graphite composite",
+  "targetSpecies": "Bass, Panfish",
+  "priceRange": "$"
+ },
+ {
+  "id": 18,
+  "category": "Rod",
+  "brand": "St. Croix",
+  "model": "Avid 6ft 8in MXF",
+  "type": "Spinning",
+  "specs": "SCIII carbon, extra fast",
+  "targetSpecies": "Bass, Walleye",
+  "priceRange": "$$$"
+ },
+ {
+  "id": 19,
+  "category": "Rod",
+  "brand": "Shimano",
+  "model": "Expride B 6ft 10in M",
+  "type": "Spinning",
+  "specs": "Hi-power X blank",
+  "targetSpecies": "Bass",
+  "priceRange": "$$$"
+ },
+ {
+  "id": 20,
+  "category": "Rod",
+  "brand": "Shimano",
+  "model": "Expride 7ft MH",
+  "type": "Baitcasting",
+  "specs": "Fast action, 1-piece",
+  "targetSpecies": "Bass",
+  "priceRange": "$$$"
+ },
+ {
+  "id": 21,
+  "category": "Rod",
+  "brand": "Dobyns",
+  "model": "Champion XP 7ft 3in MH",
+  "type": "Baitcasting",
+  "specs": "Fast, high modulus",
+  "targetSpecies": "Bass",
+  "priceRange": "$$$"
+ },
+ {
+  "id": 22,
+  "category": "Rod",
+  "brand": "Megabass",
+  "model": "Destroyer P5 7ft",
+  "type": "Baitcasting",
+  "specs": "Multi-taper action",
+  "targetSpecies": "Bass",
+  "priceRange": "$$$$"
+ },
+ {
+  "id": 23,
+  "category": "Rod",
+  "brand": "Abu Garcia",
+  "model": "Vendetta 7ft MH",
+  "type": "Baitcasting",
+  "specs": "24-ton graphite",
+  "targetSpecies": "Bass, Pike",
+  "priceRange": "$$"
+ },
+ {
+  "id": 24,
+  "category": "Rod",
+  "brand": "Lew's",
+  "model": "Mach II 7ft 2in MH",
+  "type": "Baitcasting",
+  "specs": "IM8 graphite",
+  "targetSpecies": "Bass",
+  "priceRange": "$$"
+ },
+ {
+  "id": 25,
+  "category": "Rod",
+  "brand": "13 Fishing",
+  "model": "Omen Black 7ft 1in MH",
+  "type": "Baitcasting",
+  "specs": "36-ton Japanese Toray",
+  "targetSpecies": "Bass",
+  "priceRange": "$$"
+ },
+ {
+  "id": 26,
+  "category": "Rod",
+  "brand": "Daiwa",
+  "model": "Tatula 7ft 1in MH",
+  "type": "Baitcasting",
+  "specs": "X45 bias graphite",
+  "targetSpecies": "Bass, Pike",
+  "priceRange": "$$"
+ },
+ {
+  "id": 27,
+  "category": "Rod",
+  "brand": "St. Croix",
+  "model": "Mojo Bass 7ft 1in MHF",
+  "type": "Baitcasting",
+  "specs": "Technique-specific",
+  "targetSpecies": "Bass",
+  "priceRange": "$$"
+ },
+ {
+  "id": 28,
+  "category": "Rod",
+  "brand": "Falcon",
+  "model": "BuCoo SR 7ft MH",
+  "type": "Baitcasting",
+  "specs": "Balanced casting rod",
+  "targetSpecies": "Bass",
+  "priceRange": "$$"
+ },
+ {
+  "id": 29,
+  "category": "Rod",
+  "brand": "Duckett",
+  "model": "Ghost 7ft MH",
+  "type": "Baitcasting",
+  "specs": "Ultra-light blank",
+  "targetSpecies": "Bass",
+  "priceRange": "$$"
+ },
+ {
+  "id": 30,
+  "category": "Rod",
+  "brand": "Shimano",
+  "model": "SLX 7ft M",
+  "type": "Baitcasting",
+  "specs": "Great value casting rod",
+  "targetSpecies": "Bass",
+  "priceRange": "$"
+ },
+ {
+  "id": 31,
+  "category": "Rod",
+  "brand": "Ugly Stik",
+  "model": "GX2 6ft 6in MH",
+  "type": "Baitcasting",
+  "specs": "Nearly indestructible",
+  "targetSpecies": "Bass, Catfish",
+  "priceRange": "$"
+ },
+ {
+  "id": 32,
+  "category": "Rod",
+  "brand": "Lew's",
+  "model": "Speed Stick 7ft H",
+  "type": "Baitcasting",
+  "specs": "Flipping and pitching",
+  "targetSpecies": "Bass",
+  "priceRange": "$$"
+ },
+ {
+  "id": 33,
+  "category": "Rod",
+  "brand": "Phenix",
+  "model": "Feather 7ft 4in H",
+  "type": "Baitcasting",
+  "specs": "Ultra light-weight",
+  "targetSpecies": "Bass",
+  "priceRange": "$$$"
+ },
+ {
+  "id": 34,
+  "category": "Rod",
+  "brand": "Orvis",
+  "model": "Clearwater 9ft 5wt",
+  "type": "Fly",
+  "specs": "4-piece, medium-fast",
+  "targetSpecies": "Trout",
+  "priceRange": "$$"
+ },
+ {
+  "id": 35,
+  "category": "Rod",
+  "brand": "Redington",
+  "model": "Classic Trout 8ft 6in 4wt",
+  "type": "Fly",
+  "specs": "4-piece, moderate",
+  "targetSpecies": "Trout",
+  "priceRange": "$"
+ },
+ {
+  "id": 36,
+  "category": "Rod",
+  "brand": "Sage",
+  "model": "X 9ft 5wt",
+  "type": "Fly",
+  "specs": "Fast action, KonneticHD",
+  "targetSpecies": "Trout, Bass",
+  "priceRange": "$$$$"
+ },
+ {
+  "id": 37,
+  "category": "Rod",
+  "brand": "TFO",
+  "model": "Pro II 9ft 6wt",
+  "type": "Fly",
+  "specs": "4-piece, fast action",
+  "targetSpecies": "Trout, Steelhead",
+  "priceRange": "$$"
+ },
+ {
+  "id": 38,
+  "category": "Rod",
+  "brand": "Echo",
+  "model": "Carbon XL 9ft 5wt",
+  "type": "Fly",
+  "specs": "Medium-fast, forgiving",
+  "targetSpecies": "Trout",
+  "priceRange": "$$"
+ },
+ {
+  "id": 39,
+  "category": "Rod",
+  "brand": "Redington",
+  "model": "Predator 9ft 8wt",
+  "type": "Fly",
+  "specs": "Fast, big-fly rod",
+  "targetSpecies": "Bass, Pike, Salt",
+  "priceRange": "$$$"
+ },
+ {
+  "id": 40,
+  "category": "Rod",
+  "brand": "Orvis",
+  "model": "Helios 3D 9ft 8wt",
+  "type": "Fly",
+  "specs": "Premium saltwater-ready",
+  "targetSpecies": "Bonefish, Bass",
+  "priceRange": "$$$$"
+ },
+ {
+  "id": 41,
+  "category": "Rod",
+  "brand": "Moonshine",
+  "model": "Drifter 9ft 5wt",
+  "type": "Fly",
+  "specs": "Med-fast with spare tip",
+  "targetSpecies": "Trout",
+  "priceRange": "$$"
+ },
+ {
+  "id": 42,
+  "category": "Rod",
+  "brand": "Penn",
+  "model": "Prevail II 10ft Surf",
+  "type": "Surf",
+  "specs": "2-piece, moderate-fast",
+  "targetSpecies": "Stripers, Bluefish",
+  "priceRange": "$$"
+ },
+ {
+  "id": 43,
+  "category": "Rod",
+  "brand": "Penn",
+  "model": "Battalion II 9ft MH Surf",
+  "type": "Surf",
+  "specs": "Graphite composite",
+  "targetSpecies": "Stripers, Reds",
+  "priceRange": "$$"
+ },
+ {
+  "id": 44,
+  "category": "Rod",
+  "brand": "Daiwa",
+  "model": "BG Surf 10ft MH",
+  "type": "Surf",
+  "specs": "Braid-ready guides",
+  "targetSpecies": "Stripers, Drum",
+  "priceRange": "$$"
+ },
+ {
+  "id": 45,
+  "category": "Rod",
+  "brand": "Tica",
+  "model": "UEHA 10ft Surf",
+  "type": "Surf",
+  "specs": "Popular value surf blank",
+  "targetSpecies": "Surf species",
+  "priceRange": "$$"
+ },
+ {
+  "id": 46,
+  "category": "Rod",
+  "brand": "Okuma",
+  "model": "Longitude 9ft Surf",
+  "type": "Surf",
+  "specs": "2-piece composite",
+  "targetSpecies": "Stripers, Salmon",
+  "priceRange": "$"
+ },
+ {
+  "id": 47,
+  "category": "Rod",
+  "brand": "Daiwa",
+  "model": "BG Saltwater 7ft MH",
+  "type": "Saltwater",
+  "specs": "Heavy-duty blank",
+  "targetSpecies": "Tuna, Mahi",
+  "priceRange": "$$"
+ },
+ {
+  "id": 48,
+  "category": "Rod",
+  "brand": "Shimano",
+  "model": "Teramar SE 7ft M",
+  "type": "Saltwater",
+  "specs": "Inshore, fast action",
+  "targetSpecies": "Redfish, Snook",
+  "priceRange": "$$"
+ },
+ {
+  "id": 49,
+  "category": "Rod",
+  "brand": "St. Croix",
+  "model": "Mojo Inshore 7ft MF",
+  "type": "Saltwater",
+  "specs": "Carbon, salt-proof guides",
+  "targetSpecies": "Snook, Trout, Reds",
+  "priceRange": "$$"
+ },
+ {
+  "id": 50,
+  "category": "Rod",
+  "brand": "Penn",
+  "model": "Carnage III 6ft 6in H Jigging",
+  "type": "Saltwater",
+  "specs": "Braid-ready jigging stick",
+  "targetSpecies": "Tuna, Amberjack",
+  "priceRange": "$$$"
+ },
+ {
+  "id": 51,
+  "category": "Rod",
+  "brand": "Shimano",
+  "model": "Trevala 6ft 6in MH",
+  "type": "Saltwater",
+  "specs": "Butterfly jigging",
+  "targetSpecies": "Tuna, Grouper",
+  "priceRange": "$$$"
+ },
+ {
+  "id": 52,
+  "category": "Rod",
+  "brand": "Ugly Stik",
+  "model": "Bigwater 7ft MH",
+  "type": "Saltwater",
+  "specs": "Workhorse boat rod",
+  "targetSpecies": "Salt species",
+  "priceRange": "$"
+ },
+ {
+  "id": 53,
+  "category": "Rod",
+  "brand": "Penn",
+  "model": "Squadron III 7ft M Inshore",
+  "type": "Saltwater",
+  "specs": "Graphite composite",
+  "targetSpecies": "Snook, Reds, Trout",
+  "priceRange": "$"
+ },
+ {
+  "id": 54,
+  "category": "Rod",
+  "brand": "Ugly Stik",
+  "model": "Catfish Special 7ft MH",
+  "type": "Casting",
+  "specs": "Glass blank, glow tip",
+  "targetSpecies": "Catfish",
+  "priceRange": "$"
+ },
+ {
+  "id": 55,
+  "category": "Rod",
+  "brand": "B'n'M",
+  "model": "Silver Cat Magnum 7ft 6in",
+  "type": "Casting",
+  "specs": "Big-cat rated",
+  "targetSpecies": "Catfish",
+  "priceRange": "$$"
+ },
+ {
+  "id": 56,
+  "category": "Rod",
+  "brand": "St. Croix",
+  "model": "Eyecon 6ft 8in ML",
+  "type": "Spinning",
+  "specs": "Walleye-specific",
+  "targetSpecies": "Walleye",
+  "priceRange": "$$"
+ },
+ {
+  "id": 57,
+  "category": "Rod",
+  "brand": "Fenwick",
+  "model": "Elite Tech Ice 28in ML",
+  "type": "Ice",
+  "specs": "Solid carbon ice rod",
+  "targetSpecies": "Walleye, Perch",
+  "priceRange": "$$"
+ },
+ {
+  "id": 58,
+  "category": "Rod",
+  "brand": "13 Fishing",
+  "model": "Tickle Stick 27in L",
+  "type": "Ice",
+  "specs": "Flat-tip blank",
+  "targetSpecies": "Panfish, Walleye",
+  "priceRange": "$$"
+ },
+ {
+  "id": 59,
+  "category": "Reel",
+  "brand": "Shimano",
+  "model": "Stradic FM 2500",
+  "type": "Spinning",
+  "specs": "6.0:1, HAGANE gear",
+  "targetSpecies": "Bass, Trout",
+  "priceRange": "$$$"
+ },
+ {
+  "id": 60,
+  "category": "Reel",
+  "brand": "Daiwa",
+  "model": "Tatula LT 2500",
+  "type": "Spinning",
+  "specs": "5.3:1, light 7.4oz",
+  "targetSpecies": "Bass, Walleye",
+  "priceRange": "$$"
+ },
+ {
+  "id": 61,
+  "category": "Reel",
+  "brand": "Penn",
+  "model": "Battle III 3000",
+  "type": "Spinning",
+  "specs": "6.2:1, HT-100 drag",
+  "targetSpecies": "Saltwater, Stripers",
+  "priceRange": "$$"
+ },
+ {
+  "id": 62,
+  "category": "Reel",
+  "brand": "Shimano",
+  "model": "Vanford 2500",
+  "type": "Spinning",
+  "specs": "6.0:1, MGL rotor",
+  "targetSpecies": "Bass, Trout",
+  "priceRange": "$$$"
+ },
+ {
+  "id": 63,
+  "category": "Reel",
+  "brand": "Abu Garcia",
+  "model": "Revo SX 30",
+  "type": "Spinning",
+  "specs": "6.2:1, 8+1 bearings",
+  "targetSpecies": "Bass",
+  "priceRange": "$$"
+ },
+ {
+  "id": 64,
+  "category": "Reel",
+  "brand": "Pflueger",
+  "model": "President 30",
+  "type": "Spinning",
+  "specs": "5.2:1, 10 bearings",
+  "targetSpecies": "Trout, Panfish",
+  "priceRange": "$"
+ },
+ {
+  "id": 65,
+  "category": "Reel",
+  "brand": "Daiwa",
+  "model": "BG 4000",
+  "type": "Spinning",
+  "specs": "5.7:1, oversized gears",
+  "targetSpecies": "Saltwater, Kingfish",
+  "priceRange": "$$"
+ },
+ {
+  "id": 66,
+  "category": "Reel",
+  "brand": "Shimano",
+  "model": "Sedona FJ 1000",
+  "type": "Spinning",
+  "specs": "5.0:1, lightweight",
+  "targetSpecies": "Trout, Panfish",
+  "priceRange": "$"
+ },
+ {
+  "id": 67,
+  "category": "Reel",
+  "brand": "Okuma",
+  "model": "Ceymar C-30",
+  "type": "Spinning",
+  "specs": "6.0:1, 8 bearings",
+  "targetSpecies": "Bass, Walleye",
+  "priceRange": "$"
+ },
+ {
+  "id": 68,
+  "category": "Reel",
+  "brand": "Shimano",
+  "model": "Sahara FJ 2500",
+  "type": "Spinning",
+  "specs": "Smooth entry Shimano",
+  "targetSpecies": "Bass, Trout",
+  "priceRange": "$"
+ },
+ {
+  "id": 69,
+  "category": "Reel",
+  "brand": "Daiwa",
+  "model": "Fuego LT 3000",
+  "type": "Spinning",
+  "specs": "Magsealed body",
+  "targetSpecies": "Bass, Walleye",
+  "priceRange": "$$"
+ },
+ {
+  "id": 70,
+  "category": "Reel",
+  "brand": "Daiwa",
+  "model": "Legalis LT 2500",
+  "type": "Spinning",
+  "specs": "Air rotor, budget champ",
+  "targetSpecies": "Bass, Trout",
+  "priceRange": "$"
+ },
+ {
+  "id": 71,
+  "category": "Reel",
+  "brand": "Penn",
+  "model": "Spinfisher VI 4500",
+  "type": "Spinning",
+  "specs": "IPX5 sealed",
+  "targetSpecies": "Stripers, Reds",
+  "priceRange": "$$$"
+ },
+ {
+  "id": 72,
+  "category": "Reel",
+  "brand": "Penn",
+  "model": "Slammer IV 5500",
+  "type": "Spinning",
+  "specs": "IPX6 sealed, full metal",
+  "targetSpecies": "Tuna, Tarpon",
+  "priceRange": "$$$$"
+ },
+ {
+  "id": 73,
+  "category": "Reel",
+  "brand": "Daiwa",
+  "model": "Saltist MQ 5000",
+  "type": "Spinning",
+  "specs": "Monocoque body",
+  "targetSpecies": "Salt species",
+  "priceRange": "$$$"
+ },
+ {
+  "id": 74,
+  "category": "Reel",
+  "brand": "Shimano",
+  "model": "Saragosa SW 6000",
+  "type": "Spinning",
+  "specs": "Offshore-grade drag",
+  "targetSpecies": "Tuna, GT",
+  "priceRange": "$$$$"
+ },
+ {
+  "id": 75,
+  "category": "Reel",
+  "brand": "Quantum",
+  "model": "Strategy 30",
+  "type": "Spinning",
+  "specs": "Value all-rounder",
+  "targetSpecies": "Bass, Panfish",
+  "priceRange": "$"
+ },
+ {
+  "id": 76,
+  "category": "Reel",
+  "brand": "KastKing",
+  "model": "Sharky III 3000",
+  "type": "Spinning",
+  "specs": "Budget workhorse",
+  "targetSpecies": "Bass, Catfish",
+  "priceRange": "$"
+ },
+ {
+  "id": 77,
+  "category": "Reel",
+  "brand": "Shimano",
+  "model": "Stella FK 2500",
+  "type": "Spinning",
+  "specs": "Flagship smoothness",
+  "targetSpecies": "Bass, Trout",
+  "priceRange": "$$$$"
+ },
+ {
+  "id": 78,
+  "category": "Reel",
+  "brand": "Daiwa",
+  "model": "Ballistic MQ LT 3000",
+  "type": "Spinning",
+  "specs": "Light and rigid",
+  "targetSpecies": "Bass, Walleye",
+  "priceRange": "$$$"
+ },
+ {
+  "id": 79,
+  "category": "Reel",
+  "brand": "Shimano",
+  "model": "Curado DC 200",
+  "type": "Baitcasting",
+  "specs": "6.2:1, digital braking",
+  "targetSpecies": "Bass",
+  "priceRange": "$$$$"
+ },
+ {
+  "id": 80,
+  "category": "Reel",
+  "brand": "Daiwa",
+  "model": "Tatula SV TW 103",
+  "type": "Baitcasting",
+  "specs": "6.3:1, T-Wing system",
+  "targetSpecies": "Bass",
+  "priceRange": "$$$"
+ },
+ {
+  "id": 81,
+  "category": "Reel",
+  "brand": "Lew's",
+  "model": "Mach Crush SLP",
+  "type": "Baitcasting",
+  "specs": "7.5:1, 10+1 bearings",
+  "targetSpecies": "Bass",
+  "priceRange": "$$"
+ },
+ {
+  "id": 82,
+  "category": "Reel",
+  "brand": "Abu Garcia",
+  "model": "Revo Rocket",
+  "type": "Baitcasting",
+  "specs": "10.1:1 extra high speed",
+  "targetSpecies": "Bass",
+  "priceRange": "$$$"
+ },
+ {
+  "id": 83,
+  "category": "Reel",
+  "brand": "Shimano",
+  "model": "SLX DC 150",
+  "type": "Baitcasting",
+  "specs": "I-DC4 digital braking",
+  "targetSpecies": "Bass",
+  "priceRange": "$$"
+ },
+ {
+  "id": 84,
+  "category": "Reel",
+  "brand": "Shimano",
+  "model": "Metanium MGL 150",
+  "type": "Baitcasting",
+  "specs": "5.7oz, MagnumLite spool",
+  "targetSpecies": "Bass",
+  "priceRange": "$$$$"
+ },
+ {
+  "id": 85,
+  "category": "Reel",
+  "brand": "Abu Garcia",
+  "model": "Ambassadeur C3 6500",
+  "type": "Round Baitcast",
+  "specs": "Classic round reel",
+  "targetSpecies": "Catfish, Stripers",
+  "priceRange": "$$"
+ },
+ {
+  "id": 86,
+  "category": "Reel",
+  "brand": "Shimano",
+  "model": "Tranx 300",
+  "type": "Baitcasting",
+  "specs": "Power for big swimbaits",
+  "targetSpecies": "Musky, Salt",
+  "priceRange": "$$$$"
+ },
+ {
+  "id": 87,
+  "category": "Reel",
+  "brand": "13 Fishing",
+  "model": "Concept A2",
+  "type": "Baitcasting",
+  "specs": "Arrowhead line guide",
+  "targetSpecies": "Bass",
+  "priceRange": "$$$"
+ },
+ {
+  "id": 88,
+  "category": "Reel",
+  "brand": "Daiwa",
+  "model": "Fuego CT 100",
+  "type": "Baitcasting",
+  "specs": "Magforce-Z brake",
+  "targetSpecies": "Bass",
+  "priceRange": "$$"
+ },
+ {
+  "id": 89,
+  "category": "Reel",
+  "brand": "Abu Garcia",
+  "model": "Black Max",
+  "type": "Baitcasting",
+  "specs": "Best-selling starter",
+  "targetSpecies": "Bass",
+  "priceRange": "$"
+ },
+ {
+  "id": 90,
+  "category": "Reel",
+  "brand": "Penn",
+  "model": "Fathom II 15 Star Drag",
+  "type": "Conventional",
+  "specs": "Metal body, casting-friendly",
+  "targetSpecies": "Bottom fish, Stripers",
+  "priceRange": "$$"
+ },
+ {
+  "id": 91,
+  "category": "Reel",
+  "brand": "Penn",
+  "model": "Squall II 30 Level Wind",
+  "type": "Conventional",
+  "specs": "Trolling and bottom",
+  "targetSpecies": "Salt species",
+  "priceRange": "$$"
+ },
+ {
+  "id": 92,
+  "category": "Reel",
+  "brand": "Okuma",
+  "model": "Cold Water 203D",
+  "type": "Line Counter",
+  "specs": "Trolling line counter",
+  "targetSpecies": "Walleye, Salmon",
+  "priceRange": "$$"
+ },
+ {
+  "id": 93,
+  "category": "Reel",
+  "brand": "Orvis",
+  "model": "Battenkill Disc III",
+  "type": "Fly",
+  "specs": "3-5wt, disc drag",
+  "targetSpecies": "Trout",
+  "priceRange": "$$"
+ },
+ {
+  "id": 94,
+  "category": "Reel",
+  "brand": "Lamson",
+  "model": "Liquid 3+",
+  "type": "Fly",
+  "specs": "Sealed conical drag",
+  "targetSpecies": "Trout",
+  "priceRange": "$$"
+ },
+ {
+  "id": 95,
+  "category": "Reel",
+  "brand": "Ross",
+  "model": "Colorado 4/5",
+  "type": "Fly",
+  "specs": "Machined aluminum click",
+  "targetSpecies": "Trout",
+  "priceRange": "$$$"
+ },
+ {
+  "id": 96,
+  "category": "Reel",
+  "brand": "Redington",
+  "model": "Behemoth 7/8",
+  "type": "Fly",
+  "specs": "Huge carbon drag",
+  "targetSpecies": "Bass, Steelhead",
+  "priceRange": "$$"
+ },
+ {
+  "id": 97,
+  "category": "Reel",
+  "brand": "Nautilus",
+  "model": "X-Series XM 4/5",
+  "type": "Fly",
+  "specs": "Sealed disc, ultralight",
+  "targetSpecies": "Trout",
+  "priceRange": "$$$$"
+ },
+ {
+  "id": 98,
+  "category": "Reel",
+  "brand": "Piscifun",
+  "model": "Sword 5/6",
+  "type": "Fly",
+  "specs": "Budget machined reel",
+  "targetSpecies": "Trout",
+  "priceRange": "$"
+ },
+ {
+  "id": 99,
+  "category": "Lure",
+  "brand": "Yamamoto",
+  "model": "Senko 5in Green Pumpkin",
+  "type": "Soft Plastic",
+  "specs": "Stick bait, wacky/Texas",
+  "targetSpecies": "Bass",
+  "priceRange": "$"
+ },
+ {
+  "id": 100,
+  "category": "Lure",
+  "brand": "Zoom",
+  "model": "Trick Worm 6in Plum",
+  "type": "Soft Plastic",
+  "specs": "Floating finesse worm",
+  "targetSpecies": "Bass",
+  "priceRange": "$"
+ },
+ {
+  "id": 101,
+  "category": "Lure",
+  "brand": "Zoom",
+  "model": "Brush Hog",
+  "type": "Soft Plastic",
+  "specs": "Creature bait",
+  "targetSpecies": "Bass",
+  "priceRange": "$"
+ },
+ {
+  "id": 102,
+  "category": "Lure",
+  "brand": "Zoom",
+  "model": "Super Fluke Pearl",
+  "type": "Soft Plastic",
+  "specs": "Weightless jerkbait",
+  "targetSpecies": "Bass, Stripers",
+  "priceRange": "$"
+ },
+ {
+  "id": 103,
+  "category": "Lure",
+  "brand": "Berkley",
+  "model": "PowerBait Power Worm 7in",
+  "type": "Soft Plastic",
+  "specs": "Scented ribbontail",
+  "targetSpecies": "Bass",
+  "priceRange": "$"
+ },
+ {
+  "id": 104,
+  "category": "Lure",
+  "brand": "Berkley",
+  "model": "PowerBait MaxScent Flat Worm",
+  "type": "Soft Plastic",
+  "specs": "Scented, 4in",
+  "targetSpecies": "Bass",
+  "priceRange": "$"
+ },
+ {
+  "id": 105,
+  "category": "Lure",
+  "brand": "Strike King",
+  "model": "Rage Craw 4in",
+  "type": "Soft Plastic",
+  "specs": "Flapping creature",
+  "targetSpecies": "Bass",
+  "priceRange": "$"
+ },
+ {
+  "id": 106,
+  "category": "Lure",
+  "brand": "Z-Man",
+  "model": "TRD 2.75in",
+  "type": "Soft Plastic",
+  "specs": "Ned rig, ElaZtech",
+  "targetSpecies": "Bass, Walleye",
+  "priceRange": "$"
+ },
+ {
+  "id": 107,
+  "category": "Lure",
+  "brand": "Keitech",
+  "model": "Swing Impact FAT 4.8in",
+  "type": "Soft Plastic",
+  "specs": "Paddle-tail swimbait",
+  "targetSpecies": "Bass",
+  "priceRange": "$"
+ },
+ {
+  "id": 108,
+  "category": "Lure",
+  "brand": "Keitech",
+  "model": "Easy Shiner 3in",
+  "type": "Soft Plastic",
+  "specs": "Finesse paddle tail",
+  "targetSpecies": "Bass, Crappie",
+  "priceRange": "$"
+ },
+ {
+  "id": 109,
+  "category": "Lure",
+  "brand": "Roboworm",
+  "model": "Straight Tail 4.5in",
+  "type": "Soft Plastic",
+  "specs": "Drop shot staple",
+  "targetSpecies": "Bass",
+  "priceRange": "$"
+ },
+ {
+  "id": 110,
+  "category": "Lure",
+  "brand": "NetBait",
+  "model": "Baby Paca Craw",
+  "type": "Soft Plastic",
+  "specs": "Flipping craw",
+  "targetSpecies": "Bass",
+  "priceRange": "$"
+ },
+ {
+  "id": 111,
+  "category": "Lure",
+  "brand": "Culprit",
+  "model": "Original Worm 7.5in",
+  "type": "Soft Plastic",
+  "specs": "Classic ribbontail",
+  "targetSpecies": "Bass",
+  "priceRange": "$"
+ },
+ {
+  "id": 112,
+  "category": "Lure",
+  "brand": "Big Bite Baits",
+  "model": "Fighting Frog 4in",
+  "type": "Soft Plastic",
+  "specs": "Compact creature",
+  "targetSpecies": "Bass",
+  "priceRange": "$"
+ },
+ {
+  "id": 113,
+  "category": "Lure",
+  "brand": "Gulp!",
+  "model": "Alive Minnow 3in",
+  "type": "Soft Plastic",
+  "specs": "Biodegradable, scented",
+  "targetSpecies": "Trout, Walleye",
+  "priceRange": "$"
+ },
+ {
+  "id": 114,
+  "category": "Lure",
+  "brand": "Bobby Garland",
+  "model": "Baby Shad 2in",
+  "type": "Soft Plastic",
+  "specs": "Crappie staple",
+  "targetSpecies": "Crappie, Panfish",
+  "priceRange": "$"
+ },
+ {
+  "id": 115,
+  "category": "Lure",
+  "brand": "Mister Twister",
+  "model": "Curly Tail Grub 3in",
+  "type": "Soft Plastic",
+  "specs": "Universal grub",
+  "targetSpecies": "Panfish, Bass",
+  "priceRange": "$"
+ },
+ {
+  "id": 116,
+  "category": "Lure",
+  "brand": "Zoom",
+  "model": "Centipede 4in",
+  "type": "Soft Plastic",
+  "specs": "Carolina rig classic",
+  "targetSpecies": "Bass",
+  "priceRange": "$"
+ },
+ {
+  "id": 117,
+  "category": "Lure",
+  "brand": "Strike King",
+  "model": "Dream Shot 3in",
+  "type": "Soft Plastic",
+  "specs": "Drop shot bait",
+  "targetSpecies": "Bass, Walleye",
+  "priceRange": "$"
+ },
+ {
+  "id": 118,
+  "category": "Lure",
+  "brand": "Berkley",
+  "model": "Gulp! Swimming Mullet 4in",
+  "type": "Soft Plastic",
+  "specs": "Inshore staple",
+  "targetSpecies": "Flounder, Reds",
+  "priceRange": "$"
+ },
+ {
+  "id": 119,
+  "category": "Lure",
+  "brand": "Z-Man",
+  "model": "DieZel MinnowZ 4in",
+  "type": "Soft Plastic",
+  "specs": "Tough paddle tail",
+  "targetSpecies": "Redfish, Snook",
+  "priceRange": "$"
+ },
+ {
+  "id": 120,
+  "category": "Lure",
+  "brand": "DOA",
+  "model": "Shrimp 3in",
+  "type": "Soft Plastic",
+  "specs": "Suspending shrimp",
+  "targetSpecies": "Trout, Reds, Snook",
+  "priceRange": "$"
+ },
+ {
+  "id": 121,
+  "category": "Lure",
+  "brand": "Rapala",
+  "model": "Original Floater 09",
+  "type": "Jerkbait",
+  "specs": "Balsa minnow, 3.5in",
+  "targetSpecies": "Bass, Trout, Pike",
+  "priceRange": "$"
+ },
+ {
+  "id": 122,
+  "category": "Lure",
+  "brand": "Rapala",
+  "model": "Shad Rap 07",
+  "type": "Crankbait",
+  "specs": "Tight-wobble shad",
+  "targetSpecies": "Walleye, Bass",
+  "priceRange": "$"
+ },
+ {
+  "id": 123,
+  "category": "Lure",
+  "brand": "Rapala",
+  "model": "X-Rap 08",
+  "type": "Jerkbait",
+  "specs": "Slashbait with flash",
+  "targetSpecies": "Bass, Pike",
+  "priceRange": "$"
+ },
+ {
+  "id": 124,
+  "category": "Lure",
+  "brand": "Rapala",
+  "model": "Husky Jerk 10",
+  "type": "Jerkbait",
+  "specs": "Suspending minnow",
+  "targetSpecies": "Walleye, Pike",
+  "priceRange": "$"
+ },
+ {
+  "id": 125,
+  "category": "Lure",
+  "brand": "Rapala",
+  "model": "Countdown 07",
+  "type": "Sinking Minnow",
+  "specs": "Controlled-depth",
+  "targetSpecies": "Trout, Bass",
+  "priceRange": "$"
+ },
+ {
+  "id": 126,
+  "category": "Lure",
+  "brand": "Rapala",
+  "model": "DT6 Crankbait",
+  "type": "Crankbait",
+  "specs": "Dives to 6ft",
+  "targetSpecies": "Bass, Walleye",
+  "priceRange": "$"
+ },
+ {
+  "id": 127,
+  "category": "Lure",
+  "brand": "Rapala",
+  "model": "DT10 Crankbait",
+  "type": "Crankbait",
+  "specs": "Dives to 10ft",
+  "targetSpecies": "Bass",
+  "priceRange": "$"
+ },
+ {
+  "id": 128,
+  "category": "Lure",
+  "brand": "Rapala",
+  "model": "Jointed 09",
+  "type": "Swimming Minnow",
+  "specs": "Segmented wobble",
+  "targetSpecies": "Pike, Bass",
+  "priceRange": "$"
+ },
+ {
+  "id": 129,
+  "category": "Lure",
+  "brand": "Megabass",
+  "model": "Vision ONETEN",
+  "type": "Jerkbait",
+  "specs": "Suspending, 4.5in",
+  "targetSpecies": "Bass",
+  "priceRange": "$$$"
+ },
+ {
+  "id": 130,
+  "category": "Lure",
+  "brand": "Lucky Craft",
+  "model": "Pointer 100SP",
+  "type": "Jerkbait",
+  "specs": "Suspending minnow",
+  "targetSpecies": "Bass",
+  "priceRange": "$$"
+ },
+ {
+  "id": 131,
+  "category": "Lure",
+  "brand": "Strike King",
+  "model": "KVD Square Bill 1.5",
+  "type": "Crankbait",
+  "specs": "Shallow deflecting",
+  "targetSpecies": "Bass",
+  "priceRange": "$"
+ },
+ {
+  "id": 132,
+  "category": "Lure",
+  "brand": "Strike King",
+  "model": "6XD Crankbait",
+  "type": "Crankbait",
+  "specs": "Deep diving to 19ft",
+  "targetSpecies": "Bass",
+  "priceRange": "$$"
+ },
+ {
+  "id": 133,
+  "category": "Lure",
+  "brand": "Bomber",
+  "model": "Model A B06",
+  "type": "Crankbait",
+  "specs": "Classic square lip",
+  "targetSpecies": "Bass",
+  "priceRange": "$"
+ },
+ {
+  "id": 134,
+  "category": "Lure",
+  "brand": "Norman",
+  "model": "DD22",
+  "type": "Crankbait",
+  "specs": "Deep-water ledge classic",
+  "targetSpecies": "Bass",
+  "priceRange": "$"
+ },
+ {
+  "id": 135,
+  "category": "Lure",
+  "brand": "Bandit",
+  "model": "Series 300",
+  "type": "Crankbait",
+  "specs": "8-12ft runner",
+  "targetSpecies": "Bass, Walleye",
+  "priceRange": "$"
+ },
+ {
+  "id": 136,
+  "category": "Lure",
+  "brand": "Bill Lewis",
+  "model": "Rat-L-Trap 1/2oz",
+  "type": "Lipless Crankbait",
+  "specs": "Loud rattle classic",
+  "targetSpecies": "Bass, Stripers",
+  "priceRange": "$"
+ },
+ {
+  "id": 137,
+  "category": "Lure",
+  "brand": "Strike King",
+  "model": "Red Eyed Shad",
+  "type": "Lipless Crankbait",
+  "specs": "Premium lipless",
+  "targetSpecies": "Bass",
+  "priceRange": "$"
+ },
+ {
+  "id": 138,
+  "category": "Lure",
+  "brand": "6th Sense",
+  "model": "Crush 50X",
+  "type": "Crankbait",
+  "specs": "Squarebill with thump",
+  "targetSpecies": "Bass",
+  "priceRange": "$$"
+ },
+ {
+  "id": 139,
+  "category": "Lure",
+  "brand": "Yo-Zuri",
+  "model": "Crystal Minnow 4-3/8in",
+  "type": "Jerkbait",
+  "specs": "Inshore favorite",
+  "targetSpecies": "Snook, Reds, Trout",
+  "priceRange": "$$"
+ },
+ {
+  "id": 140,
+  "category": "Lure",
+  "brand": "MirrOlure",
+  "model": "MirrOdine 17MR",
+  "type": "Twitchbait",
+  "specs": "Suspending inshore",
+  "targetSpecies": "Speckled Trout, Reds",
+  "priceRange": "$$"
+ },
+ {
+  "id": 141,
+  "category": "Lure",
+  "brand": "Rapala",
+  "model": "X-Rap Saltwater 12",
+  "type": "Jerkbait",
+  "specs": "Thru-wire construction",
+  "targetSpecies": "Stripers, Blues, Snook",
+  "priceRange": "$$"
+ },
+ {
+  "id": 142,
+  "category": "Lure",
+  "brand": "Heddon",
+  "model": "Zara Spook",
+  "type": "Topwater",
+  "specs": "Walk-the-dog original",
+  "targetSpecies": "Bass, Stripers",
+  "priceRange": "$"
+ },
+ {
+  "id": 143,
+  "category": "Lure",
+  "brand": "Heddon",
+  "model": "Super Spook Jr",
+  "type": "Topwater",
+  "specs": "Downsized spook",
+  "targetSpecies": "Bass, Trout, Reds",
+  "priceRange": "$"
+ },
+ {
+  "id": 144,
+  "category": "Lure",
+  "brand": "River2Sea",
+  "model": "Whopper Plopper 110",
+  "type": "Topwater",
+  "specs": "Rotating tail, 4.25in",
+  "targetSpecies": "Bass",
+  "priceRange": "$$"
+ },
+ {
+  "id": 145,
+  "category": "Lure",
+  "brand": "Yo-Zuri",
+  "model": "3DB Popper",
+  "type": "Topwater",
+  "specs": "Cupped-face popper",
+  "targetSpecies": "Bass, Redfish",
+  "priceRange": "$"
+ },
+ {
+  "id": 146,
+  "category": "Lure",
+  "brand": "Rebel",
+  "model": "Pop-R",
+  "type": "Topwater",
+  "specs": "Classic popper",
+  "targetSpecies": "Bass",
+  "priceRange": "$"
+ },
+ {
+  "id": 147,
+  "category": "Lure",
+  "brand": "Arbogast",
+  "model": "Jitterbug 3/8oz",
+  "type": "Topwater",
+  "specs": "Night-fishing wobbler",
+  "targetSpecies": "Bass",
+  "priceRange": "$"
+ },
+ {
+  "id": 148,
+  "category": "Lure",
+  "brand": "Arbogast",
+  "model": "Hula Popper",
+  "type": "Topwater",
+  "specs": "Skirted popper",
+  "targetSpecies": "Bass",
+  "priceRange": "$"
+ },
+ {
+  "id": 149,
+  "category": "Lure",
+  "brand": "Booyah",
+  "model": "Buzz 3/8oz",
+  "type": "Buzzbait",
+  "specs": "Squeaky buzzbait",
+  "targetSpecies": "Bass",
+  "priceRange": "$"
+ },
+ {
+  "id": 150,
+  "category": "Lure",
+  "brand": "SPRO",
+  "model": "Bronzeye Frog 65",
+  "type": "Hollow Frog",
+  "specs": "Weedless frog",
+  "targetSpecies": "Bass",
+  "priceRange": "$$"
+ },
+ {
+  "id": 151,
+  "category": "Lure",
+  "brand": "Booyah",
+  "model": "Pad Crasher",
+  "type": "Hollow Frog",
+  "specs": "Value hollow-body frog",
+  "targetSpecies": "Bass",
+  "priceRange": "$"
+ },
+ {
+  "id": 152,
+  "category": "Lure",
+  "brand": "Lunkerhunt",
+  "model": "Lunker Frog",
+  "type": "Hollow Frog",
+  "specs": "Kicking legs",
+  "targetSpecies": "Bass",
+  "priceRange": "$"
+ },
+ {
+  "id": 153,
+  "category": "Lure",
+  "brand": "Heddon",
+  "model": "Torpedo",
+  "type": "Prop Bait",
+  "specs": "Single prop sputter",
+  "targetSpecies": "Bass",
+  "priceRange": "$"
+ },
+ {
+  "id": 154,
+  "category": "Lure",
+  "brand": "Got-Cha",
+  "model": "Plug 7/8oz",
+  "type": "Topwater Plug",
+  "specs": "Pier-fishing classic",
+  "targetSpecies": "Bluefish, Spanish",
+  "priceRange": "$"
+ },
+ {
+  "id": 155,
+  "category": "Lure",
+  "brand": "War Eagle",
+  "model": "Spinnerbait 3/8oz DW",
+  "type": "Spinnerbait",
+  "specs": "Double willow",
+  "targetSpecies": "Bass",
+  "priceRange": "$"
+ },
+ {
+  "id": 156,
+  "category": "Lure",
+  "brand": "Booyah",
+  "model": "Blade 1/2oz",
+  "type": "Spinnerbait",
+  "specs": "Tandem blade",
+  "targetSpecies": "Bass, Pike",
+  "priceRange": "$"
+ },
+ {
+  "id": 157,
+  "category": "Lure",
+  "brand": "Strike King",
+  "model": "Mini-King 1/8oz",
+  "type": "Spinnerbait",
+  "specs": "Compact single blade",
+  "targetSpecies": "Bass, Crappie",
+  "priceRange": "$"
+ },
+ {
+  "id": 158,
+  "category": "Lure",
+  "brand": "Mepps",
+  "model": "Aglia No.3 Gold",
+  "type": "Inline Spinner",
+  "specs": "French blade original",
+  "targetSpecies": "Trout, Panfish",
+  "priceRange": "$"
+ },
+ {
+  "id": 159,
+  "category": "Lure",
+  "brand": "Blue Fox",
+  "model": "Vibrax No.4 Silver",
+  "type": "Inline Spinner",
+  "specs": "Vibrating bell",
+  "targetSpecies": "Trout, Salmon",
+  "priceRange": "$"
+ },
+ {
+  "id": 160,
+  "category": "Lure",
+  "brand": "Panther Martin",
+  "model": "Classic 1/4oz",
+  "type": "Inline Spinner",
+  "specs": "Through-blade design",
+  "targetSpecies": "Trout",
+  "priceRange": "$"
+ },
+ {
+  "id": 161,
+  "category": "Lure",
+  "brand": "Worden's",
+  "model": "Rooster Tail 1/8oz",
+  "type": "Inline Spinner",
+  "specs": "Pulsating hackle",
+  "targetSpecies": "Trout, Panfish",
+  "priceRange": "$"
+ },
+ {
+  "id": 162,
+  "category": "Lure",
+  "brand": "Strike King",
+  "model": "Thunder Cricket 1/2oz",
+  "type": "Vibrating Jig",
+  "specs": "Bladed swim jig",
+  "targetSpecies": "Bass",
+  "priceRange": "$$"
+ },
+ {
+  "id": 163,
+  "category": "Lure",
+  "brand": "Z-Man",
+  "model": "ChatterBait Elite 3/8oz",
+  "type": "Vibrating Jig",
+  "specs": "The original bladed jig",
+  "targetSpecies": "Bass",
+  "priceRange": "$$"
+ },
+ {
+  "id": 164,
+  "category": "Lure",
+  "brand": "Acme",
+  "model": "Kastmaster 1/4oz",
+  "type": "Spoon",
+  "specs": "Casting distance champ",
+  "targetSpecies": "Trout, Bass, Stripers",
+  "priceRange": "$"
+ },
+ {
+  "id": 165,
+  "category": "Lure",
+  "brand": "Eppinger",
+  "model": "Dardevle 1oz Red/White",
+  "type": "Spoon",
+  "specs": "Iconic pike spoon",
+  "targetSpecies": "Pike, Musky",
+  "priceRange": "$"
+ },
+ {
+  "id": 166,
+  "category": "Lure",
+  "brand": "Johnson",
+  "model": "Silver Minnow 1/4oz",
+  "type": "Weedless Spoon",
+  "specs": "Weedless gold classic",
+  "targetSpecies": "Bass, Pike, Reds",
+  "priceRange": "$"
+ },
+ {
+  "id": 167,
+  "category": "Lure",
+  "brand": "Acme",
+  "model": "Little Cleo 2/5oz",
+  "type": "Spoon",
+  "specs": "Salmon/steelhead staple",
+  "targetSpecies": "Salmon, Trout",
+  "priceRange": "$"
+ },
+ {
+  "id": 168,
+  "category": "Lure",
+  "brand": "Luhr-Jensen",
+  "model": "Krocodile 1/2oz",
+  "type": "Spoon",
+  "specs": "Heavy casting spoon",
+  "targetSpecies": "Stripers, Salmon",
+  "priceRange": "$"
+ },
+ {
+  "id": 169,
+  "category": "Lure",
+  "brand": "Hopkins",
+  "model": "NO=EQL 3/4oz",
+  "type": "Jigging Spoon",
+  "specs": "Hammered surf spoon",
+  "targetSpecies": "Stripers, Blues",
+  "priceRange": "$"
+ },
+ {
+  "id": 170,
+  "category": "Lure",
+  "brand": "Clarkspoon",
+  "model": "Original Size 1",
+  "type": "Trolling Spoon",
+  "specs": "Spanish mackerel classic",
+  "targetSpecies": "Spanish, Blues",
+  "priceRange": "$"
+ },
+ {
+  "id": 171,
+  "category": "Lure",
+  "brand": "Swedish Pimple",
+  "model": "3/8oz",
+  "type": "Ice Jigging Spoon",
+  "specs": "Ice classic",
+  "targetSpecies": "Walleye, Perch",
+  "priceRange": "$"
+ },
+ {
+  "id": 172,
+  "category": "Lure",
+  "brand": "Strike King",
+  "model": "Bitsy Bug 3/16oz",
+  "type": "Jig",
+  "specs": "Finesse jig",
+  "targetSpecies": "Bass",
+  "priceRange": "$"
+ },
+ {
+  "id": 173,
+  "category": "Lure",
+  "brand": "Dirty Jigs",
+  "model": "Football Jig 1/2oz",
+  "type": "Jig",
+  "specs": "Football head dragger",
+  "targetSpecies": "Bass",
+  "priceRange": "$"
+ },
+ {
+  "id": 174,
+  "category": "Lure",
+  "brand": "Z-Man",
+  "model": "Finesse ShroomZ 1/4oz",
+  "type": "Jig",
+  "specs": "Ned rig head",
+  "targetSpecies": "Bass",
+  "priceRange": "$"
+ },
+ {
+  "id": 175,
+  "category": "Lure",
+  "brand": "Owner",
+  "model": "Flashy Swimmer 3/8oz",
+  "type": "Underspin",
+  "specs": "Blade under swimbait",
+  "targetSpecies": "Bass, Walleye",
+  "priceRange": "$"
+ },
+ {
+  "id": 176,
+  "category": "Lure",
+  "brand": "VMC",
+  "model": "Tokyo Rig",
+  "type": "Rig",
+  "specs": "Punch/heavy bottom rig",
+  "targetSpecies": "Bass",
+  "priceRange": "$"
+ },
+ {
+  "id": 177,
+  "category": "Lure",
+  "brand": "Strike King",
+  "model": "Tour Grade Swim Jig 3/8oz",
+  "type": "Swim Jig",
+  "specs": "Grass swimmer",
+  "targetSpecies": "Bass",
+  "priceRange": "$"
+ },
+ {
+  "id": 178,
+  "category": "Lure",
+  "brand": "SPRO",
+  "model": "Prime Bucktail 1oz",
+  "type": "Bucktail Jig",
+  "specs": "Fluke and striper staple",
+  "targetSpecies": "Fluke, Stripers",
+  "priceRange": "$"
+ },
+ {
+  "id": 179,
+  "category": "Lure",
+  "brand": "Kalin's",
+  "model": "Google Eye Jighead 1/4oz",
+  "type": "Jighead",
+  "specs": "Round head, sticky hook",
+  "targetSpecies": "Crappie, Bass",
+  "priceRange": "$"
+ },
+ {
+  "id": 180,
+  "category": "Lure",
+  "brand": "Northland",
+  "model": "Fire-Ball Jig 1/8oz",
+  "type": "Jighead",
+  "specs": "Short-shank walleye",
+  "targetSpecies": "Walleye",
+  "priceRange": "$"
+ },
+ {
+  "id": 181,
+  "category": "Lure",
+  "brand": "Blakemore",
+  "model": "Road Runner 1/8oz",
+  "type": "Underspin Jighead",
+  "specs": "Blade jighead",
+  "targetSpecies": "Crappie, Panfish",
+  "priceRange": "$"
+ },
+ {
+  "id": 182,
+  "category": "Lure",
+  "brand": "River2Sea",
+  "model": "S-Waver 168",
+  "type": "Glide Bait",
+  "specs": "Slow-sink glide",
+  "targetSpecies": "Bass, Pike",
+  "priceRange": "$$$"
+ },
+ {
+  "id": 183,
+  "category": "Lure",
+  "brand": "Huddleston",
+  "model": "Deluxe 8in Trout",
+  "type": "Swimbait",
+  "specs": "Trout imitation",
+  "targetSpecies": "Bass",
+  "priceRange": "$$$$"
+ },
+ {
+  "id": 184,
+  "category": "Lure",
+  "brand": "Savage Gear",
+  "model": "4D Line Thru Trout 6.5in",
+  "type": "Swimbait",
+  "specs": "Jointed, line-through",
+  "targetSpecies": "Bass, Pike",
+  "priceRange": "$$"
+ },
+ {
+  "id": 185,
+  "category": "Lure",
+  "brand": "Megabass",
+  "model": "Magdraft 6in",
+  "type": "Swimbait",
+  "specs": "Magnetic hook keeper",
+  "targetSpecies": "Bass",
+  "priceRange": "$$$"
+ },
+ {
+  "id": 186,
+  "category": "Lure",
+  "brand": "Storm",
+  "model": "WildEye Swim Shad 4in",
+  "type": "Swimbait",
+  "specs": "Pre-rigged shad",
+  "targetSpecies": "Stripers, Bass",
+  "priceRange": "$"
+ },
+ {
+  "id": 187,
+  "category": "Lure",
+  "brand": "Umpqua",
+  "model": "Woolly Bugger Olive 8",
+  "type": "Streamer Fly",
+  "specs": "The universal streamer",
+  "targetSpecies": "Trout, Bass",
+  "priceRange": "$"
+ },
+ {
+  "id": 188,
+  "category": "Lure",
+  "brand": "Umpqua",
+  "model": "Adams Parachute 14",
+  "type": "Dry Fly",
+  "specs": "Classic mayfly imitation",
+  "targetSpecies": "Trout",
+  "priceRange": "$"
+ },
+ {
+  "id": 189,
+  "category": "Lure",
+  "brand": "Umpqua",
+  "model": "Elk Hair Caddis 16",
+  "type": "Dry Fly",
+  "specs": "High-floating caddis",
+  "targetSpecies": "Trout",
+  "priceRange": "$"
+ },
+ {
+  "id": 190,
+  "category": "Lure",
+  "brand": "Umpqua",
+  "model": "Pheasant Tail Nymph 16",
+  "type": "Nymph Fly",
+  "specs": "Mayfly nymph staple",
+  "targetSpecies": "Trout",
+  "priceRange": "$"
+ },
+ {
+  "id": 191,
+  "category": "Lure",
+  "brand": "Umpqua",
+  "model": "Copper John 16",
+  "type": "Nymph Fly",
+  "specs": "Fast-sinking attractor",
+  "targetSpecies": "Trout",
+  "priceRange": "$"
+ },
+ {
+  "id": 192,
+  "category": "Lure",
+  "brand": "Umpqua",
+  "model": "Zebra Midge 18",
+  "type": "Nymph Fly",
+  "specs": "Simple killer midge",
+  "targetSpecies": "Trout",
+  "priceRange": "$"
+ },
+ {
+  "id": 193,
+  "category": "Lure",
+  "brand": "Umpqua",
+  "model": "Clouser Minnow Chart/White",
+  "type": "Streamer Fly",
+  "specs": "Most versatile baitfish fly",
+  "targetSpecies": "Bass, Salt species",
+  "priceRange": "$"
+ },
+ {
+  "id": 194,
+  "category": "Lure",
+  "brand": "Umpqua",
+  "model": "San Juan Worm Red",
+  "type": "Nymph Fly",
+  "specs": "High-water worm",
+  "targetSpecies": "Trout",
+  "priceRange": "$"
+ },
+ {
+  "id": 195,
+  "category": "Lure",
+  "brand": "Umpqua",
+  "model": "Stimulator Orange 12",
+  "type": "Dry Fly",
+  "specs": "Stonefly/hopper attractor",
+  "targetSpecies": "Trout",
+  "priceRange": "$"
+ },
+ {
+  "id": 196,
+  "category": "Lure",
+  "brand": "Umpqua",
+  "model": "Muddler Minnow 8",
+  "type": "Streamer Fly",
+  "specs": "Sculpin classic",
+  "targetSpecies": "Trout, Bass",
+  "priceRange": "$"
+ },
+ {
+  "id": 197,
+  "category": "Bait",
+  "brand": "Local",
+  "model": "Nightcrawlers (dozen)",
+  "type": "Live Bait",
+  "specs": "Universal bait",
+  "targetSpecies": "All species",
+  "priceRange": "$"
+ },
+ {
+  "id": 198,
+  "category": "Bait",
+  "brand": "Local",
+  "model": "Red Wigglers (cup)",
+  "type": "Live Bait",
+  "specs": "Panfish-sized worms",
+  "targetSpecies": "Panfish, Trout",
+  "priceRange": "$"
+ },
+ {
+  "id": 199,
+  "category": "Bait",
+  "brand": "Local",
+  "model": "Wax Worms (cup)",
+  "type": "Live Bait",
+  "specs": "Ice and panfish bait",
+  "targetSpecies": "Panfish, Trout",
+  "priceRange": "$"
+ },
+ {
+  "id": 200,
+  "category": "Bait",
+  "brand": "Local",
+  "model": "Mealworms (cup)",
+  "type": "Live Bait",
+  "specs": "Hardy grubs",
+  "targetSpecies": "Panfish, Trout",
+  "priceRange": "$"
+ },
+ {
+  "id": 201,
+  "category": "Bait",
+  "brand": "Local",
+  "model": "Live Shiners (dozen)",
+  "type": "Live Bait",
+  "specs": "Baitfish",
+  "targetSpecies": "Bass, Walleye, Pike",
+  "priceRange": "$"
+ },
+ {
+  "id": 202,
+  "category": "Bait",
+  "brand": "Local",
+  "model": "Fathead Minnows (dozen)",
+  "type": "Live Bait",
+  "specs": "Crappie staple",
+  "targetSpecies": "Crappie, Walleye",
+  "priceRange": "$"
+ },
+ {
+  "id": 203,
+  "category": "Bait",
+  "brand": "Local",
+  "model": "Crickets (tube)",
+  "type": "Live Bait",
+  "specs": "Bream candy",
+  "targetSpecies": "Bluegill, Panfish",
+  "priceRange": "$"
+ },
+ {
+  "id": 204,
+  "category": "Bait",
+  "brand": "Local",
+  "model": "Leeches (pound)",
+  "type": "Live Bait",
+  "specs": "Walleye favorite",
+  "targetSpecies": "Walleye, Bass",
+  "priceRange": "$"
+ },
+ {
+  "id": 205,
+  "category": "Bait",
+  "brand": "Local",
+  "model": "Live Crawfish (dozen)",
+  "type": "Live Bait",
+  "specs": "River bass bait",
+  "targetSpecies": "Bass, Catfish",
+  "priceRange": "$"
+ },
+ {
+  "id": 206,
+  "category": "Bait",
+  "brand": "Local",
+  "model": "Live Shrimp (dozen)",
+  "type": "Live Bait",
+  "specs": "Inshore universal",
+  "targetSpecies": "Trout, Reds, Snook",
+  "priceRange": "$"
+ },
+ {
+  "id": 207,
+  "category": "Bait",
+  "brand": "Local",
+  "model": "Fiddler Crabs (dozen)",
+  "type": "Live Bait",
+  "specs": "Sheepshead special",
+  "targetSpecies": "Sheepshead, Drum",
+  "priceRange": "$"
+ },
+ {
+  "id": 208,
+  "category": "Bait",
+  "brand": "Local",
+  "model": "Sand Fleas (dozen)",
+  "type": "Live Bait",
+  "specs": "Surf pompano bait",
+  "targetSpecies": "Pompano, Whiting",
+  "priceRange": "$"
+ },
+ {
+  "id": 209,
+  "category": "Bait",
+  "brand": "Local",
+  "model": "Bloodworms (dozen)",
+  "type": "Live Bait",
+  "specs": "Surf and pier bait",
+  "targetSpecies": "Stripers, Spot, Perch",
+  "priceRange": "$$"
+ },
+ {
+  "id": 210,
+  "category": "Bait",
+  "brand": "Berkley",
+  "model": "PowerBait Trout Dough Chartreuse",
+  "type": "Dough Bait",
+  "specs": "Floating, scented",
+  "targetSpecies": "Trout",
+  "priceRange": "$"
+ },
+ {
+  "id": 211,
+  "category": "Bait",
+  "brand": "Berkley",
+  "model": "PowerBait Glitter Trout Rainbow",
+  "type": "Dough Bait",
+  "specs": "Stocked-trout staple",
+  "targetSpecies": "Trout",
+  "priceRange": "$"
+ },
+ {
+  "id": 212,
+  "category": "Bait",
+  "brand": "Berkley",
+  "model": "PowerBait Power Eggs",
+  "type": "Egg Bait",
+  "specs": "Floating salmon eggs",
+  "targetSpecies": "Trout",
+  "priceRange": "$"
+ },
+ {
+  "id": 213,
+  "category": "Bait",
+  "brand": "Pautzke",
+  "model": "Balls O' Fire Salmon Eggs",
+  "type": "Egg Bait",
+  "specs": "Cured single eggs",
+  "targetSpecies": "Trout, Salmon",
+  "priceRange": "$"
+ },
+ {
+  "id": 214,
+  "category": "Bait",
+  "brand": "Berkley",
+  "model": "Gulp! Earthworm 6in",
+  "type": "Artificial",
+  "specs": "Scented soft worm",
+  "targetSpecies": "Trout, Panfish",
+  "priceRange": "$"
+ },
+ {
+  "id": 215,
+  "category": "Bait",
+  "brand": "Gulp!",
+  "model": "Alive Crawfish",
+  "type": "Artificial",
+  "specs": "Scented, reusable",
+  "targetSpecies": "Bass, Catfish",
+  "priceRange": "$"
+ },
+ {
+  "id": 216,
+  "category": "Bait",
+  "brand": "Team Catfish",
+  "model": "Sudden Impact Fiber Bait",
+  "type": "Stink Bait",
+  "specs": "Punch bait",
+  "targetSpecies": "Catfish",
+  "priceRange": "$"
+ },
+ {
+  "id": 217,
+  "category": "Bait",
+  "brand": "Danny King",
+  "model": "Punch Bait",
+  "type": "Stink Bait",
+  "specs": "Channel cat classic",
+  "targetSpecies": "Catfish",
+  "priceRange": "$"
+ },
+ {
+  "id": 218,
+  "category": "Bait",
+  "brand": "Local",
+  "model": "Chicken Liver (tub)",
+  "type": "Cut Bait",
+  "specs": "Cheap catfish standby",
+  "targetSpecies": "Catfish",
+  "priceRange": "$"
+ },
+ {
+  "id": 219,
+  "category": "Bait",
+  "brand": "Local",
+  "model": "Cut Shad",
+  "type": "Cut Bait",
+  "specs": "Fresh-cut for big cats",
+  "targetSpecies": "Catfish, Stripers",
+  "priceRange": "$"
+ },
+ {
+  "id": 220,
+  "category": "Bait",
+  "brand": "Local",
+  "model": "Frozen Squid (box)",
+  "type": "Dead Bait",
+  "specs": "Pier and bottom rig bait",
+  "targetSpecies": "Salt species",
+  "priceRange": "$"
+ },
+ {
+  "id": 221,
+  "category": "Bait",
+  "brand": "Local",
+  "model": "Frozen Mullet",
+  "type": "Dead Bait",
+  "specs": "Cut or whole surf bait",
+  "targetSpecies": "Reds, Blues, Sharks",
+  "priceRange": "$"
+ },
+ {
+  "id": 222,
+  "category": "Bait",
+  "brand": "Local",
+  "model": "Menhaden/Bunker Chunks",
+  "type": "Cut Bait",
+  "specs": "Oily striper chunk",
+  "targetSpecies": "Stripers, Blues",
+  "priceRange": "$"
+ },
+ {
+  "id": 223,
+  "category": "Bait",
+  "brand": "Local",
+  "model": "Sweetcorn (can)",
+  "type": "Grocery Bait",
+  "specs": "Carp and trout classic",
+  "targetSpecies": "Carp, Trout",
+  "priceRange": "$"
+ },
+ {
+  "id": 224,
+  "category": "Bait",
+  "brand": "Local",
+  "model": "Bread Balls",
+  "type": "Grocery Bait",
+  "specs": "Old faithful",
+  "targetSpecies": "Carp, Panfish",
+  "priceRange": "$"
+ },
+ {
+  "id": 225,
+  "category": "Bait",
+  "brand": "Marukyu",
+  "model": "Boilies 16mm",
+  "type": "Carp Bait",
+  "specs": "Flavored boiled baits",
+  "targetSpecies": "Carp",
+  "priceRange": "$$"
+ },
+ {
+  "id": 226,
+  "category": "Bait",
+  "brand": "Magic",
+  "model": "Preserved Maggots",
+  "type": "Preserved Bait",
+  "specs": "Ice and float fishing",
+  "targetSpecies": "Panfish, Trout",
+  "priceRange": "$"
+ },
+ {
+  "id": 227,
+  "category": "Line",
+  "brand": "Berkley",
+  "model": "Trilene XL 8lb",
+  "type": "Monofilament",
+  "specs": "Smooth casting, 330yd",
+  "targetSpecies": "All species",
+  "priceRange": "$"
+ },
+ {
+  "id": 228,
+  "category": "Line",
+  "brand": "Berkley",
+  "model": "Trilene Big Game 20lb",
+  "type": "Monofilament",
+  "specs": "Abrasion-tough bulk spool",
+  "targetSpecies": "Catfish, Stripers",
+  "priceRange": "$"
+ },
+ {
+  "id": 229,
+  "category": "Line",
+  "brand": "Stren",
+  "model": "Original 10lb",
+  "type": "Monofilament",
+  "specs": "Classic all-purpose mono",
+  "targetSpecies": "All species",
+  "priceRange": "$"
+ },
+ {
+  "id": 230,
+  "category": "Line",
+  "brand": "Berkley",
+  "model": "Vanish 8lb",
+  "type": "Fluorocarbon",
+  "specs": "Value fluoro",
+  "targetSpecies": "Bass, Walleye",
+  "priceRange": "$"
+ },
+ {
+  "id": 231,
+  "category": "Line",
+  "brand": "Seaguar",
+  "model": "InvizX 12lb",
+  "type": "Fluorocarbon",
+  "specs": "Soft, castable 100% fluoro",
+  "targetSpecies": "Bass",
+  "priceRange": "$$"
+ },
+ {
+  "id": 232,
+  "category": "Line",
+  "brand": "Seaguar",
+  "model": "Red Label 15lb",
+  "type": "Fluorocarbon",
+  "specs": "Value 100% fluoro",
+  "targetSpecies": "Bass, Inshore",
+  "priceRange": "$$"
+ },
+ {
+  "id": 233,
+  "category": "Line",
+  "brand": "Seaguar",
+  "model": "AbrazX 15lb",
+  "type": "Fluorocarbon",
+  "specs": "Abrasion resistant",
+  "targetSpecies": "Bass, Rocks",
+  "priceRange": "$$"
+ },
+ {
+  "id": 234,
+  "category": "Line",
+  "brand": "Sunline",
+  "model": "Sniper FC 10lb",
+  "type": "Fluorocarbon",
+  "specs": "Triple resin coating",
+  "targetSpecies": "Bass",
+  "priceRange": "$$"
+ },
+ {
+  "id": 235,
+  "category": "Line",
+  "brand": "Seaguar",
+  "model": "Blue Label Leader 30lb",
+  "type": "Fluorocarbon Leader",
+  "specs": "Leader-grade fluoro",
+  "targetSpecies": "Salt species",
+  "priceRange": "$$"
+ },
+ {
+  "id": 236,
+  "category": "Line",
+  "brand": "PowerPro",
+  "model": "Spectra 30lb Moss Green",
+  "type": "Braided",
+  "specs": "Micro-filament, 150yd",
+  "targetSpecies": "Bass, Saltwater",
+  "priceRange": "$$"
+ },
+ {
+  "id": 237,
+  "category": "Line",
+  "brand": "Sufix",
+  "model": "832 Advanced Superline 15lb",
+  "type": "Braided",
+  "specs": "8-carrier braid",
+  "targetSpecies": "Bass, Pike",
+  "priceRange": "$$"
+ },
+ {
+  "id": 238,
+  "category": "Line",
+  "brand": "Daiwa",
+  "model": "J-Braid x8 20lb",
+  "type": "Braided",
+  "specs": "8-strand, round profile",
+  "targetSpecies": "Saltwater",
+  "priceRange": "$$"
+ },
+ {
+  "id": 239,
+  "category": "Line",
+  "brand": "SpiderWire",
+  "model": "Stealth Smooth 15lb",
+  "type": "Braided",
+  "specs": "Quiet through guides",
+  "targetSpecies": "Bass, Walleye",
+  "priceRange": "$$"
+ },
+ {
+  "id": 240,
+  "category": "Line",
+  "brand": "Berkley",
+  "model": "FireLine 10lb Crystal",
+  "type": "Fused Braid",
+  "specs": "Thermally fused",
+  "targetSpecies": "Walleye, Bass",
+  "priceRange": "$"
+ },
+ {
+  "id": 241,
+  "category": "Line",
+  "brand": "Yo-Zuri",
+  "model": "Hybrid 10lb",
+  "type": "Copolymer",
+  "specs": "Nylon/fluoro hybrid",
+  "targetSpecies": "Bass",
+  "priceRange": "$"
+ },
+ {
+  "id": 242,
+  "category": "Line",
+  "brand": "P-Line",
+  "model": "CXX X-Tra Strong 12lb",
+  "type": "Copolymer",
+  "specs": "High-strength copoly",
+  "targetSpecies": "Bass, Steelhead",
+  "priceRange": "$"
+ },
+ {
+  "id": 243,
+  "category": "Line",
+  "brand": "Rio",
+  "model": "Gold WF5F",
+  "type": "Fly Line",
+  "specs": "Weight-forward floating",
+  "targetSpecies": "Trout",
+  "priceRange": "$$$"
+ },
+ {
+  "id": 244,
+  "category": "Line",
+  "brand": "Scientific Anglers",
+  "model": "Amplitude MPX WF5F",
+  "type": "Fly Line",
+  "specs": "Textured premium line",
+  "targetSpecies": "Trout",
+  "priceRange": "$$$$"
+ },
+ {
+  "id": 245,
+  "category": "Line",
+  "brand": "Rio",
+  "model": "Powerflex Tippet 5X",
+  "type": "Tippet",
+  "specs": "Nylon tippet spool",
+  "targetSpecies": "Trout",
+  "priceRange": "$"
+ },
+ {
+  "id": 246,
+  "category": "Line",
+  "brand": "Seaguar",
+  "model": "STS Salmon Leader 20lb",
+  "type": "Leader",
+  "specs": "Steelhead/salmon leader",
+  "targetSpecies": "Salmon, Steelhead",
+  "priceRange": "$$"
+ },
+ {
+  "id": 247,
+  "category": "Hook",
+  "brand": "Gamakatsu",
+  "model": "EWG Worm Hook 3/0",
+  "type": "Extra Wide Gap",
+  "specs": "Black nickel, super sharp",
+  "targetSpecies": "Bass",
+  "priceRange": "$"
+ },
+ {
+  "id": 248,
+  "category": "Hook",
+  "brand": "Gamakatsu",
+  "model": "Octopus 1/0 Red",
+  "type": "Octopus",
+  "specs": "Bait-fishing standard",
+  "targetSpecies": "Walleye, Salmon",
+  "priceRange": "$"
+ },
+ {
+  "id": 249,
+  "category": "Hook",
+  "brand": "Owner",
+  "model": "Offset Worm 3/0",
+  "type": "Offset Worm",
+  "specs": "Super Needle Point",
+  "targetSpecies": "Bass",
+  "priceRange": "$"
+ },
+ {
+  "id": 250,
+  "category": "Hook",
+  "brand": "Owner",
+  "model": "Mosquito Hook 1",
+  "type": "Finesse",
+  "specs": "Drop shot favorite",
+  "targetSpecies": "Bass, Crappie",
+  "priceRange": "$"
+ },
+ {
+  "id": 251,
+  "category": "Hook",
+  "brand": "Mustad",
+  "model": "Demon Perfect Circle 4/0",
+  "type": "Circle",
+  "specs": "Inline circle, strong",
+  "targetSpecies": "Catfish, Reds",
+  "priceRange": "$"
+ },
+ {
+  "id": 252,
+  "category": "Hook",
+  "brand": "Mustad",
+  "model": "Classic Treble 6",
+  "type": "Treble",
+  "specs": "Replacement trebles",
+  "targetSpecies": "All species",
+  "priceRange": "$"
+ },
+ {
+  "id": 253,
+  "category": "Hook",
+  "brand": "Eagle Claw",
+  "model": "Aberdeen Light Wire 4",
+  "type": "Aberdeen",
+  "specs": "Gold, bends free of snags",
+  "targetSpecies": "Panfish, Crappie",
+  "priceRange": "$"
+ },
+ {
+  "id": 254,
+  "category": "Hook",
+  "brand": "Eagle Claw",
+  "model": "Baitholder 2",
+  "type": "Baitholder",
+  "specs": "Barbed shank for worms",
+  "targetSpecies": "All species",
+  "priceRange": "$"
+ },
+ {
+  "id": 255,
+  "category": "Hook",
+  "brand": "Eagle Claw",
+  "model": "Lazer Sharp Circle 5/0",
+  "type": "Circle",
+  "specs": "Value circle hook",
+  "targetSpecies": "Catfish, Stripers",
+  "priceRange": "$"
+ },
+ {
+  "id": 256,
+  "category": "Hook",
+  "brand": "VMC",
+  "model": "Neko Hook 1/0",
+  "type": "Weedless Neko",
+  "specs": "With weight keeper",
+  "targetSpecies": "Bass",
+  "priceRange": "$"
+ },
+ {
+  "id": 257,
+  "category": "Hook",
+  "brand": "VMC",
+  "model": "Redline Series Treble 4",
+  "type": "Treble",
+  "specs": "Upgrade trebles",
+  "targetSpecies": "Bass, Pike",
+  "priceRange": "$"
+ },
+ {
+  "id": 258,
+  "category": "Hook",
+  "brand": "Trokar",
+  "model": "TK130 Flippin 4/0",
+  "type": "Flipping",
+  "specs": "Surgically sharpened",
+  "targetSpecies": "Bass",
+  "priceRange": "$$"
+ },
+ {
+  "id": 259,
+  "category": "Hook",
+  "brand": "Hayabusa",
+  "model": "FPP Straight 5/0",
+  "type": "Frog Hook",
+  "specs": "Heavy wire, weedless",
+  "targetSpecies": "Bass",
+  "priceRange": "$"
+ },
+ {
+  "id": 260,
+  "category": "Hook",
+  "brand": "Gamakatsu",
+  "model": "Weighted Superline EWG 4/0",
+  "type": "Weighted Swimbait",
+  "specs": "For soft swimbaits",
+  "targetSpecies": "Bass",
+  "priceRange": "$"
+ },
+ {
+  "id": 261,
+  "category": "Hook",
+  "brand": "Owner",
+  "model": "Beast 8/0 Weighted",
+  "type": "Weighted Swimbait",
+  "specs": "Big soft-bait hook",
+  "targetSpecies": "Bass, Stripers",
+  "priceRange": "$$"
+ },
+ {
+  "id": 262,
+  "category": "Hook",
+  "brand": "Daiichi",
+  "model": "1180 Standard Dry 14",
+  "type": "Fly Tying",
+  "specs": "Dry-fly hooks (25pk)",
+  "targetSpecies": "Trout",
+  "priceRange": "$"
+ },
+ {
+  "id": 263,
+  "category": "Hook",
+  "brand": "Mustad",
+  "model": "O'Shaughnessy 7/0",
+  "type": "J-Hook",
+  "specs": "Heavy salt J-hook",
+  "targetSpecies": "Salt species",
+  "priceRange": "$"
+ },
+ {
+  "id": 264,
+  "category": "Hook",
+  "brand": "Eagle Claw",
+  "model": "Snelled Baitholder 6 (6pk)",
+  "type": "Snelled",
+  "specs": "Pre-tied convenience",
+  "targetSpecies": "Panfish, Trout",
+  "priceRange": "$"
+ },
+ {
+  "id": 265,
+  "category": "Terminal Tackle",
+  "brand": "Water Gremlin",
+  "model": "Split Shot BB (tin)",
+  "type": "Split Shot",
+  "specs": "Removable, reusable",
+  "targetSpecies": "Trout, Panfish",
+  "priceRange": "$"
+ },
+ {
+  "id": 266,
+  "category": "Terminal Tackle",
+  "brand": "Bullet Weights",
+  "model": "Egg Sinker 1oz (bag)",
+  "type": "Sinker",
+  "specs": "Sliding rig staple",
+  "targetSpecies": "Catfish, Stripers",
+  "priceRange": "$"
+ },
+ {
+  "id": 267,
+  "category": "Terminal Tackle",
+  "brand": "Bullet Weights",
+  "model": "Bank Sinker 3oz",
+  "type": "Sinker",
+  "specs": "Bottom fishing",
+  "targetSpecies": "Catfish, Salt",
+  "priceRange": "$"
+ },
+ {
+  "id": 268,
+  "category": "Terminal Tackle",
+  "brand": "Sea Striker",
+  "model": "Pyramid Sinker 4oz",
+  "type": "Sinker",
+  "specs": "Holds in surf",
+  "targetSpecies": "Surf species",
+  "priceRange": "$"
+ },
+ {
+  "id": 269,
+  "category": "Terminal Tackle",
+  "brand": "Strike King",
+  "model": "Tour Grade Tungsten 1/2oz",
+  "type": "Bullet Weight",
+  "specs": "Compact flipping weight",
+  "targetSpecies": "Bass",
+  "priceRange": "$$"
+ },
+ {
+  "id": 270,
+  "category": "Terminal Tackle",
+  "brand": "Reaction Tackle",
+  "model": "Tungsten Drop Shot 3/8oz",
+  "type": "Drop Shot Weight",
+  "specs": "Teardrop clip-on",
+  "targetSpecies": "Bass, Walleye",
+  "priceRange": "$"
+ },
+ {
+  "id": 271,
+  "category": "Terminal Tackle",
+  "brand": "Whisker Seeker",
+  "model": "No-Roll Sinker 3oz",
+  "type": "Sinker",
+  "specs": "Flat, stays put",
+  "targetSpecies": "Catfish",
+  "priceRange": "$"
+ },
+ {
+  "id": 272,
+  "category": "Terminal Tackle",
+  "brand": "SPRO",
+  "model": "Power Swivel 7 (10pk)",
+  "type": "Swivel",
+  "specs": "High-quality barrels",
+  "targetSpecies": "All species",
+  "priceRange": "$"
+ },
+ {
+  "id": 273,
+  "category": "Terminal Tackle",
+  "brand": "Sampo",
+  "model": "Ball Bearing Swivel 4",
+  "type": "Swivel",
+  "specs": "Premium anti-twist",
+  "targetSpecies": "Salmon, Musky",
+  "priceRange": "$$"
+ },
+ {
+  "id": 274,
+  "category": "Terminal Tackle",
+  "brand": "Berkley",
+  "model": "Cross-Lok Snap 45lb",
+  "type": "Snap",
+  "specs": "Easy lure change",
+  "targetSpecies": "All species",
+  "priceRange": "$"
+ },
+ {
+  "id": 275,
+  "category": "Terminal Tackle",
+  "brand": "Duolock",
+  "model": "Snap Size 3 (10pk)",
+  "type": "Snap",
+  "specs": "Free lure action",
+  "targetSpecies": "Bass, Walleye",
+  "priceRange": "$"
+ },
+ {
+  "id": 276,
+  "category": "Terminal Tackle",
+  "brand": "American Fishing Wire",
+  "model": "Surflon 30lb Leader",
+  "type": "Wire Leader",
+  "specs": "Toothy-fish insurance",
+  "targetSpecies": "Pike, Musky, Blues",
+  "priceRange": "$"
+ },
+ {
+  "id": 277,
+  "category": "Terminal Tackle",
+  "brand": "Thill",
+  "model": "Pro Series Slip Float",
+  "type": "Float",
+  "specs": "Balsa slip bobber",
+  "targetSpecies": "Crappie, Walleye",
+  "priceRange": "$"
+ },
+ {
+  "id": 278,
+  "category": "Terminal Tackle",
+  "brand": "Betts",
+  "model": "Mini Foam Floats (3pk)",
+  "type": "Float",
+  "specs": "Simple panfish floats",
+  "targetSpecies": "Panfish",
+  "priceRange": "$"
+ },
+ {
+  "id": 279,
+  "category": "Terminal Tackle",
+  "brand": "Bomber",
+  "model": "Paradise Popper X-Treme",
+  "type": "Popping Cork",
+  "specs": "Inshore popping rig",
+  "targetSpecies": "Trout, Reds",
+  "priceRange": "$"
+ },
+ {
+  "id": 280,
+  "category": "Terminal Tackle",
+  "brand": "VMC",
+  "model": "Spin Shot Drop Shot 1",
+  "type": "Drop Shot Rig",
+  "specs": "Free-spinning hook",
+  "targetSpecies": "Bass, Walleye",
+  "priceRange": "$"
+ },
+ {
+  "id": 281,
+  "category": "Terminal Tackle",
+  "brand": "Hagens",
+  "model": "Sabiki Rig Size 6",
+  "type": "Sabiki",
+  "specs": "Baitfish catcher",
+  "targetSpecies": "Baitfish",
+  "priceRange": "$"
+ },
+ {
+  "id": 282,
+  "category": "Terminal Tackle",
+  "brand": "Sea Striker",
+  "model": "Double Drop Bottom Rig",
+  "type": "Pre-tied Rig",
+  "specs": "Pier/surf two-hook rig",
+  "targetSpecies": "Surf species",
+  "priceRange": "$"
+ },
+ {
+  "id": 283,
+  "category": "Terminal Tackle",
+  "brand": "Lindy",
+  "model": "Rig Walking Sinker 1/2oz",
+  "type": "Rig Component",
+  "specs": "Walleye live-bait rig",
+  "targetSpecies": "Walleye",
+  "priceRange": "$"
+ },
+ {
+  "id": 284,
+  "category": "Terminal Tackle",
+  "brand": "Mack's Lure",
+  "model": "Smile Blade Slow Death Rig",
+  "type": "Rig",
+  "specs": "Crawler harness",
+  "targetSpecies": "Walleye",
+  "priceRange": "$"
+ },
+ {
+  "id": 285,
+  "category": "Terminal Tackle",
+  "brand": "Owner",
+  "model": "Glass Beads 6mm (40pk)",
+  "type": "Beads",
+  "specs": "Rig clacker beads",
+  "targetSpecies": "Bass",
+  "priceRange": "$"
+ },
+ {
+  "id": 286,
+  "category": "Terminal Tackle",
+  "brand": "Eagle Claw",
+  "model": "3-Way Swivel 2 (5pk)",
+  "type": "Swivel",
+  "specs": "Three-way rigs",
+  "targetSpecies": "Catfish, Stripers",
+  "priceRange": "$"
+ },
+ {
+  "id": 287,
+  "category": "Accessory",
+  "brand": "Plano",
+  "model": "3600 StowAway (4pk)",
+  "type": "Storage",
+  "specs": "Standard utility boxes",
+  "targetSpecies": "All species",
+  "priceRange": "$"
+ },
+ {
+  "id": 288,
+  "category": "Accessory",
+  "brand": "Plano",
+  "model": "3700 Deep StowAway",
+  "type": "Storage",
+  "specs": "Deep utility box",
+  "targetSpecies": "All species",
+  "priceRange": "$"
+ },
+ {
+  "id": 289,
+  "category": "Accessory",
+  "brand": "Plano",
+  "model": "Edge 3700 Master Crank",
+  "type": "Storage",
+  "specs": "Rust-inhibiting crank box",
+  "targetSpecies": "Bass",
+  "priceRange": "$$"
+ },
+ {
+  "id": 290,
+  "category": "Accessory",
+  "brand": "KastKing",
+  "model": "Waterproof Tackle Bag 3600",
+  "type": "Bag",
+  "specs": "Trays included",
+  "targetSpecies": "All species",
+  "priceRange": "$$"
+ },
+ {
+  "id": 291,
+  "category": "Accessory",
+  "brand": "Plano",
+  "model": "Weekend Series Backpack",
+  "type": "Bag",
+  "specs": "Tackle backpack",
+  "targetSpecies": "All species",
+  "priceRange": "$$"
+ },
+ {
+  "id": 292,
+  "category": "Accessory",
+  "brand": "Rapala",
+  "model": "Digital Scale 50lb",
+  "type": "Scale",
+  "specs": "Backlit LCD, memory",
+  "targetSpecies": "All species",
+  "priceRange": "$"
+ },
+ {
+  "id": 293,
+  "category": "Accessory",
+  "brand": "Boga Grip",
+  "model": "Model 315 30lb",
+  "type": "Lip Gripper",
+  "specs": "Stainless with scale",
+  "targetSpecies": "Bass, Salt species",
+  "priceRange": "$$$"
+ },
+ {
+  "id": 294,
+  "category": "Accessory",
+  "brand": "Rapala",
+  "model": "Floating Fish Gripper",
+  "type": "Lip Gripper",
+  "specs": "Budget floating gripper",
+  "targetSpecies": "Bass, Pike",
+  "priceRange": "$"
+ },
+ {
+  "id": 295,
+  "category": "Accessory",
+  "brand": "Boomerang",
+  "model": "Snip Line Cutter",
+  "type": "Tool",
+  "specs": "Retractable, stainless",
+  "targetSpecies": "All species",
+  "priceRange": "$"
+ },
+ {
+  "id": 296,
+  "category": "Accessory",
+  "brand": "Cuda",
+  "model": "Titanium Pliers 7.5in",
+  "type": "Pliers",
+  "specs": "Split ring + cutters",
+  "targetSpecies": "All species",
+  "priceRange": "$$"
+ },
+ {
+  "id": 297,
+  "category": "Accessory",
+  "brand": "Bubba",
+  "model": "Fishing Pliers 8.5in",
+  "type": "Pliers",
+  "specs": "Non-slip grip",
+  "targetSpecies": "Salt species",
+  "priceRange": "$$"
+ },
+ {
+  "id": 298,
+  "category": "Accessory",
+  "brand": "Rapala",
+  "model": "Fillet Knife 6in",
+  "type": "Knife",
+  "specs": "Birch handle classic",
+  "targetSpecies": "All species",
+  "priceRange": "$"
+ },
+ {
+  "id": 299,
+  "category": "Accessory",
+  "brand": "Bubba",
+  "model": "Li-Ion Electric Fillet Knife",
+  "type": "Knife",
+  "specs": "Cordless fillet",
+  "targetSpecies": "Walleye, Catfish",
+  "priceRange": "$$$"
+ },
+ {
+  "id": 300,
+  "category": "Accessory",
+  "brand": "Frabill",
+  "model": "Conservation Net 21x25",
+  "type": "Net",
+  "specs": "Fish-friendly mesh",
+  "targetSpecies": "Bass, Trout",
+  "priceRange": "$$"
+ },
+ {
+  "id": 301,
+  "category": "Accessory",
+  "brand": "EGO",
+  "model": "S2 Slider Net",
+  "type": "Net",
+  "specs": "Extending handle",
+  "targetSpecies": "Bass, Walleye",
+  "priceRange": "$$$"
+ },
+ {
+  "id": 302,
+  "category": "Accessory",
+  "brand": "Frabill",
+  "model": "Power Stow Net 20x24",
+  "type": "Net",
+  "specs": "Folding boat net",
+  "targetSpecies": "Walleye, Bass",
+  "priceRange": "$$"
+ },
+ {
+  "id": 303,
+  "category": "Accessory",
+  "brand": "Promar",
+  "model": "Cast Net 6ft 3/8in Mesh",
+  "type": "Cast Net",
+  "specs": "Bait gathering",
+  "targetSpecies": "Baitfish",
+  "priceRange": "$$"
+ },
+ {
+  "id": 304,
+  "category": "Accessory",
+  "brand": "Costa",
+  "model": "Fantail 580G",
+  "type": "Sunglasses",
+  "specs": "Polarized glass lenses",
+  "targetSpecies": "Sight fishing",
+  "priceRange": "$$$$"
+ },
+ {
+  "id": 305,
+  "category": "Accessory",
+  "brand": "Smith",
+  "model": "Guide's Choice Polarized",
+  "type": "Sunglasses",
+  "specs": "ChromaPop glass",
+  "targetSpecies": "Sight fishing",
+  "priceRange": "$$$$"
+ },
+ {
+  "id": 306,
+  "category": "Accessory",
+  "brand": "Garmin",
+  "model": "Striker 4",
+  "type": "Electronics",
+  "specs": "GPS fishfinder combo",
+  "targetSpecies": "All species",
+  "priceRange": "$$$"
+ },
+ {
+  "id": 307,
+  "category": "Accessory",
+  "brand": "Humminbird",
+  "model": "Helix 5 CHIRP GPS G3",
+  "type": "Electronics",
+  "specs": "CHIRP + mapping",
+  "targetSpecies": "All species",
+  "priceRange": "$$$$"
+ },
+ {
+  "id": 308,
+  "category": "Accessory",
+  "brand": "Lowrance",
+  "model": "Hook Reveal 5",
+  "type": "Electronics",
+  "specs": "DownScan fishfinder",
+  "targetSpecies": "All species",
+  "priceRange": "$$$"
+ },
+ {
+  "id": 309,
+  "category": "Accessory",
+  "brand": "Deeper",
+  "model": "Pro+ 2 Castable Sonar",
+  "type": "Electronics",
+  "specs": "Castable wifi sonar",
+  "targetSpecies": "Shore anglers",
+  "priceRange": "$$$"
+ },
+ {
+  "id": 310,
+  "category": "Accessory",
+  "brand": "YETI",
+  "model": "Tundra 45 Cooler",
+  "type": "Cooler",
+  "specs": "Keeps catch iced for days",
+  "targetSpecies": "All species",
+  "priceRange": "$$$$"
+ },
+ {
+  "id": 311,
+  "category": "Accessory",
+  "brand": "Engel",
+  "model": "30qt Live Bait Cooler",
+  "type": "Livewell",
+  "specs": "Aerated bait cooler",
+  "targetSpecies": "Live-bait anglers",
+  "priceRange": "$$"
+ },
+ {
+  "id": 312,
+  "category": "Accessory",
+  "brand": "Marine Metal",
+  "model": "Bubble Box Aerator",
+  "type": "Livewell",
+  "specs": "Battery bait aerator",
+  "targetSpecies": "Live-bait anglers",
+  "priceRange": "$"
+ },
+ {
+  "id": 313,
+  "category": "Accessory",
+  "brand": "Berkley",
+  "model": "Rod Rack Horizontal 6",
+  "type": "Storage",
+  "specs": "Wall rod storage",
+  "targetSpecies": "All species",
+  "priceRange": "$"
+ },
+ {
+  "id": 314,
+  "category": "Accessory",
+  "brand": "Scotty",
+  "model": "Baitcaster Rod Holder",
+  "type": "Rod Holder",
+  "specs": "Rail/deck mount",
+  "targetSpecies": "Boat anglers",
+  "priceRange": "$$"
+ },
+ {
+  "id": 315,
+  "category": "Accessory",
+  "brand": "Sea Striker",
+  "model": "Surf Rod Sand Spike 3ft",
+  "type": "Rod Holder",
+  "specs": "PVC surf spike",
+  "targetSpecies": "Surf anglers",
+  "priceRange": "$"
+ },
+ {
+  "id": 316,
+  "category": "Accessory",
+  "brand": "Nite Ize",
+  "model": "Headlamp 300lm",
+  "type": "Light",
+  "specs": "Hands-free dawn rigging",
+  "targetSpecies": "All species",
+  "priceRange": "$"
+ },
+ {
+  "id": 317,
+  "category": "Accessory",
+  "brand": "Onyx",
+  "model": "MoveVent Dynamic PFD",
+  "type": "Safety",
+  "specs": "Paddle-friendly life vest",
+  "targetSpecies": "Kayak anglers",
+  "priceRange": "$$"
+ },
+ {
+  "id": 318,
+  "category": "Accessory",
+  "brand": "YakAttack",
+  "model": "LeverLoc Anchor Trolley",
+  "type": "Kayak",
+  "specs": "Anchor positioning",
+  "targetSpecies": "Kayak anglers",
+  "priceRange": "$$"
+ },
+ {
+  "id": 319,
+  "category": "Accessory",
+  "brand": "Frogg Toggs",
+  "model": "Hellbender Chest Waders",
+  "type": "Waders",
+  "specs": "Breathable stockingfoot",
+  "targetSpecies": "Trout, Steelhead",
+  "priceRange": "$$$"
+ },
+ {
+  "id": 320,
+  "category": "Accessory",
+  "brand": "Korkers",
+  "model": "Greenback Wading Boots",
+  "type": "Waders",
+  "specs": "Interchangeable soles",
+  "targetSpecies": "Trout, Steelhead",
+  "priceRange": "$$$"
+ },
+ {
+  "id": 321,
+  "category": "Accessory",
+  "brand": "Fishpond",
+  "model": "Nomad Hand Net",
+  "type": "Net",
+  "specs": "Carbon fly net",
+  "targetSpecies": "Trout",
+  "priceRange": "$$$"
+ },
+ {
+  "id": 322,
+  "category": "Accessory",
+  "brand": "Loon",
+  "model": "Nippers + Zinger Combo",
+  "type": "Fly Tool",
+  "specs": "Tippet management",
+  "targetSpecies": "Trout",
+  "priceRange": "$$"
+ },
+ {
+  "id": 323,
+  "category": "Accessory",
+  "brand": "Dr. Slick",
+  "model": "Mitten Scissor Clamp",
+  "type": "Fly Tool",
+  "specs": "Hook removal + snips",
+  "targetSpecies": "Trout",
+  "priceRange": "$$"
+ },
+ {
+  "id": 324,
+  "category": "Accessory",
+  "brand": "Eskimo",
+  "model": "Hand Auger 8in",
+  "type": "Ice",
+  "specs": "Manual ice auger",
+  "targetSpecies": "Ice anglers",
+  "priceRange": "$$"
+ },
+ {
+  "id": 325,
+  "category": "Accessory",
+  "brand": "Frabill",
+  "model": "Ice Shelter 2-person",
+  "type": "Ice",
+  "specs": "Flip-over shelter",
+  "targetSpecies": "Ice anglers",
+  "priceRange": "$$$$"
+ },
+ {
+  "id": 326,
+  "category": "Accessory",
+  "brand": "Celsius",
+  "model": "Ice Scoop/Skimmer",
+  "type": "Ice",
+  "specs": "Keeps holes clear",
+  "targetSpecies": "Ice anglers",
+  "priceRange": "$"
+ }
+]

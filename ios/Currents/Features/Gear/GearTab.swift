@@ -547,6 +547,12 @@ struct GearCatalogBrowser: View {
                     }
                 }
                 .listStyle(.insetGrouped)
+                .refreshable {
+                    // Pull the latest published catalog; once synced it's
+                    // stored locally, so everything here works offline.
+                    await GearCatalogSync.syncIfDue(db: appState.db, force: true)
+                    items = (try? appState.gearCatalogRepository.fetchAll()) ?? []
+                }
             }
         }
         .searchable(text: $searchText, prompt: "Search brand, model, type, species...")
