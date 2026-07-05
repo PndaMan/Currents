@@ -226,11 +226,15 @@ struct StatCard: View {
             Text(value)
                 .font(.title3.bold())
                 .monospacedDigit()
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
             Text(label)
                 .font(.caption)
                 .foregroundStyle(.secondary)
+                .lineLimit(1)
         }
-        .frame(width: 80)
+        // Flexible width so any number of cards tile evenly on one row.
+        .frame(maxWidth: .infinity)
         .glassCard()
     }
 }

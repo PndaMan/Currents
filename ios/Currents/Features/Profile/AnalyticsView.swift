@@ -164,15 +164,9 @@ struct AnalyticsView: View {
             Text("Species Breakdown")
                 .font(.headline)
 
-            Chart(speciesCounts.prefix(8), id: \.speciesId) { item in
-                BarMark(
-                    x: .value("Count", item.count),
-                    y: .value("Species", item.commonName)
-                )
-                .foregroundStyle(CurrentsTheme.accent.gradient)
-            }
-            .frame(height: CGFloat(min(speciesCounts.count, 8)) * 36)
+            LabeledBarList(items: speciesCounts.prefix(8).map { ($0.commonName, $0.count) })
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .glassCard()
     }
 
@@ -445,35 +439,15 @@ struct AnalyticsView: View {
 
                 ForEach(sortedSpots.prefix(5), id: \.key) { spotName, catches in
                     let speciesMap = Dictionary(grouping: catches.filter { $0.species != nil }, by: { $0.species!.commonName })
-                    VStack(alignment: .leading, spacing: 4) {
+                    VStack(alignment: .leading, spacing: 6) {
                         Text(spotName)
                             .font(.subheadline.bold())
-                        Chart(speciesMap.sorted(by: { $0.value.count > $1.value.count }).prefix(5), id: \.key) { item in
-                            BarMark(
-                                x: .value("Count", item.value.count),
-                                y: .value("Species", item.key)
-                            )
-                            .foregroundStyle(CurrentsTheme.accent.gradient)
-                            .annotation(position: .trailing, spacing: 4) {
-                                Text("\(item.value.count)")
-                                    .font(.caption2.monospacedDigit())
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                        .chartYAxis {
-                            AxisMarks { value in
-                                AxisValueLabel {
-                                    if let name = value.as(String.self) {
-                                        Text(name)
-                                            .font(.caption2)
-                                            .lineLimit(1)
-                                            .truncationMode(.tail)
-                                            .frame(maxWidth: 100, alignment: .trailing)
-                                    }
-                                }
-                            }
-                        }
-                        .frame(height: CGFloat(min(speciesMap.count, 5)) * 36)
+                        LabeledBarList(
+                            items: speciesMap
+                                .sorted(by: { $0.value.count > $1.value.count })
+                                .prefix(5)
+                                .map { ($0.key, $0.value.count) }
+                        )
                     }
                     .padding(.vertical, 4)
                 }
@@ -502,15 +476,9 @@ struct AnalyticsView: View {
                 Text("Gear Effectiveness")
                     .font(.headline)
 
-                Chart(sorted.prefix(8), id: \.key) { item in
-                    BarMark(
-                        x: .value("Catches", item.value.count),
-                        y: .value("Gear", item.key)
-                    )
-                    .foregroundStyle(CurrentsTheme.accent.gradient)
-                }
-                .frame(height: CGFloat(min(sorted.count, 8)) * 36)
+                LabeledBarList(items: sorted.prefix(8).map { ($0.key, $0.value.count) })
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
             .glassCard()
 
             // Technique breakdown
@@ -636,6 +604,42 @@ struct AnalyticsView: View {
             }
         }
         .glassCard()
+    }
+
+    /// Horizontal "bar chart" that can never clip its labels: the full name
+    /// sits on its own line above a proportional bar, with the count trailing.
+    private struct LabeledBarList: View {
+        let items: [(name: String, count: Int)]
+
+        var body: some View {
+            let maxCount = max(items.map(\.count).max() ?? 1, 1)
+            VStack(spacing: 8) {
+                ForEach(items, id: \.name) { item in
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack {
+                            Text(item.name)
+                                .font(.caption)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                            Spacer()
+                            Text("\(item.count)")
+                                .font(.caption.bold())
+                                .monospacedDigit()
+                        }
+                        GeometryReader { geo in
+                            ZStack(alignment: .leading) {
+                                Capsule()
+                                    .fill(.secondary.opacity(0.12))
+                                Capsule()
+                                    .fill(CurrentsTheme.accent.gradient)
+                                    .frame(width: max(6, geo.size.width * CGFloat(item.count) / CGFloat(maxCount)))
+                            }
+                        }
+                        .frame(height: 8)
+                    }
+                }
+            }
+        }
     }
 
     private var releaseRateCard: some View {

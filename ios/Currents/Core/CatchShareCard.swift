@@ -11,11 +11,19 @@ enum CatchShareCard {
         let cardHeight: CGFloat = 1350
         let mapSize: CGFloat = 240
 
-        // Get a map snapshot — square, zoomed in tight
-        let coordinate = CLLocationCoordinate2D(
-            latitude: detail.catchRecord.latitude,
-            longitude: detail.catchRecord.longitude
-        )
+        // Get a map snapshot — square, zoomed in tight, at the place the fish
+        // was actually caught: the assigned spot's pin when there is one (the
+        // raw record coordinates can be wherever the user happened to be when
+        // they logged the catch, e.g. back home).
+        let coordinate: CLLocationCoordinate2D
+        if let spot = detail.spot {
+            coordinate = CLLocationCoordinate2D(latitude: spot.latitude, longitude: spot.longitude)
+        } else {
+            coordinate = CLLocationCoordinate2D(
+                latitude: detail.catchRecord.latitude,
+                longitude: detail.catchRecord.longitude
+            )
+        }
         let mapSnapshot = await captureMapSnapshot(
             coordinate: coordinate,
             size: CGSize(width: mapSize * 2, height: mapSize * 2)

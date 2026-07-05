@@ -1096,7 +1096,7 @@ struct SpotDetailSheet: View {
                     }
 
                     if !catches.isEmpty {
-                        HStack(spacing: 12) {
+                        HStack(spacing: 10) {
                             StatCard(value: "\(catches.count)", label: "Catches", icon: "fish.fill")
                             let species = Set(catches.compactMap { $0.species?.commonName }).count
                             StatCard(value: "\(species)", label: "Species", icon: "leaf.fill")
@@ -1104,6 +1104,9 @@ struct SpotDetailSheet: View {
                                let weight = best.catchRecord.weightKg {
                                 StatCard(value: String(format: "%.1fkg", weight), label: "Best", icon: "trophy.fill")
                             }
+                            let released = catches.filter { $0.catchRecord.released }.count
+                            let releaseRate = Int(Double(released) / Double(catches.count) * 100)
+                            StatCard(value: "\(releaseRate)%", label: "Released", icon: "arrow.uturn.backward")
                         }
                     }
 
