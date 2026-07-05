@@ -344,7 +344,7 @@ struct GearTab: View {
     }
 
     private func refresh() async {
-        loadouts = (try? appState.gearRepository.fetchAll()) ?? []
+        loadouts = (try? appState.gearRepository.fetchPresets()) ?? []
         ownedGear = (try? appState.ownedGearRepository.fetchAll()) ?? []
     }
 }

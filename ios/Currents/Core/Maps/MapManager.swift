@@ -32,6 +32,29 @@ final class MapManager {
         }
     }
 
+    /// Keep the offline cache anchored to the PERSON, not wherever they last
+    /// browsed: when the user has moved ≥ 15 km from the stored anchor, drop
+    /// tiles far from their new position and prefetch a fresh ring around it,
+    /// so the cache follows them instead of wasting space on old areas.
+    func maintainOfflineCache(around userLocation: CLLocationCoordinate2D) {
+        guard autoCacheEnabled else { return }
+        let defaults = UserDefaults.standard
+        let lastLat = defaults.object(forKey: "offlineCacheAnchorLat") as? Double
+        let lastLon = defaults.object(forKey: "offlineCacheAnchorLon") as? Double
+        if let lastLat, let lastLon {
+            let moved = CLLocation(latitude: lastLat, longitude: lastLon)
+                .distance(from: CLLocation(latitude: userLocation.latitude, longitude: userLocation.longitude))
+            guard moved >= 15_000 else { return }
+        }
+        defaults.set(userLocation.latitude, forKey: "offlineCacheAnchorLat")
+        defaults.set(userLocation.longitude, forKey: "offlineCacheAnchorLon")
+
+        Task.detached(priority: .background) { [offlineOverlay, prefetcher] in
+            offlineOverlay.pruneTiles(farFrom: userLocation, keepKm: 60)
+            await prefetcher.prefetch(around: userLocation, zoomLevels: [10, 12, 14, 16])
+        }
+    }
+
     func clearTileCache() {
         offlineOverlay.clearCache()
     }

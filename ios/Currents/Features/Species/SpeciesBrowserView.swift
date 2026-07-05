@@ -131,16 +131,17 @@ struct SpeciesGuideCard: View {
     let caught: Bool
 
     var body: some View {
+        // The guide is the neutral reference — rarity only appears as the
+        // small tier symbol in the corner, no tinted backgrounds or labels.
         VStack(alignment: .leading, spacing: 0) {
             ZStack(alignment: .topTrailing) {
                 SpeciesArtworkView(species: species, caught: caught, size: 96)
                     .frame(maxWidth: .infinity)
                     .frame(height: 110)
-                    .background(species.rarity.color.opacity(0.10))
+                    .background(.secondary.opacity(0.06))
 
-                Label(species.rarity.label, systemImage: species.rarity.symbol)
+                Image(systemName: species.rarity.symbol)
                     .font(.system(size: 9, weight: .bold))
-                    .labelStyle(.iconOnly)
                     .padding(6)
                     .foregroundStyle(species.rarity.color)
 
@@ -164,14 +165,16 @@ struct SpeciesGuideCard: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                 HStack(spacing: 4) {
-                    Circle().fill(species.rarity.color).frame(width: 6, height: 6)
-                    Text(species.rarity.label)
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(species.rarity.color)
                     if let habitat = species.habitat {
-                        Text("· \(habitat.rawValue.capitalized)")
+                        Text(habitat.rawValue.capitalized)
                             .font(.system(size: 10))
                             .foregroundStyle(.secondary)
+                    }
+                    if let family = species.family {
+                        Text("· \(family)")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.tertiary)
+                            .lineLimit(1)
                     }
                 }
             }
@@ -182,7 +185,7 @@ struct SpeciesGuideCard: View {
         .clipShape(RoundedRectangle(cornerRadius: 16))
         .overlay(
             RoundedRectangle(cornerRadius: 16)
-                .stroke(caught ? species.rarity.color.opacity(0.5) : .secondary.opacity(0.12), lineWidth: 1)
+                .stroke(caught ? CurrentsTheme.accent.opacity(0.45) : .secondary.opacity(0.12), lineWidth: 1)
         )
     }
 }
@@ -197,7 +200,7 @@ struct SpeciesGuideRow: View {
         HStack(spacing: 12) {
             SpeciesArtworkView(species: species, caught: caught, size: 48)
                 .frame(width: 48, height: 48)
-                .background(species.rarity.color.opacity(0.10))
+                .background(.secondary.opacity(0.06))
                 .clipShape(RoundedRectangle(cornerRadius: 10))
 
             VStack(alignment: .leading, spacing: 2) {
@@ -212,7 +215,7 @@ struct SpeciesGuideRow: View {
             }
             Spacer()
             VStack(alignment: .trailing, spacing: 4) {
-                Label(species.rarity.label, systemImage: species.rarity.symbol)
+                Image(systemName: species.rarity.symbol)
                     .font(.caption2.bold())
                     .foregroundStyle(species.rarity.color)
                 if caught {

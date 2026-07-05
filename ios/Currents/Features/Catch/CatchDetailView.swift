@@ -87,7 +87,9 @@ struct CatchDetailView: View {
                 if let gear = detail.gearLoadout {
                     VStack(alignment: .leading, spacing: 8) {
                         SectionHeaderView(title: "Gear", systemImage: "wrench.and.screwdriver.fill")
-                        Text(gear.name).font(.subheadline.bold())
+                        if !gear.isAutoCreated {
+                            Text(gear.name).font(.subheadline.bold())
+                        }
                         GearDetailGrid(loadout: gear)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -678,7 +680,7 @@ struct EditCatchSheet: View {
 
                 allSpecies = (try? appState.speciesRepository.fetchAll()) ?? []
                 allSpots = (try? appState.spotRepository.fetchAll()) ?? []
-                allGear = (try? appState.gearRepository.fetchAll()) ?? []
+                allGear = (try? appState.gearRepository.fetchPresets()) ?? []
                 allTrips = (try? appState.tripRepository.fetchAll()) ?? []
                 ownedGear = (try? appState.ownedGearRepository.fetchAll()) ?? []
 
@@ -743,20 +745,21 @@ struct EditCatchSheet: View {
             )
         }
 
-        // If user picked individual gear fields but no preset, auto-create a loadout
+        // Individual gear with no preset selected is stored on a HIDDEN
+        // loadout (isAutoCreated) — it never shows up as a preset.
         let hasIndividualGear = !gearRod.isEmpty || !gearReel.isEmpty || !gearLure.isEmpty || !gearTechnique.isEmpty
         if selectedGearId == nil && hasIndividualGear {
-            let speciesName = selectedSpeciesName.isEmpty ? "Catch" : selectedSpeciesName
-            var newLoadout = GearLoadout(
-                name: "\(speciesName) Setup",
+            var hidden = GearLoadout(
+                name: "Catch gear",
                 rod: gearRod.isEmpty ? nil : gearRod,
                 reel: gearReel.isEmpty ? nil : gearReel,
                 lure: gearLure.isEmpty ? nil : gearLure,
                 lureColor: gearLureColor.isEmpty ? nil : gearLureColor,
-                technique: gearTechnique.isEmpty ? nil : gearTechnique
+                technique: gearTechnique.isEmpty ? nil : gearTechnique,
+                isAutoCreated: true
             )
-            try? appState.gearRepository.save(&newLoadout)
-            updated.gearLoadoutId = newLoadout.id
+            try? appState.gearRepository.save(&hidden)
+            updated.gearLoadoutId = hidden.id
         } else {
             updated.gearLoadoutId = selectedGearId
         }

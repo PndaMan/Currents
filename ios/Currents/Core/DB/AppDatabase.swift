@@ -314,6 +314,15 @@ final class AppDatabase: Sendable {
             try db.execute(sql: "DELETE FROM gearCatalog")
         }
 
+        migrator.registerMigration("v13_loadout_auto_flag") { db in
+            try db.alter(table: "gearLoadout") { t in
+                t.add(column: "isAutoCreated", .boolean).notNull().defaults(to: false)
+            }
+            // Loadouts auto-created by older versions when saving a catch used
+            // the "<Species> Setup" naming — hide them from the Presets tab.
+            try db.execute(sql: "UPDATE gearLoadout SET isAutoCreated = 1 WHERE name LIKE '% Setup'")
+        }
+
         return migrator
     }
 }

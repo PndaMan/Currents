@@ -82,7 +82,7 @@ struct LogCatchView: View {
             .task {
                 allSpecies = (try? appState.speciesRepository.fetchAll()) ?? []
                 allSpots = (try? appState.spotRepository.fetchAll()) ?? []
-                allGear = (try? appState.gearRepository.fetchAll()) ?? []
+                allGear = (try? appState.gearRepository.fetchPresets()) ?? []
                 allTrips = (try? appState.tripRepository.fetchAll()) ?? []
                 ownedGear = (try? appState.ownedGearRepository.fetchAll()) ?? []
 
@@ -644,8 +644,24 @@ struct LogCatchView: View {
             isInSpawningZone: false
         )
 
-        // Use the selected loadout preset if one was chosen; do NOT auto-create presets
-        let gearId = selectedGearId
+        // Use the selected preset if one was chosen. If individual gear was
+        // picked instead, store it on a HIDDEN loadout (isAutoCreated) so the
+        // catch keeps its gear without polluting the Presets tab.
+        var gearId = selectedGearId
+        let hasIndividualGear = !gearRod.isEmpty || !gearReel.isEmpty || !gearLure.isEmpty || !gearTechnique.isEmpty
+        if gearId == nil && hasIndividualGear {
+            var hidden = GearLoadout(
+                name: "Catch gear",
+                rod: gearRod.isEmpty ? nil : gearRod,
+                reel: gearReel.isEmpty ? nil : gearReel,
+                lure: gearLure.isEmpty ? nil : gearLure,
+                lureColor: gearLureColor.isEmpty ? nil : gearLureColor,
+                technique: gearTechnique.isEmpty ? nil : gearTechnique,
+                isAutoCreated: true
+            )
+            try? appState.gearRepository.save(&hidden)
+            gearId = hidden.id
+        }
 
         var catchRecord = Catch(
             id: catchId,
@@ -930,30 +946,6 @@ struct SpeciesPickerSheet: View {
                 .padding(.vertical, 8)
 
                 List {
-                    // ML Coming Soon banner
-                    Section {
-                        HStack(spacing: 12) {
-                            Image(systemName: "brain")
-                                .font(.title2)
-                                .foregroundStyle(CurrentsTheme.accent)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("AI Fish ID")
-                                    .font(.subheadline.bold())
-                                Text("Coming soon — snap a photo to auto-identify")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                            Spacer()
-                            Text("Soon")
-                                .font(.caption2.bold())
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 4)
-                                .background(CurrentsTheme.accent.opacity(0.2))
-                                .foregroundStyle(CurrentsTheme.accent)
-                                .clipShape(Capsule())
-                        }
-                    }
-
                     // Species list
                     Section("\(filtered.count) Species") {
                         ForEach(filtered) { sp in
@@ -963,13 +955,8 @@ struct SpeciesPickerSheet: View {
                                 dismiss()
                             } label: {
                                 HStack(spacing: 12) {
-                                    ZStack {
-                                        Circle()
-                                            .fill(habitatColor(sp.habitat).opacity(0.15))
-                                            .frame(width: 44, height: 44)
-                                        Image(systemName: "fish.fill")
-                                            .foregroundStyle(habitatColor(sp.habitat))
-                                    }
+                                    SpeciesArtworkView(species: sp, caught: true, size: 44)
+                                        .frame(width: 44, height: 44)
 
                                     VStack(alignment: .leading, spacing: 2) {
                                         Text(sp.commonName)
@@ -1029,12 +1016,4 @@ struct SpeciesPickerSheet: View {
         }
     }
 
-    private func habitatColor(_ habitat: Species.Habitat?) -> Color {
-        switch habitat {
-        case .freshwater: return CurrentsTheme.accent
-        case .marine: return CurrentsTheme.accent.opacity(0.7)
-        case .brackish: return CurrentsTheme.accent.opacity(0.5)
-        case nil: return .gray
-        }
-    }
 }

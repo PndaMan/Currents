@@ -10,25 +10,18 @@ struct SpeciesDetailView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: CurrentsTheme.paddingM) {
-                // Header
+                // Header — artwork stands on its own; no tinted disc behind it
+                // (it washed the fish out), just a small rarity pill below.
                 VStack(spacing: 8) {
-                    ZStack {
-                        Circle()
-                            .fill(species.rarity.color.opacity(0.15))
-                            .frame(width: 108, height: 108)
-                        SpeciesArtworkView(species: species, caught: !catches.isEmpty, size: 96)
-                            .frame(width: 96, height: 96)
-                    }
-                    .overlay(alignment: .bottom) {
-                        Label(species.rarity.label, systemImage: species.rarity.symbol)
-                            .font(.caption2.bold())
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 4)
-                            .background(species.rarity.color.opacity(0.18), in: Capsule())
-                            .foregroundStyle(species.rarity.color)
-                            .offset(y: 10)
-                    }
-                    .padding(.bottom, 8)
+                    SpeciesArtworkView(species: species, caught: !catches.isEmpty, size: 132)
+                        .frame(width: 132, height: 132)
+
+                    Label(species.rarity.label, systemImage: species.rarity.symbol)
+                        .font(.caption2.bold())
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 4)
+                        .background(.ultraThinMaterial, in: Capsule())
+                        .foregroundStyle(species.rarity.color)
 
                     Text(species.commonName)
                         .font(.title2.bold())

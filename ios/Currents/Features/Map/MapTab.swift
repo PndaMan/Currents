@@ -22,8 +22,11 @@ struct MapTab: View {
     @State private var showingLiveTrip = false
     @State private var activeTrip: Trip?
     @State private var showingNewTrip = false
-    @State private var mapStyle: MapStyleOption = .fishing
+    // The offline (cached-tile) map is the default main map; persisted so a
+    // style choice sticks across launches.
+    @AppStorage("mapStyleOption") private var mapStyleRaw = MapStyleOption.offline.rawValue
     @AppStorage("showCatchPins") private var showCatchPins = false
+    @State private var flyToCoordinate: CLLocationCoordinate2D?
     @State private var showingSpeciesBrowser = false
     @State private var showingForecast = false
     @State private var showingWeather = false
@@ -45,10 +48,16 @@ struct MapTab: View {
     @State private var lastMapCenter: CLLocationCoordinate2D?
 
     enum MapStyleOption: String, CaseIterable {
+        case offline = "Offline"
         case standard = "Standard"
         case imagery = "Satellite"
         case hybrid = "Hybrid"
         case fishing = "Fishing"
+    }
+
+    private var mapStyle: MapStyleOption {
+        get { MapStyleOption(rawValue: mapStyleRaw) ?? .offline }
+        nonmutating set { mapStyleRaw = newValue.rawValue }
     }
 
     /// Theme accent, re-read whenever the stored theme changes so annotations
@@ -76,6 +85,25 @@ struct MapTab: View {
     var body: some View {
         NavigationStack {
             ZStack(alignment: .topTrailing) {
+                if mapStyle == .offline {
+                    // Cached satellite tiles as the main map — works offline
+                    // for everywhere the auto-cache has covered.
+                    OfflineMapView(
+                        overlay: appState.mapManager.offlineOverlay,
+                        spots: spots,
+                        catches: showCatchPins ? unassignedCatches : [],
+                        waterbodies: showWaterbodies && currentLatSpan < 3 ? waterbodies : [],
+                        spotScores: spotScores,
+                        waterbodyScores: waterbodyScores,
+                        accent: accent,
+                        flyTo: $flyToCoordinate,
+                        onSelectSpot: { selectedSpot = $0 },
+                        onSelectWaterbody: { selectedWaterbody = $0 },
+                        onTap: { inspectorCoordinate = $0 },
+                        onRegionChange: { handleRegionChange($0) }
+                    )
+                    .ignoresSafeArea()
+                } else {
                 MapReader { proxy in
                 Map(position: $position, scope: mapScope) {
                     UserAnnotation(anchor: .center) { _ in
@@ -149,17 +177,7 @@ struct MapTab: View {
                 }
                 .mapStyle(activeMapStyle)
                 .onMapCameraChange(frequency: .onEnd) { context in
-                    currentLatSpan = context.region.span.latitudeDelta
-                    lastMapCenter = context.region.center
-                    // Background-cache tiles around the viewed area for offline use.
-                    appState.mapManager.prefetchOfflineTiles(around: context.region.center)
-                    // Debounce: cancel prior pending load, wait 300ms before firing
-                    waterbodyDebounceTask?.cancel()
-                    waterbodyDebounceTask = Task {
-                        try? await Task.sleep(for: .milliseconds(300))
-                        guard !Task.isCancelled else { return }
-                        await loadWaterbodies(region: context.region)
-                    }
+                    handleRegionChange(context.region)
                 }
                 .onTapGesture(coordinateSpace: .local) { screenPoint in
                     if let coord = proxy.convert(screenPoint, from: .local) {
@@ -167,20 +185,28 @@ struct MapTab: View {
                     }
                 }
                 } // MapReader
+                } // style switch
 
                 // Compass (shows when the map is rotated) — placed top-LEADING
                 // with a custom scope so the right-hand button column and the
-                // search bar can never sit on top of it.
-                MapCompass(scope: mapScope)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                    .padding(.top, 8)
-                    .padding(.leading, 12)
+                // search bar can never sit on top of it. The offline MKMapView
+                // draws its own compass.
+                if mapStyle != .offline {
+                    MapCompass(scope: mapScope)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                        .padding(.top, 8)
+                        .padding(.leading, 12)
+                }
 
                 // Right side control buttons
                 VStack(spacing: 10) {
                     // Recentre on user
                     Button {
-                        position = .userLocation(fallback: .automatic)
+                        if mapStyle == .offline {
+                            flyToCoordinate = appState.locationManager.currentLocation?.coordinate
+                        } else {
+                            position = .userLocation(fallback: .automatic)
+                        }
                     } label: {
                         mapButton(icon: "location.fill")
                     }
@@ -404,6 +430,17 @@ struct MapTab: View {
             .task {
                 await loadData()
                 activeTrip = (try? appState.tripRepository.fetchAll())?.first(where: { $0.endDate == nil })
+                if let loc = appState.locationManager.currentLocation {
+                    appState.mapManager.maintainOfflineCache(around: loc.coordinate)
+                }
+            }
+            // Cache follows the PERSON: whenever their position updates, the
+            // manager re-anchors the offline cache if they've moved far
+            // (pruning tiles around the old area, prefetching the new one).
+            .onChange(of: appState.locationManager.currentLocation) { _, loc in
+                if let loc {
+                    appState.mapManager.maintainOfflineCache(around: loc.coordinate)
+                }
             }
         }
     }
@@ -454,7 +491,11 @@ struct MapTab: View {
                         ForEach(searchResults, id: \.self) { item in
                             Button {
                                 if let coord = item.placemark.location?.coordinate {
-                                    position = .camera(.init(centerCoordinate: coord, distance: 2000))
+                                    if mapStyle == .offline {
+                                        flyToCoordinate = coord
+                                    } else {
+                                        position = .camera(.init(centerCoordinate: coord, distance: 2000))
+                                    }
                                 }
                                 searchResults = []
                                 searchText = item.name ?? ""
@@ -512,6 +553,7 @@ struct MapTab: View {
 
     private var activeMapStyle: MapStyle {
         switch mapStyle {
+        case .offline: .imagery(elevation: .realistic) // unused; offline uses MKMapView
         case .standard: .standard(elevation: .realistic)
         case .imagery: .imagery(elevation: .realistic)
         case .hybrid: .hybrid(elevation: .realistic)
@@ -521,10 +563,27 @@ struct MapTab: View {
 
     private func mapStyleIcon(_ style: MapStyleOption) -> String {
         switch style {
+        case .offline: "wifi.slash"
         case .standard: "map"
         case .imagery: "globe.americas.fill"
         case .hybrid: "square.split.2x2"
         case .fishing: "fish.fill"
+        }
+    }
+
+    /// Shared camera-change handler for both map backends: tracks span,
+    /// prefetches tiles around the viewed area, and debounces waterbody loads.
+    private func handleRegionChange(_ region: MKCoordinateRegion) {
+        currentLatSpan = region.span.latitudeDelta
+        lastMapCenter = region.center
+        // Background-cache tiles around the viewed area for offline use.
+        appState.mapManager.prefetchOfflineTiles(around: region.center)
+        // Debounce: cancel prior pending load, wait 300ms before firing
+        waterbodyDebounceTask?.cancel()
+        waterbodyDebounceTask = Task {
+            try? await Task.sleep(for: .milliseconds(300))
+            guard !Task.isCancelled else { return }
+            await loadWaterbodies(region: region)
         }
     }
 

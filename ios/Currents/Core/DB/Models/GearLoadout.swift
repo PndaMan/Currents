@@ -13,6 +13,9 @@ struct GearLoadout: Codable, Identifiable, Sendable {
     var lureWeightG: Double?
     var technique: String?
     var createdAt: Date
+    /// True for loadouts created behind the scenes to store per-catch gear.
+    /// These never appear in the Presets tab or preset pickers.
+    var isAutoCreated: Bool
 
     init(
         id: String = UUID().uuidString,
@@ -25,7 +28,8 @@ struct GearLoadout: Codable, Identifiable, Sendable {
         lureColor: String? = nil,
         lureWeightG: Double? = nil,
         technique: String? = nil,
-        createdAt: Date = .now
+        createdAt: Date = .now,
+        isAutoCreated: Bool = false
     ) {
         self.id = id
         self.name = name
@@ -38,6 +42,7 @@ struct GearLoadout: Codable, Identifiable, Sendable {
         self.lureWeightG = lureWeightG
         self.technique = technique
         self.createdAt = createdAt
+        self.isAutoCreated = isAutoCreated
     }
 }
 

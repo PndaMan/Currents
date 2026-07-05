@@ -27,6 +27,17 @@ final class GearRepository: ObservableObject {
         }
     }
 
+    /// User-created presets only — excludes loadouts auto-created to store
+    /// per-catch gear, which should never clutter the Presets tab or pickers.
+    func fetchPresets() throws -> [GearLoadout] {
+        try db.db.read { db in
+            try GearLoadout
+                .filter(Column("isAutoCreated") == false)
+                .order(Column("createdAt").desc)
+                .fetchAll(db)
+        }
+    }
+
     /// Returns gear effectiveness: which loadouts have the most catches, optionally filtered by species.
     func effectiveness(speciesId: Int64? = nil) throws -> [(loadout: GearLoadout, catchCount: Int)] {
         try db.db.read { db in

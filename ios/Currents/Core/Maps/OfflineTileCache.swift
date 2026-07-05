@@ -119,6 +119,37 @@ final class OfflineTileOverlay: MKTileOverlay {
         }
     }
 
+    /// Delete cached tiles whose center is farther than `keepKm` from
+    /// `center`. Low-zoom overview tiles (z ≤ 8) are kept — they're tiny and
+    /// useful anywhere. This is how the cache FOLLOWS the angler: when they
+    /// relocate, tiles around the old area are dropped instead of hogging the
+    /// budget forever.
+    func pruneTiles(farFrom center: CLLocationCoordinate2D, keepKm: Double) {
+        let origin = CLLocation(latitude: center.latitude, longitude: center.longitude)
+        guard let zoomDirs = try? FileManager.default.contentsOfDirectory(
+            at: cacheDir, includingPropertiesForKeys: nil
+        ) else { return }
+        for zDir in zoomDirs {
+            guard let z = Int(zDir.lastPathComponent), z > 8 else { continue }
+            guard let tiles = try? FileManager.default.contentsOfDirectory(
+                at: zDir, includingPropertiesForKeys: nil
+            ) else { continue }
+            let n = pow(2.0, Double(z))
+            for tile in tiles {
+                // Filename is "<x>_<y>.jpg"
+                let parts = tile.deletingPathExtension().lastPathComponent.split(separator: "_")
+                guard parts.count == 2, let x = Double(parts[0]), let y = Double(parts[1]) else { continue }
+                let lon = (x + 0.5) / n * 360.0 - 180.0
+                let latRad = atan(sinh(.pi * (1 - 2 * (y + 0.5) / n)))
+                let lat = latRad * 180.0 / .pi
+                let dist = origin.distance(from: CLLocation(latitude: lat, longitude: lon))
+                if dist > keepKm * 1000 {
+                    try? FileManager.default.removeItem(at: tile)
+                }
+            }
+        }
+    }
+
     /// Total bytes currently cached on disk.
     var cacheSizeBytes: Int64 {
         guard let en = FileManager.default.enumerator(
