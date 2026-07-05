@@ -15,9 +15,13 @@ final class LocationManager: NSObject, CLLocationManagerDelegate {
     override init() {
         super.init()
         manager.delegate = self
-        manager.desiredAccuracy = kCLLocationAccuracyBest
-        manager.distanceFilter = 50 // meters
-        manager.headingFilter = 5 // degrees — throttle heading-cone updates
+        // Highest-precision GPS fix — anglers stand still at the water's edge,
+        // so a 50 m distance filter made the blue dot lag far behind reality.
+        manager.desiredAccuracy = kCLLocationAccuracyBestForNavigation
+        manager.distanceFilter = 3 // meters
+        manager.headingFilter = 2 // degrees — keep the heading cone responsive
+        manager.activityType = .otherNavigation
+        manager.pausesLocationUpdatesAutomatically = false
         authorizationStatus = manager.authorizationStatus
     }
 
@@ -53,8 +57,11 @@ final class LocationManager: NSObject, CLLocationManagerDelegate {
 
     nonisolated func locationManager(_ manager: CLLocationManager, didUpdateHeading newHeading: CLHeading) {
         guard newHeading.headingAccuracy >= 0 else { return }
+        // trueHeading is -1 until Core Location has a location fix to compute
+        // declination from — fall back to magnetic so the cone still turns.
+        let value = newHeading.trueHeading >= 0 ? newHeading.trueHeading : newHeading.magneticHeading
         Task { @MainActor in
-            self.heading = newHeading.trueHeading
+            self.heading = value
         }
     }
 

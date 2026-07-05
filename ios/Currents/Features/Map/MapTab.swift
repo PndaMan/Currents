@@ -12,6 +12,7 @@ struct MapTab: View {
     // Observed so map pins re-render the moment the theme changes,
     // instead of waiting for the next zoom-triggered rebuild.
     @AppStorage("selectedTheme") private var selectedThemeRaw = ThemeOption.ocean.rawValue
+    @Namespace private var mapScope
     @State private var position: MapCameraPosition = .userLocation(fallback: .automatic)
     @State private var spots: [Spot] = []
     @State private var catches: [CatchDetail] = []
@@ -22,7 +23,7 @@ struct MapTab: View {
     @State private var activeTrip: Trip?
     @State private var showingNewTrip = false
     @State private var mapStyle: MapStyleOption = .fishing
-    @State private var showCatchPins = true
+    @AppStorage("showCatchPins") private var showCatchPins = false
     @State private var showingSpeciesBrowser = false
     @State private var showingForecast = false
     @State private var showingWeather = false
@@ -76,7 +77,7 @@ struct MapTab: View {
         NavigationStack {
             ZStack(alignment: .topTrailing) {
                 MapReader { proxy in
-                Map(position: $position) {
+                Map(position: $position, scope: mapScope) {
                     UserAnnotation(anchor: .center) { _ in
                         UserLocationMarker(
                             heading: appState.locationManager.heading,
@@ -147,9 +148,6 @@ struct MapTab: View {
                     }
                 }
                 .mapStyle(activeMapStyle)
-                .mapControls {
-                    MapCompass()
-                }
                 .onMapCameraChange(frequency: .onEnd) { context in
                     currentLatSpan = context.region.span.latitudeDelta
                     lastMapCenter = context.region.center
@@ -169,6 +167,14 @@ struct MapTab: View {
                     }
                 }
                 } // MapReader
+
+                // Compass (shows when the map is rotated) — placed top-LEADING
+                // with a custom scope so the right-hand button column and the
+                // search bar can never sit on top of it.
+                MapCompass(scope: mapScope)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .padding(.top, 8)
+                    .padding(.leading, 12)
 
                 // Right side control buttons
                 VStack(spacing: 10) {
@@ -319,6 +325,7 @@ struct MapTab: View {
                     .padding(.bottom, 8)
                 }
             }
+            .mapScope(mapScope)
             .safeAreaInset(edge: .top, spacing: 0) {
                 searchOverlay
             }
@@ -486,7 +493,6 @@ struct MapTab: View {
                 .padding(.horizontal, 12)
             }
         }
-        .padding(.top, 2)
         .padding(.bottom, 6)
     }
 
