@@ -21,6 +21,9 @@ packages:
   Nuke:
     url: https://github.com/kean/Nuke.git
     from: "12.0.0"
+  ZIPFoundation:
+    url: https://github.com/weichsel/ZIPFoundation.git
+    from: "0.9.19"
 
 targets:
   Currents:
@@ -68,6 +71,8 @@ targets:
         product: Nuke
       - package: Nuke
         product: NukeUI
+      - package: ZIPFoundation
+        product: ZIPFoundation
 
   CurrentsTests:
     type: bundle.unit-test

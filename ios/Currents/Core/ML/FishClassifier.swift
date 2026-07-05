@@ -1,6 +1,7 @@
 import CoreML
 import Vision
 import UIKit
+import ZIPFoundation
 
 /// On-device fish species identification using CoreML.
 ///
@@ -30,10 +31,10 @@ actor FishClassifier {
            let url = URL(string: s), !s.isEmpty {
             return url
         }
-        // A single-file .mlmodel (compiled on-device) — no unzip dependency.
-        // Pinned to the `fish-model` release tag (published by fish-model.yml);
-        // `latest` can resolve to an IPA release that has no model asset.
-        return URL(string: "https://github.com/PndaMan/Currents/releases/download/fish-model/FishID.mlmodel")
+        // A zipped .mlpackage (unzipped + compiled on-device). Pinned to the
+        // `fish-model` release tag (published by fish-model.yml); `latest` can
+        // resolve to an IPA release that has no model asset.
+        return URL(string: "https://github.com/PndaMan/Currents/releases/download/fish-model/FishID.mlpackage.zip")
     }
 
     /// Where downloaded models are cached
@@ -83,23 +84,36 @@ actor FishClassifier {
     /// already have it. Safe to call repeatedly; no-ops once loaded.
     func downloadModelIfNeeded() async {
         guard model == nil, let remote = Self.remoteModelURL else { return }
+        // Already compiled from a previous launch? Just load it.
+        if loadCachedModel() { return }
         do {
+            let fm = FileManager.default
             let (tempURL, response) = try await URLSession.shared.download(from: remote)
             guard (response as? HTTPURLResponse)?.statusCode == 200 else { return }
 
-            try FileManager.default.createDirectory(
-                at: Self.modelCacheURL, withIntermediateDirectories: true
-            )
-            // Persist the downloaded .mlmodel, then compile to the .mlmodelc
-            // directory that MLModel(contentsOf:) loads at runtime.
-            let rawModel = Self.modelCacheURL.appendingPathComponent("FishID.mlmodel")
-            try? FileManager.default.removeItem(at: rawModel)
-            try FileManager.default.moveItem(at: tempURL, to: rawModel)
+            try fm.createDirectory(at: Self.modelCacheURL, withIntermediateDirectories: true)
 
-            let compiled = try await MLModel.compileModel(at: rawModel)
+            // The asset is a zipped .mlpackage. Unzip it, then compile the
+            // package to the .mlmodelc directory MLModel(contentsOf:) loads.
+            let zipURL = Self.modelCacheURL.appendingPathComponent("FishID.mlpackage.zip")
+            try? fm.removeItem(at: zipURL)
+            try fm.moveItem(at: tempURL, to: zipURL)
+
+            let unzipDir = Self.modelCacheURL.appendingPathComponent("unzipped", isDirectory: true)
+            try? fm.removeItem(at: unzipDir)
+            try fm.createDirectory(at: unzipDir, withIntermediateDirectories: true)
+            try fm.unzipItem(at: zipURL, to: unzipDir)
+            try? fm.removeItem(at: zipURL)
+
+            // Find the .mlpackage inside the unzipped output.
+            let contents = (try? fm.contentsOfDirectory(at: unzipDir, includingPropertiesForKeys: nil)) ?? []
+            guard let pkg = contents.first(where: { $0.pathExtension == "mlpackage" }) else { return }
+
+            let compiled = try await MLModel.compileModel(at: pkg)
             let dest = Self.modelCacheURL.appendingPathComponent("FishID.mlmodelc")
-            try? FileManager.default.removeItem(at: dest)
-            try FileManager.default.moveItem(at: compiled, to: dest)
+            try? fm.removeItem(at: dest)
+            try fm.moveItem(at: compiled, to: dest)
+            try? fm.removeItem(at: unzipDir)
 
             _ = loadCachedModel()
         } catch {
