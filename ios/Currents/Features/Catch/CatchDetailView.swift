@@ -727,8 +727,8 @@ struct EditCatchSheet: View {
 
     private func save() {
         var updated = detail.catchRecord
-        updated.weightKg = Double(weight)
-        updated.lengthCm = Double(length)
+        updated.weightKg = weight.measurementValue
+        updated.lengthCm = length.measurementValue
         updated.notes = notes.isEmpty ? nil : notes
         updated.released = released
         updated.caughtAt = caughtAt
