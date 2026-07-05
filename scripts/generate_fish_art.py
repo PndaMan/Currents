@@ -69,14 +69,20 @@ GEMINI_URL = (
 class QuotaExceeded(Exception):
     """Raised on HTTP 429 — the daily free-tier quota is spent; stop and resume later."""
 
-# img2img: redraw the REAL reference photo so the species stays accurate.
+# img2img: redraw the REAL reference photo as a polished FLAT CARTOON icon (the
+# clean simplified look of a modern fishing app's species art), while keeping the
+# species accurate.
 INSTRUCTION = (
-    "Redraw this exact fish as a clean flat 2D vector illustration in a modern "
-    "fishing field-guide app style. Keep the real species body shape, fins, "
-    "proportions, markings and natural colors accurate to the photo. Side "
-    "profile facing left, whole single fish, smooth flat color fields with "
-    "gentle shading, crisp clean outline, plain solid white background, sticker "
-    "style, no text, no hook, no hands, no water, no background scenery."
+    "Redraw this exact fish species as a polished flat cartoon vector "
+    "illustration, in the clean modern style of a mobile fishing app's species "
+    "icon. Use bold simplified shapes, smooth flat color fills, only minimal soft "
+    "shading, a clean crisp outline, and a simple friendly cartoon eye. Keep the "
+    "real species' body shape, proportions, fin placement, colours and key "
+    "markings recognisable and accurate, but stylised and simplified — NOT "
+    "photorealistic, no fine texture, no photographic detail, no gradients, no "
+    "realistic scales. One whole single fish in side profile, head on the LEFT "
+    "and tail on the RIGHT, plain solid pure-white background, sticker style, no "
+    "text, no hook, no hands, no water, no shadow, no border."
 )
 
 # Reference photo: iNaturalist URL when present, else the bundled thumbnail on
@@ -199,7 +205,9 @@ def key_white_to_transparent(img: Image.Image) -> Image.Image:
         q.append((0, y)); q.append((w - 1, y))
 
     def is_bg(r, g, b):
-        return r > 238 and g > 238 and b > 238
+        # Treat the light anti-aliased halo as background too (kills the white
+        # "sticker ring" left around the fish), but stop at the darker outline.
+        return r > 230 and g > 230 and b > 230
 
     while q:
         x, y = q.popleft()

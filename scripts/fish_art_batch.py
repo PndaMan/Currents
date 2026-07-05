@@ -154,11 +154,57 @@ def _extract_image(response: dict) -> Image.Image | None:
     return None
 
 
-def _write(sid: int, img: Image.Image) -> None:
-    img = key_white_to_transparent(img)
-    if facing_right(img):
+def faces_right_llm(img: Image.Image, c: genai.Client) -> bool | None:
+    """Ask a cheap vision model which way the fish's head points. Far more
+    reliable than a geometric heuristic across 1500 diverse body shapes.
+    Returns True (right, needs flip), False (left), or None if the call fails."""
+    buf = BytesIO()
+    img.convert("RGB").save(buf, "PNG")
+    try:
+        resp = c.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=[
+                types.Part(
+                    text="This is a single cartoon fish on a white background. "
+                    "Which way does the fish's HEAD point — LEFT or RIGHT? "
+                    "Answer with exactly one word: LEFT or RIGHT."
+                ),
+                types.Part(inline_data=types.Blob(mime_type="image/png", data=buf.getvalue())),
+            ],
+        )
+        t = (resp.text or "").strip().upper()
+    except Exception as e:  # noqa: BLE001
+        print(f"    (orientation check failed: {e})")
+        return None
+    if t.startswith("RIGHT"):
+        return True
+    if t.startswith("LEFT"):
+        return False
+    return None
+
+
+def _fit_square(img: Image.Image, px: int) -> Image.Image:
+    """Scale the fish to fit, preserving aspect, centered on a transparent square
+    — so elongated/round species are never squashed into a square."""
+    img = img.convert("RGBA")
+    bbox = img.getchannel("A").getbbox()
+    if bbox:
+        img = img.crop(bbox)
+    img.thumbnail((px, px), Image.LANCZOS)
+    canvas = Image.new("RGBA", (px, px), (0, 0, 0, 0))
+    canvas.paste(img, ((px - img.width) // 2, (px - img.height) // 2), img)
+    return canvas
+
+
+def _write(sid: int, raw: Image.Image, c: genai.Client) -> None:
+    # Decide orientation on the clean render, then key out white, flip, fit.
+    right = faces_right_llm(raw, c)
+    img = key_white_to_transparent(raw)
+    if right is None:  # LLM unavailable — fall back to the geometric guess
+        right = facing_right(img)
+    if right:
         img = img.transpose(Image.FLIP_LEFT_RIGHT)  # uniform: all face left
-    write_imageset(sid, img.resize((OUT_PX, OUT_PX), Image.LANCZOS))
+    write_imageset(sid, _fit_square(img, OUT_PX))
 
 
 def collect() -> None:
@@ -189,7 +235,7 @@ def collect() -> None:
             failed += 1
             print(f"  ! no/low image for fish_{key}")
             return
-        _write(sid, img)
+        _write(sid, img, c)
         written += 1
 
     if getattr(dest, "inlined_responses", None):
