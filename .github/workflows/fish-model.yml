@@ -30,7 +30,9 @@ jobs:
           python-version: "3.11"
 
       - name: Install dependencies
-        run: pip install open_clip_torch torch coremltools numpy
+        # Pin a coremltools-compatible stack: numpy<2 (numpy 2 breaks
+        # coremltools' int() cast on 1-element arrays) + a supported torch.
+        run: pip install "numpy<2" "torch==2.3.1" "torchvision==0.18.1" open_clip_torch "coremltools==8.1"
 
       - name: Convert BioCLIP → CoreML + species embeddings
         run: |
