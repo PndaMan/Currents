@@ -198,7 +198,8 @@ struct MapTab: View {
                         .padding(.leading, 12)
                 }
 
-                // Right side control buttons
+                // Right side control buttons — out of the way while searching.
+                if !searchActive {
                 VStack(spacing: 10) {
                     // Recentre on user
                     Button {
@@ -281,10 +282,14 @@ struct MapTab: View {
                         }
                     }
                 }
-                .padding(.top, 8)
+                // On the offline map the MKMapView compass sits top-right when
+                // the map is rotated — leave it room above the button column.
+                .padding(.top, mapStyle == .offline ? 56 : 8)
                 .padding(.trailing, 12)
+                }
 
                 // Bottom bar
+                if !searchActive {
                 VStack {
                     Spacer()
 
@@ -350,10 +355,17 @@ struct MapTab: View {
                     .padding(.horizontal)
                     .padding(.bottom, 8)
                 }
+                }
             }
             .mapScope(mapScope)
+            // No navigation bar on the map — its invisible bar was reserving a
+            // big empty band above the search field.
+            .toolbar(.hidden, for: .navigationBar)
             .safeAreaInset(edge: .top, spacing: 0) {
-                searchOverlay
+                searchBar
+            }
+            .overlay(alignment: .top) {
+                searchResultsList
             }
             .sheet(item: $selectedSpot, onDismiss: {
                 Task { await loadData() }
@@ -445,103 +457,111 @@ struct MapTab: View {
         }
     }
 
-    /// Search field + live type-ahead suggestions, pinned to the very top of
-    /// the screen via `.safeAreaInset(edge: .top)`. Suggestions come from
-    /// MKLocalSearchCompleter biased to the user's position, so nearby dams,
-    /// rivers and places rank first and there are plenty of them.
-    private var searchOverlay: some View {
-        VStack(spacing: 4) {
-            HStack(spacing: 8) {
-                Image(systemName: "magnifyingglass")
-                    .foregroundStyle(.secondary)
-                TextField("Search dams, rivers, places...", text: $searchText)
-                    .textFieldStyle(.plain)
-                    .focused($searchFocused)
-                    .submitLabel(.search)
-                    .autocorrectionDisabled()
-                    .onSubmit {
-                        if let first = searchModel.completions.first {
-                            select(first)
+    /// True while the user is actively searching — the map buttons and bottom
+    /// bar get out of the way.
+    private var searchActive: Bool {
+        searchFocused || (!searchText.isEmpty && !searchModel.completions.isEmpty)
+    }
+
+    /// Just the search FIELD, pinned right under the status bar via
+    /// `.safeAreaInset(edge: .top)` (the invisible navigation bar is hidden).
+    private var searchBar: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(.secondary)
+            TextField("Search dams, rivers, places...", text: $searchText)
+                .textFieldStyle(.plain)
+                .focused($searchFocused)
+                .submitLabel(.search)
+                .autocorrectionDisabled()
+                .onSubmit {
+                    if let first = searchModel.completions.first {
+                        select(first)
+                    }
+                    searchFocused = false
+                }
+                .onChange(of: searchText) { _, newValue in
+                    searchModel.update(
+                        query: newValue,
+                        near: appState.locationManager.currentLocation?.coordinate ?? lastMapCenter
+                    )
+                }
+            if isSearching {
+                ProgressView()
+                    .controlSize(.small)
+            }
+            if !searchText.isEmpty {
+                Button {
+                    searchText = ""
+                    searchModel.clear()
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.secondary)
+                }
+            }
+            if searchFocused {
+                // Explicit way to put the keyboard away.
+                Button {
+                    searchFocused = false
+                } label: {
+                    Image(systemName: "keyboard.chevron.compact.down")
+                        .foregroundStyle(accent)
+                }
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(.ultraThinMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: CurrentsTheme.cornerRadius))
+        .shadow(color: .black.opacity(0.15), radius: 8, y: 2)
+        .padding(.horizontal, 12)
+        .padding(.top, 4)
+        .padding(.bottom, 6)
+    }
+
+    /// Type-ahead results rendered as a plain overlay directly under the
+    /// search bar — NOT inside the safe-area inset and NOT a ScrollView, so
+    /// the list is visible immediately while the keyboard is still up.
+    @ViewBuilder
+    private var searchResultsList: some View {
+        if !searchModel.completions.isEmpty && !searchText.isEmpty {
+            VStack(spacing: 0) {
+                ForEach(Array(searchModel.completions.prefix(7).enumerated()), id: \.offset) { index, completion in
+                    Button {
+                        select(completion)
+                    } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: "mappin.circle.fill")
+                                .foregroundStyle(accent)
+                                .font(.caption)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(completion.title)
+                                    .font(.subheadline)
+                                    .foregroundStyle(.primary)
+                                    .lineLimit(1)
+                                if !completion.subtitle.isEmpty {
+                                    Text(completion.subtitle)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                }
+                            }
+                            Spacer()
                         }
-                        searchFocused = false
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 9)
                     }
-                    .onChange(of: searchText) { _, newValue in
-                        searchModel.update(
-                            query: newValue,
-                            near: appState.locationManager.currentLocation?.coordinate ?? lastMapCenter
-                        )
-                    }
-                if isSearching {
-                    ProgressView()
-                        .controlSize(.small)
-                }
-                if !searchText.isEmpty {
-                    Button {
-                        searchText = ""
-                        searchModel.clear()
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                if searchFocused {
-                    // Explicit way to put the keyboard away.
-                    Button {
-                        searchFocused = false
-                    } label: {
-                        Image(systemName: "keyboard.chevron.compact.down")
-                            .foregroundStyle(accent)
+                    if index < min(searchModel.completions.count, 7) - 1 {
+                        Divider()
                     }
                 }
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
             .background(.ultraThinMaterial)
             .clipShape(RoundedRectangle(cornerRadius: CurrentsTheme.cornerRadius))
             .shadow(color: .black.opacity(0.15), radius: 8, y: 2)
             .padding(.horizontal, 12)
-
-            if !searchModel.completions.isEmpty && !searchText.isEmpty {
-                ScrollView {
-                    VStack(spacing: 0) {
-                        ForEach(searchModel.completions, id: \.self) { completion in
-                            Button {
-                                select(completion)
-                            } label: {
-                                HStack(spacing: 8) {
-                                    Image(systemName: "mappin.circle.fill")
-                                        .foregroundStyle(accent)
-                                        .font(.caption)
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(completion.title)
-                                            .font(.subheadline)
-                                            .foregroundStyle(.primary)
-                                            .lineLimit(1)
-                                        if !completion.subtitle.isEmpty {
-                                            Text(completion.subtitle)
-                                                .font(.caption)
-                                                .foregroundStyle(.secondary)
-                                                .lineLimit(1)
-                                        }
-                                    }
-                                    Spacer()
-                                }
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 8)
-                            }
-                            Divider()
-                        }
-                    }
-                    .background(.ultraThinMaterial)
-                    .clipShape(RoundedRectangle(cornerRadius: CurrentsTheme.cornerRadius))
-                }
-                .frame(maxHeight: 280)
-                .padding(.horizontal, 12)
-                .scrollDismissesKeyboard(.immediately)
-            }
         }
-        .padding(.bottom, 6)
     }
 
     /// Resolve a tapped suggestion to coordinates and fly the map there.

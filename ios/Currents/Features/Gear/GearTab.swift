@@ -496,15 +496,16 @@ struct GearCatalogBrowser: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            // Category filter — fixed height and no vertical rubber-banding,
+            // so the chips can't be dragged up and down.
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
-                    FilterChip(title: "All · \(items.count)", isSelected: selectedCategory == nil) {
+                    FilterChip(title: "All", isSelected: selectedCategory == nil) {
                         selectedCategory = nil
                     }
                     ForEach(GearItem.GearCategory.allCases, id: \.self) { cat in
-                        let count = items.filter { $0.category == cat }.count
                         FilterChip(
-                            title: "\(cat.rawValue) · \(count)",
+                            title: cat.rawValue,
                             isSelected: selectedCategory == cat,
                             systemImage: GearItem.icon(for: cat)
                         ) {
@@ -514,7 +515,8 @@ struct GearCatalogBrowser: View {
                 }
                 .padding(.horizontal)
             }
-            .padding(.vertical, 8)
+            .scrollBounceBehavior(.basedOnSize, axes: [.vertical, .horizontal])
+            .frame(height: 46)
 
             if filtered.isEmpty {
                 ContentUnavailableView(

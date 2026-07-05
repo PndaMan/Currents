@@ -463,6 +463,9 @@ struct WaterbodyDetailSheet: View {
                 }
             }
         }
+        // Stretch to the full card width even when only the "no bathymetry
+        // data" line renders — otherwise the card hugs the text.
+        .frame(maxWidth: .infinity, alignment: .leading)
         .glassCard()
     }
 

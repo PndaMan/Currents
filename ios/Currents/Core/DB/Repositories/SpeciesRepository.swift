@@ -63,6 +63,11 @@ final class SpeciesRepository: ObservableObject {
     /// more species than the DB, every row is upserted (IDs are stable and
     /// additive across dataset builds, so existing catches keep pointing at
     /// the right species) and bait data is re-applied.
+    /// Bump whenever the bundled dataset's CONTENT changes (not just its
+    /// count) so existing installs re-upsert — e.g. when temps/baits were
+    /// added for the non-curated species.
+    private static let seedDataVersion = 2
+
     func seedIfNeeded() throws {
         let speciesList: [Species]
         do {
@@ -73,13 +78,15 @@ final class SpeciesRepository: ObservableObject {
         }
 
         let count = try db.db.read { db in try Species.fetchCount(db) }
-        guard count < speciesList.count else { return }
+        let storedVersion = UserDefaults.standard.integer(forKey: "speciesSeedDataVersion")
+        guard count < speciesList.count || storedVersion < Self.seedDataVersion else { return }
 
         try db.db.write { db in
             for var species in speciesList {
                 try species.save(db) // upsert by primary key
             }
         }
+        UserDefaults.standard.set(Self.seedDataVersion, forKey: "speciesSeedDataVersion")
         print("[Currents] Seeded/upgraded to \(speciesList.count) species (was \(count))")
 
         // Apply bait recommendations

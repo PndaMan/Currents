@@ -201,11 +201,16 @@ def key_background_to_transparent(img: Image.Image) -> Image.Image:
     black one, 166 with grey). Instead of only keying near-white, sample the
     border to find the dominant background colour and flood anything close to
     it — plus the classic near-white anti-aliased halo — stopping at the fish.
+
+    White-body safeguard: a silvery/white fish on a white backdrop matches the
+    aggressive criteria itself, so the flood can eat the body straight through
+    the anti-aliased outline. If the aggressive key leaves almost nothing
+    behind, re-key with a strict near-white-only rule and keep that result
+    when it preserves a plausible fish silhouette.
     """
     img = img.convert("RGBA")
     px = img.load()
     w, h = img.size
-    from collections import deque
 
     # Dominant border colour = per-channel median of the edge pixels.
     border = (
@@ -233,6 +238,30 @@ def key_background_to_transparent(img: Image.Image) -> Image.Image:
         # and by connectivity — only border-connected pixels are removed.
         return (max(r, g, b) - min(r, g, b)) <= 24 and (r + g + b) >= 450
 
+    aggressive = _flood_key(img, is_bg)
+    if _opaque_fraction(aggressive) >= 0.12:
+        return aggressive
+
+    # Aggressive key ate (nearly) the whole canvas — the fish body itself
+    # must match the light-low-sat / near-bg rules (white belly, silver
+    # flanks). Retry keying strictly near-white; only the true backdrop
+    # qualifies then.
+    white_only = _flood_key(img, lambda r, g, b: r > 240 and g > 240 and b > 240)
+    frac = _opaque_fraction(white_only)
+    if 0.10 <= frac <= 0.80:
+        return white_only
+    return aggressive
+
+
+def _flood_key(img: Image.Image, is_bg) -> Image.Image:
+    """Border-connected flood: make every pixel reachable from the image edge
+    that satisfies `is_bg` transparent. Returns a new RGBA image."""
+    from collections import deque
+
+    out = img.copy()
+    px = out.load()
+    w, h = out.size
+
     seen = [[False] * w for _ in range(h)]
     q = deque()
     for x in range(w):
@@ -251,7 +280,14 @@ def key_background_to_transparent(img: Image.Image) -> Image.Image:
         px[x, y] = (r, g, b, 0)
         q.append((x + 1, y)); q.append((x - 1, y))
         q.append((x, y + 1)); q.append((x, y - 1))
-    return img
+    return out
+
+
+def _opaque_fraction(img: Image.Image) -> float:
+    """Fraction of pixels still at least half-opaque — detects a keyed-away fish."""
+    hist = img.getchannel("A").histogram()
+    total = img.size[0] * img.size[1]
+    return sum(hist[128:]) / total if total else 0.0
 
 
 # Backwards-compatible alias (fish_art_batch.py and older callers).

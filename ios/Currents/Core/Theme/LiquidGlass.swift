@@ -274,6 +274,8 @@ struct FilterChipRow<Item: Hashable>: View {
             .padding(.horizontal, 2)
             .padding(.vertical, 2)
         }
+        // Chips are a fixed strip — no vertical rubber-banding.
+        .scrollBounceBehavior(.basedOnSize, axes: [.vertical, .horizontal])
     }
 }
 

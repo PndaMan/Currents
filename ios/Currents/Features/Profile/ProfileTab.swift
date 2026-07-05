@@ -19,8 +19,6 @@ struct ProfileTab: View {
     @State private var showingRestoreConfirm = false
     @State private var lastBackupDate: Date?
     @State private var showingSaveRegion = false
-    @State private var showingFilePicker = false
-    @State private var backupFileURL: URL?
     @State private var iCloudAvailable = false
     @State private var dbSize: String?
     @State private var showingCSVImport = false
@@ -297,14 +295,6 @@ struct ProfileTab: View {
                     mapRegions = appState.mapManager.downloadedRegions
                 }
             }
-            .sheet(item: $backupFileURL) { url in
-                ShareSheet(url: url)
-            }
-            .sheet(isPresented: $showingFilePicker) {
-                DocumentPicker { url in
-                    importFromFile(url)
-                }
-            }
             .overlay(alignment: .top) {
                 if showBadgeToast, let title = newBadgeTitle {
                     HStack(spacing: 10) {
@@ -343,19 +333,11 @@ struct ProfileTab: View {
             } message: {
                 Text(importMessage ?? "")
             }
-            .alert("Restore from Backup?", isPresented: $showingRestoreConfirm) {
-                if iCloudAvailable {
-                    Button("Restore", role: .destructive) { restoreFromCloud() }
-                } else {
-                    Button("Choose File", role: .destructive) { showingFilePicker = true }
-                }
+            .alert("Restore from iCloud?", isPresented: $showingRestoreConfirm) {
+                Button("Restore", role: .destructive) { restoreFromCloud() }
                 Button("Cancel", role: .cancel) {}
             } message: {
-                if iCloudAvailable {
-                    Text("This will replace all local data with the iCloud backup. This cannot be undone.")
-                } else {
-                    Text("Select a .sqlite backup file to restore. This will replace all local data.")
-                }
+                Text("This will replace all local data with the iCloud backup. This cannot be undone.")
             }
             .alert(
                 "Restore this backup?",
@@ -450,20 +432,6 @@ struct ProfileTab: View {
                 }
             }
 
-            Button {
-                exportBackupFile()
-            } label: {
-                Label("Export Backup File", systemImage: "arrow.up.doc")
-            }
-            .disabled(isBackingUp || isRestoring)
-
-            Button {
-                showingFilePicker = true
-            } label: {
-                Label("Import Backup File", systemImage: "arrow.down.doc")
-            }
-            .disabled(isBackingUp || isRestoring)
-
             if let msg = backupMessage {
                 Text(msg)
                     .font(.caption)
@@ -474,7 +442,7 @@ struct ProfileTab: View {
         } footer: {
             Text(iCloudAvailable
                  ? "Backs up automatically once a day (locally and to iCloud) when you leave the app."
-                 : "App-specific iCloud backup isn't available in this build. A snapshot is still saved automatically every day — it lives in the app's documents, which ARE included in your device's own iCloud/computer backup. Use Export to share a copy anywhere.")
+                 : "Backs up automatically once a day when you leave the app. The snapshots live in the app's documents, which are included in your device's own iCloud/computer backup. Use Export All Data (CSV) below to take your data elsewhere.")
         }
     }
 
@@ -569,64 +537,6 @@ struct ProfileTab: View {
         }
     }
 
-    private func exportBackupFile() {
-        isBackingUp = true
-        backupMessage = nil
-        Task {
-            do {
-                let url = try await FileBackup.shared.exportBackup(db: appState.db)
-                backupFileURL = url
-                backupMessage = "Backup exported"
-            } catch {
-                backupMessage = "Error: \(error.localizedDescription)"
-            }
-            isBackingUp = false
-        }
-    }
-
-    private func importFromFile(_ url: URL) {
-        isRestoring = true
-        backupMessage = nil
-        Task {
-            do {
-                try await FileBackup.shared.importBackup(from: url, to: appState.db)
-                backupMessage = "Restore complete — restart app to see changes"
-            } catch {
-                backupMessage = "Error: \(error.localizedDescription)"
-            }
-            isRestoring = false
-        }
-    }
-}
-
-// MARK: - Document Picker for Import
-
-struct DocumentPicker: UIViewControllerRepresentable {
-    let onPick: (URL) -> Void
-
-    func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
-        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [
-            UTType(filenameExtension: "sqlite") ?? .data,
-            .database,
-            .data,
-        ])
-        picker.delegate = context.coordinator
-        return picker
-    }
-
-    func updateUIViewController(_ controller: UIDocumentPickerViewController, context: Context) {}
-
-    func makeCoordinator() -> Coordinator { Coordinator(onPick: onPick) }
-
-    class Coordinator: NSObject, UIDocumentPickerDelegate {
-        let onPick: (URL) -> Void
-        init(onPick: @escaping (URL) -> Void) { self.onPick = onPick }
-
-        func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
-            guard let url = urls.first else { return }
-            onPick(url)
-        }
-    }
 }
 
 // MARK: - Save Region Sheet

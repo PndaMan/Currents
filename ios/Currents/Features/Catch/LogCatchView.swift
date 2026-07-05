@@ -714,9 +714,9 @@ struct LocationPickerSheet: View {
     @State private var cameraPosition: MapCameraPosition
     @State private var pinPosition: CLLocationCoordinate2D?
     @State private var searchText = ""
-    @State private var searchResults: [MKMapItem] = []
+    @State private var searchModel = MapSearchCompleter()
     @State private var isSearching = false
-    @State private var searchDebounceTask: Task<Void, Never>?
+    @FocusState private var searchFocused: Bool
 
     init(coordinate: Binding<CLLocationCoordinate2D?>) {
         _coordinate = coordinate
@@ -762,34 +762,49 @@ struct LocationPickerSheet: View {
                     Spacer()
                 }
 
-                // Search bar + results overlay
-                VStack {
+                // Search bar + type-ahead results overlay (same behaviour as
+                // the main map: results show while the keyboard is up, and
+                // there's an explicit keyboard-dismiss button).
+                VStack(spacing: 4) {
                     HStack {
                         Image(systemName: "magnifyingglass")
                             .foregroundStyle(.secondary)
                         TextField("Search location...", text: $searchText)
                             .textFieldStyle(.plain)
-                            .onSubmit { performSearch() }
+                            .focused($searchFocused)
+                            .submitLabel(.search)
+                            .autocorrectionDisabled()
+                            .onSubmit {
+                                if let first = searchModel.completions.first {
+                                    select(first)
+                                }
+                                searchFocused = false
+                            }
                             .onChange(of: searchText) { _, newValue in
-                                searchDebounceTask?.cancel()
-                                if newValue.isEmpty {
-                                    searchResults = []
-                                    return
-                                }
-                                searchDebounceTask = Task {
-                                    try? await Task.sleep(for: .milliseconds(300))
-                                    guard !Task.isCancelled else { return }
-                                    performSearch()
-                                }
+                                searchModel.update(
+                                    query: newValue,
+                                    near: pinPosition ?? appState.locationManager.currentLocation?.coordinate
+                                )
                             }
                         if isSearching {
                             ProgressView()
                                 .controlSize(.small)
                         }
                         if !searchText.isEmpty {
-                            Button { searchText = ""; searchResults = [] } label: {
+                            Button {
+                                searchText = ""
+                                searchModel.clear()
+                            } label: {
                                 Image(systemName: "xmark.circle.fill")
                                     .foregroundStyle(.secondary)
+                            }
+                        }
+                        if searchFocused {
+                            Button {
+                                searchFocused = false
+                            } label: {
+                                Image(systemName: "keyboard.chevron.compact.down")
+                                    .foregroundStyle(CurrentsTheme.accent)
                             }
                         }
                     }
@@ -799,40 +814,35 @@ struct LocationPickerSheet: View {
                     .padding(.horizontal)
                     .padding(.top, 8)
 
-                    if !searchResults.isEmpty {
-                        ScrollView {
-                            VStack(spacing: 0) {
-                                ForEach(searchResults, id: \.self) { item in
-                                    Button {
-                                        if let coord = item.placemark.location?.coordinate {
-                                            cameraPosition = .camera(.init(centerCoordinate: coord, distance: 5000))
-                                            pinPosition = coord
+                    if !searchModel.completions.isEmpty && !searchText.isEmpty {
+                        VStack(spacing: 0) {
+                            ForEach(Array(searchModel.completions.prefix(6).enumerated()), id: \.offset) { index, completion in
+                                Button {
+                                    select(completion)
+                                } label: {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(completion.title)
+                                            .font(.subheadline)
+                                            .foregroundStyle(.primary)
+                                            .lineLimit(1)
+                                        if !completion.subtitle.isEmpty {
+                                            Text(completion.subtitle)
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                                .lineLimit(1)
                                         }
-                                        searchResults = []
-                                        searchText = item.name ?? ""
-                                    } label: {
-                                        VStack(alignment: .leading, spacing: 2) {
-                                            Text(item.name ?? "Unknown")
-                                                .font(.subheadline)
-                                                .foregroundStyle(.primary)
-                                            if let subtitle = item.placemark.title {
-                                                Text(subtitle)
-                                                    .font(.caption)
-                                                    .foregroundStyle(.secondary)
-                                                    .lineLimit(1)
-                                            }
-                                        }
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                        .padding(.horizontal, 12)
-                                        .padding(.vertical, 8)
                                     }
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 9)
+                                }
+                                if index < min(searchModel.completions.count, 6) - 1 {
                                     Divider()
                                 }
                             }
-                            .background(.ultraThinMaterial)
-                            .clipShape(RoundedRectangle(cornerRadius: 12))
                         }
-                        .frame(maxHeight: 200)
+                        .background(.ultraThinMaterial)
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
                         .padding(.horizontal)
                     }
 
@@ -859,37 +869,19 @@ struct LocationPickerSheet: View {
         }
     }
 
-    private func performSearch() {
-        guard !searchText.isEmpty else { return }
+    /// Resolve a tapped suggestion to coordinates, move the camera and pin.
+    private func select(_ completion: MKLocalSearchCompletion) {
+        searchFocused = false
         isSearching = true
-        let request = MKLocalSearch.Request()
-        request.naturalLanguageQuery = searchText
-        request.resultTypes = [.pointOfInterest, .address]
-
-        // Bias toward pin position or user location
-        if let pin = pinPosition {
-            request.region = MKCoordinateRegion(center: pin, latitudinalMeters: 200_000, longitudinalMeters: 200_000)
-        } else if let userLocation = appState.locationManager.currentLocation {
-            request.region = MKCoordinateRegion(center: userLocation.coordinate, latitudinalMeters: 200_000, longitudinalMeters: 200_000)
-        }
-
+        searchText = completion.title
         Task {
-            let search = MKLocalSearch(request: request)
+            let search = MKLocalSearch(request: MKLocalSearch.Request(completion: completion))
             let response = try? await search.start()
-            var items = response?.mapItems ?? []
-
-            // Sort by distance from reference point
-            let refLocation = pinPosition.map { CLLocation(latitude: $0.latitude, longitude: $0.longitude) }
-                ?? appState.locationManager.currentLocation
-            if let ref = refLocation {
-                items.sort { a, b in
-                    let distA = a.placemark.location?.distance(from: ref) ?? .greatestFiniteMagnitude
-                    let distB = b.placemark.location?.distance(from: ref) ?? .greatestFiniteMagnitude
-                    return distA < distB
-                }
+            if let coord = response?.mapItems.first?.placemark.location?.coordinate {
+                cameraPosition = .camera(.init(centerCoordinate: coord, distance: 5000))
+                pinPosition = coord
             }
-
-            searchResults = items
+            searchModel.clear()
             isSearching = false
         }
     }

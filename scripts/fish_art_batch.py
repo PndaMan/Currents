@@ -70,6 +70,12 @@ def key_white(img: Image.Image) -> Image.Image:
     Keys BOTH the near-white halo and the dominant border colour, so the
     occasional grey/black/tinted backdrop (the fish 138/166 failure) is
     removed too instead of shipping as an opaque square.
+
+    White-body safeguard: a silvery/white fish on a white backdrop matches
+    the aggressive criteria itself, so keying can eat the body through the
+    anti-aliased outline. If the aggressive key leaves almost nothing behind,
+    re-key strictly near-white and keep that when it preserves a plausible
+    fish silhouette.
     """
     img = img.convert("RGBA")
     arr = np.array(img)
@@ -82,12 +88,30 @@ def key_white(img: Image.Image) -> Image.Image:
     # sticker disc meets a grey backdrop (fish 166). Connectivity + the fish's
     # darker outline keep the fish itself safe.
     light_gray = ((rgb.max(axis=-1) - rgb.min(axis=-1)) <= 24) & (rgb.sum(axis=-1) >= 450)
-    lbl, _ = ndimage.label(near_bg | near_white | light_gray)
-    border = np.unique(np.concatenate([lbl[0, :], lbl[-1, :], lbl[:, 0], lbl[:, -1]]))
-    border = border[border != 0]
-    if border.size:
-        arr[..., 3][np.isin(lbl, border)] = 0
-    return Image.fromarray(arr, "RGBA")
+
+    def keyed_with(mask: np.ndarray) -> np.ndarray:
+        out = arr.copy()
+        lbl, _ = ndimage.label(mask)
+        border = np.unique(np.concatenate([lbl[0, :], lbl[-1, :], lbl[:, 0], lbl[:, -1]]))
+        border = border[border != 0]
+        if border.size:
+            out[..., 3][np.isin(lbl, border)] = 0
+        return out
+
+    def opaque_frac(a: np.ndarray) -> float:
+        return float((a[..., 3] >= 128).mean())
+
+    aggressive = keyed_with(near_bg | near_white | light_gray)
+    if opaque_frac(aggressive) >= 0.12:
+        return Image.fromarray(aggressive, "RGBA")
+
+    # The aggressive rules swallowed the fish (white/silver body) — key only
+    # true near-white pixels instead.
+    white_only = keyed_with(np.all(rgb > 240, axis=-1))
+    frac = opaque_frac(white_only)
+    if 0.10 <= frac <= 0.80:
+        return Image.fromarray(white_only, "RGBA")
+    return Image.fromarray(aggressive, "RGBA")
 
 
 def is_low_quality(img: Image.Image) -> bool:
