@@ -485,16 +485,30 @@ struct GearCatalogBrowser: View {
         return result
     }
 
+    /// Items grouped by category, in enum order, for sectioned browsing.
+    private var grouped: [(category: GearItem.GearCategory, items: [GearItem])] {
+        let dict = Dictionary(grouping: filtered) { $0.category }
+        return GearItem.GearCategory.allCases.compactMap { cat in
+            guard let list = dict[cat], !list.isEmpty else { return nil }
+            return (cat, list)
+        }
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
-                    FilterChip(title: "All", isSelected: selectedCategory == nil) {
+                    FilterChip(title: "All · \(items.count)", isSelected: selectedCategory == nil) {
                         selectedCategory = nil
                     }
                     ForEach(GearItem.GearCategory.allCases, id: \.self) { cat in
-                        FilterChip(title: cat.rawValue, isSelected: selectedCategory == cat) {
-                            selectedCategory = cat
+                        let count = items.filter { $0.category == cat }.count
+                        FilterChip(
+                            title: "\(cat.rawValue) · \(count)",
+                            isSelected: selectedCategory == cat,
+                            systemImage: GearItem.icon(for: cat)
+                        ) {
+                            selectedCategory = selectedCategory == cat ? nil : cat
                         }
                     }
                 }
@@ -502,22 +516,57 @@ struct GearCatalogBrowser: View {
             }
             .padding(.vertical, 8)
 
-            List {
-                Section("\(filtered.count) items") {
-                    ForEach(filtered) { item in
-                        GearCatalogRow(item: item, isOwned: ownedNames.contains(item.model), onAdded: {
-                            ownedNames.insert(item.model)
-                        })
+            if filtered.isEmpty {
+                ContentUnavailableView(
+                    "No gear found",
+                    systemImage: "backpack",
+                    description: Text("Try a different search or category.")
+                )
+                .frame(maxHeight: .infinity)
+            } else {
+                List {
+                    ForEach(grouped, id: \.category) { group in
+                        Section {
+                            ForEach(group.items) { item in
+                                GearCatalogRow(
+                                    item: item,
+                                    isOwned: ownedNames.contains(item.model),
+                                    onAdded: { ownedNames.insert(item.model) }
+                                )
+                            }
+                        } header: {
+                            HStack {
+                                Label("\(group.category.rawValue)s", systemImage: GearItem.icon(for: group.category))
+                                Spacer()
+                                Text("\(group.items.count)")
+                                    .monospacedDigit()
+                            }
+                        }
                     }
                 }
+                .listStyle(.insetGrouped)
             }
-            .listStyle(.plain)
-            .searchable(text: $searchText, prompt: "Search gear by brand, type, species...")
         }
+        .searchable(text: $searchText, prompt: "Search brand, model, type, species...")
         .task {
             items = (try? appState.gearCatalogRepository.fetchAll()) ?? []
             let owned = (try? appState.ownedGearRepository.fetchAll()) ?? []
             ownedNames = Set(owned.map(\.name))
+        }
+    }
+}
+
+extension GearItem {
+    static func icon(for cat: GearCategory) -> String {
+        switch cat {
+        case .rod: "figure.fishing"
+        case .reel: "record.circle"
+        case .lure: "fish.fill"
+        case .bait: "ant.fill"
+        case .line: "scribble.variable"
+        case .hook: "paperclip"
+        case .terminal: "link"
+        case .accessory: "backpack.fill"
         }
     }
 }
@@ -529,53 +578,72 @@ struct GearCatalogRow: View {
     var onAdded: (() -> Void)?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                Image(systemName: categoryIcon(item.category))
-                    .foregroundStyle(categoryColor(item.category))
-                    .frame(width: 24)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(item.displayName)
-                        .font(.subheadline.bold())
+        HStack(spacing: 12) {
+            Image(systemName: GearItem.icon(for: item.category))
+                .font(.subheadline)
+                .foregroundStyle(CurrentsTheme.accent)
+                .frame(width: 38, height: 38)
+                .background(CurrentsTheme.accent.opacity(0.12), in: Circle())
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(item.displayName)
+                    .font(.subheadline.bold())
+                    .lineLimit(2)
+
+                HStack(spacing: 6) {
                     if let type = item.type {
                         Text(type)
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
-                }
-                Spacer()
-                if isOwned {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(CurrentsTheme.accent)
-                } else {
-                    Button {
-                        addToMyGear()
-                    } label: {
-                        Image(systemName: "plus.circle.fill")
-                            .foregroundStyle(CurrentsTheme.accent)
+                    if let specs = item.specs {
+                        if item.type != nil {
+                            Text("·").font(.caption).foregroundStyle(.tertiary)
+                        }
+                        Text(specs)
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                            .lineLimit(1)
                     }
-                    .buttonStyle(.plain)
+                }
+
+                HStack(spacing: 6) {
+                    if let target = item.targetSpecies {
+                        Text(target)
+                            .font(.caption2)
+                            .lineLimit(1)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(CurrentsTheme.accent.opacity(0.1))
+                            .foregroundStyle(CurrentsTheme.accent)
+                            .clipShape(Capsule())
+                    }
+                    if let price = item.priceRange {
+                        Text(price)
+                            .font(.caption2.bold())
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
 
-            HStack(spacing: 12) {
-                if let specs = item.specs {
-                    Text(specs)
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                }
-                if let target = item.targetSpecies {
-                    Text(target)
-                        .font(.caption2)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(CurrentsTheme.accent.opacity(0.1))
+            Spacer(minLength: 8)
+
+            if isOwned {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.title3)
+                    .foregroundStyle(CurrentsTheme.accent)
+            } else {
+                Button {
+                    addToMyGear()
+                } label: {
+                    Image(systemName: "plus.circle.fill")
+                        .font(.title3)
                         .foregroundStyle(CurrentsTheme.accent)
-                        .clipShape(Capsule())
                 }
+                .buttonStyle(.plain)
             }
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, 4)
     }
 
     private func addToMyGear() {
@@ -601,31 +669,6 @@ struct GearCatalogRow: View {
         withAnimation { onAdded?() }
     }
 
-    private func categoryIcon(_ cat: GearItem.GearCategory) -> String {
-        switch cat {
-        case .rod: "figure.fishing"
-        case .reel: "record.circle"
-        case .lure: "fish.fill"
-        case .bait: "ant.fill"
-        case .line: "scribble.variable"
-        case .hook: "paperclip"
-        case .terminal: "link"
-        case .accessory: "backpack.fill"
-        }
-    }
-
-    private func categoryColor(_ cat: GearItem.GearCategory) -> Color {
-        switch cat {
-        case .rod: CurrentsTheme.accent.opacity(0.9)
-        case .reel: CurrentsTheme.accent.opacity(0.7)
-        case .lure: CurrentsTheme.accent
-        case .bait: CurrentsTheme.accent.opacity(0.75)
-        case .line: CurrentsTheme.accent.opacity(0.8)
-        case .hook: CurrentsTheme.accent.opacity(0.85)
-        case .terminal: CurrentsTheme.accent.opacity(0.6)
-        case .accessory: CurrentsTheme.accent.opacity(0.5)
-        }
-    }
 }
 
 // MARK: - Existing Support Views
