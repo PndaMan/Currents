@@ -223,6 +223,9 @@ struct FilterChip: View {
     let isSelected: Bool
     var systemImage: String? = nil
     let action: () -> Void
+    // Observed so selected chips re-tint the moment the theme changes —
+    // CurrentsTheme.accent alone reads UserDefaults without invalidating the view.
+    @AppStorage("selectedTheme") private var selectedTheme = ""
 
     var body: some View {
         Button(action: action) {

@@ -31,17 +31,6 @@ struct ProfileTab: View {
     var body: some View {
         NavigationStack {
             List {
-                Section {
-                    HStack {
-                        Spacer()
-                        LogoView(style: .horizontal, size: 44)
-                        Spacer()
-                    }
-                    .padding(.vertical, 8)
-                }
-                .listRowBackground(Color.clear)
-                .listRowSeparator(.hidden)
-
                 // Stats overview
                 Section("Stats") {
                     HStack {
@@ -151,12 +140,6 @@ struct ProfileTab: View {
                         SeasonalCalendarView()
                     } label: {
                         Label("Seasonal Calendar", systemImage: "calendar")
-                    }
-
-                    NavigationLink {
-                        PhotoGalleryView()
-                    } label: {
-                        Label("Photo Gallery", systemImage: "photo.on.rectangle.angled")
                     }
 
                     NavigationLink {

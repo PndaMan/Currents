@@ -73,10 +73,12 @@ struct ZoomableImage: View {
                         if scale <= 1.01 { resetZoom() }
                     }
             )
-            .simultaneousGesture(
+            // Pan gesture is fully disabled at 1× (mask .subviews) so it can
+            // never steal horizontal swipes from the paging TabView. It only
+            // engages once zoomed in.
+            .gesture(
                 DragGesture()
                     .onChanged { value in
-                        guard scale > 1 else { return }
                         offset = CGSize(
                             width: lastOffset.width + value.translation.width,
                             height: lastOffset.height + value.translation.height
@@ -84,7 +86,8 @@ struct ZoomableImage: View {
                     }
                     .onEnded { _ in
                         lastOffset = offset
-                    }
+                    },
+                including: scale > 1 ? .all : .subviews
             )
             .onTapGesture(count: 2) {
                 withAnimation(.spring(duration: 0.3)) {

@@ -68,7 +68,12 @@ struct FishCollectionView: View {
             }
             .navigationTitle("Collection")
             .searchable(text: $searchText, prompt: "Search species")
-            .sheet(item: $selected) { sp in
+            // No .refreshable here — the pull gesture fought with cell taps and
+            // sheet swipe-downs, causing phantom "refreshes". Data reloads when
+            // the detail sheet closes instead.
+            .sheet(item: $selected, onDismiss: {
+                Task { await load() }
+            }) { sp in
                 NavigationStack {
                     SpeciesDetailView(species: sp)
                         .toolbar {
@@ -77,9 +82,9 @@ struct FishCollectionView: View {
                             }
                         }
                 }
+                .presentationDragIndicator(.visible)
             }
             .task { await load() }
-            .refreshable { await load() }
         }
     }
 

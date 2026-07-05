@@ -387,7 +387,9 @@ struct CatchDetailView: View {
             }
             .tabViewStyle(.page)
             .frame(height: 280)
-            .overlay(alignment: .bottomTrailing) { expandHint }
+            // Top-trailing, well away from the page dots — as a real button it
+            // can't fall through to the dots and flip pages any more.
+            .overlay(alignment: .topTrailing) { expandButton }
         } else if let photoPath = photos.first,
                   let image = PhotoManager.load(photoPath) {
             Image(uiImage: image)
@@ -398,18 +400,21 @@ struct CatchDetailView: View {
                     carouselIndex = 0
                     showingPhotoViewer = true
                 }
-                .overlay(alignment: .bottomTrailing) { expandHint }
+                .overlay(alignment: .topTrailing) { expandButton }
         }
     }
 
-    private var expandHint: some View {
-        Image(systemName: "arrow.up.left.and.arrow.down.right")
-            .font(.caption.bold())
-            .foregroundStyle(.white)
-            .padding(8)
-            .background(.black.opacity(0.45), in: Circle())
-            .padding(10)
-            .allowsHitTesting(false)
+    private var expandButton: some View {
+        Button {
+            showingPhotoViewer = true
+        } label: {
+            Image(systemName: "arrow.up.left.and.arrow.down.right")
+                .font(.caption.bold())
+                .foregroundStyle(.white)
+                .padding(8)
+                .background(.black.opacity(0.45), in: Circle())
+        }
+        .padding(10)
     }
 
     private var locationCard: some View {

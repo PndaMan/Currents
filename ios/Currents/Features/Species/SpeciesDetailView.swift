@@ -61,11 +61,6 @@ struct SpeciesDetailView: View {
                     yourStatsCard
                 }
 
-                // Best gear for this species
-                if !catches.isEmpty {
-                    bestGearCard
-                }
-
                 // Catch history
                 if !catches.isEmpty {
                     catchHistoryCard
@@ -78,6 +73,11 @@ struct SpeciesDetailView: View {
 
                 // Tips
                 tipsCard
+
+                // Best gear — only when at least one catch was logged with gear
+                if !gearCatches.isEmpty {
+                    bestGearCard
+                }
             }
             .padding()
         }
@@ -153,6 +153,7 @@ struct SpeciesDetailView: View {
                 .foregroundStyle(.secondary)
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .glassCard()
     }
 
@@ -205,7 +206,13 @@ struct SpeciesDetailView: View {
                 }
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .glassCard()
+    }
+
+    /// Catches for this species that were logged with a gear loadout.
+    private var gearCatches: [CatchDetail] {
+        catches.filter { $0.gearLoadout != nil }
     }
 
     private var bestGearCard: some View {
@@ -216,38 +223,34 @@ struct SpeciesDetailView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
-            let gearCatches = catches.filter { $0.gearLoadout != nil }
             let gearGroups = Dictionary(grouping: gearCatches, by: { $0.gearLoadout!.name })
             let sorted = gearGroups.sorted { $0.value.count > $1.value.count }
 
-            if sorted.isEmpty {
-                Text("Log catches with gear to see recommendations")
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
-            } else {
-                ForEach(sorted.prefix(5), id: \.key) { gearName, gearCatches in
-                    HStack {
-                        Image(systemName: "wrench.and.screwdriver.fill")
-                            .foregroundStyle(CurrentsTheme.accent)
-                            .frame(width: 24)
-                        VStack(alignment: .leading) {
-                            Text(gearName)
-                                .font(.subheadline.bold())
-                            if let lure = gearCatches.first?.gearLoadout?.lure {
-                                Text(lure)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
+            ForEach(sorted.prefix(5), id: \.key) { gearName, gearCatches in
+                HStack {
+                    Image(systemName: "wrench.and.screwdriver.fill")
+                        .foregroundStyle(CurrentsTheme.accent)
+                        .frame(width: 24)
+                    VStack(alignment: .leading) {
+                        Text(gearName)
+                            .font(.subheadline.bold())
+                        if let lure = gearCatches.first?.gearLoadout?.lure {
+                            Text(lure)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
                         }
-                        Spacer()
-                        Text("\(gearCatches.count)")
-                            .font(.title3.bold())
-                            .monospacedDigit()
                     }
+                    Spacer()
+                    Text("\(gearCatches.count)")
+                        .font(.title3.bold())
+                        .monospacedDigit()
+                }
+                if gearName != sorted.prefix(5).last?.key {
                     SoftDivider()
                 }
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .glassCard()
     }
 
@@ -257,7 +260,12 @@ struct SpeciesDetailView: View {
                 .font(.headline)
 
             ForEach(catches.prefix(10), id: \.catchRecord.id) { detail in
-                CatchRow(detail: detail)
+                NavigationLink {
+                    CatchDetailView(detail: detail)
+                } label: {
+                    CatchRow(detail: detail)
+                }
+                .buttonStyle(.plain)
                 SoftDivider()
             }
 
@@ -267,6 +275,7 @@ struct SpeciesDetailView: View {
                     .foregroundStyle(.secondary)
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .glassCard()
     }
 
@@ -293,6 +302,7 @@ struct SpeciesDetailView: View {
                     .padding(.top, 4)
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .glassCard()
     }
 
@@ -310,6 +320,7 @@ struct SpeciesDetailView: View {
             tipRow(icon: "sunrise.fill", text: "Dawn and dusk are typically the best times for most species")
             tipRow(icon: "moon.fill", text: "Full moon and new moon phases increase feeding activity")
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .glassCard()
     }
 

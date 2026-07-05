@@ -115,3 +115,7 @@ struct CatchDetail: Decodable, FetchableRecord, Sendable {
         case gearLoadout
     }
 }
+
+extension CatchDetail: Identifiable {
+    var id: String { catchRecord.id }
+}
