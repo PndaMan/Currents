@@ -77,17 +77,19 @@ def key_white(img: Image.Image) -> Image.Image:
 
 
 def is_low_quality(img: Image.Image) -> bool:
-    """Reject near-black or near-greyscale renders (the 'dark crappie' failure)."""
+    """Reject only genuinely broken renders (near-empty or almost pure black).
+    Thresholds kept LOW so legitimately dark or grey species (black crappie,
+    sculpins, greenlings) aren't thrown out."""
     small = img.convert("RGBA").resize((48, 48))
     a = np.asarray(small.getchannel("A"))
     rgb = np.asarray(small.convert("RGB")).astype(np.int16)
     m = a > 25
-    if m.sum() < 60:
+    if m.sum() < 40:  # almost nothing drawn
         return True
     px = rgb[m]
     lum = px.mean(axis=1).mean()
     sat = (px.max(axis=1) - px.min(axis=1)).mean()
-    return lum < 48 or sat < 12
+    return lum < 26 or sat < 5
 
 MODEL = os.environ.get("GEMINI_MODEL") or "gemini-2.5-flash-image"
 OUT_PX = 320  # crisp on retina grids; generation cost is independent of this
@@ -265,10 +267,14 @@ def collect() -> None:
     items: list[tuple[int, Image.Image]] = []
     dest = job.dest
 
+    reprocess_all = os.environ.get("REPROCESS_ALL", "").strip() == "1"
+
     def add(key, response) -> None:
         try:
             sid = int(key)
         except (TypeError, ValueError):
+            return
+        if has_png(sid) and not reprocess_all:  # already written — skip (cheap re-collect)
             return
         img = _extract_image(response)
         if img is not None:
