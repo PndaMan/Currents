@@ -34,9 +34,9 @@ struct MapTab: View {
     @State private var inspectorCoordinate: CLLocationCoordinate2D?
     @State private var spotScores: [String: Int] = [:]
     @State private var searchText = ""
-    @State private var searchResults: [MKMapItem] = []
+    @State private var searchModel = MapSearchCompleter()
     @State private var isSearching = false
-    @State private var searchDebounceTask: Task<Void, Never>?
+    @FocusState private var searchFocused: Bool
     @State private var needsRefresh = false
     @State private var showWaterbodies = true
     @State private var waterbodies: [Waterbody] = []
@@ -445,8 +445,10 @@ struct MapTab: View {
         }
     }
 
-    /// Search field + results, pinned to the very top of the screen via
-    /// `.safeAreaInset(edge: .top)`.
+    /// Search field + live type-ahead suggestions, pinned to the very top of
+    /// the screen via `.safeAreaInset(edge: .top)`. Suggestions come from
+    /// MKLocalSearchCompleter biased to the user's position, so nearby dams,
+    /// rivers and places rank first and there are plenty of them.
     private var searchOverlay: some View {
         VStack(spacing: 4) {
             HStack(spacing: 8) {
@@ -454,27 +456,41 @@ struct MapTab: View {
                     .foregroundStyle(.secondary)
                 TextField("Search dams, rivers, places...", text: $searchText)
                     .textFieldStyle(.plain)
-                    .onSubmit { performSearch() }
+                    .focused($searchFocused)
+                    .submitLabel(.search)
+                    .autocorrectionDisabled()
+                    .onSubmit {
+                        if let first = searchModel.completions.first {
+                            select(first)
+                        }
+                        searchFocused = false
+                    }
                     .onChange(of: searchText) { _, newValue in
-                        searchDebounceTask?.cancel()
-                        if newValue.isEmpty {
-                            searchResults = []
-                            return
-                        }
-                        searchDebounceTask = Task {
-                            try? await Task.sleep(for: .milliseconds(300))
-                            guard !Task.isCancelled else { return }
-                            performSearch()
-                        }
+                        searchModel.update(
+                            query: newValue,
+                            near: appState.locationManager.currentLocation?.coordinate ?? lastMapCenter
+                        )
                     }
                 if isSearching {
                     ProgressView()
                         .controlSize(.small)
                 }
                 if !searchText.isEmpty {
-                    Button { searchText = ""; searchResults = [] } label: {
+                    Button {
+                        searchText = ""
+                        searchModel.clear()
+                    } label: {
                         Image(systemName: "xmark.circle.fill")
                             .foregroundStyle(.secondary)
+                    }
+                }
+                if searchFocused {
+                    // Explicit way to put the keyboard away.
+                    Button {
+                        searchFocused = false
+                    } label: {
+                        Image(systemName: "keyboard.chevron.compact.down")
+                            .foregroundStyle(accent)
                     }
                 }
             }
@@ -485,44 +501,30 @@ struct MapTab: View {
             .shadow(color: .black.opacity(0.15), radius: 8, y: 2)
             .padding(.horizontal, 12)
 
-            if !searchResults.isEmpty {
+            if !searchModel.completions.isEmpty && !searchText.isEmpty {
                 ScrollView {
                     VStack(spacing: 0) {
-                        ForEach(searchResults, id: \.self) { item in
+                        ForEach(searchModel.completions, id: \.self) { completion in
                             Button {
-                                if let coord = item.placemark.location?.coordinate {
-                                    if mapStyle == .offline {
-                                        flyToCoordinate = coord
-                                    } else {
-                                        position = .camera(.init(centerCoordinate: coord, distance: 2000))
-                                    }
-                                }
-                                searchResults = []
-                                searchText = item.name ?? ""
+                                select(completion)
                             } label: {
                                 HStack(spacing: 8) {
                                     Image(systemName: "mappin.circle.fill")
                                         .foregroundStyle(accent)
                                         .font(.caption)
                                     VStack(alignment: .leading, spacing: 2) {
-                                        Text(item.name ?? "Unknown")
+                                        Text(completion.title)
                                             .font(.subheadline)
                                             .foregroundStyle(.primary)
-                                        if let subtitle = item.placemark.title {
-                                            Text(subtitle)
+                                            .lineLimit(1)
+                                        if !completion.subtitle.isEmpty {
+                                            Text(completion.subtitle)
                                                 .font(.caption)
                                                 .foregroundStyle(.secondary)
                                                 .lineLimit(1)
                                         }
                                     }
                                     Spacer()
-                                    if let itemLocation = item.placemark.location,
-                                       let userLocation = appState.locationManager.currentLocation {
-                                        let distKm = itemLocation.distance(from: userLocation) / 1000
-                                        Text(String(format: "%.0f km", distKm))
-                                            .font(.caption2)
-                                            .foregroundStyle(.secondary)
-                                    }
                                 }
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding(.horizontal, 12)
@@ -534,11 +536,32 @@ struct MapTab: View {
                     .background(.ultraThinMaterial)
                     .clipShape(RoundedRectangle(cornerRadius: CurrentsTheme.cornerRadius))
                 }
-                .frame(maxHeight: 250)
+                .frame(maxHeight: 280)
                 .padding(.horizontal, 12)
+                .scrollDismissesKeyboard(.immediately)
             }
         }
         .padding(.bottom, 6)
+    }
+
+    /// Resolve a tapped suggestion to coordinates and fly the map there.
+    private func select(_ completion: MKLocalSearchCompletion) {
+        searchFocused = false
+        isSearching = true
+        searchText = completion.title
+        Task {
+            let search = MKLocalSearch(request: MKLocalSearch.Request(completion: completion))
+            let response = try? await search.start()
+            if let coord = response?.mapItems.first?.placemark.location?.coordinate {
+                if mapStyle == .offline {
+                    flyToCoordinate = coord
+                } else {
+                    position = .camera(.init(centerCoordinate: coord, distance: 2000))
+                }
+            }
+            searchModel.clear()
+            isSearching = false
+        }
     }
 
     @ViewBuilder
@@ -584,42 +607,6 @@ struct MapTab: View {
             try? await Task.sleep(for: .milliseconds(300))
             guard !Task.isCancelled else { return }
             await loadWaterbodies(region: region)
-        }
-    }
-
-    private func performSearch() {
-        guard !searchText.isEmpty else { return }
-        isSearching = true
-        let request = MKLocalSearch.Request()
-        request.naturalLanguageQuery = searchText
-        // Prefer natural features (dams, rivers, lakes)
-        request.resultTypes = [.pointOfInterest, .address]
-
-        // Bias results toward user's current location
-        if let userLocation = appState.locationManager.currentLocation {
-            request.region = MKCoordinateRegion(
-                center: userLocation.coordinate,
-                latitudinalMeters: 200_000,
-                longitudinalMeters: 200_000
-            )
-        }
-
-        Task {
-            let search = MKLocalSearch(request: request)
-            let response = try? await search.start()
-            var items = response?.mapItems ?? []
-
-            // Sort by distance from user (closer first)
-            if let userLocation = appState.locationManager.currentLocation {
-                items.sort { a, b in
-                    let distA = a.placemark.location?.distance(from: userLocation) ?? .greatestFiniteMagnitude
-                    let distB = b.placemark.location?.distance(from: userLocation) ?? .greatestFiniteMagnitude
-                    return distA < distB
-                }
-            }
-
-            searchResults = items
-            isSearching = false
         }
     }
 
@@ -778,6 +765,50 @@ struct MapTab: View {
         for wb in waterbodies {
             waterbodyScores[wb.id ?? 0] = result.score
         }
+    }
+}
+
+// MARK: - Search Completer
+
+/// Live type-ahead suggestions for the map search bar, biased to a region
+/// around the user so nearby water and places rank first.
+@Observable
+final class MapSearchCompleter: NSObject, MKLocalSearchCompleterDelegate {
+    var completions: [MKLocalSearchCompletion] = []
+    @ObservationIgnored private let completer = MKLocalSearchCompleter()
+
+    override init() {
+        super.init()
+        completer.delegate = self
+        completer.resultTypes = [.pointOfInterest, .address, .query]
+    }
+
+    func update(query: String, near coordinate: CLLocationCoordinate2D?) {
+        if let coordinate {
+            completer.region = MKCoordinateRegion(
+                center: coordinate,
+                latitudinalMeters: 120_000,
+                longitudinalMeters: 120_000
+            )
+        }
+        guard !query.isEmpty else {
+            clear()
+            return
+        }
+        completer.queryFragment = query
+    }
+
+    func clear() {
+        completions = []
+        completer.cancel()
+    }
+
+    func completerDidUpdateResults(_ completer: MKLocalSearchCompleter) {
+        completions = completer.results
+    }
+
+    func completer(_ completer: MKLocalSearchCompleter, didFailWithError error: Error) {
+        completions = []
     }
 }
 

@@ -45,7 +45,7 @@ final class AppState {
         Task {
             await fishClassifier.loadModel()
         }
-        try? speciesRepository.seedIfEmpty()
+        try? speciesRepository.seedIfNeeded()
 
         // Build the visual species gallery in the background (cached to disk).
         let speciesForIndex = (try? speciesRepository.fetchAll()) ?? []

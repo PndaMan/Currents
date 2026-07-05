@@ -27,6 +27,9 @@ struct ProfileTab: View {
     @State private var importMessage: String?
     @State private var showingImportAlert = false
     @State private var tileCacheSize = "0 KB"
+    @AppStorage("autoBackupEnabled") private var autoBackupEnabled = true
+    @State private var snapshots: [FileBackup.Snapshot] = []
+    @State private var restoreSnapshot: FileBackup.Snapshot?
 
     var body: some View {
         NavigationStack {
@@ -201,12 +204,9 @@ struct ProfileTab: View {
                     }
                 }
 
-                // Backup — iCloud when available (App Store), file-based fallback (sideloaded)
-                if iCloudAvailable {
-                    iCloudBackupSection
-                } else {
-                    fileBackupSection
-                }
+                // Backup — automatic daily snapshot + iCloud when the
+                // entitlement/account allow it.
+                backupSection
 
                 // Support
                 Section {
@@ -265,7 +265,11 @@ struct ProfileTab: View {
                 if iCloudAvailable {
                     lastBackupDate = await CloudBackup.shared.lastBackupDate
                 }
+                if let localLast = AutoBackup.lastRun {
+                    lastBackupDate = max(lastBackupDate ?? .distantPast, localLast)
+                }
                 dbSize = await FileBackup.shared.databaseSize
+                snapshots = await FileBackup.shared.snapshots()
 
                 // Track badge count for new-badge notification
                 let streakDays = BadgeDefinition.streakDays(from: catches)
@@ -353,31 +357,45 @@ struct ProfileTab: View {
                     Text("Select a .sqlite backup file to restore. This will replace all local data.")
                 }
             }
+            .alert(
+                "Restore this backup?",
+                isPresented: Binding(
+                    get: { restoreSnapshot != nil },
+                    set: { if !$0 { restoreSnapshot = nil } }
+                )
+            ) {
+                Button("Restore", role: .destructive) {
+                    if let snap = restoreSnapshot {
+                        restoreFromSnapshot(snap)
+                    }
+                }
+                Button("Cancel", role: .cancel) { restoreSnapshot = nil }
+            } message: {
+                Text("This will replace all current data with the automatic backup from \(restoreSnapshot?.date.formatted(date: .abbreviated, time: .shortened) ?? "this date"). This cannot be undone.")
+            }
         }
     }
 
-    // MARK: - iCloud Backup Section (App Store installs)
+    // MARK: - Backup Section
 
-    private var iCloudBackupSection: some View {
+    private var backupSection: some View {
         Section {
-            Button {
-                backupToCloud()
-            } label: {
-                HStack {
-                    Label("Back Up to iCloud", systemImage: "icloud.and.arrow.up")
-                    Spacer()
-                    if isBackingUp { ProgressView() }
-                }
+            Toggle(isOn: $autoBackupEnabled) {
+                Label("Automatic Daily Backup", systemImage: "clock.arrow.circlepath")
             }
-            .disabled(isBackingUp || isRestoring)
 
             Button {
-                showingRestoreConfirm = true
+                backUpNow()
             } label: {
                 HStack {
-                    Label("Restore from iCloud", systemImage: "icloud.and.arrow.down")
+                    Label("Back Up Now", systemImage: iCloudAvailable ? "icloud.and.arrow.up" : "arrow.triangle.2.circlepath")
                     Spacer()
-                    if isRestoring { ProgressView() }
+                    if let dbSize {
+                        Text(dbSize)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    if isBackingUp { ProgressView() }
                 }
             }
             .disabled(isBackingUp || isRestoring)
@@ -397,46 +415,52 @@ struct ProfileTab: View {
                 }
             }
 
-            if let msg = backupMessage {
-                Text(msg)
-                    .font(.caption)
-                    .foregroundStyle(msg.contains("Error") ? .secondary : CurrentsTheme.accent)
+            if iCloudAvailable {
+                Button {
+                    showingRestoreConfirm = true
+                } label: {
+                    HStack {
+                        Label("Restore from iCloud", systemImage: "icloud.and.arrow.down")
+                        Spacer()
+                        if isRestoring { ProgressView() }
+                    }
+                }
+                .disabled(isBackingUp || isRestoring)
             }
-        } header: {
-            Text("iCloud Backup")
-        } footer: {
-            Text("Automatically syncs your data across devices via iCloud.")
-        }
-    }
 
-    // MARK: - File Backup Section (sideloaded IPAs)
+            if !snapshots.isEmpty {
+                DisclosureGroup("Backup History (\(snapshots.count))") {
+                    ForEach(snapshots) { snap in
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(snap.date.formatted(date: .abbreviated, time: .shortened))
+                                    .font(.subheadline)
+                                Text(snap.formattedSize)
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Button("Restore") {
+                                restoreSnapshot = snap
+                            }
+                            .font(.caption.bold())
+                            .disabled(isBackingUp || isRestoring)
+                        }
+                    }
+                }
+            }
 
-    private var fileBackupSection: some View {
-        Section {
             Button {
                 exportBackupFile()
             } label: {
-                HStack {
-                    Label("Export Backup", systemImage: "arrow.up.doc")
-                    Spacer()
-                    if let dbSize {
-                        Text(dbSize)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    if isBackingUp { ProgressView() }
-                }
+                Label("Export Backup File", systemImage: "arrow.up.doc")
             }
             .disabled(isBackingUp || isRestoring)
 
             Button {
-                showingRestoreConfirm = true
+                showingFilePicker = true
             } label: {
-                HStack {
-                    Label("Import Backup", systemImage: "arrow.down.doc")
-                    Spacer()
-                    if isRestoring { ProgressView() }
-                }
+                Label("Import Backup File", systemImage: "arrow.down.doc")
             }
             .disabled(isBackingUp || isRestoring)
 
@@ -446,9 +470,11 @@ struct ProfileTab: View {
                     .foregroundStyle(msg.contains("Error") ? .secondary : CurrentsTheme.accent)
             }
         } header: {
-            Text("Backup & Restore")
+            Text("Backup")
         } footer: {
-            Text("Export your database to Files, AirDrop, or any storage. Import to restore on a new install.")
+            Text(iCloudAvailable
+                 ? "Backs up automatically once a day (locally and to iCloud) when you leave the app."
+                 : "App-specific iCloud backup isn't available in this build. A snapshot is still saved automatically every day — it lives in the app's documents, which ARE included in your device's own iCloud/computer backup. Use Export to share a copy anywhere.")
         }
     }
 
@@ -492,18 +518,40 @@ struct ProfileTab: View {
         }
     }
 
-    private func backupToCloud() {
+    /// Manual backup: always writes a local snapshot; also pushes to the
+    /// iCloud container when available.
+    private func backUpNow() {
         isBackingUp = true
         backupMessage = nil
         Task {
             do {
-                try await CloudBackup.shared.backup(db: appState.db)
-                lastBackupDate = await CloudBackup.shared.lastBackupDate
+                try await FileBackup.shared.writeSnapshot(db: appState.db)
+                if iCloudAvailable {
+                    try await CloudBackup.shared.backup(db: appState.db)
+                }
+                UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: "lastAutoBackupAt")
+                lastBackupDate = .now
+                snapshots = await FileBackup.shared.snapshots()
                 backupMessage = "Backup complete"
             } catch {
                 backupMessage = "Error: \(error.localizedDescription)"
             }
             isBackingUp = false
+        }
+    }
+
+    private func restoreFromSnapshot(_ snapshot: FileBackup.Snapshot) {
+        isRestoring = true
+        backupMessage = nil
+        Task {
+            do {
+                try await FileBackup.shared.importBackup(from: snapshot.url, to: appState.db)
+                backupMessage = "Restore complete — restart app to see changes"
+            } catch {
+                backupMessage = "Error: \(error.localizedDescription)"
+            }
+            isRestoring = false
+            restoreSnapshot = nil
         }
     }
 

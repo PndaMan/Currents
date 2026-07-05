@@ -77,4 +77,106 @@ actor FileBackup {
         formatter.countStyle = .file
         return formatter.string(fromByteCount: size)
     }
+
+    // MARK: - Automatic rotating snapshots
+
+    /// A single automatic backup snapshot on disk.
+    struct Snapshot: Identifiable, Sendable {
+        let url: URL
+        let date: Date
+        let sizeBytes: Int64
+        var id: String { url.lastPathComponent }
+
+        var formattedSize: String {
+            ByteCountFormatter.string(fromByteCount: sizeBytes, countStyle: .file)
+        }
+    }
+
+    /// Automatic backups live in Documents/Backups — Documents is included in
+    /// the device's own iCloud/computer backup, so these survive device
+    /// restores even without the app-specific iCloud container entitlement
+    /// (which TestFlight builds don't have).
+    private var snapshotsDir: URL {
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+        let dir = docs.appendingPathComponent("Backups", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
+    /// Write a fresh snapshot and prune old ones beyond `keep`.
+    @discardableResult
+    func writeSnapshot(db: AppDatabase, keep: Int = 5) throws -> URL {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd_HHmmss"
+        let url = snapshotsDir.appendingPathComponent("auto_\(f.string(from: Date())).sqlite")
+        do {
+            let destQueue = try DatabaseQueue(path: url.path)
+            try db.db.backup(to: destQueue)
+        } catch {
+            throw BackupError.exportFailed(error)
+        }
+        // Prune oldest beyond the keep count.
+        let all = snapshots()
+        for old in all.dropFirst(keep) {
+            try? FileManager.default.removeItem(at: old.url)
+        }
+        return url
+    }
+
+    /// All automatic snapshots, newest first.
+    func snapshots() -> [Snapshot] {
+        let keys: [URLResourceKey] = [.fileSizeKey, .creationDateKey]
+        let files = (try? FileManager.default.contentsOfDirectory(
+            at: snapshotsDir, includingPropertiesForKeys: keys
+        )) ?? []
+        return files
+            .filter { $0.pathExtension == "sqlite" }
+            .compactMap { url -> Snapshot? in
+                let v = try? url.resourceValues(forKeys: Set(keys))
+                return Snapshot(
+                    url: url,
+                    date: v?.creationDate ?? .distantPast,
+                    sizeBytes: Int64(v?.fileSize ?? 0)
+                )
+            }
+            .sorted { $0.date > $1.date }
+    }
+
+    func deleteSnapshot(_ snapshot: Snapshot) {
+        try? FileManager.default.removeItem(at: snapshot.url)
+    }
+}
+
+// MARK: - Automatic backup scheduler
+
+/// Runs a backup at most once a day, triggered when the app goes to the
+/// background: a local rotating snapshot always, plus the iCloud-container
+/// backup when the entitlement/account make it available.
+enum AutoBackup {
+    static var isEnabled: Bool {
+        UserDefaults.standard.object(forKey: "autoBackupEnabled") as? Bool ?? true
+    }
+
+    static var lastRun: Date? {
+        let t = UserDefaults.standard.double(forKey: "lastAutoBackupAt")
+        return t > 0 ? Date(timeIntervalSince1970: t) : nil
+    }
+
+    static func runIfDue(db: AppDatabase, force: Bool = false) {
+        guard isEnabled || force else { return }
+        if !force, let last = lastRun, Date().timeIntervalSince(last) < 20 * 3600 {
+            return
+        }
+        Task.detached(priority: .utility) {
+            do {
+                try await FileBackup.shared.writeSnapshot(db: db)
+                if await CloudBackup.shared.isAvailable {
+                    try? await CloudBackup.shared.backup(db: db)
+                }
+                UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: "lastAutoBackupAt")
+            } catch {
+                print("[Currents] Automatic backup failed: \(error)")
+            }
+        }
+    }
 }

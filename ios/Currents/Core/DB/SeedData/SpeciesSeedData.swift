@@ -1,8 +1,21 @@
-// Auto-generated from species_seed.json — do not edit manually
 import Foundation
 
 enum SpeciesSeedData {
-    static let json = Data("""
+    /// Full species dataset. The complete list (1500+ species) ships as the
+    /// bundle resource Resources/Data/species_seed.json; the embedded list
+    /// below is only the original curated 194 kept as a last-resort fallback.
+    static var json: Data {
+        let bundle = Bundle.main
+        if let url = bundle.url(forResource: "species_seed", withExtension: "json", subdirectory: "Data")
+            ?? bundle.url(forResource: "species_seed", withExtension: "json"),
+           let data = try? Data(contentsOf: url),
+           !data.isEmpty {
+            return data
+        }
+        return legacyJSON
+    }
+
+    private static let legacyJSON = Data("""
 [
 {"id":1,"scientificName":"Micropterus salmoides","commonName":"Largemouth Bass","family":"Centrarchidae","habitat":"freshwater","minTempC":10,"maxTempC":32,"optimalTempC":21,"fishbaseId":3181,"imageUrl":null},
 {"id":2,"scientificName":"Micropterus dolomieu","commonName":"Smallmouth Bass","family":"Centrarchidae","habitat":"freshwater","minTempC":8,"maxTempC":28,"optimalTempC":18,"fishbaseId":3180,"imageUrl":null},

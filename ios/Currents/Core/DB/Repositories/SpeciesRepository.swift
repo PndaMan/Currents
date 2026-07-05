@@ -54,11 +54,16 @@ final class SpeciesRepository: ObservableObject {
         }
     }
 
-    /// Seed species from embedded data (compiled into binary).
-    func seedIfEmpty() throws {
-        let count = try db.db.read { db in try Species.fetchCount(db) }
-        guard count == 0 else { return }
-
+    /// Seed or upgrade species from the bundled dataset.
+    ///
+    /// Installs that seeded from an older, smaller dataset (the original 194)
+    /// kept it forever because seeding was count==0-gated — so the species
+    /// picker didn't reflect the species the rest of the app (artwork, AI ID
+    /// embeddings) was built around. Now: whenever the bundled dataset has
+    /// more species than the DB, every row is upserted (IDs are stable and
+    /// additive across dataset builds, so existing catches keep pointing at
+    /// the right species) and bait data is re-applied.
+    func seedIfNeeded() throws {
         let speciesList: [Species]
         do {
             speciesList = try JSONDecoder().decode([Species].self, from: SpeciesSeedData.json)
@@ -67,12 +72,15 @@ final class SpeciesRepository: ObservableObject {
             return
         }
 
+        let count = try db.db.read { db in try Species.fetchCount(db) }
+        guard count < speciesList.count else { return }
+
         try db.db.write { db in
             for var species in speciesList {
-                try species.insert(db)
+                try species.save(db) // upsert by primary key
             }
         }
-        print("[Currents] Seeded \(speciesList.count) species")
+        print("[Currents] Seeded/upgraded to \(speciesList.count) species (was \(count))")
 
         // Apply bait recommendations
         seedBaits()
