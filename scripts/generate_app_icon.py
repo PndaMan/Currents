@@ -58,6 +58,29 @@ CONCEPTS = {
        "vivid cyan-to-blue gradient, very minimal.",
     8: "a single water droplet with a tiny fish silhouette inside it, flat, "
        "cream on deep green, extremely simple and iconic.",
+
+    # ---- Hook + ripple direction (the chosen concept), expanded ----------
+    11: "a clean classic fishing J-hook, and above its eye three concentric "
+        "ripple rings like sonar, soft gold hook and gold rings on a deep teal "
+        "background. Minimal, balanced, centred.",
+    12: "a simple fishing hook with concentric ripple rings above it, flat "
+        "cream-white on the app's rich forest-green background, on-brand, very "
+        "clean and minimal.",
+    13: "a minimalist fishing hook whose shank is a single clean vertical line, "
+        "with two or three tidy ripple arcs radiating from the top, gold line "
+        "on a deep navy background, elegant and simple.",
+    14: "a fishing hook that forms the bottom curve of a water droplet, with "
+        "small ripple rings inside, two-tone teal and white on a soft light "
+        "background, minimal and iconic.",
+    15: "a single bold fishing hook with one clean ripple ring, flat white on a "
+        "smooth blue gradient, very minimal, strong at small sizes.",
+    16: "a fishing hook in soft gold with concentric ripple rings in white "
+        "above it, on a dark teal background, two-tone, crisp and modern.",
+    17: "a smooth rounded circle-hook with a small ripple above it, flat cream "
+        "on emerald green, friendly and minimal.",
+    18: "a fishing hook with ripple rings radiating upward like a location "
+        "signal, gold hook and thin gold rings on a near-black deep teal "
+        "background, sleek and premium.",
 }
 
 
