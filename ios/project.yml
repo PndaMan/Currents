@@ -54,13 +54,11 @@ targets:
         SWIFT_VERSION: "5"
         CODE_SIGNING_REQUIRED: "YES"
         CODE_SIGNING_ALLOWED: "YES"
-        # CODE_SIGN_ENTITLEMENTS disabled until iCloud + Push capabilities
-        # are enabled on the App ID in the Apple Developer Portal. Re-enable
-        # by uncommenting and adding the matching capabilities via the web UI:
-        #   developer.apple.com -> Identifiers -> com.aidanmcconnon.currents
-        #   -> enable iCloud (Include CloudKit), select the iCloud.* container
-        #   -> enable Push Notifications
-        # CODE_SIGN_ENTITLEMENTS: Currents/App/Currents.entitlements
+        # iCloud (CloudDocuments + KV store) — the capability is enabled on
+        # the App ID in the Apple Developer Portal. Push (aps-environment)
+        # is intentionally NOT in the entitlements; bite alerts use local
+        # notifications only.
+        CODE_SIGN_ENTITLEMENTS: Currents/App/Currents.entitlements
       configs:
         Release:
           PROVISIONING_PROFILE_SPECIFIER: "Currents AppStore Manual"
