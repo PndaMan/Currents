@@ -1653,7 +1653,7 @@
     "maxTempC": 28,
     "optimalTempC": 20,
     "fishbaseId": 417,
-    "imageUrl": null
+    "imageUrl": "https://static.inaturalist.org/photos/163271805/medium.jpg"
   },
   {
     "id": 139,
@@ -1989,7 +1989,7 @@
     "maxTempC": 14,
     "optimalTempC": 6,
     "fishbaseId": 71,
-    "imageUrl": null
+    "imageUrl": "https://inaturalist-open-data.s3.amazonaws.com/photos/189028180/medium.jpg"
   },
   {
     "id": 167,
