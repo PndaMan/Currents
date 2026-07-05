@@ -628,12 +628,17 @@ struct ForecastTab: View {
                 showAllSpecies = true
             } label: {
                 HStack(spacing: 12) {
-                    ZStack {
-                        Circle()
-                            .fill(selectedSpecies != nil ? CurrentsTheme.accent.opacity(0.15) : .secondary.opacity(0.15))
+                    if let species = selectedSpecies {
+                        SpeciesArtworkView(species: species, caught: true, size: 44)
                             .frame(width: 44, height: 44)
-                        Image(systemName: "fish.fill")
-                            .foregroundStyle(selectedSpecies != nil ? CurrentsTheme.accent : .secondary)
+                    } else {
+                        ZStack {
+                            Circle()
+                                .fill(.secondary.opacity(0.15))
+                                .frame(width: 44, height: 44)
+                            Image(systemName: "fish.fill")
+                                .foregroundStyle(.secondary)
+                        }
                     }
                     VStack(alignment: .leading, spacing: 2) {
                         Text(selectedSpecies?.commonName ?? "General (All Species)")
@@ -909,13 +914,8 @@ struct ForecastSpeciesPickerSheet: View {
                                 dismiss()
                             } label: {
                                 HStack(spacing: 12) {
-                                    ZStack {
-                                        Circle()
-                                            .fill(habitatColor(sp.habitat).opacity(0.15))
-                                            .frame(width: 44, height: 44)
-                                        Image(systemName: "fish.fill")
-                                            .foregroundStyle(habitatColor(sp.habitat))
-                                    }
+                                    SpeciesArtworkView(species: sp, caught: true, size: 44)
+                                        .frame(width: 44, height: 44)
                                     VStack(alignment: .leading, spacing: 2) {
                                         Text(sp.commonName)
                                             .font(.body.bold())

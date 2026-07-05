@@ -72,14 +72,23 @@ actor VisualSpeciesIdentifier {
             scored.append(Ranked(speciesId: id, distance: distance, confidence: 0))
         }
         scored.sort { $0.distance < $1.distance }
+        guard let minDist = scored.first?.distance else { return [] }
 
-        // Map distance → a friendly confidence. Feature-print distances are
-        // typically ~18–30; closer is better. Normalise against the spread of
-        // the top results so the UI shows a sensible percentage.
-        let best = scored.first?.distance ?? 0
-        return scored.prefix(top).map { r in
-            let conf = max(0.05, min(0.99, 1.0 - (r.distance - best) / 22.0 - best / 60.0))
-            return Ranked(speciesId: r.speciesId, distance: r.distance, confidence: conf)
+        // HONEST confidence: softmax over negative distance so near-equal
+        // distances (i.e. the identifier is unsure) DON'T all read as ~98%.
+        // Feature-print matching against artwork is weak, so a clear winner is
+        // rare — and now the number reflects that instead of hiding it.
+        let scale: Float = 0.5
+        var sum: Float = 0
+        let exps = scored.map { r -> Float in
+            let e = expf(-(r.distance - minDist) * scale)
+            sum += e
+            return e
+        }
+        let denom = max(sum, 1e-6)
+        return scored.prefix(top).enumerated().map { idx, r in
+            Ranked(speciesId: r.speciesId, distance: r.distance,
+                   confidence: max(0.02, min(0.99, exps[idx] / denom)))
         }
     }
 

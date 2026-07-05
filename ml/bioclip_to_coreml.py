@@ -49,7 +49,7 @@ CLIP_STD = (0.26862954, 0.26130258, 0.27577711)
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--out", type=Path, default=Path("FishID.mlmodel"))
+    ap.add_argument("--out", type=Path, default=Path("FishID.mlpackage"))
     args = ap.parse_args()
 
     import numpy as np
@@ -94,39 +94,48 @@ def main() -> None:
     # ---- 2. Image encoder → CoreML ----------------------------------------
     print("Tracing image encoder …")
 
+    # Bake the FULL CLIP preprocessing INSIDE the model, per-channel. CoreML's
+    # ImageType only supports a scalar `scale` (fine: 1/255 → [0,1]) plus a
+    # per-channel bias; CLIP's per-channel *std* can't be expressed there, so we
+    # apply (x - mean) / std inside forward(). (The previous version used one
+    # channel's std for all three → wrong embeddings.)
     class Visual(torch.nn.Module):
-        def __init__(self, m):
+        def __init__(self, m, mean, std):
             super().__init__()
             self.m = m
+            self.register_buffer("mean", torch.tensor(mean).view(1, 3, 1, 1))
+            self.register_buffer("std", torch.tensor(std).view(1, 3, 1, 1))
 
-        def forward(self, x):
+        def forward(self, x):  # x in [0,1], RGB
+            x = (x - self.mean) / self.std
             f = self.m.encode_image(x)
             return f / f.norm(dim=-1, keepdim=True)
 
-    visual = Visual(model).eval()
-    example = torch.rand(1, 3, IMG_SIZE, IMG_SIZE)
-    traced = torch.jit.trace(visual, example)
+    visual = Visual(model, CLIP_MEAN, CLIP_STD).eval()
+    example = torch.rand(1, 3, IMG_SIZE, IMG_SIZE)  # [0,1]
+    # check_trace=False: the ViT uses fused scaled-dot-product-attention, whose
+    # re-run self-check trips the tracer with a spurious "graph diverged" error.
+    traced = torch.jit.trace(visual, example, check_trace=False)
 
-    # Bake CLIP normalisation into the image input: (pixel/255 - mean)/std
-    # => scale = 1/(255*std), bias = -mean/std
-    scale = [1.0 / (255.0 * s) for s in CLIP_STD]
-    bias = [-m / s for m, s in zip(CLIP_MEAN, CLIP_STD)]
+    # ImageType feeds pixel/255 ∈ [0,1] to the model; the module does the rest.
     image_input = ct.ImageType(
         name="image",
         shape=(1, 3, IMG_SIZE, IMG_SIZE),
-        scale=scale[0],  # per-channel handled via bias below when needed
-        bias=bias,
+        scale=1.0 / 255.0,
+        bias=[0.0, 0.0, 0.0],
         color_layout=ct.colorlayout.RGB,
     )
 
-    single_file = args.out.suffix == ".mlmodel"
-    kwargs = dict(inputs=[image_input])
-    if single_file:
-        kwargs["convert_to"] = "neuralnetwork"
-    else:
-        kwargs["minimum_deployment_target"] = ct.target.iOS16
-
-    mlmodel = ct.convert(traced, **kwargs)
+    # ML Program (not the legacy neuralnetwork) — it's the only target that
+    # supports the transformer's scaled-dot-product-attention. Output is a
+    # .mlpackage; the workflow zips it for the release asset.
+    mlmodel = ct.convert(
+        traced,
+        inputs=[image_input],
+        convert_to="mlprogram",
+        compute_precision=ct.precision.FLOAT16,
+        minimum_deployment_target=ct.target.iOS16,
+    )
     mlmodel.author = "Currents / BioCLIP"
     mlmodel.short_description = "BioCLIP image encoder (512-d embedding) for fish ID"
     mlmodel.save(str(args.out))

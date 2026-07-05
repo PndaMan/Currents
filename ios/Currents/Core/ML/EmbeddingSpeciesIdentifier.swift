@@ -23,7 +23,7 @@ actor EmbeddingSpeciesIdentifier {
     private var imageInputName: String?
     private var outputName: String?
     private var speciesEmbeddings: [(id: Int64, vec: [Float])] = []
-    private var loaded = false
+    private var embeddingsLoaded = false
 
     private static var cachedModelURL: URL {
         let cache = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
@@ -32,17 +32,21 @@ actor EmbeddingSpeciesIdentifier {
 
     var isReady: Bool { model != nil && !speciesEmbeddings.isEmpty }
 
-    /// Load the CoreML encoder + bundled species embeddings if present.
+    /// Load the bundled species embeddings (once) and the CoreML encoder.
+    ///
+    /// The encoder is auto-downloaded in the background on first launch, so it
+    /// may not exist yet on the first catch. We therefore RETRY the model load
+    /// on every call until it appears — otherwise the accurate tier would stay
+    /// dark until the next app restart.
     func loadIfNeeded() {
-        guard !loaded else { return }
-        loaded = true
-
-        // Species text embeddings (bundled binary).
-        if let url = Bundle.main.url(forResource: "species_embeddings", withExtension: "bin"),
-           let data = try? Data(contentsOf: url) {
-            speciesEmbeddings = Self.parseEmbeddings(data)
+        if !embeddingsLoaded {
+            embeddingsLoaded = true
+            if let url = Bundle.main.url(forResource: "species_embeddings", withExtension: "bin"),
+               let data = try? Data(contentsOf: url) {
+                speciesEmbeddings = Self.parseEmbeddings(data)
+            }
         }
-        guard !speciesEmbeddings.isEmpty else { return }
+        guard model == nil, !speciesEmbeddings.isEmpty else { return }
 
         // CoreML encoder: bundled first, else the auto-downloaded cache.
         let modelURL = Bundle.main.url(forResource: "FishID", withExtension: "mlmodelc")
@@ -60,8 +64,12 @@ actor EmbeddingSpeciesIdentifier {
     /// Identify the most likely species for a catch photo.
     func identify(image: UIImage, top: Int = 6) -> [Ranked] {
         loadIfNeeded()
-        guard let model, let imageInputName, let outputName,
-              let pixelBuffer = Self.pixelBuffer(from: image, side: 224) else { return [] }
+        guard let model, let imageInputName, let outputName else { return [] }
+
+        // Crop to the fish (saliency) so the angler / grass / sky don't dominate
+        // the embedding, then feed a 224px buffer.
+        let subject = Self.croppedToSubject(image) ?? image
+        guard let pixelBuffer = Self.pixelBuffer(from: subject, side: 224) else { return [] }
 
         guard let provider = try? MLDictionaryFeatureProvider(
             dictionary: [imageInputName: MLFeatureValue(pixelBuffer: pixelBuffer)]
@@ -78,19 +86,55 @@ actor EmbeddingSpeciesIdentifier {
         for i in 0..<n { q[i] /= norm }
 
         // Cosine similarity against each species text embedding.
-        var scored: [(Int64, Float)] = []
+        var scored: [(id: Int64, sim: Float)] = []
         scored.reserveCapacity(speciesEmbeddings.count)
         for (id, vec) in speciesEmbeddings where vec.count == n {
             var dot: Float = 0
             for i in 0..<n { dot += q[i] * vec[i] }
             scored.append((id, dot))
         }
-        scored.sort { $0.1 > $1.1 }
+        guard !scored.isEmpty else { return [] }
 
-        // Softmax-ish confidence from the top cosine scores.
-        return scored.prefix(top).map { id, sim in
-            Ranked(speciesId: id, confidence: max(0.05, min(0.99, (sim + 1) / 2)))
+        // HONEST confidence: a proper temperature-scaled softmax over ALL species
+        // (CLIP's logit scale ≈ 100). When the match is clear the top probability
+        // is high; when the model is unsure everything comes out low — instead of
+        // the old formula that mapped every near-equal cosine to a fake ~98%.
+        let scale: Float = 100
+        let maxSim = scored.max(by: { $0.sim < $1.sim })!.sim
+        var sum: Float = 0
+        var exps: [(id: Int64, e: Float)] = []
+        exps.reserveCapacity(scored.count)
+        for s in scored {
+            let e = expf((s.sim - maxSim) * scale)
+            sum += e
+            exps.append((s.id, e))
         }
+        exps.sort { $0.e > $1.e }
+        let denom = max(sum, 1e-6)
+        return exps.prefix(top).map { item in
+            Ranked(speciesId: item.id, confidence: max(0.001, min(0.999, item.e / denom)))
+        }
+    }
+
+    /// Crop to the most salient region (the held-up fish) so the background
+    /// doesn't swamp the embedding. Falls back to the whole image.
+    private static func croppedToSubject(_ image: UIImage) -> UIImage? {
+        guard let cg = image.cgImage else { return nil }
+        let request = VNGenerateAttentionBasedSaliencyImageRequest()
+        let handler = VNImageRequestHandler(cgImage: cg, options: [:])
+        try? handler.perform([request])
+        guard let obs = request.results?.first as? VNSaliencyImageObservation,
+              let salient = obs.salientObjects?.first else {
+            return image
+        }
+        let w = CGFloat(cg.width), h = CGFloat(cg.height)
+        var box = salient.boundingBox.insetBy(dx: -salient.boundingBox.width * 0.08,
+                                              dy: -salient.boundingBox.height * 0.08)
+        box = box.intersection(CGRect(x: 0, y: 0, width: 1, height: 1))
+        let rect = CGRect(x: box.minX * w, y: (1 - box.maxY) * h,
+                          width: box.width * w, height: box.height * h).integral
+        guard rect.width > 40, rect.height > 40, let cropped = cg.cropping(to: rect) else { return image }
+        return UIImage(cgImage: cropped)
     }
 
     // MARK: - Helpers
