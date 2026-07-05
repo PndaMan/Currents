@@ -94,28 +94,33 @@ def main() -> None:
     # ---- 2. Image encoder → CoreML ----------------------------------------
     print("Tracing image encoder …")
 
+    # Bake the FULL CLIP preprocessing INSIDE the model, per-channel. CoreML's
+    # ImageType only supports a scalar `scale` (fine: 1/255 → [0,1]) plus a
+    # per-channel bias; CLIP's per-channel *std* can't be expressed there, so we
+    # apply (x - mean) / std inside forward(). (The previous version used one
+    # channel's std for all three → wrong embeddings.)
     class Visual(torch.nn.Module):
-        def __init__(self, m):
+        def __init__(self, m, mean, std):
             super().__init__()
             self.m = m
+            self.register_buffer("mean", torch.tensor(mean).view(1, 3, 1, 1))
+            self.register_buffer("std", torch.tensor(std).view(1, 3, 1, 1))
 
-        def forward(self, x):
+        def forward(self, x):  # x in [0,1], RGB
+            x = (x - self.mean) / self.std
             f = self.m.encode_image(x)
             return f / f.norm(dim=-1, keepdim=True)
 
-    visual = Visual(model).eval()
-    example = torch.rand(1, 3, IMG_SIZE, IMG_SIZE)
+    visual = Visual(model, CLIP_MEAN, CLIP_STD).eval()
+    example = torch.rand(1, 3, IMG_SIZE, IMG_SIZE)  # [0,1]
     traced = torch.jit.trace(visual, example)
 
-    # Bake CLIP normalisation into the image input: (pixel/255 - mean)/std
-    # => scale = 1/(255*std), bias = -mean/std
-    scale = [1.0 / (255.0 * s) for s in CLIP_STD]
-    bias = [-m / s for m, s in zip(CLIP_MEAN, CLIP_STD)]
+    # ImageType feeds pixel/255 ∈ [0,1] to the model; the module does the rest.
     image_input = ct.ImageType(
         name="image",
         shape=(1, 3, IMG_SIZE, IMG_SIZE),
-        scale=scale[0],  # per-channel handled via bias below when needed
-        bias=bias,
+        scale=1.0 / 255.0,
+        bias=[0.0, 0.0, 0.0],
         color_layout=ct.colorlayout.RGB,
     )
 

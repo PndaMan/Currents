@@ -31,7 +31,9 @@ actor FishClassifier {
             return url
         }
         // A single-file .mlmodel (compiled on-device) — no unzip dependency.
-        return URL(string: "https://github.com/PndaMan/Currents/releases/latest/download/FishID.mlmodel")
+        // Pinned to the `fish-model` release tag (published by fish-model.yml);
+        // `latest` can resolve to an IPA release that has no model asset.
+        return URL(string: "https://github.com/PndaMan/Currents/releases/download/fish-model/FishID.mlmodel")
     }
 
     /// Where downloaded models are cached
