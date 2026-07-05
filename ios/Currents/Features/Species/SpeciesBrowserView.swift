@@ -131,11 +131,13 @@ struct SpeciesGuideCard: View {
     let caught: Bool
 
     var body: some View {
-        // The guide is the neutral reference — rarity only appears as the
-        // small tier symbol in the corner, no tinted backgrounds or labels.
+        // The guide is a reference, so every fish is shown in full colour
+        // whether or not it's been caught. Rarity shows as the small tier
+        // symbol in the corner, and the card only gains a rarity-coloured
+        // border once the species has actually been caught.
         VStack(alignment: .leading, spacing: 0) {
             ZStack(alignment: .topTrailing) {
-                SpeciesArtworkView(species: species, caught: caught, size: 96)
+                SpeciesArtworkView(species: species, caught: true, size: 96)
                     .frame(maxWidth: .infinity)
                     .frame(height: 110)
                     .background(.secondary.opacity(0.06))
@@ -185,7 +187,7 @@ struct SpeciesGuideCard: View {
         .clipShape(RoundedRectangle(cornerRadius: 16))
         .overlay(
             RoundedRectangle(cornerRadius: 16)
-                .stroke(caught ? CurrentsTheme.accent.opacity(0.45) : .secondary.opacity(0.12), lineWidth: 1)
+                .stroke(caught ? species.rarity.color.opacity(0.6) : Color.clear, lineWidth: 1.5)
         )
     }
 }
@@ -198,7 +200,7 @@ struct SpeciesGuideRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            SpeciesArtworkView(species: species, caught: caught, size: 48)
+            SpeciesArtworkView(species: species, caught: true, size: 48)
                 .frame(width: 48, height: 48)
                 .background(.secondary.opacity(0.06))
                 .clipShape(RoundedRectangle(cornerRadius: 10))
