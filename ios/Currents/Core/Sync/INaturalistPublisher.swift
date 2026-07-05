@@ -34,7 +34,7 @@ enum INaturalistConfig {
 
 @MainActor
 @Observable
-final class INaturalistService: NSObject {
+final class INaturalistPublisher: NSObject {
     /// Whether an account is connected (a token is stored).
     private(set) var isConnected: Bool = INatKeychain.token != nil
     /// Live status for the settings UI.
@@ -254,7 +254,7 @@ final class INaturalistService: NSObject {
     }
 }
 
-extension INaturalistService: ASWebAuthenticationPresentationContextProviding {
+extension INaturalistPublisher: ASWebAuthenticationPresentationContextProviding {
     func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
         UIApplication.shared.connectedScenes
             .compactMap { ($0 as? UIWindowScene)?.keyWindow }

@@ -10,7 +10,7 @@ final class AppState {
     let fishModelDownloader = FishModelDownloader()
     let embeddingIdentifier = EmbeddingSpeciesIdentifier()
     let mapManager = MapManager()
-    let inaturalist = INaturalistService()
+    let inaturalist = INaturalistPublisher()
 
     // Repositories (share the db)
     let catchRepository: CatchRepository
