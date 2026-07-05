@@ -34,6 +34,7 @@ import os
 import time
 from io import BytesIO
 from pathlib import Path
+from urllib.parse import quote
 
 import numpy as np
 import requests
@@ -119,8 +120,68 @@ def select(species: list[dict], force: bool, ids: str) -> list[dict]:
     return [s for s in species if force or not has_png(int(s["id"]))]
 
 
+def _inat_photo_url(sci: str) -> str | None:
+    """Fresh reference photo from the iNaturalist taxa API by scientific name."""
+    try:
+        r = requests.get(
+            "https://api.inaturalist.org/v1/taxa",
+            params={"q": sci, "rank": "species", "per_page": 3},
+            timeout=30,
+            headers={"User-Agent": "Currents-fish-art/1.0"},
+        )
+        if r.status_code != 200:
+            return None
+        for res in r.json().get("results", []):
+            photo = res.get("default_photo") or {}
+            url = photo.get("medium_url") or photo.get("url")
+            if url:
+                return url
+    except Exception:  # noqa: BLE001
+        pass
+    return None
+
+
+def _wiki_photo_url(sci: str) -> str | None:
+    """Fresh reference photo from Wikipedia's REST summary (species page)."""
+    try:
+        r = requests.get(
+            f"https://en.wikipedia.org/api/rest_v1/page/summary/{quote(sci)}",
+            timeout=30,
+            headers={"User-Agent": "Currents-fish-art/1.0"},
+        )
+        if r.status_code != 200:
+            return None
+        j = r.json()
+        return (j.get("originalimage") or {}).get("source") or (j.get("thumbnail") or {}).get("source")
+    except Exception:  # noqa: BLE001
+        pass
+    return None
+
+
+def resolve_ref_bytes(sp: dict) -> tuple[bytes, str]:
+    """Fetch a reference photo, trying the primary source first, then fresh
+    lookups (iNaturalist, then Wikipedia) by scientific name — so species whose
+    original URL is dead still get art."""
+    candidates = [ref_url(sp)]
+    sci = (sp.get("scientificName") or "").strip()
+    if sci:
+        for fn in (_inat_photo_url, _wiki_photo_url):
+            u = fn(sci)
+            if u:
+                candidates.append(u)
+    last_err: Exception | None = None
+    for url in candidates:
+        if not url:
+            continue
+        try:
+            return fetch_ref_bytes(url)
+        except Exception as e:  # noqa: BLE001
+            last_err = e
+    raise last_err or RuntimeError("no reference source")
+
+
 def build_request_line(sp: dict) -> dict:
-    raw, mime = fetch_ref_bytes(ref_url(sp))
+    raw, mime = resolve_ref_bytes(sp)
     b64 = base64.b64encode(raw).decode()
     return {
         "key": str(int(sp["id"])),
