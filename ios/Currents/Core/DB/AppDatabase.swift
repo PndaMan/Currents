@@ -296,7 +296,7 @@ final class AppDatabase: Sendable {
             let rows = try Row.fetchAll(db, sql: "SELECT id, notes FROM spot WHERE notes LIKE '[%'")
             for row in rows {
                 let id: String = row["id"]
-                let notes: String = row["notes"] ?? ""
+                let notes = (row["notes"] as String?) ?? ""
                 for legacy in legacyTypes where notes.hasPrefix("[\(legacy)] ") {
                     let cleaned = String(notes.dropFirst(legacy.count + 3))
                     try db.execute(
