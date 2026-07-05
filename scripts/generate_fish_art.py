@@ -54,7 +54,7 @@ REPO = Path(__file__).resolve().parents[1]
 SEED_JSON = REPO / "ios/Currents/Resources/Data/species_seed.json"
 ASSET_DIR = REPO / "ios/Currents/Resources/Assets.xcassets/Fish"
 
-OUT_PX = 160
+OUT_PX = 320  # match the batch pipeline so the collection stays uniform
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 OR_MODEL = os.environ.get("OR_MODEL") or "google/gemini-2.5-flash-image"
@@ -191,23 +191,52 @@ def edit_image(prompt: str, ref: str, api_key: str, provider: str) -> Image.Imag
     return openrouter_edit(prompt, ref, api_key)
 
 
-def key_white_to_transparent(img: Image.Image) -> Image.Image:
-    """Flood the near-white background to transparent from the borders."""
+def key_background_to_transparent(img: Image.Image) -> Image.Image:
+    """Flood the background to transparent from the borders.
+
+    The prompt asks for a pure-white background but the model occasionally
+    returns grey, black or tinted backdrops (fish 138 shipped with a solid
+    black one, 166 with grey). Instead of only keying near-white, sample the
+    border to find the dominant background colour and flood anything close to
+    it — plus the classic near-white anti-aliased halo — stopping at the fish.
+    """
     img = img.convert("RGBA")
     px = img.load()
     w, h = img.size
     from collections import deque
+
+    # Dominant border colour = per-channel median of the edge pixels.
+    border = (
+        [px[x, 0] for x in range(w)] + [px[x, h - 1] for x in range(w)]
+        + [px[0, y] for y in range(h)] + [px[w - 1, y] for y in range(h)]
+    )
+    def median(vals):
+        vals = sorted(vals)
+        return vals[len(vals) // 2]
+    bg = (median([p[0] for p in border]),
+          median([p[1] for p in border]),
+          median([p[2] for p in border]))
+
+    def is_bg(r, g, b):
+        # Near the dominant border colour (handles white/grey/black/tinted
+        # backdrops)…
+        if abs(r - bg[0]) <= 32 and abs(g - bg[1]) <= 32 and abs(b - bg[2]) <= 32:
+            return True
+        # …the light anti-aliased halo (kills the white "sticker ring")…
+        if r > 230 and g > 230 and b > 230:
+            return True
+        # …and light low-saturation pixels, so the flood can cross the
+        # grey→white gradient where a white sticker disc meets a grey backdrop
+        # (fish 166). The fish itself is protected by its darker crisp outline
+        # and by connectivity — only border-connected pixels are removed.
+        return (max(r, g, b) - min(r, g, b)) <= 24 and (r + g + b) >= 450
+
     seen = [[False] * w for _ in range(h)]
     q = deque()
     for x in range(w):
         q.append((x, 0)); q.append((x, h - 1))
     for y in range(h):
         q.append((0, y)); q.append((w - 1, y))
-
-    def is_bg(r, g, b):
-        # Treat the light anti-aliased halo as background too (kills the white
-        # "sticker ring" left around the fish), but stop at the darker outline.
-        return r > 230 and g > 230 and b > 230
 
     while q:
         x, y = q.popleft()
@@ -221,6 +250,10 @@ def key_white_to_transparent(img: Image.Image) -> Image.Image:
         q.append((x + 1, y)); q.append((x - 1, y))
         q.append((x, y + 1)); q.append((x, y - 1))
     return img
+
+
+# Backwards-compatible alias (fish_art_batch.py and older callers).
+key_white_to_transparent = key_background_to_transparent
 
 
 def facing_right(img: Image.Image) -> bool:

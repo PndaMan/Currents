@@ -62,14 +62,27 @@ WORKERS = 12    # parallel facing-checks (I/O-bound Gemini-flash calls)
 
 
 def key_white(img: Image.Image) -> Image.Image:
-    """Flood the near-white background to transparent — vectorised (numpy+scipy),
-    ~100x faster than the pure-Python BFS. Labels near-white regions and drops
+    """Flood the background to transparent — vectorised (numpy+scipy),
+    ~100x faster than the pure-Python BFS. Labels background regions and drops
     only the ones connected to the image border (the background, not white
-    bellies/spots enclosed by the fish outline)."""
+    bellies/spots enclosed by the fish outline).
+
+    Keys BOTH the near-white halo and the dominant border colour, so the
+    occasional grey/black/tinted backdrop (the fish 138/166 failure) is
+    removed too instead of shipping as an opaque square.
+    """
     img = img.convert("RGBA")
     arr = np.array(img)
-    near_white = np.all(arr[..., :3] > 230, axis=-1)
-    lbl, _ = ndimage.label(near_white)
+    rgb = arr[..., :3].astype(np.int16)
+    edges = np.concatenate([rgb[0, :], rgb[-1, :], rgb[:, 0], rgb[:, -1]])
+    bg = np.median(edges, axis=0).astype(np.int16)
+    near_bg = np.all(np.abs(rgb - bg) <= 32, axis=-1)
+    near_white = np.all(rgb > 230, axis=-1)
+    # Light low-saturation pixels bridge the grey→white gradient where a white
+    # sticker disc meets a grey backdrop (fish 166). Connectivity + the fish's
+    # darker outline keep the fish itself safe.
+    light_gray = ((rgb.max(axis=-1) - rgb.min(axis=-1)) <= 24) & (rgb.sum(axis=-1) >= 450)
+    lbl, _ = ndimage.label(near_bg | near_white | light_gray)
     border = np.unique(np.concatenate([lbl[0, :], lbl[-1, :], lbl[:, 0], lbl[:, -1]]))
     border = border[border != 0]
     if border.size:
