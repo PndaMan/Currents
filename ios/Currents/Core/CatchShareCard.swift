@@ -26,8 +26,26 @@ enum CatchShareCard {
             let rect = CGRect(x: 0, y: 0, width: cardWidth, height: cardHeight)
             let cgCtx = ctx.cgContext
 
-            // 1. Draw catch photo as full-bleed background
-            photo.draw(in: rect)
+            // 1. Draw catch photo as full-bleed background — aspect-FILL and
+            // crop rather than stretching into the 4:5 frame, which squished
+            // photos whose aspect ratio didn't match the card.
+            let photoSize = photo.size
+            if photoSize.width > 0, photoSize.height > 0 {
+                let scale = max(cardWidth / photoSize.width, cardHeight / photoSize.height)
+                let drawSize = CGSize(width: photoSize.width * scale, height: photoSize.height * scale)
+                let drawRect = CGRect(
+                    x: (cardWidth - drawSize.width) / 2,
+                    y: (cardHeight - drawSize.height) / 2,
+                    width: drawSize.width,
+                    height: drawSize.height
+                )
+                cgCtx.saveGState()
+                cgCtx.clip(to: rect)
+                photo.draw(in: drawRect)
+                cgCtx.restoreGState()
+            } else {
+                photo.draw(in: rect)
+            }
 
             // 2. Dark gradient overlay from bottom for text legibility
             let gradient = CGGradient(

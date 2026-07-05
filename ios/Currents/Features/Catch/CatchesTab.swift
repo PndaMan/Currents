@@ -103,16 +103,37 @@ struct CatchesTab: View {
                         .listRowSeparator(.hidden)
 
                         ForEach(filteredCatches, id: \.catchRecord.id) { detail in
-                            NavigationLink(value: detail.catchRecord.id) {
-                                CatchRow(detail: detail)
+                            ZStack {
+                                // Invisible NavigationLink so the row keeps
+                                // swipe-to-delete but the card draws its own
+                                // chevron-free glass styling.
+                                NavigationLink(value: detail.catchRecord.id) {
+                                    EmptyView()
+                                }
+                                .opacity(0)
+                                CatchRow(detail: detail, style: .card)
                             }
+                            .listRowBackground(Color.clear)
+                            .listRowSeparator(.hidden)
+                            .listRowInsets(EdgeInsets(top: 5, leading: 16, bottom: 5, trailing: 16))
                         }
                         .onDelete { offsets in
                             let toDelete = offsets.map { filteredCatches[$0] }
                             for detail in toDelete {
+                                PhotoManager.deleteAll(detail.catchRecord.allPhotoPaths)
                                 try? appState.catchRepository.delete(detail.catchRecord)
                             }
                             Task { await loadCatches() }
+                        }
+
+                        if filteredCatches.isEmpty {
+                            ContentUnavailableView(
+                                "Nothing matches",
+                                systemImage: "line.3.horizontal.decrease.circle",
+                                description: Text("Try a different search or filter.")
+                            )
+                            .listRowBackground(Color.clear)
+                            .listRowSeparator(.hidden)
                         }
                     }
                     .listStyle(.plain)
@@ -218,33 +239,69 @@ struct StatCard: View {
 
 struct CatchRow: View {
     let detail: CatchDetail
+    /// Compact mode (default) is used inside cards/sheets; the Catches tab
+    /// uses the full glass-card styling via `style: .card`.
+    var style: Style = .plain
     @AppStorage("selectedTheme") private var selectedTheme = ""
 
+    enum Style { case plain, card }
+
     var body: some View {
-        HStack(spacing: 14) {
-            // Photo thumbnail or species icon
-            if let photoPath = detail.catchRecord.allPhotoPaths.first,
-               let image = PhotoManager.load(photoPath) {
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFill()
-                    .frame(width: 64, height: 64)
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
-            } else {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(CurrentsTheme.accent.opacity(0.15))
-                    Image(systemName: "fish.fill")
-                        .font(.title2)
-                        .foregroundStyle(CurrentsTheme.accent)
+        HStack(spacing: 12) {
+            thumbnail
+
+            VStack(alignment: .leading, spacing: 4) {
+                // Full species name — wraps to two lines instead of clipping.
+                Text(detail.species?.commonName ?? "Unknown Species")
+                    .font(.subheadline.bold())
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                HStack(spacing: 8) {
+                    Text(detail.catchRecord.caughtAt.formatted(date: .abbreviated, time: .omitted))
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+
+                    if let spot = detail.spot {
+                        HStack(spacing: 2) {
+                            Image(systemName: "mappin")
+                                .font(.system(size: 9))
+                            Text(spot.name)
+                                .lineLimit(1)
+                        }
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                    }
                 }
-                .frame(width: 64, height: 64)
+
+                HStack(spacing: 6) {
+                    if let weight = detail.catchRecord.weightKg {
+                        statChip(String(format: "%.1f kg", weight))
+                    }
+                    if let length = detail.catchRecord.lengthCm {
+                        statChip(String(format: "%.0f cm", length))
+                    }
+                    if let score = detail.catchRecord.forecastScoreAtCapture {
+                        HStack(spacing: 2) {
+                            Image(systemName: "gauge.medium")
+                                .font(.system(size: 9))
+                            Text("\(score)")
+                        }
+                        .font(.caption2.bold())
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(CurrentsTheme.scoreColor(score).opacity(0.18))
+                        .foregroundStyle(CurrentsTheme.scoreColor(score))
+                        .clipShape(Capsule())
+                    }
+                }
             }
 
-            VStack(alignment: .leading, spacing: 5) {
-                HStack {
-                    Text(detail.species?.commonName ?? "Unknown Species")
-                        .font(.subheadline.bold())
+            Spacer(minLength: 4)
+
+            VStack(alignment: .trailing, spacing: 6) {
+                HStack(spacing: 4) {
                     if detail.catchRecord.isFavorite {
                         Image(systemName: "star.fill")
                             .foregroundStyle(.yellow)
@@ -256,46 +313,55 @@ struct CatchRow: View {
                             .font(.caption)
                     }
                 }
-
-                if let spot = detail.spot {
-                    Label(spot.name, systemImage: "mappin")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                HStack(spacing: 10) {
-                    if let weight = detail.catchRecord.weightKg {
-                        Text(String(format: "%.1f kg", weight))
-                            .font(.caption.bold())
-                            .foregroundStyle(CurrentsTheme.accent)
-                    }
-                    if let length = detail.catchRecord.lengthCm {
-                        Text(String(format: "%.0f cm", length))
-                            .font(.caption.bold())
-                            .foregroundStyle(CurrentsTheme.accent.opacity(0.7))
-                    }
-                    if let score = detail.catchRecord.forecastScoreAtCapture {
-                        HStack(spacing: 2) {
-                            Image(systemName: "gauge.medium")
-                                .font(.system(size: 9))
-                            Text("\(score)")
-                        }
-                        .font(.caption2.bold())
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 2)
-                        .background(CurrentsTheme.scoreColor(score).opacity(0.2))
-                        .foregroundStyle(CurrentsTheme.scoreColor(score))
-                        .clipShape(Capsule())
-                    }
+                if style == .card {
+                    Image(systemName: "chevron.right")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
                 }
             }
-
-            Spacer()
-
-            Text(detail.catchRecord.caughtAt, style: .date)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
         }
-        .padding(.vertical, 6)
+        .padding(style == .card ? 12 : 0)
+        .padding(.vertical, style == .card ? 0 : 6)
+        .background {
+            if style == .card {
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(.ultraThinMaterial)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16)
+                            .stroke(.secondary.opacity(0.12), lineWidth: 1)
+                    )
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var thumbnail: some View {
+        if let photoPath = detail.catchRecord.allPhotoPaths.first,
+           let image = PhotoManager.load(photoPath) {
+            Image(uiImage: image)
+                .resizable()
+                .scaledToFill()
+                .frame(width: 68, height: 68)
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+        } else {
+            ZStack {
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(CurrentsTheme.accent.opacity(0.15))
+                Image(systemName: "fish.fill")
+                    .font(.title2)
+                    .foregroundStyle(CurrentsTheme.accent)
+            }
+            .frame(width: 68, height: 68)
+        }
+    }
+
+    private func statChip(_ text: String) -> some View {
+        Text(text)
+            .font(.caption2.bold())
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(CurrentsTheme.accent.opacity(0.12))
+            .foregroundStyle(CurrentsTheme.accent)
+            .clipShape(Capsule())
     }
 }

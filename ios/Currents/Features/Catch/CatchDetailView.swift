@@ -4,7 +4,7 @@ import MapKit
 struct CatchDetailView: View {
     @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss
-    var detail: CatchDetail
+    @State private var detail: CatchDetail
     @State private var showingDeleteConfirm = false
     @State private var showingEdit = false
     @State private var isGeneratingShareCard = false
@@ -15,108 +15,90 @@ struct CatchDetailView: View {
     @State private var carouselIndex = 0
     @State private var isFavorite = false
 
+    init(detail: CatchDetail) {
+        _detail = State(initialValue: detail)
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: CurrentsTheme.paddingM) {
                 // Photo carousel (multi-photo)
                 photoCarousel
 
-                // Species + ML confidence
-                HStack {
-                    VStack(alignment: .leading) {
-                        Text(detail.species?.commonName ?? "Unknown Species")
-                            .font(.title.bold())
-                        if let sci = detail.species?.scientificName {
-                            Text(sci)
-                                .font(.subheadline)
-                                .italic()
-                                .foregroundStyle(.secondary)
-                        }
+                // Species header
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(detail.species?.commonName ?? "Unknown Species")
+                        .font(.title.bold())
+                        .fixedSize(horizontal: false, vertical: true)
+                    if let sci = detail.species?.scientificName {
+                        Text(sci)
+                            .font(.subheadline)
+                            .italic()
+                            .foregroundStyle(.secondary)
                     }
-                    Spacer()
-                    if let confidence = detail.catchRecord.mlConfidence {
-                        VStack {
-                            Text("\(Int(confidence * 100))%")
-                                .font(.title3.bold())
-                            Text("AI ID")
+
+                    HStack(spacing: 8) {
+                        Label(
+                            detail.catchRecord.released ? "Released" : "Kept",
+                            systemImage: detail.catchRecord.released ? "arrow.uturn.backward" : "bag.fill"
+                        )
+                        .font(.caption.bold())
+                        .glassPill()
+
+                        if let confidence = detail.catchRecord.mlConfidence {
+                            Label("AI ID \(Int(confidence * 100))%", systemImage: "sparkles")
+                                .font(.caption.bold())
+                                .glassPill()
+                        }
+
+                        Text(detail.catchRecord.caughtAt.formatted(date: .abbreviated, time: .shortened))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.top, 4)
+                }
+
+                // Measurements strip — equal-width stat cells
+                HStack(spacing: 12) {
+                    if let length = detail.catchRecord.lengthCm {
+                        measureCell(value: String(format: "%.1f", length), unit: "cm", label: "Length", icon: "ruler")
+                    }
+                    if let weight = detail.catchRecord.weightKg {
+                        measureCell(value: String(format: "%.2f", weight), unit: "kg", label: "Weight", icon: "scalemass")
+                    }
+                    if let score = detail.catchRecord.forecastScoreAtCapture {
+                        VStack(spacing: 6) {
+                            ScoreGauge(score: score, label: "", size: 44)
+                            Text("Bite Score")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
-                        .glassPill()
-                    }
-                }
-
-                // Measurements & status
-                HStack(spacing: 16) {
-                    if let length = detail.catchRecord.lengthCm {
-                        Label(String(format: "%.1f cm", length), systemImage: "ruler")
-                            .glassPill()
-                    }
-                    if let weight = detail.catchRecord.weightKg {
-                        Label(String(format: "%.2f kg", weight), systemImage: "scalemass")
-                            .glassPill()
-                    }
-                    Label(detail.catchRecord.released ? "Released" : "Kept", systemImage: detail.catchRecord.released ? "arrow.uturn.backward" : "bag.fill")
-                        .glassPill()
-                }
-
-                // Location + Conditions side by side
-                HStack(alignment: .top, spacing: 12) {
-                    // Location map
-                    VStack(alignment: .leading, spacing: 6) {
-                        locationCard
-
-                        if let spot = detail.spot {
-                            HStack(spacing: 4) {
-                                Image(systemName: "mappin.circle.fill")
-                                    .foregroundStyle(CurrentsTheme.accent)
-                                    .font(.caption)
-                                Text(spot.name)
-                                    .font(.caption.bold())
-                                    .lineLimit(1)
-                            }
-                        }
-                    }
-                    .frame(maxWidth: .infinity)
-
-                    // Forecast at capture — matched to map height
-                    if let score = detail.catchRecord.forecastScoreAtCapture {
-                        VStack(spacing: 10) {
-                            Spacer()
-                            ScoreGauge(score: score, label: "", size: 64)
-                            Text("Bite Score")
-                                .font(.caption.bold())
-                            Text("at catch time")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                            Spacer()
-                        }
                         .frame(maxWidth: .infinity)
-                        .frame(height: 186)
+                        .padding(.vertical, 12)
                         .background(.ultraThinMaterial)
                         .clipShape(RoundedRectangle(cornerRadius: CurrentsTheme.cornerRadius))
                     }
                 }
 
+                // Location — full-width map with spot overlay
+                locationCard
+
                 // Gear
                 if let gear = detail.gearLoadout {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("Gear")
-                            .font(.headline)
+                        SectionHeaderView(title: "Gear", systemImage: "wrench.and.screwdriver.fill")
                         Text(gear.name).font(.subheadline.bold())
                         GearDetailGrid(loadout: gear)
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .glassCard()
                 }
 
                 // Trip
                 if FeatureFlags.liveTrips, let trip {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Trip")
-                            .font(.headline)
+                        SectionHeaderView(title: "Trip", systemImage: "tent.fill")
                         HStack {
-                            Image(systemName: "tent.fill")
-                                .foregroundStyle(CurrentsTheme.accent)
                             Text(trip.name)
                                 .font(.subheadline.bold())
                             Spacer()
@@ -125,6 +107,7 @@ struct CatchDetailView: View {
                                 .foregroundStyle(.secondary)
                         }
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .glassCard()
                 }
 
@@ -133,8 +116,7 @@ struct CatchDetailView: View {
                    let weatherData = weatherJSON.data(using: .utf8),
                    let weather = try? JSONDecoder().decode(WeatherSnapshot.self, from: weatherData) {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("Weather at Catch")
-                            .font(.headline)
+                        SectionHeaderView(title: "Weather at Catch", systemImage: "cloud.sun.fill")
                         HStack(spacing: 16) {
                             if let temp = weather.temperatureC {
                                 VStack(spacing: 2) {
@@ -194,19 +176,26 @@ struct CatchDetailView: View {
                     .glassCard()
                 }
 
+                // Notes
+                if let notes = detail.catchRecord.notes, !notes.isEmpty {
+                    VStack(alignment: .leading, spacing: 4) {
+                        SectionHeaderView(title: "Notes", systemImage: "note.text")
+                        Text(notes)
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .glassCard()
+                }
+
                 // ML Top 3 predictions
                 if let mlTop3JSON = detail.catchRecord.mlTop3,
                    let mlData = mlTop3JSON.data(using: .utf8),
                    let predictions = try? JSONDecoder().decode([MLPrediction].self, from: mlData),
                    predictions.count > 1 {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("AI Predictions")
-                            .font(.headline)
+                        SectionHeaderView(title: "AI Predictions", systemImage: "brain")
                         ForEach(predictions, id: \.label) { pred in
                             HStack {
-                                Image(systemName: "brain")
-                                    .foregroundStyle(CurrentsTheme.accent)
-                                    .frame(width: 20)
                                 Text(pred.label)
                                     .font(.subheadline)
                                 Spacer()
@@ -217,46 +206,8 @@ struct CatchDetailView: View {
                             }
                         }
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .glassCard()
-                }
-
-                // Notes
-                if let notes = detail.catchRecord.notes, !notes.isEmpty {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Notes")
-                            .font(.headline)
-                        Text(notes)
-                            .foregroundStyle(.secondary)
-                    }
-                    .glassCard()
-                }
-
-                // Details footer
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        Image(systemName: "clock")
-                        Text(detail.catchRecord.caughtAt, style: .date)
-                        Text("at")
-                        Text(detail.catchRecord.caughtAt, style: .time)
-                    }
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
-                    HStack {
-                        Image(systemName: "location")
-                        Text(String(format: "%.5f, %.5f", detail.catchRecord.latitude, detail.catchRecord.longitude))
-                    }
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
-                    if let geohash = detail.catchRecord.geohash {
-                        HStack {
-                            Image(systemName: "grid")
-                            Text("Geohash: \(geohash)")
-                        }
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    }
                 }
             }
             .padding()
@@ -316,6 +267,7 @@ struct CatchDetailView: View {
                 onSave: { updated in
                     var record = updated
                     try? appState.catchRepository.save(&record)
+                    reload(with: record)
                 }
             )
         }
@@ -348,12 +300,56 @@ struct CatchDetailView: View {
         var record = detail.catchRecord
         record.isFavorite = isFavorite
         try? appState.catchRepository.save(&record)
+        detail.catchRecord = record
+    }
+
+    /// Rebuild the joined detail after an edit so the open view reflects the
+    /// change immediately instead of showing stale data until re-navigation.
+    private func reload(with record: Catch) {
+        detail.catchRecord = record
+        detail.species = record.speciesId.flatMap { id in
+            (try? appState.speciesRepository.fetchAll())?.first { $0.id == id }
+        }
+        detail.spot = record.spotId.flatMap { id in
+            (try? appState.spotRepository.fetchAll())?.first { $0.id == id }
+        }
+        detail.gearLoadout = record.gearLoadoutId.flatMap { id in
+            (try? appState.gearRepository.fetchAll())?.first { $0.id == id }
+        }
+        isFavorite = record.isFavorite
+    }
+
+    private func measureCell(value: String, unit: String, label: String, icon: String) -> some View {
+        VStack(spacing: 6) {
+            Image(systemName: icon)
+                .font(.body)
+                .foregroundStyle(CurrentsTheme.accent)
+            HStack(alignment: .firstTextBaseline, spacing: 2) {
+                Text(value)
+                    .font(.title3.bold())
+                    .monospacedDigit()
+                Text(unit)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Text(label)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 12)
+        .background(.ultraThinMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: CurrentsTheme.cornerRadius))
     }
 
     private func generateShareCard() {
         isGeneratingShareCard = true
         Task {
-            guard let photoPath = detail.catchRecord.allPhotoPaths.first,
+            // Share the photo the user is currently looking at in the
+            // carousel, not always the first one.
+            let paths = detail.catchRecord.allPhotoPaths
+            let index = paths.indices.contains(carouselIndex) ? carouselIndex : 0
+            guard let photoPath = paths.indices.contains(index) ? paths[index] : paths.first,
                   let photo = PhotoManager.load(photoPath) else {
                 isGeneratingShareCard = false
                 return
@@ -425,7 +421,7 @@ struct CatchDetailView: View {
             ),
             distance: 2000
         ))) {
-            Annotation("Catch", coordinate: CLLocationCoordinate2D(
+            Annotation("", coordinate: CLLocationCoordinate2D(
                 latitude: detail.catchRecord.latitude,
                 longitude: detail.catchRecord.longitude
             )) {
@@ -435,9 +431,28 @@ struct CatchDetailView: View {
             }
         }
         .mapStyle(.hybrid)
-        .frame(height: 160)
+        .frame(height: 180)
         .clipShape(RoundedRectangle(cornerRadius: 16))
         .allowsHitTesting(false)
+        .overlay(alignment: .bottomLeading) {
+            HStack(spacing: 4) {
+                Image(systemName: detail.spot != nil ? "mappin.circle.fill" : "location.fill")
+                    .font(.caption)
+                if let spot = detail.spot {
+                    Text(spot.name)
+                        .font(.caption.bold())
+                        .lineLimit(1)
+                } else {
+                    Text(String(format: "%.4f, %.4f", detail.catchRecord.latitude, detail.catchRecord.longitude))
+                        .font(.caption.bold().monospacedDigit())
+                }
+            }
+            .foregroundStyle(.white)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(.black.opacity(0.55), in: Capsule())
+            .padding(10)
+        }
     }
 
     private func deleteCatch() {
@@ -466,6 +481,8 @@ struct EditCatchSheet: View {
     @State private var selectedTripId: String?
     @State private var selectedGearId: String?
     @State private var showingSpeciesPicker = false
+    @State private var coordinate: CLLocationCoordinate2D?
+    @State private var showingLocationPicker = false
 
     // Individual gear fields (matching LogCatchView)
     @State private var gearRod = ""
@@ -542,6 +559,38 @@ struct EditCatchSheet: View {
                         Text("None").tag(nil as String?)
                         ForEach(allSpots) { spot in
                             Text(spot.name).tag(spot.id as String?)
+                        }
+                    }
+
+                    // Exact pin — editable on the map, same flow as logging.
+                    if let coord = coordinate {
+                        Map(position: .constant(.camera(.init(
+                            centerCoordinate: coord,
+                            distance: 2500
+                        )))) {
+                            Annotation("", coordinate: coord) {
+                                Image(systemName: "mappin.circle.fill")
+                                    .font(.title)
+                                    .foregroundStyle(CurrentsTheme.accent)
+                            }
+                        }
+                        .mapStyle(.hybrid)
+                        .frame(height: 130)
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                        .allowsHitTesting(false)
+                        .listRowInsets(EdgeInsets())
+
+                        HStack {
+                            Image(systemName: "mappin.circle.fill")
+                                .foregroundStyle(CurrentsTheme.accent)
+                            Text(String(format: "%.4f, %.4f", coord.latitude, coord.longitude))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            Button("Move on Map") {
+                                showingLocationPicker = true
+                            }
+                            .font(.caption.bold())
                         }
                     }
                 }
@@ -623,6 +672,9 @@ struct EditCatchSheet: View {
                 selectedSpotId = c.spotId
                 selectedTripId = c.tripId
                 selectedGearId = c.gearLoadoutId
+                if coordinate == nil {
+                    coordinate = CLLocationCoordinate2D(latitude: c.latitude, longitude: c.longitude)
+                }
 
                 allSpecies = (try? appState.speciesRepository.fetchAll()) ?? []
                 allSpots = (try? appState.spotRepository.fetchAll()) ?? []
@@ -645,6 +697,9 @@ struct EditCatchSheet: View {
                     selectedId: $selectedSpeciesId,
                     selectedName: $selectedSpeciesName
                 )
+            }
+            .sheet(isPresented: $showingLocationPicker) {
+                LocationPickerSheet(coordinate: $coordinate)
             }
         }
     }
@@ -678,6 +733,15 @@ struct EditCatchSheet: View {
         updated.speciesId = selectedSpeciesId
         updated.spotId = selectedSpotId
         updated.tripId = selectedTripId
+        if let coord = coordinate {
+            updated.latitude = coord.latitude
+            updated.longitude = coord.longitude
+            updated.geohash = Geohash.encode(
+                latitude: coord.latitude,
+                longitude: coord.longitude,
+                precision: 7
+            )
+        }
 
         // If user picked individual gear fields but no preset, auto-create a loadout
         let hasIndividualGear = !gearRod.isEmpty || !gearReel.isEmpty || !gearLure.isEmpty || !gearTechnique.isEmpty
