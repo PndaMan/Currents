@@ -5,7 +5,7 @@ struct CatchesTab: View {
     @State private var catches: [CatchDetail] = []
     @State private var showingLogCatch = false
     @State private var searchText = ""
-    @State private var sortOrder: SortOrder = .recent
+    @AppStorage("catchesSortOrder") private var sortOrder: SortOrder = .recent
     @State private var filter: CatchFilter = .all
 
     enum CatchFilter: String, CaseIterable {

@@ -13,7 +13,9 @@ struct SpeciesDetailView: View {
                 // Header — artwork stands on its own; no tinted disc behind it
                 // (it washed the fish out), just a small rarity pill below.
                 VStack(spacing: 8) {
-                    SpeciesArtworkView(species: species, caught: !catches.isEmpty, size: 132)
+                    // Always shown in full colour — the guide/detail is a
+                    // reference, not the grey Pokédex "not yet caught" state.
+                    SpeciesArtworkView(species: species, caught: true, size: 132)
                         .frame(width: 132, height: 132)
 
                     Label(species.rarity.label, systemImage: species.rarity.symbol)

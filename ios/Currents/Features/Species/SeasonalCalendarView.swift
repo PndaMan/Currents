@@ -6,7 +6,7 @@ struct SeasonalCalendarView: View {
     @State private var selectedMonth: Int = Calendar.current.component(.month, from: .now)
     @State private var searchText = ""
     @State private var habitatFilter: Species.Habitat?
-    @State private var sortOrder: SortOrder = .match
+    @AppStorage("seasonalSortOrder") private var sortOrder: SortOrder = .match
 
     enum SortOrder: String, CaseIterable, Identifiable {
         case match = "Best Match"

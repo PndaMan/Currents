@@ -66,7 +66,7 @@ final class SpeciesRepository: ObservableObject {
     /// Bump whenever the bundled dataset's CONTENT changes (not just its
     /// count) so existing installs re-upsert — e.g. when temps/baits were
     /// added for the non-curated species.
-    private static let seedDataVersion = 3
+    private static let seedDataVersion = 4
 
     func seedIfNeeded() throws {
         let speciesList: [Species]
@@ -81,10 +81,21 @@ final class SpeciesRepository: ObservableObject {
         let storedVersion = UserDefaults.standard.integer(forKey: "speciesSeedDataVersion")
         guard count < speciesList.count || storedVersion < Self.seedDataVersion else { return }
 
+        // Upsert each row independently. A single bad row (e.g. a duplicate
+        // scientificName hitting the UNIQUE index) must never roll back the
+        // whole dataset — that once froze the DB at an old count and hid the
+        // mythical species. Skip and log the offender, keep the rest.
         try db.db.write { db in
+            var failed = 0
             for var species in speciesList {
-                try species.save(db) // upsert by primary key
+                do {
+                    try species.save(db) // upsert by primary key
+                } catch {
+                    failed += 1
+                    print("[Currents] Skipped species \(species.id) during seed: \(error)")
+                }
             }
+            if failed > 0 { print("[Currents] \(failed) species rows skipped during seed") }
         }
         UserDefaults.standard.set(Self.seedDataVersion, forKey: "speciesSeedDataVersion")
         print("[Currents] Seeded/upgraded to \(speciesList.count) species (was \(count))")

@@ -11,7 +11,7 @@ struct FishCollectionView: View {
     @State private var species: [Species] = []
     @State private var caughtIds: Set<Int64> = []
     @State private var searchText = ""
-    @State private var sort: SortMode = .rarest
+    @AppStorage("collectionSortMode") private var sort: SortMode = .rarest
     @State private var rarityFilter: SpeciesRarity?
     @State private var showCaughtOnly = false
     @State private var selected: Species?
