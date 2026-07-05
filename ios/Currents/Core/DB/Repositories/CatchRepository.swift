@@ -24,6 +24,27 @@ final class CatchRepository: ObservableObject {
         }
     }
 
+    /// Catches not yet uploaded to iNaturalist, oldest first so the backlog
+    /// posts in the order it was logged.
+    func fetchNotUploaded() throws -> [Catch] {
+        try db.db.read { db in
+            try Catch
+                .filter(Column("inatObservationId") == nil)
+                .order(Column("caughtAt"))
+                .fetchAll(db)
+        }
+    }
+
+    /// Record the iNaturalist observation id after a successful upload.
+    func setINatObservationId(_ observationId: String, for catchId: String) throws {
+        try db.db.write { db in
+            try db.execute(
+                sql: "UPDATE catch SET inatObservationId = ? WHERE id = ?",
+                arguments: [observationId, catchId]
+            )
+        }
+    }
+
     // MARK: - Reads
 
     func fetchAll(limit: Int = 50, offset: Int = 0) throws -> [CatchDetail] {

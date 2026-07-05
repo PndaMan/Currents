@@ -323,6 +323,14 @@ final class AppDatabase: Sendable {
             try db.execute(sql: "UPDATE gearLoadout SET isAutoCreated = 1 WHERE name LIKE '% Setup'")
         }
 
+        migrator.registerMigration("v14_inat_observation_id") { db in
+            // Tracks the iNaturalist observation a catch was uploaded as, so
+            // the auto-sync backfill never double-posts an already-shared catch.
+            try db.alter(table: "catch") { t in
+                t.add(column: "inatObservationId", .text)
+            }
+        }
+
         return migrator
     }
 }

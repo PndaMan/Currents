@@ -24,6 +24,9 @@ struct Catch: Codable, Identifiable, Sendable {
     var notes: String?
     var isFavorite: Bool
     var createdAt: Date
+    /// iNaturalist observation id once this catch has been uploaded (nil until
+    /// shared). Drives the auto-sync so a catch is never posted twice.
+    var inatObservationId: String? = nil
 
     init(
         id: String = UUID().uuidString,

@@ -192,7 +192,7 @@ struct ProfileTab: View {
                     NavigationLink {
                         PrivacySettingsView()
                     } label: {
-                        Label("Privacy", systemImage: "lock.shield")
+                        Label("Sharing & Privacy", systemImage: "globe")
                     }
 
                     NavigationLink {
@@ -634,20 +634,74 @@ struct UnitsSettingsView: View {
 }
 
 struct PrivacySettingsView: View {
-    @AppStorage("privacyRadiusKm") private var privacyRadius = 7.0
+    @Environment(AppState.self) private var appState
+    @State private var isWorking = false
+    @State private var errorMessage: String?
+
+    private var inat: INaturalistService { appState.inaturalist }
 
     var body: some View {
         Form {
             Section {
-                VStack(alignment: .leading) {
-                    Text("Honey Hole Obfuscation: \(Int(privacyRadius)) km")
-                    Slider(value: $privacyRadius, in: 1...20, step: 1)
+                if inat.isConnected {
+                    Label("Connected to iNaturalist", systemImage: "checkmark.seal.fill")
+                        .foregroundStyle(.green)
+                    Button(role: .destructive) {
+                        inat.disconnect()
+                    } label: {
+                        Label("Disconnect", systemImage: "xmark.circle")
+                    }
+                } else {
+                    Toggle(isOn: Binding(
+                        get: { inat.isConnected },
+                        set: { on in if on { connect() } }
+                    )) {
+                        Label("Share catches to iNaturalist", systemImage: "globe")
+                    }
+                    .disabled(isWorking || !inat.isConfigured)
                 }
+
+                if isWorking {
+                    HStack {
+                        ProgressView().controlSize(.small)
+                        Text("Connecting…").foregroundStyle(.secondary)
+                    }
+                }
+                if let status = inat.syncStatus {
+                    Text(status).font(.footnote).foregroundStyle(.secondary)
+                }
+                if let errorMessage {
+                    Text(errorMessage).font(.footnote).foregroundStyle(.red)
+                }
+            } header: {
+                Text("iNaturalist")
             } footer: {
-                Text("When you share a catch publicly, the location is randomly offset by this distance to protect your spots.")
+                if inat.isConfigured {
+                    Text("Turn this on to automatically publish your catches to iNaturalist — your existing catches and every new one — so other anglers and scientists can see them. Uploads use your account's real catch location. Off by default; nothing is shared until you connect.")
+                } else {
+                    Text("iNaturalist sharing isn't configured in this build yet.")
+                }
             }
         }
-        .navigationTitle("Privacy")
+        .navigationTitle("Sharing & Privacy")
+    }
+
+    private func connect() {
+        isWorking = true
+        errorMessage = nil
+        Task {
+            do {
+                try await inat.connect()
+                // Backfill the whole existing catch history on first connect.
+                await inat.syncAll(
+                    catchRepository: appState.catchRepository,
+                    speciesRepository: appState.speciesRepository
+                )
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+            isWorking = false
+        }
     }
 }
 

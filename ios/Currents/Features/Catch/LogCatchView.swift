@@ -681,6 +681,15 @@ struct LogCatchView: View {
         )
 
         try? appState.catchRepository.save(&catchRecord)
+
+        // Auto-share to iNaturalist when the user has connected their account.
+        // No-op otherwise, so nothing leaves the device by default.
+        appState.inaturalist.uploadIfConnected(
+            catchRecord,
+            species: allSpecies.first(where: { $0.id == selectedSpeciesId }),
+            catchRepository: appState.catchRepository
+        )
+
         dismiss()
     }
 
