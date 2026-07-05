@@ -81,8 +81,10 @@ INSTRUCTION = (
     "markings recognisable and accurate, but stylised and simplified — NOT "
     "photorealistic, no fine texture, no photographic detail, no gradients, no "
     "realistic scales. One whole single fish in side profile, head on the LEFT "
-    "and tail on the RIGHT, plain solid pure-white background, sticker style, no "
-    "text, no hook, no hands, no water, no shadow, no border."
+    "and tail on the RIGHT, on a plain solid pure-white background that fills "
+    "the whole canvas. No text, no hook, no hands, no water, no shadow, no "
+    "border, no frame, and no circle, oval, badge or sticker shape behind the "
+    "fish."
 )
 
 # Reference photo: iNaturalist URL when present, else the bundled thumbnail on
