@@ -697,12 +697,27 @@ struct LocationPickerSheet: View {
     @Binding var coordinate: CLLocationCoordinate2D?
     @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss
-    @State private var cameraPosition: MapCameraPosition = .userLocation(fallback: .automatic)
+    @State private var cameraPosition: MapCameraPosition
     @State private var pinPosition: CLLocationCoordinate2D?
     @State private var searchText = ""
     @State private var searchResults: [MKMapItem] = []
     @State private var isSearching = false
     @State private var searchDebounceTask: Task<Void, Never>?
+
+    init(coordinate: Binding<CLLocationCoordinate2D?>) {
+        _coordinate = coordinate
+        // Open centred on the existing pin when there is one (e.g. editing a
+        // spot or catch far from where the user is standing right now).
+        if let existing = coordinate.wrappedValue {
+            _cameraPosition = State(initialValue: .camera(.init(
+                centerCoordinate: existing,
+                distance: 3000
+            )))
+            _pinPosition = State(initialValue: existing)
+        } else {
+            _cameraPosition = State(initialValue: .userLocation(fallback: .automatic))
+        }
+    }
 
     var body: some View {
         NavigationStack {

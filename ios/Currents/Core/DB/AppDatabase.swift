@@ -279,6 +279,41 @@ final class AppDatabase: Sendable {
             }
         }
 
+        migrator.registerMigration("v11_spot_type") { db in
+            try db.alter(table: "spot") { t in
+                t.add(column: "spotType", .text)
+            }
+            // Migrate the legacy "[Type] notes" prefix written by older
+            // versions of AddSpotSheet into the new column.
+            let legacyTypes = [
+                "Structure", "Drop-off", "Weed Bed", "Point",
+                "Inlet/Outlet", "Dock/Pier", "Reef", "Channel",
+            ]
+            let mapping: [String: String] = [
+                "Dock/Pier": "Pier / Dock",
+                "Reef": "Reef",
+            ]
+            let rows = try Row.fetchAll(db, sql: "SELECT id, notes FROM spot WHERE notes LIKE '[%'")
+            for row in rows {
+                let id: String = row["id"]
+                let notes: String = row["notes"] ?? ""
+                for legacy in legacyTypes where notes.hasPrefix("[\(legacy)] ") {
+                    let cleaned = String(notes.dropFirst(legacy.count + 3))
+                    try db.execute(
+                        sql: "UPDATE spot SET notes = ?, spotType = ? WHERE id = ?",
+                        arguments: [cleaned.isEmpty ? nil : cleaned, mapping[legacy], id]
+                    )
+                    break
+                }
+            }
+        }
+
+        // Refresh the gear catalog with the much larger seed set — the table
+        // is cleared here and re-seeded on next launch by seedIfEmpty().
+        migrator.registerMigration("v12_gear_catalog_refresh") { db in
+            try db.execute(sql: "DELETE FROM gearCatalog")
+        }
+
         return migrator
     }
 }

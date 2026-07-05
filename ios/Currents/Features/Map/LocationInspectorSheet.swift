@@ -20,6 +20,8 @@ struct LocationInspectorSheet: View {
     @State private var probableSpots: [ProbableSpot] = []
     @State private var isLoading = true
     @State private var showingSaveAsSpot = false
+    @State private var selectedWaterbody: Waterbody?
+    @State private var selectedSpot: Spot?
 
     var body: some View {
         NavigationStack {
@@ -49,6 +51,18 @@ struct LocationInspectorSheet: View {
             .sheet(isPresented: $showingSaveAsSpot) {
                 AddSpotSheet(prefillCoordinate: coordinate)
                     .presentationDetents([.medium])
+            }
+            .sheet(item: $selectedWaterbody) { wb in
+                WaterbodyDetailSheet(waterbody: wb)
+                    .presentationDetents([.medium, .large])
+                    .presentationBackground(.ultraThinMaterial)
+            }
+            .sheet(item: $selectedSpot) { spot in
+                SpotDetailSheet(spot: spot)
+                    .presentationDetents([.medium, .large])
+                    .presentationBackground(.ultraThinMaterial)
+                    .presentationDragIndicator(.visible)
+                    .presentationContentInteraction(.resizes)
             }
         }
     }
@@ -123,30 +137,40 @@ struct LocationInspectorSheet: View {
                     .foregroundStyle(.secondary)
             } else {
                 ForEach(probableSpots) { p in
-                    HStack(spacing: 12) {
-                        ZStack {
-                            Circle()
-                                .fill(CurrentsTheme.scoreColor(p.score).gradient)
-                                .frame(width: 36, height: 36)
-                            Text("\(p.score)")
-                                .font(.caption.bold())
-                                .monospacedDigit()
-                                .foregroundStyle(.white)
-                        }
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(p.name)
-                                .font(.subheadline.bold())
-                            Text(p.reason)
-                                .font(.caption2)
+                    Button {
+                        selectedWaterbody = p.waterbody
+                    } label: {
+                        HStack(spacing: 12) {
+                            ZStack {
+                                Circle()
+                                    .fill(CurrentsTheme.scoreColor(p.score).gradient)
+                                    .frame(width: 36, height: 36)
+                                Text("\(p.score)")
+                                    .font(.caption.bold())
+                                    .monospacedDigit()
+                                    .foregroundStyle(.white)
+                            }
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(p.name)
+                                    .font(.subheadline.bold())
+                                    .foregroundStyle(.primary)
+                                Text(p.reason)
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(2)
+                            }
+                            Spacer()
+                            Text(p.distanceString)
+                                .font(.caption.monospacedDigit())
                                 .foregroundStyle(.secondary)
-                                .lineLimit(2)
+                            Image(systemName: "chevron.right")
+                                .font(.caption2)
+                                .foregroundStyle(.tertiary)
                         }
-                        Spacer()
-                        Text(p.distanceString)
-                            .font(.caption.monospacedDigit())
-                            .foregroundStyle(.secondary)
+                        .padding(.vertical, 4)
+                        .contentShape(Rectangle())
                     }
-                    .padding(.vertical, 4)
+                    .buttonStyle(.plain)
                 }
             }
         }
@@ -163,23 +187,33 @@ struct LocationInspectorSheet: View {
                 Label("Your Spots Nearby", systemImage: "mappin.and.ellipse")
                     .font(.headline)
                 ForEach(nearbySpots) { entry in
-                    HStack(spacing: 12) {
-                        Image(systemName: "mappin.circle.fill")
-                            .foregroundStyle(CurrentsTheme.accent)
-                            .frame(width: 24)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(entry.spot.name)
-                                .font(.subheadline.bold())
-                            Text("\(entry.catchCount) catch\(entry.catchCount == 1 ? "" : "es")")
-                                .font(.caption2)
+                    Button {
+                        selectedSpot = entry.spot
+                    } label: {
+                        HStack(spacing: 12) {
+                            Image(systemName: "mappin.circle.fill")
+                                .foregroundStyle(CurrentsTheme.accent)
+                                .frame(width: 24)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(entry.spot.name)
+                                    .font(.subheadline.bold())
+                                    .foregroundStyle(.primary)
+                                Text("\(entry.catchCount) catch\(entry.catchCount == 1 ? "" : "es")")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Text(entry.distanceString)
+                                .font(.caption.monospacedDigit())
                                 .foregroundStyle(.secondary)
+                            Image(systemName: "chevron.right")
+                                .font(.caption2)
+                                .foregroundStyle(.tertiary)
                         }
-                        Spacer()
-                        Text(entry.distanceString)
-                            .font(.caption.monospacedDigit())
-                            .foregroundStyle(.secondary)
+                        .padding(.vertical, 4)
+                        .contentShape(Rectangle())
                     }
-                    .padding(.vertical, 4)
+                    .buttonStyle(.plain)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -325,7 +359,8 @@ struct LocationInspectorSheet: View {
                     name: wb.name,
                     score: score,
                     reason: probableReason(for: wb),
-                    distanceMeters: distM
+                    distanceMeters: distM,
+                    waterbody: wb
                 )
             }
 
@@ -370,6 +405,7 @@ private struct ProbableSpot: Identifiable {
     let score: Int
     let reason: String
     let distanceMeters: Double
+    let waterbody: Waterbody
 
     var distanceString: String {
         if distanceMeters < 1000 {

@@ -335,6 +335,10 @@ struct MapTab: View {
                 SpotDetailSheet(spot: spot)
                     .presentationDetents([.medium, .large])
                     .presentationBackground(.ultraThinMaterial)
+                    .presentationDragIndicator(.visible)
+                    // Dragging anywhere on the sheet resizes it between half
+                    // and full screen instead of scrolling the content.
+                    .presentationContentInteraction(.resizes)
             }
             .sheet(isPresented: $showingAddSpot, onDismiss: {
                 Task { await loadData() }
@@ -866,15 +870,16 @@ struct SpotPin: View {
 struct SpotDetailSheet: View {
     @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss
-    let spot: Spot
+    @State private var spot: Spot
     @State private var catches: [CatchDetail] = []
     @State private var weather: WeatherService.WeatherData?
     @State private var forecast: ForecastEngine.ForecastResult?
     @State private var showingDeleteConfirm = false
     @State private var showingEdit = false
-    @State private var editedName = ""
-    @State private var editedNotes = ""
-    @State private var editedPrivate = true
+
+    init(spot: Spot) {
+        _spot = State(initialValue: spot)
+    }
 
     private var spotCoord: CLLocationCoordinate2D {
         CLLocationCoordinate2D(latitude: spot.latitude, longitude: spot.longitude)
@@ -909,6 +914,11 @@ struct SpotDetailSheet: View {
                                 .foregroundStyle(.secondary)
                         }
                         Spacer()
+                        if spot.type != .general {
+                            Label(spot.type.rawValue, systemImage: spot.type.icon)
+                                .font(.caption)
+                                .glassPill()
+                        }
                         if FeatureFlags.spotPrivacy, spot.isPrivate {
                             Label("Private", systemImage: "lock.fill")
                                 .font(.caption)
@@ -1016,9 +1026,6 @@ struct SpotDetailSheet: View {
                     // Actions
                     HStack(spacing: 12) {
                         Button {
-                            editedName = spot.name
-                            editedNotes = spot.notes ?? ""
-                            editedPrivate = spot.isPrivate
                             showingEdit = true
                         } label: {
                             Label("Edit", systemImage: "pencil")
@@ -1080,7 +1087,9 @@ struct SpotDetailSheet: View {
             EditSpotSheet(spot: spot) { updated in
                 var record = updated
                 try? appState.spotRepository.save(&record)
-                dismiss()
+                // Refresh in place — closing the whole spot sheet after an
+                // edit made it feel like the app threw the user out.
+                spot = record
             }
         }
     }
@@ -1094,7 +1103,7 @@ struct AddSpotSheet: View {
     @State private var name = ""
     @State private var notes = ""
     @State private var isPrivate = true
-    @State private var spotType: SpotType = .general
+    @State private var spotType: Spot.SpotType = .general
     @State private var usePin: Bool
     @State private var pinCoordinate: CLLocationCoordinate2D?
     @State private var showingLocationPicker = false
@@ -1104,26 +1113,14 @@ struct AddSpotSheet: View {
         _pinCoordinate = State(initialValue: prefillCoordinate)
     }
 
-    enum SpotType: String, CaseIterable {
-        case general = "General"
-        case structure = "Structure"
-        case dropoff = "Drop-off"
-        case weedbed = "Weed Bed"
-        case point = "Point"
-        case inlet = "Inlet/Outlet"
-        case dock = "Dock/Pier"
-        case reef = "Reef"
-        case channel = "Channel"
-    }
-
     var body: some View {
         NavigationStack {
             Form {
                 Section {
                     TextField("Spot Name", text: $name)
                     Picker("Type", selection: $spotType) {
-                        ForEach(SpotType.allCases, id: \.self) { type in
-                            Text(type.rawValue).tag(type)
+                        ForEach(Spot.SpotType.allCases, id: \.self) { type in
+                            Label(type.rawValue, systemImage: type.icon).tag(type)
                         }
                     }
                     TextField("Notes (optional)", text: $notes, axis: .vertical)
@@ -1210,13 +1207,13 @@ struct AddSpotSheet: View {
             return
         }
 
-        let fullNotes = spotType == .general ? notes : "[\(spotType.rawValue)] \(notes)"
         var spot = Spot(
             name: name,
             latitude: lat,
             longitude: lon,
-            notes: fullNotes.isEmpty ? nil : fullNotes,
-            isPrivate: isPrivate
+            notes: notes.isEmpty ? nil : notes,
+            isPrivate: isPrivate,
+            spotType: spotType
         )
         try? appState.spotRepository.save(&spot)
         dismiss()
@@ -1233,34 +1230,55 @@ struct EditSpotSheet: View {
     @State private var name: String = ""
     @State private var notes: String = ""
     @State private var isPrivate: Bool = true
-    @State private var latitude: String = ""
-    @State private var longitude: String = ""
+    @State private var spotType: Spot.SpotType = .general
+    @State private var coordinate: CLLocationCoordinate2D?
+    @State private var showingLocationPicker = false
 
     var body: some View {
         NavigationStack {
             Form {
                 Section("Details") {
                     TextField("Spot Name", text: $name)
+                    Picker("Type", selection: $spotType) {
+                        ForEach(Spot.SpotType.allCases, id: \.self) { type in
+                            Label(type.rawValue, systemImage: type.icon).tag(type)
+                        }
+                    }
                     TextField("Notes", text: $notes, axis: .vertical)
                         .lineLimit(3...6)
                 }
 
                 Section("Location") {
-                    HStack {
-                        Text("Latitude")
-                        Spacer()
-                        TextField("0.0000", text: $latitude)
-                            .keyboardType(.decimalPad)
-                            .multilineTextAlignment(.trailing)
-                            .frame(width: 140)
-                    }
-                    HStack {
-                        Text("Longitude")
-                        Spacer()
-                        TextField("0.0000", text: $longitude)
-                            .keyboardType(.decimalPad)
-                            .multilineTextAlignment(.trailing)
-                            .frame(width: 140)
+                    // Mini map preview of the (possibly moved) location
+                    if let coord = coordinate {
+                        Map(position: .constant(.camera(.init(
+                            centerCoordinate: coord,
+                            distance: 2500
+                        )))) {
+                            Annotation("", coordinate: coord) {
+                                Image(systemName: "mappin.circle.fill")
+                                    .font(.title)
+                                    .foregroundStyle(CurrentsTheme.accent)
+                            }
+                        }
+                        .mapStyle(.hybrid)
+                        .frame(height: 130)
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                        .allowsHitTesting(false)
+                        .listRowInsets(EdgeInsets())
+
+                        HStack {
+                            Image(systemName: "mappin.circle.fill")
+                                .foregroundStyle(CurrentsTheme.accent)
+                            Text(String(format: "%.4f, %.4f", coord.latitude, coord.longitude))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            Button("Move on Map") {
+                                showingLocationPicker = true
+                            }
+                            .font(.caption.bold())
+                        }
                     }
                 }
 
@@ -1284,8 +1302,16 @@ struct EditSpotSheet: View {
                         updated.name = name
                         updated.notes = notes.isEmpty ? nil : notes
                         updated.isPrivate = isPrivate
-                        if let lat = Double(latitude) { updated.latitude = lat }
-                        if let lon = Double(longitude) { updated.longitude = lon }
+                        updated.type = spotType
+                        if let coord = coordinate {
+                            updated.latitude = coord.latitude
+                            updated.longitude = coord.longitude
+                            updated.geohash = Geohash.encode(
+                                latitude: coord.latitude,
+                                longitude: coord.longitude,
+                                precision: 7
+                            )
+                        }
                         onSave(updated)
                         dismiss()
                     }
@@ -1293,12 +1319,20 @@ struct EditSpotSheet: View {
                     .disabled(name.isEmpty)
                 }
             }
+            .sheet(isPresented: $showingLocationPicker) {
+                LocationPickerSheet(coordinate: $coordinate)
+            }
             .task {
                 name = spot.name
                 notes = spot.notes ?? ""
                 isPrivate = spot.isPrivate
-                latitude = String(format: "%.6f", spot.latitude)
-                longitude = String(format: "%.6f", spot.longitude)
+                spotType = spot.type
+                if coordinate == nil {
+                    coordinate = CLLocationCoordinate2D(
+                        latitude: spot.latitude,
+                        longitude: spot.longitude
+                    )
+                }
             }
         }
     }

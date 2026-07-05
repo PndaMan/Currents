@@ -52,10 +52,14 @@ struct SpotsListView: View {
                 }
             }
         }
-        .sheet(item: $selectedSpot) { spot in
+        .sheet(item: $selectedSpot, onDismiss: {
+            Task { await loadData() }
+        }) { spot in
             SpotDetailSheet(spot: spot)
                 .presentationDetents([.medium, .large])
                 .presentationBackground(.ultraThinMaterial)
+                .presentationDragIndicator(.visible)
+                .presentationContentInteraction(.resizes)
         }
         .sheet(isPresented: $showingAddSpot) {
             AddSpotSheet()
