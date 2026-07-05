@@ -11,6 +11,7 @@ struct ForecastTab: View {
     @State private var solunar: SolunarEngine.SolunarDay?
     @State private var tideDay: TideEngine.TideDay?
     @State private var weather: WeatherService.WeatherData?
+    @State private var dayWeathers: [WeatherService.WeatherData] = []
     @State private var selectedSpecies: Species?
     @State private var allSpecies: [Species] = []
     @State private var selectedDay: Int = 0
@@ -29,6 +30,14 @@ struct ForecastTab: View {
         CLLocationCoordinate2D(latitude: -33.9, longitude: 18.4)
     }
 
+    /// Weather for the SELECTED day — live conditions for today, the daily
+    /// outlook for future days — so every card follows the day picker, not
+    /// just the bite score.
+    private var selectedDayWeather: WeatherService.WeatherData? {
+        if selectedDay == 0 { return weather ?? dayWeathers.first }
+        return dayWeathers.indices.contains(selectedDay) ? dayWeathers[selectedDay] : nil
+    }
+
     var body: some View {
         NavigationStack {
             ScrollView {
@@ -43,10 +52,10 @@ struct ForecastTab: View {
                             .frame(height: 120)
                     }
 
-                    // Current conditions
-                    if let weather {
-                        currentConditionsCard(weather)
-                        windAndPressureCard(weather)
+                    // Conditions for the selected day
+                    if let w = selectedDayWeather {
+                        currentConditionsCard(w)
+                        windAndPressureCard(w)
                     } else if isLoadingWeather {
                         HStack(spacing: 8) {
                             ProgressView()
@@ -116,7 +125,7 @@ struct ForecastTab: View {
     private func currentConditionsCard(_ weather: WeatherService.WeatherData) -> some View {
         VStack(spacing: 16) {
             HStack {
-                Text("Current Conditions")
+                Text(selectedDay == 0 ? "Current Conditions" : "Expected Conditions")
                     .font(.headline)
                 Spacer()
                 Text(weather.fetchedAt, style: .relative)
@@ -438,14 +447,15 @@ struct ForecastTab: View {
         .glassCard()
         .onChange(of: selectedHour) { _, newHour in
             guard let hour = newHour else { hourDetail = nil; return }
+            let w = selectedDayWeather
             hourDetail = ForecastEngine.forecastForHour(
                 hour: hour,
                 date: forecastDate,
                 coordinate: coordinate,
-                currentPressureHpa: weather?.pressureHpa,
-                pressureChange6h: weather?.pressureChange6h,
-                waterTempC: weather?.waterTempC,
-                windSpeedKmh: weather?.windSpeedKmh,
+                currentPressureHpa: w?.pressureHpa,
+                pressureChange6h: w?.pressureChange6h,
+                waterTempC: w?.waterTempC,
+                windSpeedKmh: w?.windSpeedKmh,
                 species: selectedSpecies,
                 isInSpawningZone: false
             )
@@ -700,6 +710,9 @@ struct ForecastTab: View {
     private func fetchWeatherAndCompute() async {
         isLoadingWeather = true
         weather = await WeatherService.shared.current(for: coordinate)
+        // 7-day outlook so every card follows the day picker; served from the
+        // disk cache when offline.
+        dayWeathers = await WeatherService.shared.forecastDays(for: coordinate)
         isLoadingWeather = false
         recompute()
     }
@@ -711,14 +724,16 @@ struct ForecastTab: View {
         solunar = SolunarEngine.compute(date: date, coordinate: coord)
         tideDay = TideEngine.predict(date: date, coordinate: coord)
 
+        // Feed the engine the SELECTED day's weather, not today's.
+        let w = selectedDayWeather
         forecast = ForecastEngine.forecast(
             date: date,
             coordinate: coord,
-            currentPressureHpa: weather?.pressureHpa,
-            pressureChange6h: weather?.pressureChange6h,
-            waterTempC: weather?.waterTempC,
-            windSpeedKmh: weather?.windSpeedKmh,
-            windDirection: weather?.windDirectionDeg,
+            currentPressureHpa: w?.pressureHpa,
+            pressureChange6h: w?.pressureChange6h,
+            waterTempC: w?.waterTempC,
+            windSpeedKmh: w?.windSpeedKmh,
+            windDirection: w?.windDirectionDeg,
             species: selectedSpecies,
             isInSpawningZone: false
         )
