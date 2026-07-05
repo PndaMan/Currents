@@ -721,16 +721,32 @@ struct LocationPickerSheet: View {
     init(coordinate: Binding<CLLocationCoordinate2D?>) {
         _coordinate = coordinate
         // Open centred on the existing pin when there is one (e.g. editing a
-        // spot or catch far from where the user is standing right now).
-        if let existing = coordinate.wrappedValue {
+        // spot or catch far from where the user is standing right now),
+        // otherwise on the user's current location.
+        //
+        // We deliberately pin an EXPLICIT coordinate rather than using
+        // `.userLocation(fallback:)`: that mode keeps re-centring as the async
+        // location fix resolves, and a late fix would clobber a location the
+        // user had already panned to — dropping the pin far from where they
+        // placed it. Seeding `pinPosition` up front also means Confirm can
+        // never save a nil/stale coordinate.
+        let start = coordinate.wrappedValue
+            ?? LocationPickerSheet.lastKnownCoordinate
+        if let start {
             _cameraPosition = State(initialValue: .camera(.init(
-                centerCoordinate: existing,
+                centerCoordinate: start,
                 distance: 3000
             )))
-            _pinPosition = State(initialValue: existing)
+            _pinPosition = State(initialValue: start)
         } else {
             _cameraPosition = State(initialValue: .userLocation(fallback: .automatic))
         }
+    }
+
+    /// Best-effort last known device location, captured synchronously at init
+    /// so the picker can seed its pin without waiting on an async fix.
+    private static var lastKnownCoordinate: CLLocationCoordinate2D? {
+        CLLocationManager().location?.coordinate
     }
 
     var body: some View {
@@ -863,7 +879,10 @@ struct LocationPickerSheet: View {
                     .bold()
                 }
             }
-            .onMapCameraChange(frequency: .onEnd) { context in
+            // Track the centre continuously so the pin always reflects the
+            // live crosshair position — `.onEnd` can miss the final resting
+            // spot and leave a stale coordinate behind on Confirm.
+            .onMapCameraChange(frequency: .continuous) { context in
                 pinPosition = context.camera.centerCoordinate
             }
         }

@@ -66,7 +66,7 @@ final class SpeciesRepository: ObservableObject {
     /// Bump whenever the bundled dataset's CONTENT changes (not just its
     /// count) so existing installs re-upsert — e.g. when temps/baits were
     /// added for the non-curated species.
-    private static let seedDataVersion = 2
+    private static let seedDataVersion = 3
 
     func seedIfNeeded() throws {
         let speciesList: [Species]
