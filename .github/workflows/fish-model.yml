@@ -34,9 +34,12 @@ jobs:
 
       - name: Convert BioCLIP → CoreML + species embeddings
         run: |
-          python ml/bioclip_to_coreml.py --out FishID.mlmodel
-          ls -lh FishID.mlmodel
+          python ml/bioclip_to_coreml.py --out FishID.mlpackage
+          du -sh FishID.mlpackage
           ls -lh ios/Currents/Resources/Data/species_embeddings.bin
+          # Zip the .mlpackage directory into a single downloadable asset.
+          zip -r -q FishID.mlpackage.zip FishID.mlpackage
+          ls -lh FishID.mlpackage.zip
 
       - name: Commit species embeddings
         run: |
@@ -55,8 +58,9 @@ jobs:
         with:
           tag_name: fish-model
           name: Fish ID Model (BioCLIP)
-          files: FishID.mlmodel
+          files: FishID.mlpackage.zip
           body: |
             BioCLIP image encoder (512-d embeddings) for on-device fish ID.
-            The app downloads this from the `latest`/`fish-model` release and
-            cosine-matches against the bundled species_embeddings.bin.
+            The app downloads this zipped .mlpackage from the `fish-model`
+            release, unzips + compiles it on-device, and cosine-matches against
+            the bundled species_embeddings.bin.

@@ -49,7 +49,7 @@ CLIP_STD = (0.26862954, 0.26130258, 0.27577711)
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--out", type=Path, default=Path("FishID.mlmodel"))
+    ap.add_argument("--out", type=Path, default=Path("FishID.mlpackage"))
     args = ap.parse_args()
 
     import numpy as np
@@ -113,7 +113,9 @@ def main() -> None:
 
     visual = Visual(model, CLIP_MEAN, CLIP_STD).eval()
     example = torch.rand(1, 3, IMG_SIZE, IMG_SIZE)  # [0,1]
-    traced = torch.jit.trace(visual, example)
+    # check_trace=False: the ViT uses fused scaled-dot-product-attention, whose
+    # re-run self-check trips the tracer with a spurious "graph diverged" error.
+    traced = torch.jit.trace(visual, example, check_trace=False)
 
     # ImageType feeds pixel/255 ∈ [0,1] to the model; the module does the rest.
     image_input = ct.ImageType(
@@ -124,14 +126,16 @@ def main() -> None:
         color_layout=ct.colorlayout.RGB,
     )
 
-    single_file = args.out.suffix == ".mlmodel"
-    kwargs = dict(inputs=[image_input])
-    if single_file:
-        kwargs["convert_to"] = "neuralnetwork"
-    else:
-        kwargs["minimum_deployment_target"] = ct.target.iOS16
-
-    mlmodel = ct.convert(traced, **kwargs)
+    # ML Program (not the legacy neuralnetwork) — it's the only target that
+    # supports the transformer's scaled-dot-product-attention. Output is a
+    # .mlpackage; the workflow zips it for the release asset.
+    mlmodel = ct.convert(
+        traced,
+        inputs=[image_input],
+        convert_to="mlprogram",
+        compute_precision=ct.precision.FLOAT16,
+        minimum_deployment_target=ct.target.iOS16,
+    )
     mlmodel.author = "Currents / BioCLIP"
     mlmodel.short_description = "BioCLIP image encoder (512-d embedding) for fish ID"
     mlmodel.save(str(args.out))
