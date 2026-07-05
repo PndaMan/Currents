@@ -13,6 +13,12 @@ import UIKit
 /// Everything is optional: if the model hasn't been downloaded or the
 /// embeddings aren't bundled, `identify` returns `[]` and the caller falls
 /// back to the visual-similarity identifier.
+/// A ranked species match shown in the AI Fish ID card.
+struct SpeciesMatch: Sendable {
+    let species: Species
+    let confidence: Float
+}
+
 actor EmbeddingSpeciesIdentifier {
     struct Ranked: Sendable {
         let speciesId: Int64

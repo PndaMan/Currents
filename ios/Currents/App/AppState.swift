@@ -7,8 +7,7 @@ import Observation
 final class AppState {
     let db: AppDatabase
     let locationManager = LocationManager()
-    let fishClassifier = FishClassifier()
-    let visualIdentifier = VisualSpeciesIdentifier()
+    let fishModelDownloader = FishModelDownloader()
     let embeddingIdentifier = EmbeddingSpeciesIdentifier()
     let mapManager = MapManager()
 
@@ -41,17 +40,11 @@ final class AppState {
         self.waterbodyRepository = WaterbodyRepository(db: db)
         self.observedSpeciesRepository = ObservedSpeciesRepository(db: db)
 
-        // Boot async work
+        // Boot async work — fetch the fish-ID model in the background.
         Task {
-            await fishClassifier.loadModel()
+            await fishModelDownloader.ensureModelDownloaded()
         }
         try? speciesRepository.seedIfNeeded()
-
-        // Build the visual species gallery in the background (cached to disk).
-        let speciesForIndex = (try? speciesRepository.fetchAll()) ?? []
-        Task.detached(priority: .utility) { [visualIdentifier] in
-            await visualIdentifier.build(species: speciesForIndex)
-        }
         try? gearCatalogRepository.seedIfEmpty()
         try? waterbodyRepository.seedIfEmpty()
 

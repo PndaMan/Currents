@@ -12,12 +12,12 @@ struct LogCatchView: View {
     @State private var capturedImages: [UIImage] = []
     @State private var showingCamera = false
 
-    // ML
-    @State private var mlPredictions: [FishClassifier.Prediction] = []
-    @State private var speciesMatches: [SpeciesMatcher.Match] = []
+    // ML — BioCLIP only; no guessing fallbacks.
+    @State private var speciesMatches: [SpeciesMatch] = []
     @State private var isClassifying = false
     @State private var autoSelectedFromML = false
-    @State private var usedAccurateModel = false
+    @State private var modelReady = false
+    @State private var hasScanned = false
 
     // Catch data
     @State private var selectedSpeciesId: Int64?
@@ -137,7 +137,8 @@ struct LogCatchView: View {
                                     Button {
                                         capturedImages.remove(at: index)
                                         if capturedImages.isEmpty {
-                                            mlPredictions = []
+                                            speciesMatches = []
+                                            hasScanned = false
                                         }
                                     } label: {
                                         Image(systemName: "xmark.circle.fill")
@@ -260,18 +261,27 @@ struct LogCatchView: View {
                     .font(.caption)
                 }
             } footer: {
-                if !usedAccurateModel {
-                    Text("Rough visual guess — the accurate AI model is still downloading (needs internet once). Re-scan later or pick manually below.")
-                } else if autoSelectedFromML {
+                if autoSelectedFromML {
                     Text("Auto-selected the top match. Tap to change, or pick manually below.")
                 }
             }
-        } else if !mlPredictions.isEmpty {
-            // Model returned labels that didn't map to a known species.
+        } else if hasScanned && !capturedImages.isEmpty {
             Section {
-                Text("Couldn't match a known species — pick it manually below.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                if modelReady {
+                    Text("No confident match — pick the species manually below.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("The AI model is still downloading (~90 MB, needs internet once).")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Button("Try again") {
+                            if let first = capturedImages.first { classifyImage(first) }
+                        }
+                        .font(.caption.bold())
+                    }
+                }
             } header: {
                 Label("AI Fish ID", systemImage: "sparkles")
             }
@@ -575,36 +585,18 @@ struct LogCatchView: View {
         isClassifying = true
         autoSelectedFromML = false
         Task {
+            // BioCLIP is the only identifier — the old artwork-similarity and
+            // Vision fallbacks produced junk guesses and were removed. Nudge
+            // the model download in case the launch attempt had no network.
+            await appState.fishModelDownloader.ensureModelDownloaded()
+
             let byId = Dictionary(uniqueKeysWithValues: allSpecies.map { ($0.id, $0) })
-            var matches: [SpeciesMatcher.Match] = []
-
-            // 1. BioCLIP embedding model (most accurate) — only if downloaded.
-            // Nudge the download in case the startup attempt had no network.
-            await appState.fishClassifier.downloadModelIfNeeded()
-            let embedRanked = await appState.embeddingIdentifier.identify(image: image)
-            matches = embedRanked.compactMap { r in
-                byId[r.speciesId].map { SpeciesMatcher.Match(species: $0, confidence: r.confidence) }
+            let ranked = await appState.embeddingIdentifier.identify(image: image)
+            speciesMatches = ranked.compactMap { r in
+                byId[r.speciesId].map { SpeciesMatch(species: $0, confidence: r.confidence) }
             }
-            usedAccurateModel = !matches.isEmpty
-
-            // 2. Visual similarity against the bundled species gallery (offline,
-            //    always available) — label space is exactly the app's species,
-            //    so it distinguishes gamefish (largemouth bass vs brook trout).
-            if matches.isEmpty {
-                let ranked = await appState.visualIdentifier.identify(image: image)
-                matches = ranked.compactMap { r in
-                    byId[r.speciesId].map { SpeciesMatcher.Match(species: $0, confidence: r.confidence) }
-                }
-            }
-
-            // 3. Last resort: Apple Vision classifier + name matcher.
-            if matches.isEmpty {
-                let predictions = (try? await appState.fishClassifier.classify(image: image)) ?? []
-                mlPredictions = predictions
-                matches = SpeciesMatcher.matches(for: predictions, in: allSpecies)
-            }
-
-            speciesMatches = matches
+            modelReady = await appState.fishModelDownloader.isModelAvailable
+            hasScanned = true
             isClassifying = false
 
             if let top = speciesMatches.first, selectedSpeciesId == nil {
@@ -681,7 +673,7 @@ struct LogCatchView: View {
             released: released,
             photoPath: photoPaths.first,
             photoPaths: Catch.encodePhotoPaths(photoPaths),
-            mlConfidence: mlPredictions.first.map { Double($0.confidence) },
+            mlConfidence: speciesMatches.first.map { Double($0.confidence) },
             forecastScoreAtCapture: forecast.score,
             gearLoadoutId: gearId,
             tripId: selectedTripId,
