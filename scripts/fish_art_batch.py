@@ -35,10 +35,13 @@ import time
 from io import BytesIO
 from pathlib import Path
 
+import numpy as np
 import requests
+from concurrent.futures import ThreadPoolExecutor
 from google import genai
 from google.genai import types
 from PIL import Image
+from scipy import ndimage
 
 # Reuse the exact post-processing + reference logic from the live pipeline so the
 # batch set is stylistically identical to the samples already approved.
@@ -49,11 +52,42 @@ from generate_fish_art import (
     facing_right,
     fetch_ref_bytes,
     has_png,
-    is_low_quality,
-    key_white_to_transparent,
     ref_url,
     write_imageset,
 )
+
+WORK_PX = 512   # downscale the 1024px render to here before keying (much faster)
+WORKERS = 12    # parallel facing-checks (I/O-bound Gemini-flash calls)
+
+
+def key_white(img: Image.Image) -> Image.Image:
+    """Flood the near-white background to transparent — vectorised (numpy+scipy),
+    ~100x faster than the pure-Python BFS. Labels near-white regions and drops
+    only the ones connected to the image border (the background, not white
+    bellies/spots enclosed by the fish outline)."""
+    img = img.convert("RGBA")
+    arr = np.array(img)
+    near_white = np.all(arr[..., :3] > 230, axis=-1)
+    lbl, _ = ndimage.label(near_white)
+    border = np.unique(np.concatenate([lbl[0, :], lbl[-1, :], lbl[:, 0], lbl[:, -1]]))
+    border = border[border != 0]
+    if border.size:
+        arr[..., 3][np.isin(lbl, border)] = 0
+    return Image.fromarray(arr, "RGBA")
+
+
+def is_low_quality(img: Image.Image) -> bool:
+    """Reject near-black or near-greyscale renders (the 'dark crappie' failure)."""
+    small = img.convert("RGBA").resize((48, 48))
+    a = np.asarray(small.getchannel("A"))
+    rgb = np.asarray(small.convert("RGB")).astype(np.int16)
+    m = a > 25
+    if m.sum() < 60:
+        return True
+    px = rgb[m]
+    lum = px.mean(axis=1).mean()
+    sat = (px.max(axis=1) - px.min(axis=1)).mean()
+    return lum < 48 or sat < 12
 
 MODEL = os.environ.get("GEMINI_MODEL") or "gemini-2.5-flash-image"
 OUT_PX = 320  # crisp on retina grids; generation cost is independent of this
@@ -196,15 +230,21 @@ def _fit_square(img: Image.Image, px: int) -> Image.Image:
     return canvas
 
 
-def _write(sid: int, raw: Image.Image, c: genai.Client) -> None:
-    # Decide orientation on the clean render, then key out white, flip, fit.
+def _process(sid: int, raw: Image.Image, c: genai.Client) -> bool:
+    """Full post-processing for one species: orientation (LLM) + key + flip + fit.
+    Runs inside a thread pool; only the disk write happens back on the main thread."""
+    work = raw.copy()
+    work.thumbnail((WORK_PX, WORK_PX), Image.LANCZOS)  # key on a smaller image → fast
+    keyed = key_white(work)
+    if is_low_quality(keyed):
+        return False
     right = faces_right_llm(raw, c)
-    img = key_white_to_transparent(raw)
     if right is None:  # LLM unavailable — fall back to the geometric guess
-        right = facing_right(img)
+        right = facing_right(keyed)
     if right:
-        img = img.transpose(Image.FLIP_LEFT_RIGHT)  # uniform: all face left
-    write_imageset(sid, _fit_square(img, OUT_PX))
+        keyed = keyed.transpose(Image.FLIP_LEFT_RIGHT)  # uniform: all face left
+    write_imageset(sid, _fit_square(keyed, OUT_PX))
+    return True
 
 
 def collect() -> None:
@@ -221,36 +261,50 @@ def collect() -> None:
     if state != "JOB_STATE_SUCCEEDED":
         raise SystemExit(f"Batch ended in {state}; inspect the job on Google's side.")
 
-    written = failed = 0
+    # 1. Gather all (sid, image) pairs from the batch results.
+    items: list[tuple[int, Image.Image]] = []
     dest = job.dest
 
-    def handle(key: str, response: dict) -> None:
-        nonlocal written, failed
+    def add(key, response) -> None:
         try:
             sid = int(key)
         except (TypeError, ValueError):
             return
         img = _extract_image(response)
-        if img is None or is_low_quality(key_white_to_transparent(img)):
-            failed += 1
-            print(f"  ! no/low image for fish_{key}")
-            return
-        _write(sid, img, c)
-        written += 1
+        if img is not None:
+            items.append((sid, img))
 
     if getattr(dest, "inlined_responses", None):
         for item in dest.inlined_responses:
             resp = item.response
             resp = resp.to_json_dict() if hasattr(resp, "to_json_dict") else resp
-            handle(getattr(item, "key", None) or (item.metadata or {}).get("key"), resp)
+            add(getattr(item, "key", None) or (item.metadata or {}).get("key"), resp)
     else:
         raw = c.files.download(file=dest.file_name)
         for line in raw.decode("utf-8").strip().split("\n"):
             if not line:
                 continue
             obj = json.loads(line)
-            key = obj.get("key") or (obj.get("metadata") or {}).get("key")
-            handle(key, obj.get("response") or {})
+            add(obj.get("key") or (obj.get("metadata") or {}).get("key"),
+                obj.get("response") or {})
+
+    print(f"{len(items)} images to post-process (parallel x{WORKERS}) …")
+
+    # 2. Post-process in parallel (the Gemini-flash facing-check is I/O-bound).
+    written = failed = 0
+    with ThreadPoolExecutor(max_workers=WORKERS) as pool:
+        futures = {pool.submit(_process, sid, img, c): sid for sid, img in items}
+        for i, fut in enumerate(futures, start=1):
+            sid = futures[fut]
+            try:
+                ok = fut.result()
+            except Exception as e:  # noqa: BLE001
+                ok = False
+                print(f"  ! fish_{sid}: {e}")
+            written += ok
+            failed += not ok
+            if i % 200 == 0:
+                print(f"  {i}/{len(items)} processed ({written} ok)")
 
     print(f"Collected: {written} written, {failed} missing/low.")
     remaining = sum(1 for s in json.loads(SEED_JSON.read_text()) if not has_png(int(s["id"])))

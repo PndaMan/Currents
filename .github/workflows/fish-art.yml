@@ -47,7 +47,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install dependencies
-        run: pip install requests pillow google-genai
+        run: pip install requests pillow google-genai numpy scipy
 
       - name: Run
         env:
