@@ -442,6 +442,33 @@ jobs:
           fi
           echo "Bundle ID resource: $BUNDLE_ID_RESOURCE"
 
+          # Make sure the App ID has the iCloud capability. (Assigning the
+          # actual container to the App ID is portal-UI-only — the public API
+          # can't do it — so the entitlements-alignment step below keeps the
+          # archive working either way.)
+          CAPS=$(curl -s -H "Authorization: Bearer $JWT" \
+            "https://api.appstoreconnect.apple.com/v1/bundleIds/$BUNDLE_ID_RESOURCE/bundleIdCapabilities")
+          echo "App ID capabilities: $(echo "$CAPS" | python3 -c "
+          import json, sys
+          print([c['attributes'].get('capabilityType') for c in json.load(sys.stdin).get('data', [])])
+          ")"
+          if ! echo "$CAPS" | grep -q '"ICLOUD"'; then
+            echo "Enabling ICLOUD capability on the App ID..."
+            python3 - "$BUNDLE_ID_RESOURCE" <<'PYSCRIPT' > /tmp/icloud_cap.json
+          import json, sys
+          print(json.dumps({"data": {"type": "bundleIdCapabilities", "attributes": {
+              "capabilityType": "ICLOUD",
+              "settings": [{"key": "ICLOUD_VERSION", "options": [{"key": "XCODE_6"}]}]
+          }, "relationships": {"bundleId": {"data": {"id": sys.argv[1], "type": "bundleIds"}}}}}))
+          PYSCRIPT
+            curl -s -X POST \
+              -H "Authorization: Bearer $JWT" \
+              -H "Content-Type: application/json" \
+              "https://api.appstoreconnect.apple.com/v1/bundleIdCapabilities" \
+              -d @/tmp/icloud_cap.json | head -c 400 || true
+            echo
+          fi
+
           # Get the freshly-created Distribution cert ID
           DIST_CERT_ID=$(curl -s -H "Authorization: Bearer $JWT" \
             "https://api.appstoreconnect.apple.com/v1/certificates?filter%5BcertificateType%5D=DISTRIBUTION" \
@@ -522,6 +549,39 @@ jobs:
           PROFILE_NAME=$(sed -n '2p' /tmp/profile_meta)
           echo "PROFILE_UUID=$PROFILE_UUID" >> $GITHUB_ENV
           echo "PROFILE_NAME=$PROFILE_NAME" >> $GITHUB_ENV
+
+      - name: Align entitlements with provisioning profile
+        run: |
+          set -euo pipefail
+          # The profile is generated fresh each run, so it carries exactly the
+          # entitlements the App ID supports. If the App ID doesn't have the
+          # iCloud container assigned yet (portal-UI-only), archiving with the
+          # iCloud entitlements fails — strip them for this archive so the
+          # TestFlight upload still succeeds. Once the container is assigned
+          # in the portal, the profile picks it up and the entitlements stay.
+          security cms -D -i ~/Library/MobileDevice/"Provisioning Profiles"/${PROFILE_UUID}.mobileprovision > /tmp/profile_decoded.plist
+          python3 <<'PYSCRIPT'
+          import plistlib
+          prof = plistlib.load(open('/tmp/profile_decoded.plist', 'rb'))
+          ents = prof.get('Entitlements', {})
+          containers = ents.get('com.apple.developer.icloud-container-identifiers') or []
+          print('Profile iCloud containers:', containers)
+          ent_path = 'Currents/App/Currents.entitlements'
+          app = plistlib.load(open(ent_path, 'rb'))
+          if 'iCloud.com.aidanmcconnon.currents' in containers:
+              print('Profile carries the iCloud container - keeping full entitlements.')
+          else:
+              removed = [k for k in list(app) if 'icloud' in k or 'ubiquity' in k]
+              for k in removed:
+                  del app[k]
+              with open(ent_path, 'wb') as f:
+                  plistlib.dump(app, f)
+              print('WARNING: profile has NO iCloud container - archiving WITHOUT:', removed)
+              print('iCloud backup will be inactive in this build. To restore it:')
+              print('developer.apple.com > Identifiers > com.aidanmcconnon.currents >')
+              print('iCloud > assign container iCloud.com.aidanmcconnon.currents.')
+              print('The next master build will then include iCloud automatically.')
+          PYSCRIPT
 
       - name: Resolve packages
         run: |
