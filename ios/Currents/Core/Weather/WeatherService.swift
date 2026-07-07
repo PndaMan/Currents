@@ -22,6 +22,11 @@ actor WeatherService {
         let humidity: Int
         let uvIndex: Double
         let fetchedAt: Date
+        /// True when pressure came from the on-device barometer (offline
+        /// fallback) rather than the weather service — less accurate absolute
+        /// value, but a real local trend. Optional so older cached JSON (which
+        /// predates this field) still decodes.
+        var pressureIsEstimated: Bool?
     }
 
     struct HourlyForecast: Sendable {
@@ -145,8 +150,51 @@ actor WeatherService {
             persistToDisk()
             return weather
         } catch {
-            return cache[key]?.data
+            // Offline: prefer the last cached reading, but if its pressure is
+            // stale, overlay a live on-device barometer reading so the bite
+            // forecast still reflects the current local pressure trend.
+            return Self.withBarometerFallback(cache[key]?.data)
         }
+    }
+
+    /// If a fresh barometer snapshot exists, splice its pressure + trend into
+    /// the (possibly stale or missing) cached weather so the forecast has a
+    /// real, current pressure signal offline.
+    nonisolated static func withBarometerFallback(_ cached: WeatherData?) -> WeatherData? {
+        guard let snap = BarometerService.recentSnapshot() else { return cached }
+        if let c = cached {
+            return WeatherData(
+                pressureHpa: snap.pressureHpa,
+                pressureChange6h: snap.change6h,
+                temperatureC: c.temperatureC,
+                waterTempC: c.waterTempC,
+                windSpeedKmh: c.windSpeedKmh,
+                windDirectionDeg: c.windDirectionDeg,
+                cloudCoverPct: c.cloudCoverPct,
+                precipMm: c.precipMm,
+                condition: c.condition,
+                humidity: c.humidity,
+                uvIndex: c.uvIndex,
+                fetchedAt: c.fetchedAt,
+                pressureIsEstimated: true
+            )
+        }
+        // No cache at all — pressure-only reading (temps/wind unknown).
+        return WeatherData(
+            pressureHpa: snap.pressureHpa,
+            pressureChange6h: snap.change6h,
+            temperatureC: 20,
+            waterTempC: nil,
+            windSpeedKmh: 0,
+            windDirectionDeg: 0,
+            cloudCoverPct: 50,
+            precipMm: 0,
+            condition: "clear",
+            humidity: 50,
+            uvIndex: 0,
+            fetchedAt: Date(timeIntervalSince1970: UserDefaults.standard.double(forKey: BarometerService.updatedKey)),
+            pressureIsEstimated: true
+        )
     }
 
     /// Per-day weather for the next 7 days (index 0 = today), aggregated from

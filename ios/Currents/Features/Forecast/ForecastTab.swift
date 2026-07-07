@@ -243,6 +243,13 @@ struct ForecastTab: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+
+            if weather.pressureIsEstimated == true {
+                Label("From device barometer (offline) — trend accurate, absolute value approximate",
+                      systemImage: "gauge.with.dots.needle.bottom.50percent")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
         }
         .glassCard()
     }

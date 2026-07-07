@@ -28,6 +28,8 @@
 	<string>Take photos of your catches for logging and fish identification.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Select photos of your catches from your library.</string>
+	<key>NSMotionUsageDescription</key>
+	<string>Currents reads the barometer to estimate local air pressure for the bite forecast when you're offline.</string>
 	<key>UIUserInterfaceStyle</key>
 	<string>Dark</string>
 	<key>ITSAppUsesNonExemptEncryption</key>

@@ -270,8 +270,8 @@ struct ProfileTab: View {
                 snapshots = await FileBackup.shared.snapshots()
 
                 // Track badge count for new-badge notification
-                let streakDays = BadgeDefinition.streakDays(from: catches)
-                let allBadges = BadgeDefinition.compute(from: catches, streakDays: streakDays)
+                let streakWeeks = BadgeDefinition.streakWeeks(from: catches)
+                let allBadges = BadgeDefinition.compute(from: catches, streakWeeks: streakWeeks)
                 let earnedCount = allBadges.filter(\.earned).count
                 if previousBadgeCount > 0 && earnedCount > previousBadgeCount {
                     // A new badge was earned

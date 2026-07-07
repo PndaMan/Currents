@@ -34,7 +34,7 @@ struct BadgeDefinition {
     let rarity: BadgeRarity
     let earned: Bool
 
-    static func compute(from catches: [CatchDetail], streakDays: Int) -> [BadgeDefinition] {
+    static func compute(from catches: [CatchDetail], streakWeeks: Int) -> [BadgeDefinition] {
         let total = catches.count
         let species = Set(catches.compactMap { $0.species?.id }).count
         let spots = Set(catches.compactMap { $0.spot?.id }).count
@@ -57,7 +57,7 @@ struct BadgeDefinition {
             BadgeDefinition(icon: "leaf.fill", title: "5 Species", rarity: .uncommon, earned: species >= 5),
             BadgeDefinition(icon: "globe.americas.fill", title: "Explorer", rarity: .uncommon, earned: spots >= 3),
             BadgeDefinition(icon: "camera.fill", title: "Photographer", rarity: .uncommon, earned: withPhoto >= 10),
-            BadgeDefinition(icon: "flame.fill", title: "Hot Streak", rarity: .uncommon, earned: streakDays >= 3),
+            BadgeDefinition(icon: "flame.fill", title: "Hot Streak", rarity: .uncommon, earned: streakWeeks >= 2),
             BadgeDefinition(icon: "arrow.uturn.backward.circle.fill", title: "Conservationist", rarity: .uncommon, earned: released >= 10),
 
             // Rare
@@ -73,7 +73,7 @@ struct BadgeDefinition {
             BadgeDefinition(icon: "scalemass", title: "Heavy Hitter", rarity: .rare, earned: heaviest >= 5),
             BadgeDefinition(icon: "ruler", title: "Long One", rarity: .rare, earned: longest >= 50),
             BadgeDefinition(icon: "leaf.fill", title: "Diversified", rarity: .rare, earned: species >= 10),
-            BadgeDefinition(icon: "flame.fill", title: "On Fire", rarity: .rare, earned: streakDays >= 7),
+            BadgeDefinition(icon: "flame.fill", title: "On Fire", rarity: .rare, earned: streakWeeks >= 4),
 
             // Epic
             BadgeDefinition(icon: "crown.fill", title: "Century", rarity: .epic, earned: total >= 100),
@@ -86,29 +86,39 @@ struct BadgeDefinition {
             // Legendary
             BadgeDefinition(icon: "sparkles", title: "500 Club", rarity: .legendary, earned: total >= 500),
             BadgeDefinition(icon: "crown.fill", title: "Species Master", rarity: .legendary, earned: species >= 25),
-            BadgeDefinition(icon: "flame.fill", title: "Unstoppable", rarity: .legendary, earned: streakDays >= 30),
+            BadgeDefinition(icon: "flame.fill", title: "Unstoppable", rarity: .legendary, earned: streakWeeks >= 12),
             BadgeDefinition(icon: "scalemass", title: "Trophy Hunter", rarity: .legendary, earned: heaviest >= 30),
         ]
     }
 
-    static func streakDays(from catches: [CatchDetail]) -> Int {
+    /// Consecutive-week fishing streak: the number of back-to-back weeks
+    /// (each Mon–Sun) in which at least one catch was logged, counting back
+    /// from this week. Daily streaks were effectively unreachable — you had to
+    /// fish every single day — so the streak is weekly: it stays alive as long
+    /// as you fish at least once a week.
+    static func streakWeeks(from catches: [CatchDetail]) -> Int {
         let calendar = Calendar.current
-        let dates = Set(catches.map { calendar.startOfDay(for: $0.catchRecord.caughtAt) })
-        guard !dates.isEmpty else { return 0 }
+        func weekStart(_ date: Date) -> Date {
+            calendar.dateInterval(of: .weekOfYear, for: date)?.start
+                ?? calendar.startOfDay(for: date)
+        }
+        let weeks = Set(catches.map { weekStart($0.catchRecord.caughtAt) })
+        guard !weeks.isEmpty else { return 0 }
 
-        let sorted = dates.sorted(by: >)
-        let today = calendar.startOfDay(for: .now)
+        let sorted = weeks.sorted(by: >)
+        let thisWeek = weekStart(.now)
 
-        guard let first = sorted.first,
-              let dayDiff = calendar.dateComponents([.day], from: first, to: today).day,
-              dayDiff <= 1 else {
+        // Active only if the most recent catch week is this week or last week.
+        guard let mostRecent = sorted.first,
+              let gap = calendar.dateComponents([.day], from: mostRecent, to: thisWeek).day,
+              gap <= 7 else {
             return 0
         }
 
         var streak = 1
         for i in 1..<sorted.count {
-            guard let diff = calendar.dateComponents([.day], from: sorted[i], to: sorted[i-1]).day else { break }
-            if diff <= 1 {
+            guard let diff = calendar.dateComponents([.day], from: sorted[i], to: sorted[i - 1]).day else { break }
+            if diff == 7 {
                 streak += 1
             } else {
                 break
@@ -121,20 +131,20 @@ struct BadgeDefinition {
 struct FishingStreakView: View {
     let catches: [CatchDetail]
 
-    private var streakDays: Int {
-        BadgeDefinition.streakDays(from: catches)
+    private var streakWeeks: Int {
+        BadgeDefinition.streakWeeks(from: catches)
     }
 
     var body: some View {
-        if streakDays > 0 {
+        if streakWeeks > 0 {
             HStack(spacing: 8) {
                 Image(systemName: "flame.fill")
                     .foregroundStyle(CurrentsTheme.accent)
                     .font(.title3)
                 VStack(alignment: .leading) {
-                    Text("\(streakDays)-day fishing streak!")
+                    Text("\(streakWeeks)-week fishing streak!")
                         .font(.subheadline.bold())
-                    Text("Keep it going")
+                    Text(streakWeeks == 1 ? "Fish again next week to keep it" : "Keep it going")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -146,12 +156,12 @@ struct FishingStreakView: View {
 struct BadgesGridView: View {
     let catches: [CatchDetail]
 
-    private var streakDays: Int {
-        BadgeDefinition.streakDays(from: catches)
+    private var streakWeeks: Int {
+        BadgeDefinition.streakWeeks(from: catches)
     }
 
     private var allBadges: [BadgeDefinition] {
-        BadgeDefinition.compute(from: catches, streakDays: streakDays)
+        BadgeDefinition.compute(from: catches, streakWeeks: streakWeeks)
     }
 
     private var earnedBadges: [BadgeDefinition] {

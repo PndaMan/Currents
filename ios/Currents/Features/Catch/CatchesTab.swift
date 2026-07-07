@@ -77,7 +77,7 @@ struct CatchesTab: View {
                             .listRowInsets(EdgeInsets())
 
                         // Streak (only shown when active)
-                        if BadgeDefinition.streakDays(from: catches) > 0 {
+                        if BadgeDefinition.streakWeeks(from: catches) > 0 {
                             FishingStreakView(catches: catches)
                                 .listRowBackground(Color.clear)
                                 .listRowInsets(EdgeInsets())

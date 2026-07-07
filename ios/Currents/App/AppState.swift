@@ -55,6 +55,10 @@ final class AppState {
             await GearCatalogSync.syncIfDue(db: db)
         }
 
+        // Start logging on-device barometric pressure so the bite forecast has
+        // a real local pressure trend even with no signal.
+        BarometerService.shared.start()
+
         locationManager.requestPermission()
         mapManager.refreshDownloadedRegions()
     }

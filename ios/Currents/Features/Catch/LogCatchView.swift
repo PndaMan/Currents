@@ -109,6 +109,13 @@ struct LogCatchView: View {
             .sheet(isPresented: $showingLocationPicker) {
                 LocationPickerSheet(coordinate: $pinCoordinate)
             }
+            .fullScreenCover(isPresented: $showingCamera) {
+                CameraPicker { image in
+                    capturedImages.append(image)
+                    if speciesMatches.isEmpty { classifyImage(image) }
+                }
+                .ignoresSafeArea()
+            }
             .alert("New Spot", isPresented: $showingNewSpot) {
                 TextField("Spot name", text: $newSpotName)
                 Button("Save") { saveNewSpot() }
@@ -150,18 +157,16 @@ struct LogCatchView: View {
                                 }
                         }
 
-                        // Add more photos button
-                        PhotosPicker(selection: $selectedPhotos, maxSelectionCount: 10, matching: .images) {
-                            VStack {
-                                Image(systemName: "plus.circle")
-                                    .font(.title2)
-                                Text("Add")
-                                    .font(.caption)
+                        // Add more — camera
+                        if UIImagePickerController.isSourceTypeAvailable(.camera) {
+                            Button { showingCamera = true } label: {
+                                addTile(icon: "camera", label: "Camera")
                             }
-                            .foregroundStyle(.secondary)
-                            .frame(width: 120, height: 120)
-                            .background(.ultraThinMaterial)
-                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                            .buttonStyle(.plain)
+                        }
+                        // Add more — library
+                        PhotosPicker(selection: $selectedPhotos, maxSelectionCount: 10, matching: .images) {
+                            addTile(icon: "photo.on.rectangle", label: "Library")
                         }
                     }
                     .padding(.vertical, 4)
@@ -176,11 +181,28 @@ struct LogCatchView: View {
                     }
                 }
             } else {
+                // Camera-first: lead with Take Photo, keep Choose Photos.
+                if UIImagePickerController.isSourceTypeAvailable(.camera) {
+                    Button { showingCamera = true } label: {
+                        Label("Take Photo", systemImage: "camera.fill")
+                    }
+                }
                 PhotosPicker(selection: $selectedPhotos, maxSelectionCount: 10, matching: .images) {
                     Label("Choose Photos", systemImage: "photo.on.rectangle")
                 }
             }
         }
+    }
+
+    private func addTile(icon: String, label: String) -> some View {
+        VStack {
+            Image(systemName: icon).font(.title2)
+            Text(label).font(.caption)
+        }
+        .foregroundStyle(.secondary)
+        .frame(width: 120, height: 120)
+        .background(.ultraThinMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 12))
     }
 
     // MARK: - ML Section
@@ -1034,4 +1056,41 @@ struct SpeciesPickerSheet: View {
         }
     }
 
+}
+
+// MARK: - Camera Picker
+
+/// Full-screen system camera for capturing a catch photo directly, so users
+/// aren't forced through the photo library.
+struct CameraPicker: UIViewControllerRepresentable {
+    var onCapture: (UIImage) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    func makeUIViewController(context: Context) -> UIImagePickerController {
+        let picker = UIImagePickerController()
+        picker.sourceType = .camera
+        picker.delegate = context.coordinator
+        return picker
+    }
+
+    func updateUIViewController(_ uiViewController: UIImagePickerController, context: Context) {}
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    final class Coordinator: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
+        let parent: CameraPicker
+        init(_ parent: CameraPicker) { self.parent = parent }
+
+        func imagePickerController(_ picker: UIImagePickerController,
+                                   didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
+            if let image = info[.originalImage] as? UIImage {
+                parent.onCapture(image)
+            }
+            parent.dismiss()
+        }
+
+        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
+            parent.dismiss()
+        }
+    }
 }
