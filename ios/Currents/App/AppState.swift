@@ -59,6 +59,10 @@ final class AppState {
         // a real local pressure trend even with no signal.
         BarometerService.shared.start()
 
+        // Load size/bag-limit regulations (embedded now, refreshed weekly).
+        RegulationsService.shared.load()
+        Task { await RegulationsService.shared.syncIfDue() }
+
         locationManager.requestPermission()
         mapManager.refreshDownloadedRegions()
     }

@@ -80,6 +80,9 @@ struct CatchDetailView: View {
                     }
                 }
 
+                // Size/bag-limit compliance (when a regulation is on file)
+                regulationBadge
+
                 // Location — full-width map with spot overlay
                 locationCard
 
@@ -319,6 +322,45 @@ struct CatchDetailView: View {
             (try? appState.gearRepository.fetchAll())?.first { $0.id == id }
         }
         isFavorite = record.isFavorite
+    }
+
+    @ViewBuilder
+    private var regulationBadge: some View {
+        let result = RegulationsService.shared.verdict(
+            species: detail.species,
+            lengthCm: detail.catchRecord.lengthCm
+        )
+        if let reg = result.reg {
+            let (icon, tint, text): (String, Color, String) = {
+                switch result.verdict {
+                case .legal:
+                    return ("checkmark.seal.fill", .green, "Legal size to keep in \(reg.region)")
+                case .tooSmall(let mn):
+                    return ("xmark.seal.fill", .red, "Undersized — \(reg.commonName) minimum is \(Int(mn)) cm in \(reg.region)")
+                case .tooBig(let mx):
+                    return ("xmark.seal.fill", .red, "Over slot — \(reg.commonName) maximum is \(Int(mx)) cm in \(reg.region)")
+                case .unknownSize:
+                    return ("questionmark.circle", .secondary, "Add a length to check against the \(reg.region) limit")
+                case .noRegulation:
+                    return ("info.circle", .secondary, "")
+                }
+            }()
+            VStack(alignment: .leading, spacing: 4) {
+                Label(text, systemImage: icon)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(tint)
+                if let bag = reg.bagLimit {
+                    Text("Bag limit \(bag) per person/day\(reg.closedSeason.map { " · \($0)" } ?? "")")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                Text("Informational — confirm current local rules.")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .glassCard()
+        }
     }
 
     private func measureCell(value: String, unit: String, label: String, icon: String) -> some View {

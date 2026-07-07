@@ -1,0 +1,93 @@
+[
+ {
+  "scientificName": "Argyrosomus japonicus",
+  "commonName": "Dusky Kob",
+  "region": "South Africa",
+  "minSizeCm": 60,
+  "bagLimit": 1,
+  "notes": "One per person per day, minimum 60 cm."
+ },
+ {
+  "scientificName": "Lichia amia",
+  "commonName": "Garrick / Leervis",
+  "region": "South Africa",
+  "minSizeCm": 70,
+  "bagLimit": 2,
+  "notes": "Minimum 70 cm, bag limit 2."
+ },
+ {
+  "scientificName": "Pomatomus saltatrix",
+  "commonName": "Elf / Shad",
+  "region": "South Africa",
+  "minSizeCm": 30,
+  "bagLimit": 4,
+  "closedSeason": "Closed 1 Oct - 30 Nov",
+  "notes": "Minimum 30 cm, bag 4, seasonal closure."
+ },
+ {
+  "scientificName": "Rhabdosargus holubi",
+  "commonName": "Cape Stumpnose",
+  "region": "South Africa",
+  "minSizeCm": 25,
+  "bagLimit": 10,
+  "notes": "Minimum 25 cm."
+ },
+ {
+  "scientificName": "Diplodus capensis",
+  "commonName": "Blacktail / Dassie",
+  "region": "South Africa",
+  "minSizeCm": 20,
+  "bagLimit": 5
+ },
+ {
+  "scientificName": "Sarpa salpa",
+  "commonName": "Strepie",
+  "region": "South Africa",
+  "minSizeCm": 15,
+  "bagLimit": 10
+ },
+ {
+  "scientificName": "Chrysoblephus laticeps",
+  "commonName": "Roman",
+  "region": "South Africa",
+  "minSizeCm": 30,
+  "bagLimit": 2,
+  "notes": "Endemic reef fish - slow growing; handle with care."
+ },
+ {
+  "scientificName": "Cymatoceps nasutus",
+  "commonName": "Black Musselcracker (Poenskop)",
+  "region": "South Africa",
+  "minSizeCm": 50,
+  "bagLimit": 1,
+  "notes": "One per day, minimum 50 cm."
+ },
+ {
+  "scientificName": "Sparodon durbanensis",
+  "commonName": "White Musselcracker",
+  "region": "South Africa",
+  "minSizeCm": 60,
+  "bagLimit": 1
+ },
+ {
+  "scientificName": "Thunnus albacares",
+  "commonName": "Yellowfin Tuna",
+  "region": "South Africa",
+  "bagLimit": 10,
+  "notes": "Recreational bag limit 10 (all tuna/bonito combined)."
+ },
+ {
+  "scientificName": "Seriola lalandi",
+  "commonName": "Yellowtail",
+  "region": "South Africa",
+  "bagLimit": 10,
+  "notes": "Bag limit 10."
+ },
+ {
+  "scientificName": "Argyrozona argyrozona",
+  "commonName": "Carpenter / Silverfish",
+  "region": "South Africa",
+  "minSizeCm": 35,
+  "bagLimit": 4
+ }
+]

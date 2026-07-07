@@ -160,6 +160,12 @@ struct ProfileTab: View {
                     } label: {
                         Label("Knots & Rigs", systemImage: "link")
                     }
+
+                    NavigationLink {
+                        RegulationsView()
+                    } label: {
+                        Label("Size & Bag Limits", systemImage: "ruler")
+                    }
                 }
 
                 // Settings
