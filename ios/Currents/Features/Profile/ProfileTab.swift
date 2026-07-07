@@ -154,6 +154,12 @@ struct ProfileTab: View {
                     } label: {
                         Label("Gear & Tackle", systemImage: "wrench.and.screwdriver.fill")
                     }
+
+                    NavigationLink {
+                        KnotLibraryView()
+                    } label: {
+                        Label("Knots & Rigs", systemImage: "link")
+                    }
                 }
 
                 // Settings
