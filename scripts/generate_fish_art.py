@@ -87,6 +87,36 @@ INSTRUCTION = (
     "fish."
 )
 
+# Per-species shape hints for morphologically unusual fish. The generic
+# "side profile, head left, tail right" instruction makes the model normalise
+# oddly-shaped species (an ocean sunfish, an oarfish, a manta) into an ordinary
+# torpedo fish. Keyed by species id; the text is appended to the base prompt.
+SHAPE_OVERRIDES = {
+    284: (  # Ocean Sunfish (Mola mola)
+        " IMPORTANT: this is an ocean sunfish (Mola mola). Draw its unmistakable "
+        "tall, flattened, almost circular disc-shaped body, a very tall triangular "
+        "dorsal fin on top and an equally tall matching anal fin below, and NO "
+        "normal tail — instead a short frilly rounded rudder (clavus) at the back. "
+        "It must NOT look like an ordinary torpedo-shaped fish."
+    ),
+    1563: (  # Giant Oarfish
+        " IMPORTANT: this is a giant oarfish (Regalecus glesne). Draw an extremely "
+        "long, thin, flat silver ribbon-like body with a bright red dorsal fin "
+        "running the entire length and long trailing red pelvic-fin rays near the "
+        "head."
+    ),
+    1567: (  # Giant Manta Ray
+        " IMPORTANT: this is a giant manta ray (Mobula birostris). Draw it from a "
+        "top-down/oblique view showing its huge flat diamond-shaped wings, two "
+        "cephalic head-fins, and a long thin whip tail — NOT a normal fish body."
+    ),
+}
+
+
+def prompt_for(sp: dict) -> str:
+    return INSTRUCTION + SHAPE_OVERRIDES.get(int(sp["id"]), "")
+
+
 # Reference photo: iNaturalist URL when present, else the bundled thumbnail on
 # master (raw GitHub) for the original curated species.
 GITHUB_RAW = (
@@ -379,10 +409,11 @@ def generate_one(sp: dict, force: bool, api_key: str, provider: str) -> bool:
     if has_png(sid) and not force:
         return True
     ref = ref_url(sp)
+    prompt = prompt_for(sp)
     last: Image.Image | None = None
     for attempt in range(4):
         try:
-            raw = edit_image(INSTRUCTION, ref, api_key, provider)
+            raw = edit_image(prompt, ref, api_key, provider)
             if raw is not None:
                 img = key_white_to_transparent(raw)
                 if facing_right(img):
