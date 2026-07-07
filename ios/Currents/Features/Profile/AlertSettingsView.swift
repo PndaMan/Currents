@@ -6,6 +6,7 @@ struct AlertSettingsView: View {
     @Environment(AppState.self) private var appState
     @AppStorage("alertsEnabled") private var alertsEnabled = false
     @AppStorage("alertThreshold") private var alertThreshold = 75.0
+    @AppStorage("primeWindowAlerts") private var primeWindowAlerts = false
 
     @State private var permissionStatus: UNAuthorizationStatus = .notDetermined
     @State private var spots: [Spot] = []
@@ -39,10 +40,16 @@ struct AlertSettingsView: View {
                         }
                     }
                 }
+                Toggle("Prime-Window Heads-Up", isOn: $primeWindowAlerts)
+                    .tint(CurrentsTheme.accent)
+                    .disabled(permissionStatus != .authorized)
+                    .onChange(of: primeWindowAlerts) { _, _ in
+                        Task { await reschedulePrimeWindows() }
+                    }
             } header: {
                 Text("Notifications")
             } footer: {
-                Text("When enabled, Currents checks your saved spots and notifies you when conditions produce a high bite score. All processing happens on-device.")
+                Text("Bite Alerts notify you when a spot is firing right now. Prime-Window Heads-Up looks ahead and pings you ~45 minutes before the best feeding window at your spots over the next day. All processing happens on-device.")
             }
 
             // MARK: - Threshold Slider
@@ -110,7 +117,15 @@ struct AlertSettingsView: View {
             permissionStatus = await NotificationManager.shared.checkPermissionStatus()
             spots = (try? appState.spotRepository.fetchAll()) ?? []
             await loadScores()
+            await reschedulePrimeWindows()
         }
+    }
+
+    private func reschedulePrimeWindows() async {
+        guard primeWindowAlerts, permissionStatus == .authorized else { return }
+        await NotificationManager.shared.schedulePrimeWindowAlerts(
+            spots: spots, using: WeatherService.shared
+        )
     }
 
     // MARK: - Spot Row

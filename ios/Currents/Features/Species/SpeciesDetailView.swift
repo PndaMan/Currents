@@ -6,6 +6,7 @@ struct SpeciesDetailView: View {
     let species: Species
     @State private var catches: [CatchDetail] = []
     @State private var personalBest: PersonalBest?
+    @State private var info: SpeciesInfoService.Info?
 
     var body: some View {
         ScrollView {
@@ -69,6 +70,11 @@ struct SpeciesDetailView: View {
                 // Tips
                 tipsCard
 
+                // Field-guide info (iNaturalist): description, status, links
+                if info != nil {
+                    aboutCard
+                }
+
                 // Best gear — only when at least one catch was logged with gear
                 if !gearCatches.isEmpty {
                     bestGearCard
@@ -82,7 +88,71 @@ struct SpeciesDetailView: View {
             catches = (try? appState.catchRepository.fetchForSpecies(species.id)) ?? []
             let pbs = (try? appState.catchRepository.personalBests()) ?? []
             personalBest = pbs.first(where: { $0.speciesId == species.id })
+            info = await SpeciesInfoService.shared.info(scientificName: species.scientificName)
         }
+    }
+
+    @ViewBuilder
+    private var aboutCard: some View {
+        if let info {
+            VStack(alignment: .leading, spacing: 10) {
+                SectionHeaderView(title: "About", systemImage: "book")
+
+                if let status = info.conservationStatus, !status.isEmpty {
+                    Label(status.capitalized, systemImage: "leaf.circle")
+                        .font(.caption.bold())
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 4)
+                        .background(.ultraThinMaterial, in: Capsule())
+                        .foregroundStyle(conservationColor(status))
+                }
+
+                if let summary = info.summary, !summary.isEmpty {
+                    Text(summary)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(8)
+                }
+
+                HStack(spacing: 12) {
+                    if let count = info.observationsCount {
+                        Label("\(count.formatted()) sightings", systemImage: "eye")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    if let wiki = info.wikipediaURL, let url = URL(string: wiki) {
+                        Link(destination: url) {
+                            Label("Wikipedia", systemImage: "arrow.up.right.square")
+                                .font(.caption)
+                        }
+                    }
+                }
+
+                if let taxonId = info.taxonId {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Distribution")
+                            .font(.subheadline.bold())
+                        SpeciesRangeMapView(taxonId: taxonId)
+                            .frame(height: 180)
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                        Text("Where this species is observed worldwide (iNaturalist).")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.top, 4)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .glassCard()
+        }
+    }
+
+    private func conservationColor(_ status: String) -> Color {
+        let s = status.lowercased()
+        if s.contains("least") { return .green }
+        if s.contains("near") || s.contains("vulnerable") { return .orange }
+        if s.contains("endangered") || s.contains("critical") { return .red }
+        return .secondary
     }
 
     private var habitatColor: Color {

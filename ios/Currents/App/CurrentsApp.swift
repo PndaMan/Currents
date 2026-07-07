@@ -17,6 +17,15 @@ struct CurrentsApp: App {
             // Daily automatic backup, kicked off when the app is backgrounded.
             if phase == .background {
                 AutoBackup.runIfDue(db: appState.db)
+                // Refresh look-ahead prime-window alerts for saved spots.
+                if UserDefaults.standard.bool(forKey: "primeWindowAlerts") {
+                    let spots = (try? appState.spotRepository.fetchAll()) ?? []
+                    Task {
+                        await NotificationManager.shared.schedulePrimeWindowAlerts(
+                            spots: spots, using: WeatherService.shared
+                        )
+                    }
+                }
             }
         }
     }

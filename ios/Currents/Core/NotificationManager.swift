@@ -81,6 +81,70 @@ final class NotificationManager: @unchecked Sendable {
         }
     }
 
+    // MARK: - Prime-window (look-ahead) alerts
+
+    /// Schedule a heads-up notification before the best feeding window over the
+    /// next day at each saved spot, so anglers can plan. Opt-in via the
+    /// "primeWindowAlerts" setting. Unlike `scheduleSpotAlerts` (which fires
+    /// when conditions are good *now*), this looks ahead using the solunar +
+    /// forecast engine and fires ~45 min before the window.
+    func schedulePrimeWindowAlerts(spots: [Spot], using weatherService: WeatherService) async {
+        guard UserDefaults.standard.bool(forKey: "primeWindowAlerts") else { return }
+        // Clear previous look-ahead alerts so we don't stack duplicates.
+        let existing = await center.pendingNotificationRequests()
+        let staleIDs = existing.map(\.identifier).filter { $0.hasPrefix("prime_") }
+        center.removePendingNotificationRequests(withIdentifiers: staleIDs)
+
+        let threshold = UserDefaults.standard.integer(forKey: "alertThreshold")
+        let minScore = threshold > 0 ? threshold : 70
+        let now = Date()
+
+        // Look at the best window across today (remaining) and tomorrow.
+        for spot in spots.prefix(10) {
+            let coordinate = CLLocationCoordinate2D(latitude: spot.latitude, longitude: spot.longitude)
+            let weather = await weatherService.current(for: coordinate)
+
+            var best: (window: SolunarEngine.FeedingWindow, score: Int)?
+            for dayOffset in 0...1 {
+                guard let date = Calendar.current.date(byAdding: .day, value: dayOffset, to: now) else { continue }
+                let result = ForecastEngine.forecast(
+                    date: date,
+                    coordinate: coordinate,
+                    currentPressureHpa: weather?.pressureHpa,
+                    pressureChange6h: weather?.pressureChange6h,
+                    waterTempC: weather?.waterTempC,
+                    windSpeedKmh: weather?.windSpeedKmh,
+                    windDirection: weather?.windDirectionDeg,
+                    species: nil,
+                    isInSpawningZone: false
+                )
+                for window in result.feedingWindows where window.start > now.addingTimeInterval(3600) {
+                    // Score at the window's peak hour.
+                    let peakHour = Calendar.current.component(.hour, from: window.peak)
+                    let score = result.hourlyScores.first(where: { $0.hour == peakHour })?.score ?? result.score
+                    if score >= minScore, best == nil || score > best!.score {
+                        best = (window, score)
+                    }
+                }
+            }
+
+            guard let best else { continue }
+            let fireDate = best.window.start.addingTimeInterval(-45 * 60)
+            guard fireDate > now else { continue }
+
+            let content = UNMutableNotificationContent()
+            content.title = "Prime bite window at \(spot.name)"
+            let timeStr = best.window.start.formatted(date: .omitted, time: .shortened)
+            content.body = "\(best.window.kind.rawValue) — score \(best.score)/100 around \(timeStr). Get ready!"
+            content.sound = .default
+
+            let comps = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: fireDate)
+            let trigger = UNCalendarNotificationTrigger(dateMatching: comps, repeats: false)
+            let request = UNNotificationRequest(identifier: "prime_\(spot.id)", content: content, trigger: trigger)
+            try? await center.add(request)
+        }
+    }
+
     // MARK: - Cleanup
 
     /// Remove all pending notification requests.

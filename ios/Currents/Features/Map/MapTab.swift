@@ -46,6 +46,11 @@ struct MapTab: View {
     @State private var waterbodyDebounceTask: Task<Void, Never>?
     @State private var currentLatSpan: Double = 1.0
     @State private var lastMapCenter: CLLocationCoordinate2D?
+    // Optional overlay layers — off by default, toggled from the layers button.
+    @AppStorage("mapLayer_nautical") private var layerNautical = false
+    @AppStorage("mapLayer_radar") private var layerRadar = false
+    @State private var showingLayers = false
+    @State private var radarOverlay: MKTileOverlay?
 
     enum MapStyleOption: String, CaseIterable {
         case offline = "Offline"
@@ -96,6 +101,8 @@ struct MapTab: View {
                         spotScores: spotScores,
                         waterbodyScores: waterbodyScores,
                         accent: accent,
+                        showNautical: layerNautical,
+                        radarOverlay: layerRadar ? radarOverlay : nil,
                         flyTo: $flyToCoordinate,
                         onSelectSpot: { selectedSpot = $0 },
                         onSelectWaterbody: { selectedWaterbody = $0 },
@@ -223,6 +230,16 @@ struct MapTab: View {
                         }
                     } label: {
                         mapButton(icon: "map.fill")
+                    }
+
+                    // Overlay layers (nautical / radar) — offline map only
+                    if mapStyle == .offline {
+                        Button {
+                            showingLayers = true
+                        } label: {
+                            mapButton(icon: "square.3.layers.3d")
+                                .opacity(layerNautical || layerRadar ? 1.0 : 0.65)
+                        }
                     }
 
                     // Add spot
@@ -384,6 +401,20 @@ struct MapTab: View {
                 AddSpotSheet()
                     .presentationDetents([.medium])
                     .presentationBackground(.ultraThinMaterial)
+            }
+            .sheet(isPresented: $showingLayers) {
+                MapLayersSheet(nautical: $layerNautical, radar: $layerRadar)
+                    .presentationDetents([.height(260)])
+                    .presentationBackground(.ultraThinMaterial)
+            }
+            .task(id: layerRadar) {
+                // Fetch the latest radar frame when the layer is turned on;
+                // clear it when off.
+                if layerRadar {
+                    radarOverlay = await RadarTiles.latest()
+                } else {
+                    radarOverlay = nil
+                }
             }
             .sheet(isPresented: $showingSpeciesBrowser) {
                 NavigationStack {
@@ -1501,6 +1532,40 @@ struct WaterbodyPin: View {
         case .river: "arrow.left.arrow.right"
         case .estuary: "water.waves.slash"
         case .coast: "sailboat.fill"
+        }
+    }
+}
+
+// MARK: - Map Layers Sheet
+
+/// Toggle the optional overlay layers. All off by default; choices persist via
+/// @AppStorage in MapTab.
+struct MapLayersSheet: View {
+    @Binding var nautical: Bool
+    @Binding var radar: Bool
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    Toggle(isOn: $nautical) {
+                        Label("Nautical / Depth", systemImage: "water.waves")
+                    }
+                    Toggle(isOn: $radar) {
+                        Label("Weather Radar", systemImage: "cloud.rain")
+                    }
+                } footer: {
+                    Text("Nautical shows depth soundings, buoys and chart marks (OpenSeaMap). Weather radar shows live precipitation (RainViewer). Both need a connection to load new tiles; nautical tiles you've viewed are cached like the base map.")
+                }
+            }
+            .navigationTitle("Map Layers")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
         }
     }
 }

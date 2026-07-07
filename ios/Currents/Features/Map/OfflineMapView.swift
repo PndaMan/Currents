@@ -14,6 +14,10 @@ struct OfflineMapView: UIViewRepresentable {
     var spotScores: [String: Int]
     var waterbodyScores: [Int64: Int]
     var accent: Color
+    /// Optional overlay tile layers (off by default). The radar overlay is
+    /// built asynchronously by the parent (it needs a fetched frame path).
+    var showNautical: Bool = false
+    var radarOverlay: MKTileOverlay? = nil
 
     /// Set to move the camera (search result, recentre button); consumed once.
     @Binding var flyTo: CLLocationCoordinate2D?
@@ -52,6 +56,7 @@ struct OfflineMapView: UIViewRepresentable {
             DispatchQueue.main.async { flyTo = nil }
         }
         context.coordinator.syncAnnotations(on: map)
+        context.coordinator.syncOverlays(on: map)
     }
 
     func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
@@ -110,9 +115,32 @@ struct OfflineMapView: UIViewRepresentable {
     final class Coordinator: NSObject, MKMapViewDelegate, UIGestureRecognizerDelegate {
         var parent: OfflineMapView
         private var fingerprint = ""
+        private var seamarkOverlay: MKTileOverlay?
+        private var currentRadarOverlay: MKTileOverlay?
 
         init(parent: OfflineMapView) {
             self.parent = parent
+        }
+
+        /// Add/remove the optional nautical + radar tile overlays to match the
+        /// current toggles, keeping them above the satellite base.
+        func syncOverlays(on map: MKMapView) {
+            // Nautical (OpenSeaMap seamarks)
+            if parent.showNautical, seamarkOverlay == nil {
+                let o = SeamarkTileOverlay()
+                seamarkOverlay = o
+                map.addOverlay(o, level: .aboveLabels)
+            } else if !parent.showNautical, let o = seamarkOverlay {
+                map.removeOverlay(o)
+                seamarkOverlay = nil
+            }
+
+            // Radar (RainViewer) — identity changes when a new frame is fetched.
+            if currentRadarOverlay !== parent.radarOverlay {
+                if let old = currentRadarOverlay { map.removeOverlay(old) }
+                currentRadarOverlay = parent.radarOverlay
+                if let new = parent.radarOverlay { map.addOverlay(new, level: .aboveLabels) }
+            }
         }
 
         func centerInitially(_ map: MKMapView) {
