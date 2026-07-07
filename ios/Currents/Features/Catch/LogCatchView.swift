@@ -11,6 +11,7 @@ struct LogCatchView: View {
     @State private var selectedPhotos: [PhotosPickerItem] = []
     @State private var capturedImages: [UIImage] = []
     @State private var showingCamera = false
+    @State private var showingARMeasure = false
 
     // ML — BioCLIP only; no guessing fallbacks.
     @State private var speciesMatches: [SpeciesMatch] = []
@@ -115,6 +116,11 @@ struct LogCatchView: View {
                     if speciesMatches.isEmpty { classifyImage(image) }
                 }
                 .ignoresSafeArea()
+            }
+            .fullScreenCover(isPresented: $showingARMeasure) {
+                ARMeasureView { cm in
+                    lengthCm = String(format: "%.1f", cm)
+                }
             }
             .alert("New Spot", isPresented: $showingNewSpot) {
                 TextField("Spot name", text: $newSpotName)
@@ -360,6 +366,15 @@ struct LogCatchView: View {
                     .keyboardType(.decimalPad)
                 Text("cm")
                     .foregroundStyle(.secondary)
+                if ARMeasureView.isSupported {
+                    Button {
+                        showingARMeasure = true
+                    } label: {
+                        Image(systemName: "arkit")
+                            .foregroundStyle(CurrentsTheme.accent)
+                    }
+                    .buttonStyle(.plain)
+                }
             }
             HStack {
                 TextField("Weight", text: $weightKg)

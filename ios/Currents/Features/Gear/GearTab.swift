@@ -417,6 +417,8 @@ struct AddOwnedGearSheet: View {
     @State private var name = ""
     @State private var brand = ""
     @State private var specs = ""
+    @State private var barcode = ""
+    @State private var showingScanner = false
 
     var body: some View {
         NavigationStack {
@@ -433,6 +435,25 @@ struct AddOwnedGearSheet: View {
                     TextField("Brand (optional)", text: $brand)
                     TextField("Specs / Notes (optional)", text: $specs)
                 }
+                if BarcodeScannerView.isSupported {
+                    Section {
+                        Button {
+                            showingScanner = true
+                        } label: {
+                            Label(barcode.isEmpty ? "Scan Barcode" : "Barcode: \(barcode)",
+                                  systemImage: "barcode.viewfinder")
+                        }
+                    } footer: {
+                        Text("Scan a product barcode to save with this item — handy for re-ordering line, hooks and other consumables.")
+                    }
+                }
+            }
+            .sheet(isPresented: $showingScanner) {
+                BarcodeScannerView { code in
+                    barcode = code
+                    if specs.isEmpty { specs = "Barcode \(code)" }
+                }
+                .ignoresSafeArea()
             }
             .navigationTitle("Add Gear")
             .navigationBarTitleDisplayMode(.inline)
