@@ -483,6 +483,15 @@ struct MapTab: View {
                 if let loc = appState.locationManager.currentLocation {
                     appState.mapManager.maintainOfflineCache(around: loc.coordinate)
                 }
+                // Screenshot mode: recenter on the demo coast after first layout
+                // (an initial .camera in @State doesn't reliably render).
+                if ScreenshotSupport.isActive {
+                    flyToCoordinate = ScreenshotSupport.demoCoordinate
+                    position = .camera(.init(
+                        centerCoordinate: ScreenshotSupport.demoCoordinate,
+                        distance: 38000
+                    ))
+                }
             }
             // Cache follows the PERSON: whenever their position updates, the
             // manager re-anchors the offline cache if they've moved far
@@ -766,8 +775,10 @@ struct MapTab: View {
         // 2) Compute bite score in background — don't block waterbody display
         Task { await computeRegionScore(region: region) }
 
-        // 3) Only hit Overpass when zoomed in enough (< 2.5° span) to avoid API spam
-        guard latSpan < 2.5 else {
+        // 3) Only hit Overpass when zoomed in enough (< 2.5° span) to avoid API
+        // spam — and never in screenshot mode, so captures show only the clean
+        // seeded set deterministically (no async network results mid-capture).
+        guard latSpan < 2.5, !ScreenshotSupport.isActive else {
             isLoadingWaterbodies = false
             return
         }

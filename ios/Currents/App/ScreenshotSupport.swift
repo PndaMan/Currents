@@ -69,6 +69,13 @@ enum ScreenshotSupport {
         ]
         for var s in spots { try? appState.spotRepository.save(&s) }
 
+        // Demo dam/lake bubbles clustered around the map's screenshot camera so
+        // the Explore tab shows the waterbody feature populated.
+        if let data = demoWaterbodiesJSON.data(using: .utf8),
+           let bodies = try? JSONDecoder().decode([Waterbody].self, from: data) {
+            for var wb in bodies { try? appState.waterbodyRepository.save(&wb) }
+        }
+
         // Plausible demo measurements per species so cards/stats look real.
         let facts: [(len: Double, kg: Double, score: Int, released: Bool)] = [
             (62, 3.8, 84, false), (41, 1.1, 72, true), (108, 14.5, 91, false),
@@ -106,6 +113,19 @@ enum ScreenshotSupport {
             try? appState.catchRepository.save(&record)
         }
     }
+
+    /// A few dam/lake waterbodies near the demo map camera (Kogel Bay coast),
+    /// so the Explore map shows several bite-score bubbles. Screenshot-mode
+    /// only — never seeded in a real install.
+    private static let demoWaterbodiesJSON = """
+    [
+      {"name":"Steenbras Dam","type":"dam","latitude":-34.190,"longitude":18.885,"surfaceAreaKm2":6.6,"maxDepthM":42,"isPublic":true},
+      {"name":"Kogelberg Dam","type":"dam","latitude":-34.278,"longitude":18.902,"surfaceAreaKm2":2.1,"maxDepthM":18,"isPublic":true},
+      {"name":"Rooiels Vlei","type":"lake","latitude":-34.302,"longitude":18.822,"surfaceAreaKm2":0.8,"maxDepthM":6,"isPublic":true},
+      {"name":"Palmiet Reservoir","type":"dam","latitude":-34.334,"longitude":18.861,"surfaceAreaKm2":3.4,"maxDepthM":22,"isPublic":true},
+      {"name":"Hangklip Pan","type":"lake","latitude":-34.361,"longitude":18.842,"surfaceAreaKm2":0.5,"maxDepthM":4,"isPublic":true}
+    ]
+    """
 
     /// Composite a species' transparent artwork onto a subtle ocean gradient so
     /// it reads as an intentional catch card rather than a cutout on black.
