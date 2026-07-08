@@ -20,6 +20,8 @@ struct FishCollectionView: View {
         case rarest = "Rarest"
         case number = "Number"
         case name = "Name"
+
+        static let defaultMode: SortMode = .rarest
     }
 
     private let columns = [GridItem(.adaptive(minimum: 104), spacing: 12)]
@@ -150,6 +152,13 @@ struct FishCollectionView: View {
                             Label(mode.rawValue, systemImage: sort == mode ? "checkmark" : "")
                         }
                     }
+                    Divider()
+                    Button {
+                        sort = SortMode.defaultMode
+                    } label: {
+                        Label("Default (\(SortMode.defaultMode.rawValue))", systemImage: "arrow.uturn.backward")
+                    }
+                    .disabled(sort == SortMode.defaultMode)
                 } label: {
                     Label("Sort: \(sort.rawValue)", systemImage: "arrow.up.arrow.down")
                         .font(.caption.bold())

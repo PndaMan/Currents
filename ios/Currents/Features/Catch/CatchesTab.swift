@@ -23,6 +23,8 @@ struct CatchesTab: View {
         case longest = "Longest"
         case spot = "Spot"
         case score = "Best Score"
+
+        static let defaultOrder: SortOrder = .recent
     }
 
     var filteredCatches: [CatchDetail] {
@@ -158,6 +160,13 @@ struct CatchesTab: View {
                                 Label(order.rawValue, systemImage: sortOrder == order ? "checkmark" : "")
                             }
                         }
+                        Divider()
+                        Button {
+                            sortOrder = SortOrder.defaultOrder
+                        } label: {
+                            Label("Default (\(SortOrder.defaultOrder.rawValue))", systemImage: "arrow.uturn.backward")
+                        }
+                        .disabled(sortOrder == SortOrder.defaultOrder)
                     } label: {
                         Label("Sort", systemImage: "arrow.up.arrow.down")
                     }

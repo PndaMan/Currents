@@ -13,6 +13,8 @@ struct SeasonalCalendarView: View {
         case name = "Name"
         case temp = "Optimal Temp"
         var id: String { rawValue }
+
+        static let defaultOrder: SortOrder = .match
     }
 
     /// Approximate monthly surface water temperatures in Celsius across a full
@@ -209,6 +211,14 @@ struct SeasonalCalendarView: View {
                 Button("Freshwater") { habitatFilter = .freshwater }
                 Button("Marine") { habitatFilter = .marine }
                 Button("Brackish") { habitatFilter = .brackish }
+                Divider()
+                Button {
+                    sortOrder = SortOrder.defaultOrder
+                    habitatFilter = nil
+                } label: {
+                    Label("Default sort (\(SortOrder.defaultOrder.rawValue))", systemImage: "arrow.uturn.backward")
+                }
+                .disabled(sortOrder == SortOrder.defaultOrder && habitatFilter == nil)
             } label: {
                 Image(systemName: "line.3.horizontal.decrease.circle.fill")
                     .font(.title3)
