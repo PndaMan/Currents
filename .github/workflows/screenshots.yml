@@ -13,6 +13,9 @@ name: App Store Screenshots
 on:
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   screenshots:
     name: Capture Screenshots
@@ -128,9 +131,31 @@ jobs:
 
           ls -la "$OUT"
 
-      - name: Upload Screenshots
+      - name: Upload Screenshots (artifact)
         uses: actions/upload-artifact@v4
         with:
           name: app-store-screenshots
           path: ios/screenshots/
           retention-days: 90
+
+      # Also publish the PNGs to a dedicated branch (force-pushed each run) so
+      # they can be pulled and previewed directly without downloading the
+      # artifact. History is a single commit — no binary buildup on master.
+      - name: Publish screenshots to branch
+        working-directory: ${{ github.workspace }}
+        run: |
+          TMP=$(mktemp -d)
+          cp ios/screenshots/6.9/*.png "$TMP"/ 2>/dev/null || true
+          if ! ls "$TMP"/*.png >/dev/null 2>&1; then
+            echo "No screenshots to publish"; exit 0
+          fi
+          cd "$TMP"
+          git init -q
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -q -b app-store-screenshots
+          git add ./*.png
+          git commit -q -m "App Store screenshots (automated, ${GITHUB_SHA})"
+          git remote add origin "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git"
+          git push -f origin app-store-screenshots
+          echo "Pushed $(ls *.png | wc -l) screenshots to branch app-store-screenshots"
