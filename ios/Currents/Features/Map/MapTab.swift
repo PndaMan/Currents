@@ -483,13 +483,13 @@ struct MapTab: View {
                 if let loc = appState.locationManager.currentLocation {
                     appState.mapManager.maintainOfflineCache(around: loc.coordinate)
                 }
-                // Screenshot mode: recenter on the demo coast after first layout
-                // (an initial .camera in @State doesn't reliably render).
+                // Screenshot mode: frame the demo coast AND the seeded dam/lake
+                // bubbles after first layout (an initial camera in @State
+                // doesn't reliably render; a region gives predictable zoom).
                 if ScreenshotSupport.isActive {
-                    flyToCoordinate = ScreenshotSupport.demoCoordinate
-                    position = .camera(.init(
-                        centerCoordinate: ScreenshotSupport.demoCoordinate,
-                        distance: 38000
+                    position = .region(MKCoordinateRegion(
+                        center: CLLocationCoordinate2D(latitude: -34.275, longitude: 18.865),
+                        span: MKCoordinateSpan(latitudeDelta: 0.42, longitudeDelta: 0.34)
                     ))
                 }
             }
