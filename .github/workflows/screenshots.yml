@@ -97,8 +97,9 @@ jobs:
             --wifiMode active --wifiBars 3 \
             --dataNetwork wifi || true
 
-          # A scenic coastal location so the map/forecast look inviting.
-          xcrun simctl location "$UDID" set 34.235,18.848 || true
+          # A scenic coastal location so the forecast looks inviting
+          # (Kogel Bay, South Africa — matches the seeded demo spots).
+          xcrun simctl location "$UDID" set -34.235,18.848 || true
 
           # Pre-grant location so no permission dialog covers a screenshot.
           xcrun simctl privacy "$UDID" grant location "$BUNDLE_ID" || true

@@ -1,4 +1,5 @@
 import UIKit
+import CoreLocation
 
 /// Support for capturing App Store screenshots deterministically in the iOS
 /// Simulator (see `.github/workflows/screenshots.yml`).
@@ -23,6 +24,10 @@ enum ScreenshotSupport {
         ProcessInfo.processInfo.environment["SCREENSHOT_MODE"] == "1"
             || CommandLine.arguments.contains("-screenshotMode")
     }
+
+    /// A scenic coastal spot (Kogel Bay, South Africa) the map centres on in
+    /// screenshot mode, matching the seeded demo spots.
+    static let demoCoordinate = CLLocationCoordinate2D(latitude: -34.235, longitude: 18.848)
 
     /// The tab CI asked us to open to, if any.
     static var initialTab: ContentView.Tab? {

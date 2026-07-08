@@ -13,7 +13,9 @@ struct MapTab: View {
     // instead of waiting for the next zoom-triggered rebuild.
     @AppStorage("selectedTheme") private var selectedThemeRaw = ThemeOption.ocean.rawValue
     @Namespace private var mapScope
-    @State private var position: MapCameraPosition = .userLocation(fallback: .automatic)
+    @State private var position: MapCameraPosition = ScreenshotSupport.isActive
+        ? .camera(MapCamera(centerCoordinate: ScreenshotSupport.demoCoordinate, distance: 42000))
+        : .userLocation(fallback: .automatic)
     @State private var spots: [Spot] = []
     @State private var catches: [CatchDetail] = []
     @State private var catchCounts: [String: Int] = [:]

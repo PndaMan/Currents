@@ -63,7 +63,11 @@ final class AppState {
         RegulationsService.shared.load()
         Task { await RegulationsService.shared.syncIfDue() }
 
-        locationManager.requestPermission()
+        // Skip the location prompt in screenshot mode so no system dialog ever
+        // covers a capture (the map uses a fixed camera instead).
+        if !ScreenshotSupport.isActive {
+            locationManager.requestPermission()
+        }
         mapManager.refreshDownloadedRegions()
 
         // App Store screenshot capture (CI only — gated on SCREENSHOT_MODE env).
