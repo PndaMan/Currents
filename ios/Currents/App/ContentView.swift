@@ -2,7 +2,8 @@ import SwiftUI
 
 struct ContentView: View {
     @Environment(AppState.self) private var appState
-    @State private var selectedTab: Tab = .map
+    // Opens straight to a requested tab in screenshot mode, else the map.
+    @State private var selectedTab: Tab = ScreenshotSupport.initialTab ?? .map
 
     enum Tab: String, CaseIterable {
         case map

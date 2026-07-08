@@ -65,5 +65,8 @@ final class AppState {
 
         locationManager.requestPermission()
         mapManager.refreshDownloadedRegions()
+
+        // App Store screenshot capture (CI only — gated on SCREENSHOT_MODE env).
+        ScreenshotSupport.seedDemoDataIfNeeded(self)
     }
 }
