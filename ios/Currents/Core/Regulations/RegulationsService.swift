@@ -47,13 +47,24 @@ final class RegulationsService {
     func load() {
         guard !loaded else { return }
         loaded = true
-        // Prefer a synced copy on disk, else the embedded seed.
+        // Prefer a synced copy on disk, else the bundled dataset, else the
+        // tiny embedded fallback.
         if let disk = try? Data(contentsOf: Self.diskURL),
            let decoded = try? JSONDecoder().decode([FishingRegulation].self, from: disk), !decoded.isEmpty {
             apply(decoded)
+        } else if let bundled = Self.bundledRegulations(), !bundled.isEmpty {
+            apply(bundled)
         } else {
             apply(Self.embedded)
         }
+    }
+
+    private static func bundledRegulations() -> [FishingRegulation]? {
+        let bundle = Bundle.main
+        guard let url = bundle.url(forResource: "fishing_regulations", withExtension: "json", subdirectory: "Data")
+            ?? bundle.url(forResource: "fishing_regulations", withExtension: "json"),
+              let data = try? Data(contentsOf: url) else { return nil }
+        return try? JSONDecoder().decode([FishingRegulation].self, from: data)
     }
 
     private func apply(_ regs: [FishingRegulation]) {

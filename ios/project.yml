@@ -37,6 +37,9 @@ targets:
       - path: Currents/Resources/Data
         type: folder
         buildPhase: resources
+      - path: Currents/Resources/Knots
+        type: folder
+        buildPhase: resources
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.aidanmcconnon.currents

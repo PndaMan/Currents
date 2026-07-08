@@ -1,9 +1,9 @@
 import SwiftUI
 
-/// Offline knot & rig reference. Each entry has clear numbered steps and a
-/// simple diagram drawn in SwiftUI (no bundled third-party artwork, so it
-/// works offline and carries no licensing baggage). Content is data-driven so
-/// entries are easy to extend.
+/// Offline knot & rig reference. Knots that have a real, openly-licensed
+/// diagram/photo (bundled from Wikimedia Commons, with attribution) show it;
+/// the rest show accurate numbered steps only — no invented/AI diagrams, which
+/// are misleading. Content is data-driven so entries are easy to extend.
 struct KnotLibraryView: View {
     @State private var search = ""
     @State private var category: KnotEntry.Category?
@@ -39,18 +39,25 @@ struct KnotLibraryView: View {
                 NavigationLink {
                     KnotDetailView(knot: knot)
                 } label: {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(knot.name).font(.subheadline.bold())
-                        Text(knot.useCase)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(2)
-                        HStack(spacing: 6) {
-                            Label(knot.category.rawValue, systemImage: knot.category.icon)
-                            Text("· \(knot.strength)")
+                    HStack(spacing: 12) {
+                        if let img = KnotImageStore.image(knot.imageName) {
+                            Image(uiImage: img)
+                                .resizable().scaledToFill()
+                                .frame(width: 52, height: 52)
+                                .clipShape(RoundedRectangle(cornerRadius: 8))
+                        } else {
+                            Image(systemName: knot.category.icon)
+                                .frame(width: 52, height: 52)
+                                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
+                                .foregroundStyle(CurrentsTheme.accent)
                         }
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(knot.name).font(.subheadline.bold())
+                            Text(knot.useCase)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(2)
+                        }
                     }
                 }
             }
@@ -66,11 +73,20 @@ struct KnotDetailView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                KnotDiagram(kind: knot.diagram)
-                    .frame(height: 150)
-                    .frame(maxWidth: .infinity)
-                    .background(.ultraThinMaterial)
-                    .clipShape(RoundedRectangle(cornerRadius: 16))
+                if let img = KnotImageStore.image(knot.imageName) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Image(uiImage: img)
+                            .resizable().scaledToFit()
+                            .frame(maxWidth: .infinity)
+                            .background(Color.white)
+                            .clipShape(RoundedRectangle(cornerRadius: 16))
+                        if let credit = knot.attribution {
+                            Text(credit)
+                                .font(.caption2)
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
+                }
 
                 VStack(alignment: .leading, spacing: 6) {
                     Text(knot.useCase).font(.subheadline)
@@ -113,50 +129,19 @@ struct KnotDetailView: View {
     }
 }
 
-/// Lightweight schematic diagrams drawn with SwiftUI paths — enough to convey
-/// the shape of the knot without bundling copyrighted artwork.
-struct KnotDiagram: View {
-    enum Kind { case loop, cinch, join, snell, generic }
-    let kind: Kind
-
-    var body: some View {
-        Canvas { ctx, size in
-            let w = size.width, h = size.height
-            let line = GraphicsContext.Shading.color(CurrentsTheme.accent)
-            var main = Path()
-            main.move(to: CGPoint(x: 12, y: h / 2))
-            main.addLine(to: CGPoint(x: w * 0.55, y: h / 2))
-            ctx.stroke(main, with: line, lineWidth: 4)
-
-            switch kind {
-            case .loop:
-                var loop = Path()
-                loop.addEllipse(in: CGRect(x: w * 0.55, y: h * 0.28, width: w * 0.32, height: h * 0.44))
-                ctx.stroke(loop, with: line, lineWidth: 4)
-            case .cinch, .snell:
-                for i in 0..<4 {
-                    var coil = Path()
-                    let x = w * 0.55 + CGFloat(i) * (w * 0.07)
-                    coil.addEllipse(in: CGRect(x: x, y: h * 0.34, width: w * 0.05, height: h * 0.32))
-                    ctx.stroke(coil, with: line, lineWidth: 3)
-                }
-            case .join:
-                var b = Path()
-                b.move(to: CGPoint(x: w * 0.55, y: h / 2))
-                b.addLine(to: CGPoint(x: w - 12, y: h / 2))
-                ctx.stroke(b, with: .color(.orange), lineWidth: 4)
-                for i in 0..<3 {
-                    var coil = Path()
-                    let x = w * 0.45 + CGFloat(i) * (w * 0.06)
-                    coil.addEllipse(in: CGRect(x: x, y: h * 0.36, width: w * 0.05, height: h * 0.28))
-                    ctx.stroke(coil, with: line, lineWidth: 3)
-                }
-            case .generic:
-                var k = Path()
-                k.addEllipse(in: CGRect(x: w * 0.5, y: h * 0.3, width: w * 0.24, height: h * 0.4))
-                ctx.stroke(k, with: line, lineWidth: 4)
-            }
-        }
+/// Loads bundled knot images from the Resources/Knots folder reference.
+enum KnotImageStore {
+    private static var cache: [String: UIImage] = [:]
+    static func image(_ name: String?) -> UIImage? {
+        guard let name else { return nil }
+        if let cached = cache[name] { return cached }
+        let base = (name as NSString).deletingPathExtension
+        let ext = (name as NSString).pathExtension
+        guard let url = Bundle.main.url(forResource: base, withExtension: ext, subdirectory: "Knots")
+            ?? Bundle.main.url(forResource: base, withExtension: ext),
+              let img = UIImage(contentsOfFile: url.path) else { return nil }
+        cache[name] = img
+        return img
     }
 }
 
@@ -170,7 +155,8 @@ struct KnotEntry: Identifiable {
     let strength: String
     let steps: [String]
     let tip: String
-    let diagram: KnotDiagram.Kind
+    let imageName: String?     // bundled Resources/Knots file, if a real diagram exists
+    let attribution: String?
 
     enum Category: String, CaseIterable {
         case terminal = "Line to Hook"
@@ -188,150 +174,146 @@ struct KnotEntry: Identifiable {
         }
     }
 
+    // Uniform diagram set: all illustrations are vintage line-engravings from
+    // the Freshwater and Marine Image Bank (public domain), so the whole
+    // library reads as one consistent style.
+    private static let credit = "Illustration: Freshwater and Marine Image Bank (public domain)"
+
     static let all: [KnotEntry] = [
         KnotEntry(
-            name: "Improved Clinch Knot",
+            name: "Clinch Knot",
             category: .terminal,
-            useCase: "The classic hook/lure/swivel tie for mono and fluoro.",
+            useCase: "The classic tie to an eyed hook, swivel or lure.",
             strength: "~85% line strength",
             steps: [
-                "Pass the tag end through the hook eye and make 5–7 wraps around the standing line.",
-                "Pass the tag end through the small loop just above the eye.",
-                "Then pass it back through the big loop you just created.",
-                "Wet the knot and pull the standing line to seat the coils down to the eye.",
-                "Trim the tag end close.",
+                "Pass the tag end through the hook eye.",
+                "Wrap the tag around the standing line 5–7 times.",
+                "Pass the tag back through the small loop next to the eye.",
+                "Wet the knot and pull the standing line to seat the coils; trim.",
             ],
-            tip: "Always wet the knot before cinching — friction heat weakens the line.",
-            diagram: .cinch
+            tip: "Always wet the knot before cinching — friction heat weakens line.",
+            imageName: "clinch_down.jpeg",
+            attribution: credit
         ),
         KnotEntry(
-            name: "Palomar Knot",
+            name: "Improved Jam Knot",
             category: .terminal,
-            useCase: "Strongest, simplest tie for braid — hooks and swivels.",
-            strength: "~95% line strength",
-            steps: [
-                "Double about 15 cm of line and pass the loop through the hook eye.",
-                "Tie a loose overhand knot with the doubled line, leaving the loop hanging.",
-                "Pass the hook completely through the loop.",
-                "Wet it, then pull both the standing line and tag to seat the knot.",
-                "Trim the tag.",
-            ],
-            tip: "Best knot for braided line — it barely slips.",
-            diagram: .generic
-        ),
-        KnotEntry(
-            name: "Uni Knot",
-            category: .terminal,
-            useCase: "Versatile all-rounder for terminal tackle in any line.",
+            useCase: "A more secure clinch that tucks the tag for extra grip.",
             strength: "~90% line strength",
             steps: [
-                "Run the line through the eye and double back parallel to itself.",
-                "Make a loop and wrap the tag end through it and around both lines 5–6 times.",
-                "Wet it and pull the tag to snug the wraps together.",
-                "Slide the knot down to the eye and trim.",
+                "Pass the tag through the eye and wrap it around the standing line 5–6 times.",
+                "Pass the tag back through the loop by the eye.",
+                "Then tuck it through the big loop you just formed.",
+                "Wet and pull to seat; trim the tag.",
             ],
-            tip: "Two Uni knots tied facing each other make a great line-to-line join.",
-            diagram: .cinch
+            tip: "The extra tuck stops the tag slipping under load.",
+            imageName: "improved_jam.jpeg",
+            attribution: credit
         ),
         KnotEntry(
-            name: "Loop Knot (Non-Slip)",
-            category: .loop,
-            useCase: "A free-swinging loop that lets lures move naturally.",
-            strength: "~80% line strength",
+            name: "Fishing Gazette Knot",
+            category: .terminal,
+            useCase: "A neat loop-and-jam tie for eyed hooks and flies.",
+            strength: "Reliable on eyed hooks",
             steps: [
-                "Make an overhand knot ~15 cm from the tag; pass the tag through the hook eye.",
-                "Pass the tag back through the overhand knot loop.",
-                "Wrap the tag around the standing line 4–5 times.",
-                "Pass the tag back through the overhand knot again.",
-                "Wet and cinch slowly, keeping the loop size you want.",
+                "Double the line and pass the loop through the hook eye.",
+                "Bring the loop back over the hook.",
+                "Draw the standing line to slide the loop up and jam it at the eye.",
+                "Wet, snug down, and trim.",
             ],
-            tip: "Ideal for suspending jerkbaits and streamers.",
-            diagram: .loop
+            tip: "A tidy traditional knot for turned-up or turned-down eyes.",
+            imageName: "gazette.jpeg",
+            attribution: credit
+        ),
+        KnotEntry(
+            name: "Jam Knot (Pennell)",
+            category: .terminal,
+            useCase: "A simple, strong jam knot for eyed hooks.",
+            strength: "Strong on the eye",
+            steps: [
+                "Pass the tag through the eye and form a loop against the shank.",
+                "Wrap the tag around the shank and standing line a few turns.",
+                "Feed the tag back through the loop.",
+                "Wet and pull the standing line to jam the wraps against the eye.",
+            ],
+            tip: "Good for bait hooks where you want the pull inline with the shank.",
+            imageName: "pennell_jam.jpeg",
+            attribution: credit
+        ),
+        KnotEntry(
+            name: "Turle Knot",
+            category: .terminal,
+            useCase: "Seats a fly or eyed hook so it rides in line with the leader.",
+            strength: "Classic fly knot",
+            steps: [
+                "Pass the tippet through the hook eye and slide the fly up out of the way.",
+                "Make a simple loop and tie an overhand knot in the tippet.",
+                "Pass the fly through the loop.",
+                "Draw up so the loop seats behind the eye; trim.",
+            ],
+            tip: "Keeps small flies aligned straight for a natural drift.",
+            imageName: "turle.jpeg",
+            attribution: credit
+        ),
+        KnotEntry(
+            name: "Whipping a Hook (Snell)",
+            category: .terminal,
+            useCase: "Binds the line along the hook shank for a straight-line hookset.",
+            strength: "Very strong on the shank",
+            steps: [
+                "Lay the line along the shank with a loop hanging below.",
+                "Wrap the loop neatly around the shank and line toward the eye 6–8 turns.",
+                "Hold the wraps and draw the standing line through to tighten.",
+                "Seat firmly and trim.",
+            ],
+            tip: "Ideal for bait/octopus hooks in bottom fishing.",
+            imageName: "whipping.jpeg",
+            attribution: credit
         ),
         KnotEntry(
             name: "Dropper Loop",
             category: .loop,
-            useCase: "A standing loop in the middle of a line for a second hook or sinker.",
+            useCase: "A standing loop for a dropper fly, second hook or sinker.",
             strength: "Strong mid-line loop",
             steps: [
                 "Form a loop in the line where you want the dropper.",
-                "Make 5–6 twists through the loop's centre.",
-                "Open a gap in the middle twists and pass the loop through it.",
-                "Wet and pull both ends steadily so the twists gather and the loop stands out.",
+                "Make several twists through the centre of the loop.",
+                "Open a gap in the middle twists and pass the loop through.",
+                "Wet and pull both ends so the twists gather and the loop stands out.",
             ],
-            tip: "Great for a paternoster/two-hook bottom rig.",
-            diagram: .loop
+            tip: "The backbone of a paternoster/two-hook bottom rig.",
+            imageName: "loop_dropper.jpeg",
+            attribution: credit
         ),
         KnotEntry(
-            name: "Double Uni (Line Join)",
+            name: "Double Loop Knot",
+            category: .loop,
+            useCase: "A strong fixed loop at the line's end for a lure or spinning bait.",
+            strength: "Strong end loop",
+            steps: [
+                "Double the end of the line to make a bight.",
+                "Tie an overhand knot with the doubled line, passing it through twice.",
+                "Keep the loop the size you want.",
+                "Wet and pull all parts evenly to seat.",
+            ],
+            tip: "A free loop lets a bait or lure swing naturally.",
+            imageName: "double_loop.jpeg",
+            attribution: credit
+        ),
+        KnotEntry(
+            name: "Joining Two Lines (Water Knot)",
             category: .join,
-            useCase: "Join two lines — mono to mono, or braid to leader.",
+            useCase: "Join two lengths of line or a leader to the main line.",
             strength: "~90% line strength",
             steps: [
                 "Overlap the two lines by ~20 cm.",
-                "With one tag, make a Uni knot around the other line (4 wraps for mono, 6 for braid).",
-                "Repeat with the other tag around the first line.",
-                "Wet both knots, then pull the standing lines so the two knots slide together.",
-                "Trim both tags.",
+                "Form a loop with both lines together.",
+                "Pass both ends through the loop twice (a double overhand).",
+                "Wet and pull all four strands evenly to seat; trim the tags.",
             ],
-            tip: "Use more wraps on the thinner/braided side.",
-            diagram: .join
-        ),
-        KnotEntry(
-            name: "FG Knot (Braid to Leader)",
-            category: .join,
-            useCase: "Slim, super-strong braid-to-fluoro leader join for casting.",
-            strength: "~95% line strength",
-            steps: [
-                "Keep the braid under tension and lay the leader across it.",
-                "Weave the braid over-and-under the leader ~20 times (10 each side).",
-                "Lock with two half hitches around both lines, then several around the leader tag.",
-                "Trim the leader tag, add more half hitches on the braid, and trim.",
-            ],
-            tip: "Fiddly but the thinnest, strongest connection — worth practising at home.",
-            diagram: .join
-        ),
-        KnotEntry(
-            name: "Snell Knot",
-            category: .terminal,
-            useCase: "Ties directly to a hook shank for a straight-line hookset (bait hooks).",
-            strength: "Very strong on the shank",
-            steps: [
-                "Pass the tag through the hook eye from the point side and along the shank.",
-                "Form a loop along the shank.",
-                "Wrap the loop around the shank and line 6–8 times toward the eye.",
-                "Hold the wraps and pull the standing line to tighten.",
-            ],
-            tip: "Best with octopus/bait-holder hooks for bottom fishing.",
-            diagram: .snell
-        ),
-        KnotEntry(
-            name: "Carolina Rig",
-            category: .rig,
-            useCase: "Bottom rig that lets a soft plastic drift naturally behind a sliding weight.",
-            strength: "—",
-            steps: [
-                "Thread a bullet/egg sinker onto the main line, then a bead.",
-                "Tie the main line to a swivel.",
-                "Add a 30–90 cm fluoro leader to the other end of the swivel.",
-                "Tie your hook to the leader and rig your soft plastic weedless.",
-            ],
-            tip: "Longer leader = more natural fall; shorter = more bottom contact.",
-            diagram: .generic
-        ),
-        KnotEntry(
-            name: "Paternoster (Bottom) Rig",
-            category: .rig,
-            useCase: "Surf/bottom rig presenting bait above the seabed with the sinker below.",
-            strength: "—",
-            steps: [
-                "Tie a dropper loop 30–40 cm up the line for the hook snood.",
-                "Attach a baited hook to the dropper loop.",
-                "Tie the sinker to the bottom end of the line below the dropper.",
-                "Add a swivel at the top to connect to the main line.",
-            ],
-            tip: "Keep the snood shorter than the drop to reduce tangles on the cast.",
-            diagram: .generic
+            tip: "Simple and strong for similar-diameter lines.",
+            imageName: "gut_join.jpeg",
+            attribution: credit
         ),
     ]
 }

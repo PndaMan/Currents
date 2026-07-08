@@ -67,6 +67,9 @@ struct SpeciesDetailView: View {
                     baitCard
                 }
 
+                // Size & bag limits for this species (if on file)
+                regulationCard
+
                 // Tips
                 tipsCard
 
@@ -90,6 +93,39 @@ struct SpeciesDetailView: View {
             personalBest = pbs.first(where: { $0.speciesId == species.id })
             info = await SpeciesInfoService.shared.info(scientificName: species.scientificName)
         }
+    }
+
+    @ViewBuilder
+    private var regulationCard: some View {
+        if let reg = RegulationsService.shared.regulation(for: species) {
+            VStack(alignment: .leading, spacing: 8) {
+                SectionHeaderView(title: "Size & Bag Limits", systemImage: "ruler")
+                Text(reg.region).font(.caption).foregroundStyle(.secondary)
+                HStack(spacing: 10) {
+                    if let mn = reg.minSizeCm { limitPill("Min \(Int(mn)) cm", "arrow.up.to.line") }
+                    if let mx = reg.maxSizeCm { limitPill("Max \(Int(mx)) cm", "arrow.down.to.line") }
+                    if let bag = reg.bagLimit { limitPill("Bag \(bag)/day", "number") }
+                }
+                if let closed = reg.closedSeason {
+                    Label(closed, systemImage: "calendar.badge.exclamationmark")
+                        .font(.caption).foregroundStyle(.orange)
+                }
+                if let notes = reg.notes {
+                    Text(notes).font(.caption).foregroundStyle(.secondary)
+                }
+                Text("Informational — confirm current local rules.")
+                    .font(.caption2).foregroundStyle(.tertiary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .glassCard()
+        }
+    }
+
+    private func limitPill(_ text: String, _ icon: String) -> some View {
+        Label(text, systemImage: icon)
+            .font(.caption2.bold())
+            .padding(.horizontal, 8).padding(.vertical, 3)
+            .background(.ultraThinMaterial, in: Capsule())
     }
 
     @ViewBuilder

@@ -49,7 +49,6 @@ struct MapTab: View {
     // Optional overlay layers — off by default, toggled from the layers button.
     @AppStorage("mapLayer_nautical") private var layerNautical = false
     @AppStorage("mapLayer_radar") private var layerRadar = false
-    @State private var showingLayers = false
     @State private var radarOverlay: MKTileOverlay?
 
     enum MapStyleOption: String, CaseIterable {
@@ -219,27 +218,34 @@ struct MapTab: View {
                         mapButton(icon: "location.fill")
                     }
 
-                    // Map style picker
+                    // Map style + overlay layers picker
                     Menu {
-                        ForEach(MapStyleOption.allCases, id: \.self) { style in
-                            Button {
-                                mapStyle = style
-                            } label: {
-                                Label(style.rawValue, systemImage: mapStyleIcon(style))
+                        Picker("Map Style", selection: Binding(
+                            get: { mapStyle },
+                            set: { mapStyle = $0 }
+                        )) {
+                            ForEach(MapStyleOption.allCases, id: \.self) { style in
+                                Label(style.rawValue, systemImage: mapStyleIcon(style)).tag(style)
+                            }
+                        }
+
+                        Section("Overlays (offline map)") {
+                            Toggle(isOn: $layerNautical) {
+                                Label("Nautical / Depth", systemImage: "water.waves")
+                            }
+                            Toggle(isOn: $layerRadar) {
+                                Label("Weather Radar", systemImage: "cloud.rain")
                             }
                         }
                     } label: {
                         mapButton(icon: "map.fill")
-                    }
-
-                    // Overlay layers (nautical / radar) — offline map only
-                    if mapStyle == .offline {
-                        Button {
-                            showingLayers = true
-                        } label: {
-                            mapButton(icon: "square.3.layers.3d")
-                                .opacity(layerNautical || layerRadar ? 1.0 : 0.65)
-                        }
+                            .overlay(alignment: .topTrailing) {
+                                if layerNautical || layerRadar {
+                                    Circle().fill(CurrentsTheme.accent)
+                                        .frame(width: 8, height: 8)
+                                        .offset(x: 2, y: -2)
+                                }
+                            }
                     }
 
                     // Add spot
@@ -402,11 +408,6 @@ struct MapTab: View {
                     .presentationDetents([.medium])
                     .presentationBackground(.ultraThinMaterial)
             }
-            .sheet(isPresented: $showingLayers) {
-                MapLayersSheet(nautical: $layerNautical, radar: $layerRadar)
-                    .presentationDetents([.height(260)])
-                    .presentationBackground(.ultraThinMaterial)
-            }
             .task(id: layerRadar) {
                 // Fetch the latest radar frame when the layer is turned on;
                 // clear it when off.
@@ -416,6 +417,10 @@ struct MapTab: View {
                     radarOverlay = nil
                 }
             }
+            // Overlays only render on the offline (MKMapView) map, so switch to
+            // it automatically when a layer is enabled.
+            .onChange(of: layerNautical) { _, on in if on { mapStyle = .offline } }
+            .onChange(of: layerRadar) { _, on in if on { mapStyle = .offline } }
             .sheet(isPresented: $showingSpeciesBrowser) {
                 NavigationStack {
                     SpeciesBrowserView()
