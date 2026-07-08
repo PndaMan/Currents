@@ -484,12 +484,13 @@ struct MapTab: View {
                     appState.mapManager.maintainOfflineCache(around: loc.coordinate)
                 }
                 // Screenshot mode: frame the demo coast AND the seeded dam/lake
-                // bubbles after first layout (an initial camera in @State
-                // doesn't reliably render; a region gives predictable zoom).
+                // bubbles after first layout. A runtime .camera applies
+                // reliably (an initial @State camera and .region do not);
+                // ~90 km out zooms far enough to show the dam cluster.
                 if ScreenshotSupport.isActive {
-                    position = .region(MKCoordinateRegion(
-                        center: CLLocationCoordinate2D(latitude: -34.275, longitude: 18.865),
-                        span: MKCoordinateSpan(latitudeDelta: 0.42, longitudeDelta: 0.34)
+                    position = .camera(.init(
+                        centerCoordinate: CLLocationCoordinate2D(latitude: -34.275, longitude: 18.865),
+                        distance: 90000
                     ))
                 }
             }
