@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// Fullscreen, pinch-zoomable photo viewer for catch photos.
 ///
@@ -46,70 +47,95 @@ struct FullscreenPhotoViewer: View {
     }
 }
 
-/// A single image with pinch-to-zoom, double-tap zoom, and pan-when-zoomed.
-/// Paging swipes still work at 1× because the drag gesture only engages
-/// once zoomed in.
-struct ZoomableImage: View {
+/// A single image with pinch-to-zoom, double-tap zoom, and pan-when-zoomed,
+/// backed by a native `UIScrollView`. UIKit handles the pinch/pan/momentum and
+/// edge clamping, so panning a zoomed photo is buttery-smooth instead of the
+/// stuttering you get when a SwiftUI `DragGesture` fights the paging TabView.
+/// At 1× the scroll view's content fits exactly, so it yields horizontal
+/// swipes back to the TabView for paging between photos.
+struct ZoomableImage: UIViewRepresentable {
     let image: UIImage
 
-    @State private var scale: CGFloat = 1
-    @State private var lastScale: CGFloat = 1
-    @State private var offset: CGSize = .zero
-    @State private var lastOffset: CGSize = .zero
+    func makeUIView(context: Context) -> UIScrollView {
+        let scrollView = UIScrollView()
+        scrollView.delegate = context.coordinator
+        scrollView.minimumZoomScale = 1
+        scrollView.maximumZoomScale = 6
+        scrollView.bouncesZoom = true
+        scrollView.showsVerticalScrollIndicator = false
+        scrollView.showsHorizontalScrollIndicator = false
+        scrollView.backgroundColor = .clear
+        scrollView.contentInsetAdjustmentBehavior = .never
+        scrollView.decelerationRate = .fast
 
-    var body: some View {
-        Image(uiImage: image)
-            .resizable()
-            .scaledToFit()
-            .scaleEffect(scale)
-            .offset(offset)
-            .gesture(
-                MagnificationGesture()
-                    .onChanged { value in
-                        scale = min(6, max(1, lastScale * value))
-                    }
-                    .onEnded { _ in
-                        lastScale = scale
-                        if scale <= 1.01 { resetZoom() }
-                    }
-            )
-            // Pan gesture is fully disabled at 1× (mask .subviews) so it can
-            // never steal horizontal swipes from the paging TabView. It only
-            // engages once zoomed in.
-            .gesture(
-                DragGesture()
-                    .onChanged { value in
-                        offset = CGSize(
-                            width: lastOffset.width + value.translation.width,
-                            height: lastOffset.height + value.translation.height
-                        )
-                    }
-                    .onEnded { _ in
-                        lastOffset = offset
-                    },
-                including: scale > 1 ? .all : .subviews
-            )
-            .onTapGesture(count: 2) {
-                withAnimation(.spring(duration: 0.3)) {
-                    if scale > 1 {
-                        resetZoom()
-                    } else {
-                        scale = 2.5
-                        lastScale = 2.5
-                    }
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .contentShape(Rectangle())
-            .clipped()
+        let imageView = UIImageView(image: image)
+        imageView.contentMode = .scaleAspectFit
+        imageView.clipsToBounds = true
+        imageView.isUserInteractionEnabled = true
+        context.coordinator.imageView = imageView
+        scrollView.addSubview(imageView)
+
+        let doubleTap = UITapGestureRecognizer(
+            target: context.coordinator,
+            action: #selector(Coordinator.handleDoubleTap(_:))
+        )
+        doubleTap.numberOfTapsRequired = 2
+        scrollView.addGestureRecognizer(doubleTap)
+
+        return scrollView
     }
 
-    private func resetZoom() {
-        withAnimation(.spring(duration: 0.3)) {
-            scale = 1
-            lastScale = 1
-            offset = .zero
-            lastOffset = .zero
+    func updateUIView(_ scrollView: UIScrollView, context: Context) {
+        if context.coordinator.imageView?.image !== image {
+            context.coordinator.imageView?.image = image
+        }
+        context.coordinator.layoutImage(in: scrollView)
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    final class Coordinator: NSObject, UIScrollViewDelegate {
+        var imageView: UIImageView?
+        private var lastBounds: CGRect = .zero
+
+        func viewForZooming(in scrollView: UIScrollView) -> UIView? { imageView }
+
+        /// Size the image to fill the scroll view (aspect-fit) when the bounds
+        /// are first known or change (rotation), keeping zoom reset.
+        func layoutImage(in scrollView: UIScrollView) {
+            guard let imageView, scrollView.bounds != lastBounds, scrollView.bounds.width > 0 else { return }
+            lastBounds = scrollView.bounds
+            scrollView.zoomScale = 1
+            imageView.frame = scrollView.bounds
+            scrollView.contentSize = scrollView.bounds.size
+        }
+
+        /// Keep the image centred while it's smaller than the viewport.
+        func scrollViewDidZoom(_ scrollView: UIScrollView) {
+            guard let imageView else { return }
+            let bounds = scrollView.bounds.size
+            var frame = imageView.frame
+            frame.origin.x = frame.width < bounds.width ? (bounds.width - frame.width) / 2 : 0
+            frame.origin.y = frame.height < bounds.height ? (bounds.height - frame.height) / 2 : 0
+            imageView.frame = frame
+        }
+
+        @objc func handleDoubleTap(_ gesture: UITapGestureRecognizer) {
+            guard let scrollView = gesture.view as? UIScrollView else { return }
+            if scrollView.zoomScale > scrollView.minimumZoomScale {
+                scrollView.setZoomScale(scrollView.minimumZoomScale, animated: true)
+            } else {
+                let point = gesture.location(in: imageView)
+                let newScale: CGFloat = 2.5
+                let size = scrollView.bounds.size
+                let rect = CGRect(
+                    x: point.x - (size.width / newScale) / 2,
+                    y: point.y - (size.height / newScale) / 2,
+                    width: size.width / newScale,
+                    height: size.height / newScale
+                )
+                scrollView.zoom(to: rect, animated: true)
+            }
         }
     }
 }

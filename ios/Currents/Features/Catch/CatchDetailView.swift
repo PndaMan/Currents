@@ -67,16 +67,12 @@ struct CatchDetailView: View {
                         measureCell(value: String(format: "%.2f", weight), unit: "kg", label: "Weight", icon: "scalemass")
                     }
                     if let score = detail.catchRecord.forecastScoreAtCapture {
-                        VStack(spacing: 6) {
-                            ScoreGauge(score: score, label: "", size: 44)
+                        statCard {
+                            ScoreGauge(score: score, label: "", size: 32)
                             Text("Bite Score")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
-                        .background(.ultraThinMaterial)
-                        .clipShape(RoundedRectangle(cornerRadius: CurrentsTheme.cornerRadius))
                     }
                 }
 
@@ -364,10 +360,11 @@ struct CatchDetailView: View {
     }
 
     private func measureCell(value: String, unit: String, label: String, icon: String) -> some View {
-        VStack(spacing: 6) {
+        statCard {
             Image(systemName: icon)
                 .font(.body)
                 .foregroundStyle(CurrentsTheme.accent)
+                .frame(height: 32)
             HStack(alignment: .firstTextBaseline, spacing: 2) {
                 Text(value)
                     .font(.title3.bold())
@@ -380,7 +377,16 @@ struct CatchDetailView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
-        .frame(maxWidth: .infinity)
+    }
+
+    /// Shared container for the Length / Weight / Bite Score tiles so all three
+    /// render at an identical size in one row.
+    @ViewBuilder
+    private func statCard<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        VStack(spacing: 6) {
+            content()
+        }
+        .frame(maxWidth: .infinity, minHeight: 108)
         .padding(.vertical, 12)
         .background(.ultraThinMaterial)
         .clipShape(RoundedRectangle(cornerRadius: CurrentsTheme.cornerRadius))

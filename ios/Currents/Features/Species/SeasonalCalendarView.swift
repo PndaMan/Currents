@@ -15,11 +15,15 @@ struct SeasonalCalendarView: View {
         var id: String { rawValue }
     }
 
-    /// Approximate monthly water temperatures in Celsius (Northern Hemisphere).
-    /// Index 1 = January, 12 = December.
+    /// Approximate monthly surface water temperatures in Celsius across a full
+    /// temperate year (Northern Hemisphere), from a cold late-winter to a warm
+    /// late-summer. Index 1 = January, 12 = December. The range is deliberately
+    /// wide (≈4–27°C) so that every species — cold-water, temperate and
+    /// warm/tropical alike — has a month where local water reaches its
+    /// preferred band, instead of only the mid-range curated few.
     private static let northernTemps: [Int: Double] = [
-        1: 8, 2: 7, 3: 9, 4: 13, 5: 17, 6: 21,
-        7: 24, 8: 23, 9: 20, 10: 16, 11: 12, 12: 9
+        1: 5, 2: 4, 3: 6, 4: 10, 5: 15, 6: 20,
+        7: 24, 8: 27, 9: 23, 10: 18, 11: 12, 12: 7
     ]
 
     private static let monthNames: [String] = {
@@ -46,18 +50,39 @@ struct SeasonalCalendarView: View {
     }
 
     // MARK: - Scoring
+    //
+    // Seasonality is driven by each species' own thermal tolerance band
+    // (minTempC…optimalTempC…maxTempC), all of which are seeded for every
+    // species — not just a ±5° window around the optimum. This means the
+    // calendar produces a meaningful, differentiated season for all species:
+    // a wide-tolerance fish stays catchable across more of the year, a
+    // stenothermal one peaks sharply, and cold- or warm-water species map to
+    // the cold or warm months instead of never appearing in season.
+
+    /// The comfortable band edges for a species, falling back to a moderate
+    /// spread around the optimum when explicit min/max aren't known.
+    private func tempBand(_ sp: Species) -> (lower: Double, optimal: Double, upper: Double)? {
+        guard let optimal = sp.optimalTempC else { return nil }
+        let lower = sp.minTempC ?? (optimal - 6)
+        let upper = sp.maxTempC ?? (optimal + 6)
+        return (min(lower, optimal), optimal, max(upper, optimal))
+    }
 
     private func matchScore(species sp: Species, month: Int) -> Double {
-        guard let optimal = sp.optimalTempC else { return 0 }
+        guard let band = tempBand(sp) else { return 0 }
         let temp = waterTemp(for: month)
-        let diff = abs(temp - optimal)
-        return max(0, 100 - diff * 5)
+        // Distance from the optimum, normalised by how far it is to the nearer
+        // band edge, so the score peaks at 100 at the optimum and falls to 0 at
+        // the edge of the fish's tolerance (quadratic falloff for a smooth ramp).
+        let span = max(band.upper - band.optimal, band.optimal - band.lower, 3)
+        let norm = abs(temp - band.optimal) / span
+        return max(0, 100 * (1 - norm * norm))
     }
 
     private func isInSeason(species sp: Species, month: Int) -> Bool {
-        guard let optimal = sp.optimalTempC else { return false }
+        guard let band = tempBand(sp) else { return false }
         let temp = waterTemp(for: month)
-        return abs(temp - optimal) <= 5
+        return temp >= band.lower && temp <= band.upper
     }
 
     private var filteredSpecies: [Species] {
