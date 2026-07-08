@@ -88,17 +88,23 @@ final class ObservedSpeciesRepository: ObservableObject {
         geohashCell: String,
         speciesRepository: SpeciesRepository
     ) -> [ObservedSpeciesCache] {
-        // Load all species for matching
+        // Load all species for matching. Use `uniquingKeysWith` — NOT
+        // `uniqueKeysWithValues`, which traps on duplicate keys: the dataset
+        // has several species sharing a common name (e.g. two "Largemouth
+        // Bass"), and that crash fired ~2s after opening a spot/waterbody
+        // whenever iNaturalist returned fish for an un-cached area.
         let allSpecies = (try? speciesRepository.fetchAll()) ?? []
         let speciesByScientific = Dictionary(
-            uniqueKeysWithValues: allSpecies.map { ($0.scientificName.lowercased(), $0) }
+            allSpecies.map { ($0.scientificName.lowercased(), $0) },
+            uniquingKeysWith: { first, _ in first }
         )
         // Also build a map by common name for fuzzy matching
         let speciesByCommon = Dictionary(
-            uniqueKeysWithValues: allSpecies.compactMap { sp -> (String, Species)? in
+            allSpecies.compactMap { sp -> (String, Species)? in
                 guard !sp.commonName.isEmpty else { return nil }
                 return (sp.commonName.lowercased(), sp)
-            }
+            },
+            uniquingKeysWith: { first, _ in first }
         )
 
         var entries: [ObservedSpeciesCache] = []

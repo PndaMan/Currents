@@ -1,5 +1,6 @@
 import Foundation
 import MapKit
+import UIKit
 
 /// A disk-caching XYZ tile overlay.
 ///
@@ -17,6 +18,9 @@ final class OfflineTileOverlay: MKTileOverlay {
 
     private let cacheDir: URL
     private let session: URLSession
+    /// All disk I/O runs here so MapKit's tile-loading thread is never blocked
+    /// (blocking it during a pinch-zoom is what made the offline map freeze).
+    private let ioQueue = DispatchQueue(label: "com.currents.tilecache", qos: .userInitiated, attributes: .concurrent)
 
     /// Hard cap on the on-disk tile cache. Oldest tiles are evicted past this
     /// so the automatic caching can't grow unbounded.
@@ -30,7 +34,10 @@ final class OfflineTileOverlay: MKTileOverlay {
 
         let config = URLSessionConfiguration.default
         config.requestCachePolicy = .returnCacheDataElseLoad
-        config.timeoutIntervalForRequest = 20
+        config.timeoutIntervalForRequest = 12
+        // Fail fast when there's no signal instead of hanging the tile (which
+        // reads as a frozen, blank map) waiting to connect.
+        config.waitsForConnectivity = false
         self.session = URLSession(configuration: config)
 
         super.init(urlTemplate: OfflineTileOverlay.template)
@@ -56,26 +63,74 @@ final class OfflineTileOverlay: MKTileOverlay {
         at path: MKTileOverlayPath,
         result: @escaping (Data?, Error?) -> Void
     ) {
-        let cached = fileURL(for: path)
+        // Everything runs off MapKit's calling thread so a pinch-zoom over
+        // dozens of tiles can never block the UI.
+        ioQueue.async { [weak self] in
+            guard let self else { result(nil, nil); return }
+            let cached = self.fileURL(for: path)
 
-        // 1. Serve from disk if we already have it (works fully offline).
-        if let data = try? Data(contentsOf: cached) {
-            result(data, nil)
-            return
-        }
-
-        // 2. Fetch, cache to disk, return.
-        let task = session.dataTask(with: url(forTilePath: path)) { [weak self] data, _, error in
-            if let data {
-                try? FileManager.default.createDirectory(
-                    at: cached.deletingLastPathComponent(), withIntermediateDirectories: true
-                )
-                try? data.write(to: cached, options: .atomic)
-                self?.noteWriteAndMaybeSweep()
+            // 1. Exact tile already on disk — serve it (works fully offline).
+            if let data = try? Data(contentsOf: cached) {
+                result(data, nil)
+                return
             }
-            result(data, error)
+
+            // 2. Fetch it. On success cache + return the crisp tile.
+            let task = self.session.dataTask(with: self.url(forTilePath: path)) { [weak self] data, _, error in
+                guard let self else { result(data, error); return }
+                if let data {
+                    try? FileManager.default.createDirectory(
+                        at: cached.deletingLastPathComponent(), withIntermediateDirectories: true
+                    )
+                    try? data.write(to: cached, options: .atomic)
+                    self.noteWriteAndMaybeSweep()
+                    result(data, nil)
+                } else {
+                    // 3. Offline / fetch failed — rather than a blank tile,
+                    // serve a scaled-up cached PARENT tile if we have one, so a
+                    // zoom level that was never cached still shows (blurry) map
+                    // instead of nothing.
+                    self.ioQueue.async {
+                        result(self.overzoomedTile(for: path), nil)
+                    }
+                }
+            }
+            task.resume()
         }
-        task.resume()
+    }
+
+    /// Find the nearest cached ancestor tile and crop/scale its relevant
+    /// quadrant up to a full tile, so zoomed-in views degrade to a blurry
+    /// cached tile instead of a blank one when offline.
+    private func overzoomedTile(for path: MKTileOverlayPath) -> Data? {
+        let minZ = max(minimumZ, 1)
+        var k = 1
+        while path.z - k >= minZ {
+            let scale = 1 << k
+            let ancestor = MKTileOverlayPath(
+                x: path.x >> k, y: path.y >> k, z: path.z - k,
+                contentScaleFactor: path.contentScaleFactor
+            )
+            if let img = UIImage(contentsOfFile: fileURL(for: ancestor).path),
+               let cg = img.cgImage {
+                let cellW = CGFloat(cg.width) / CGFloat(scale)
+                let cellH = CGFloat(cg.height) / CGFloat(scale)
+                let src = CGRect(
+                    x: CGFloat(path.x & (scale - 1)) * cellW,
+                    y: CGFloat(path.y & (scale - 1)) * cellH,
+                    width: cellW, height: cellH
+                )
+                guard let sub = cg.cropping(to: src) else { return nil }
+                let out = tileSize
+                let renderer = UIGraphicsImageRenderer(size: out)
+                let scaled = renderer.image { _ in
+                    UIImage(cgImage: sub).draw(in: CGRect(origin: .zero, size: out))
+                }
+                return scaled.jpegData(compressionQuality: 0.8)
+            }
+            k += 1
+        }
+        return nil
     }
 
     /// Periodically evict the oldest tiles once the cache exceeds the cap.
