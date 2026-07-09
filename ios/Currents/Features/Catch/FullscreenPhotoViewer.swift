@@ -52,11 +52,10 @@ struct FullscreenPhotoViewer: View {
 /// edge clamping, so panning a zoomed photo is buttery-smooth instead of the
 /// stuttering you get when a SwiftUI `DragGesture` fights the paging TabView.
 ///
-/// The image view is laid out at the photo's NATURAL size and the fitted scale
-/// is used as `minimumZoomScale` (recomputed in `layoutSubviews`, so it's
-/// correct regardless of when SwiftUI hands us real bounds). That's the fix for
-/// the photo opening wildly zoomed-in with no way to zoom back out — a fixed
-/// `minimumZoomScale = 1` against a large image meant "fit" was unreachable.
+/// The image is aspect-fit to the viewport at `zoomScale == 1` with a fixed
+/// 1…4× range, and the fit is applied in `layoutSubviews` (keyed on the
+/// viewport SIZE) so it opens fitted, never pre-zoomed, and doesn't reset the
+/// scale mid-pinch.
 struct ZoomableImage: UIViewRepresentable {
     let image: UIImage
 
@@ -129,7 +128,10 @@ struct ZoomableImage: UIViewRepresentable {
 final class ZoomScrollView: UIScrollView {
     let imageView = UIImageView()
     var needsRefit = true
-    private var lastBounds: CGRect = .zero
+    // Track the viewport SIZE only. A scroll view's `bounds.origin` is its
+    // contentOffset, so comparing the whole rect re-fired the refit (resetting
+    // zoomScale to 1) on every scroll/zoom frame — which killed zooming.
+    private var lastSize: CGSize = .zero
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -145,15 +147,13 @@ final class ZoomScrollView: UIScrollView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        // Reset to a fitted layout whenever the bounds change or a new image
-        // arrives. Runs here (not in updateUIView) so the timing is reliable —
-        // that's what stops the photo opening pre-zoomed. Bounds don't change
-        // during a pinch, so this never fights the user's zoom.
-        if (needsRefit || bounds != lastBounds), bounds.width > 0, imageView.image != nil {
-            lastBounds = bounds
+        // Fit the image only when the viewport SIZE changes or a new image
+        // arrives — never during a pinch/scroll, so it doesn't fight the zoom.
+        if (needsRefit || bounds.size != lastSize), bounds.width > 0, imageView.image != nil {
+            lastSize = bounds.size
             needsRefit = false
             zoomScale = 1
-            imageView.frame = bounds
+            imageView.frame = CGRect(origin: .zero, size: bounds.size)
             contentSize = bounds.size
         }
         centerContent()
