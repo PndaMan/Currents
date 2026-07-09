@@ -3,6 +3,11 @@ import SwiftUI
 struct SeasonalCalendarView: View {
     @Environment(AppState.self) private var appState
     @State private var species: [Species] = []
+    // Cached, precomputed lists + scores so the 1,500-species filter/sort
+    // doesn't re-run on every scroll frame (that made this tab crawl).
+    @State private var inSeason: [Species] = []
+    @State private var offSeason: [Species] = []
+    @State private var scoreById: [Int64: Int] = [:]
     @State private var selectedMonth: Int = Calendar.current.component(.month, from: .now)
     @State private var searchText = ""
     @State private var habitatFilter: Species.Habitat?
@@ -101,10 +106,12 @@ struct SeasonalCalendarView: View {
         return result
     }
 
-    private func sorted(_ list: [Species]) -> [Species] {
+    /// Sort using the precomputed score map (never recompute matchScore inside
+    /// the O(n log n) comparator).
+    private func sortedCached(_ list: [Species]) -> [Species] {
         switch sortOrder {
         case .match:
-            return list.sorted { matchScore(species: $0, month: selectedMonth) > matchScore(species: $1, month: selectedMonth) }
+            return list.sorted { (scoreById[$0.id] ?? 0) > (scoreById[$1.id] ?? 0) }
         case .name:
             return list.sorted { $0.commonName < $1.commonName }
         case .temp:
@@ -112,29 +119,45 @@ struct SeasonalCalendarView: View {
         }
     }
 
-    private var inSeasonSpecies: [Species] {
-        sorted(filteredSpecies.filter { isInSeason(species: $0, month: selectedMonth) })
-    }
+    /// Recompute the cached in/off-season lists + score map. Called only when
+    /// an input actually changes (month, search, habitat, sort, data), not on
+    /// every render.
+    private func recompute() {
+        var scores: [Int64: Int] = [:]
+        scores.reserveCapacity(species.count)
+        for sp in species {
+            scores[sp.id] = Int(matchScore(species: sp, month: selectedMonth))
+        }
+        scoreById = scores
 
-    private var offSeasonSpecies: [Species] {
-        sorted(filteredSpecies.filter { !isInSeason(species: $0, month: selectedMonth) })
+        let filtered = filteredSpecies
+        inSeason = sortedCached(filtered.filter { isInSeason(species: $0, month: selectedMonth) })
+        offSeason = sortedCached(filtered.filter { !isInSeason(species: $0, month: selectedMonth) })
     }
 
     // MARK: - Body
 
     var body: some View {
         ScrollView {
-            VStack(spacing: CurrentsTheme.paddingM) {
+            // LazyVStack with the species rows as DIRECT children so hundreds of
+            // rows render on demand instead of all at once.
+            LazyVStack(spacing: CurrentsTheme.paddingM) {
                 monthSelector
                 searchAndFilterBar
                 tempBanner
 
-                if !inSeasonSpecies.isEmpty {
-                    sectionBlock(title: "In Season", species: inSeasonSpecies, dimmed: false)
+                if !inSeason.isEmpty {
+                    sectionHeader(title: "In Season", count: inSeason.count, dimmed: false)
+                    ForEach(inSeason) { sp in
+                        speciesLink(sp, dimmed: false)
+                    }
                 }
 
-                if !offSeasonSpecies.isEmpty {
-                    sectionBlock(title: "Off Season", species: offSeasonSpecies, dimmed: true)
+                if !offSeason.isEmpty {
+                    sectionHeader(title: "Off Season", count: offSeason.count, dimmed: true)
+                    ForEach(offSeason) { sp in
+                        speciesLink(sp, dimmed: true)
+                    }
                 }
 
                 if species.isEmpty {
@@ -149,8 +172,15 @@ struct SeasonalCalendarView: View {
         }
         .navigationTitle("Seasonal Calendar")
         .task {
-            species = (try? appState.speciesRepository.fetchAll()) ?? []
+            if species.isEmpty {
+                species = (try? appState.speciesRepository.fetchAll()) ?? []
+            }
+            recompute()
         }
+        .onChange(of: selectedMonth) { _, _ in recompute() }
+        .onChange(of: searchText) { _, _ in recompute() }
+        .onChange(of: habitatFilter) { _, _ in recompute() }
+        .onChange(of: sortOrder) { _, _ in recompute() }
     }
 
     // MARK: - Month Selector
@@ -257,36 +287,35 @@ struct SeasonalCalendarView: View {
 
     // MARK: - Section Block
 
-    private func sectionBlock(title: String, species list: [Species], dimmed: Bool) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 8) {
-                Circle()
-                    .fill(dimmed ? Color.secondary.opacity(0.4) : CurrentsTheme.accent)
-                    .frame(width: 8, height: 8)
-                Text(title)
-                    .font(.headline)
-                Text("\(list.count)")
-                    .font(.caption.bold())
-                    .foregroundStyle(.secondary)
-            }
-
-            ForEach(list) { sp in
-                NavigationLink {
-                    SpeciesDetailView(species: sp)
-                } label: {
-                    speciesRow(sp, dimmed: dimmed)
-                }
-                .buttonStyle(.plain)
-            }
+    private func sectionHeader(title: String, count: Int, dimmed: Bool) -> some View {
+        HStack(spacing: 8) {
+            Circle()
+                .fill(dimmed ? Color.secondary.opacity(0.4) : CurrentsTheme.accent)
+                .frame(width: 8, height: 8)
+            Text(title)
+                .font(.headline)
+            Text("\(count)")
+                .font(.caption.bold())
+                .foregroundStyle(.secondary)
+            Spacer()
         }
+    }
+
+    private func speciesLink(_ sp: Species, dimmed: Bool) -> some View {
+        NavigationLink {
+            SpeciesDetailView(species: sp)
+        } label: {
+            speciesRow(sp, dimmed: dimmed)
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - Species Row
 
     private func speciesRow(_ sp: Species, dimmed: Bool) -> some View {
         HStack(spacing: 12) {
-            // Match score circle
-            let score = Int(matchScore(species: sp, month: selectedMonth))
+            // Match score circle (from the precomputed cache)
+            let score = scoreById[sp.id] ?? 0
             ZStack {
                 Circle()
                     .stroke(dimmed ? Color.secondary.opacity(0.2) : CurrentsTheme.accent.opacity(0.3), lineWidth: 3)
