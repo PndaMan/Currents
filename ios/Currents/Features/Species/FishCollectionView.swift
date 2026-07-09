@@ -15,6 +15,11 @@ struct FishCollectionView: View {
     @State private var rarityFilter: SpeciesRarity?
     @State private var showCaughtOnly = false
     @State private var selected: Species?
+    // Observed + read in the body so the accent-tinted % + progress bar
+    // re-tint immediately on a theme change (CurrentsTheme.accent alone reads
+    // UserDefaults without creating a view dependency).
+    @AppStorage("selectedTheme") private var selectedTheme = ThemeOption.ocean.rawValue
+    private var accent: Color { (ThemeOption(rawValue: selectedTheme) ?? .ocean).primary }
 
     enum SortMode: String, CaseIterable {
         case rarest = "Rarest"
@@ -112,10 +117,10 @@ struct FishCollectionView: View {
                 Text(String(format: "%.1f%%", pct * 100))
                     .font(.title.bold())
                     .monospacedDigit()
-                    .foregroundStyle(CurrentsTheme.accent)
+                    .foregroundStyle(accent)
             }
             ProgressView(value: pct)
-                .tint(CurrentsTheme.accent)
+                .tint(accent)
 
             // Rarity breakdown
             HStack(spacing: 10) {

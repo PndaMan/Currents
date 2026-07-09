@@ -548,16 +548,7 @@ struct LogCatchView: View {
         if items.isEmpty {
             TextField(placeholder, text: selection)
         } else {
-            Picker(placeholder, selection: selection) {
-                Text("None").tag("")
-                ForEach(items) { item in
-                    Text(item.displayName).tag(item.displayName)
-                }
-                Text("Custom...").tag("__custom__")
-            }
-            if selection.wrappedValue == "__custom__" {
-                TextField("Custom \(placeholder.lowercased())", text: selection)
-            }
+            GearFieldPicker(placeholder: placeholder, items: items, selection: selection)
         }
     }
 
@@ -1107,5 +1098,54 @@ struct CameraPicker: UIViewControllerRepresentable {
         func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
             parent.dismiss()
         }
+    }
+}
+
+/// Gear field with an owned-gear picker plus a "Custom…" option that reveals a
+/// free-text field. Custom mode is tracked separately from the value, so typing
+/// a custom name no longer hides the field (the old code bound the field
+/// directly to the "__custom__" sentinel, so the first keystroke dismissed it).
+struct GearFieldPicker: View {
+    let placeholder: String
+    let items: [OwnedGear]
+    @Binding var selection: String
+    @State private var isCustom = false
+    @State private var customText = ""
+
+    var body: some View {
+        Picker(placeholder, selection: Binding(
+            get: { isCustom ? "__custom__" : selection },
+            set: { newValue in
+                if newValue == "__custom__" {
+                    isCustom = true
+                    selection = customText   // keep any text already typed
+                } else {
+                    isCustom = false
+                    selection = newValue
+                }
+            }
+        )) {
+            Text("None").tag("")
+            ForEach(items) { item in
+                Text(item.displayName).tag(item.displayName)
+            }
+            Text("Custom…").tag("__custom__")
+        }
+
+        if isCustom {
+            TextField("Custom \(placeholder.lowercased())", text: $customText)
+                .onChange(of: customText) { _, newValue in selection = newValue }
+        }
+    }
+
+    init(placeholder: String, items: [OwnedGear], selection: Binding<String>) {
+        self.placeholder = placeholder
+        self.items = items
+        self._selection = selection
+        // Resume in custom mode if the stored value isn't one of the owned items.
+        let value = selection.wrappedValue
+        let isKnown = value.isEmpty || items.contains { $0.displayName == value }
+        _isCustom = State(initialValue: !isKnown)
+        _customText = State(initialValue: isKnown ? "" : value)
     }
 }
