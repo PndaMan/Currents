@@ -30,10 +30,21 @@ struct OfflineMapView: UIViewRepresentable {
         let map = MKMapView()
         map.delegate = context.coordinator
         map.showsUserLocation = true
-        map.showsCompass = true
+        // Disable the built-in compass (it sits top-right when rotated, clipping
+        // under our right-hand button column) and place our own top-LEFT.
+        map.showsCompass = false
         map.showsScale = true
         map.pointOfInterestFilter = .excludingAll
         map.addOverlay(overlay, level: .aboveLabels)
+
+        let compass = MKCompassButton(mapView: map)
+        compass.compassVisibility = .adaptive   // only shows while rotated
+        compass.translatesAutoresizingMaskIntoConstraints = false
+        map.addSubview(compass)
+        NSLayoutConstraint.activate([
+            compass.leadingAnchor.constraint(equalTo: map.safeAreaLayoutGuide.leadingAnchor, constant: 12),
+            compass.topAnchor.constraint(equalTo: map.safeAreaLayoutGuide.topAnchor, constant: 60),
+        ])
 
         let tap = UITapGestureRecognizer(
             target: context.coordinator,

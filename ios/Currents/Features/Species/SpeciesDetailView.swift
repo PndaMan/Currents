@@ -275,15 +275,17 @@ struct SpeciesDetailView: View {
             Text("Your Stats")
                 .font(.headline)
 
-            HStack(spacing: 12) {
+            // 2×2 grid so each tile has room for the full label/value — four
+            // across in one row was too narrow and truncated ("PB W…", "6.00…").
+            let released = catches.filter { $0.catchRecord.released }.count
+            LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
                 StatCard(value: "\(catches.count)", label: "Caught", icon: "fish.fill")
                 if let pb = personalBest, let kg = pb.heaviestKg {
-                    StatCard(value: String(format: "%.2fkg", kg), label: "PB Weight", icon: "trophy.fill")
+                    StatCard(value: String(format: "%.2f kg", kg), label: "PB Weight", icon: "trophy.fill")
                 }
                 if let pb = personalBest, let cm = pb.longestCm {
-                    StatCard(value: String(format: "%.0fcm", cm), label: "PB Length", icon: "ruler")
+                    StatCard(value: String(format: "%.0f cm", cm), label: "PB Length", icon: "ruler")
                 }
-                let released = catches.filter { $0.catchRecord.released }.count
                 StatCard(value: "\(released)", label: "Released", icon: "arrow.uturn.backward")
             }
 

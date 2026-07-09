@@ -307,9 +307,9 @@ struct MapTab: View {
                         }
                     }
                 }
-                // On the offline map the MKMapView compass sits top-right when
-                // the map is rotated — leave it room above the button column.
-                .padding(.top, mapStyle == .offline ? 56 : 8)
+                // The rotation compass now sits top-LEFT on every style, so the
+                // right-hand button column can start at the normal inset.
+                .padding(.top, 8)
                 .padding(.trailing, 12)
                 }
 
