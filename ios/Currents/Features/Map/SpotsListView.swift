@@ -69,9 +69,6 @@ struct SpotsListView: View {
         .task {
             await loadData()
         }
-        .refreshable {
-            await loadData()
-        }
     }
 
     private func loadData() async {

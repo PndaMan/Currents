@@ -1040,6 +1040,9 @@ struct SpotDetailSheet: View {
     @State private var forecast: ForecastEngine.ForecastResult?
     @State private var showingDeleteConfirm = false
     @State private var showingEdit = false
+    @State private var shareImage: UIImage?
+    @State private var showingShareSheet = false
+    @State private var isGeneratingShare = false
 
     init(spot: Spot) {
         _spot = State(initialValue: spot)
@@ -1190,6 +1193,25 @@ struct SpotDetailSheet: View {
                             .foregroundStyle(.secondary)
                     }
 
+                    // Share — renders a map card + attaches an Apple Maps pin link.
+                    Button {
+                        generateShareCard()
+                    } label: {
+                        if isGeneratingShare {
+                            HStack(spacing: 8) {
+                                ProgressView().tint(.white)
+                                Text("Preparing…")
+                            }
+                            .frame(maxWidth: .infinity)
+                        } else {
+                            Label("Share Spot", systemImage: "square.and.arrow.up")
+                                .frame(maxWidth: .infinity)
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(CurrentsTheme.accent)
+                    .disabled(isGeneratingShare)
+
                     // Actions
                     HStack(spacing: 12) {
                         Button {
@@ -1213,7 +1235,12 @@ struct SpotDetailSheet: View {
                         Text("Catches Here")
                             .font(.headline)
                         ForEach(catches, id: \.catchRecord.id) { detail in
-                            CatchRow(detail: detail)
+                            NavigationLink {
+                                CatchDetailView(detail: detail)
+                            } label: {
+                                CatchRow(detail: detail)
+                            }
+                            .buttonStyle(.plain)
                         }
                     } else {
                         ContentUnavailableView(
@@ -1257,6 +1284,31 @@ struct SpotDetailSheet: View {
                 // Refresh in place — closing the whole spot sheet after an
                 // edit made it feel like the app threw the user out.
                 spot = record
+            }
+        }
+        .sheet(isPresented: $showingShareSheet) {
+            if let shareImage {
+                ImageShareSheet(
+                    image: shareImage,
+                    filename: "Currents-\(spot.name)",
+                    caption: SpotShareCard.caption(for: spot)
+                )
+            }
+        }
+    }
+
+    private func generateShareCard() {
+        isGeneratingShare = true
+        Task {
+            let card = await SpotShareCard.render(
+                spot: spot,
+                catchCount: catches.count,
+                biteScore: forecast?.score
+            )
+            isGeneratingShare = false
+            if let card {
+                shareImage = card
+                showingShareSheet = true
             }
         }
     }

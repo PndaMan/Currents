@@ -235,6 +235,9 @@ struct ShareSheet: UIViewControllerRepresentable {
 struct ImageShareSheet: UIViewControllerRepresentable {
     let image: UIImage
     var filename: String = "Currents-Catch"
+    /// Optional text shared alongside the image — e.g. a maps link that apps
+    /// like WhatsApp attach as the message/caption.
+    var caption: String? = nil
 
     func makeUIViewController(context: Context) -> UIActivityViewController {
         var items: [Any] = [image]
@@ -246,6 +249,7 @@ struct ImageShareSheet: UIViewControllerRepresentable {
                 items = [url]
             }
         }
+        if let caption { items.append(caption) }
         return UIActivityViewController(activityItems: items, applicationActivities: nil)
     }
 
