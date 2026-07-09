@@ -107,7 +107,9 @@ struct FishCollectionView: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
-                Text("\(Int(pct * 100))%")
+                // One decimal so early progress isn't stuck at a flat 0% —
+                // with 1,500+ species you'd need ~16 to even reach 1%.
+                Text(String(format: "%.1f%%", pct * 100))
                     .font(.title.bold())
                     .monospacedDigit()
                     .foregroundStyle(CurrentsTheme.accent)
