@@ -283,12 +283,8 @@ struct MapTab: View {
                         mapButton(icon: "book.fill")
                     }
 
-                    // Forecast
-                    Button {
-                        showingForecast = true
-                    } label: {
-                        mapButton(icon: "cloud.sun.fill")
-                    }
+                    // (Forecast lives on the main tab bar — no duplicate button
+                    // here. This column slot is used by the trip button below.)
 
                     // Start/view live trip (hidden until a later release)
                     if FeatureFlags.liveTrips {
