@@ -184,6 +184,10 @@ struct MapTab: View {
                     }
                 }
                 .mapStyle(activeMapStyle)
+                // Suppress the built-in controls (the default compass sits
+                // top-right when rotated, clipping under our recentre button).
+                // The rotation compass is provided separately, pinned top-left.
+                .mapControls { }
                 .onMapCameraChange(frequency: .onEnd) { context in
                     handleRegionChange(context.region)
                 }
