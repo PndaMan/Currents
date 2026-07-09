@@ -166,6 +166,12 @@ struct ProfileTab: View {
                     } label: {
                         Label("Size & Bag Limits", systemImage: "ruler")
                     }
+
+                    NavigationLink {
+                        LicenseWalletView()
+                    } label: {
+                        Label("Licences & Permits", systemImage: "doc.text.image")
+                    }
                 }
 
                 // Settings

@@ -331,6 +331,23 @@ final class AppDatabase: Sendable {
             }
         }
 
+        migrator.registerMigration("v15_licenses") { db in
+            try db.create(table: "fishingLicense") { t in
+                t.primaryKey("id", .text)
+                t.column("title", .text).notNull()
+                t.column("licenseType", .text)
+                t.column("holderName", .text)
+                t.column("licenseNumber", .text)
+                t.column("region", .text)
+                t.column("issueDate", .datetime)
+                t.column("expiryDate", .datetime)
+                t.column("fileName", .text)      // stored in Documents/licenses
+                t.column("fileKind", .text)       // "pdf" | "image"
+                t.column("notes", .text)
+                t.column("createdAt", .datetime).notNull()
+            }
+        }
+
         return migrator
     }
 }

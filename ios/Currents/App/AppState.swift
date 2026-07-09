@@ -22,6 +22,7 @@ final class AppState {
     let ownedGearRepository: OwnedGearRepository
     let waterbodyRepository: WaterbodyRepository
     let observedSpeciesRepository: ObservedSpeciesRepository
+    let licenseRepository: LicenseRepository
 
     init() {
         do {
@@ -40,6 +41,7 @@ final class AppState {
         self.ownedGearRepository = OwnedGearRepository(db: db)
         self.waterbodyRepository = WaterbodyRepository(db: db)
         self.observedSpeciesRepository = ObservedSpeciesRepository(db: db)
+        self.licenseRepository = LicenseRepository(db: db)
 
         // Boot async work — fetch the fish-ID model in the background.
         Task {
@@ -69,6 +71,11 @@ final class AppState {
             locationManager.requestPermission()
         }
         mapManager.refreshDownloadedRegions()
+
+        // Refresh licence-expiry reminders from stored licences.
+        if let licenses = try? licenseRepository.fetchAll(), !licenses.isEmpty {
+            Task { await NotificationManager.shared.scheduleLicenseExpiryAlerts(licenses: licenses) }
+        }
 
         // App Store screenshot capture (CI only — gated on SCREENSHOT_MODE env).
         ScreenshotSupport.seedDemoDataIfNeeded(self)

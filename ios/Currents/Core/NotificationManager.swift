@@ -151,4 +151,53 @@ final class NotificationManager: @unchecked Sendable {
     func cancelAll() {
         center.removeAllPendingNotificationRequests()
     }
+
+    // MARK: - Licence Expiry Reminders
+
+    /// Schedule expiry reminders for each licence at 1 month, 2 weeks, 1 week,
+    /// 3 days before, and on the expiry day. Reschedules cleanly each call.
+    func scheduleLicenseExpiryAlerts(licenses: [FishingLicense]) async {
+        // Clear previously-scheduled licence reminders.
+        let existing = await center.pendingNotificationRequests()
+        let ids = existing.map(\.identifier).filter { $0.hasPrefix("license-") }
+        center.removePendingNotificationRequests(withIdentifiers: ids)
+
+        guard (try? await center.requestAuthorization(options: [.alert, .sound])) == true else { return }
+
+        let calendar = Calendar.current
+        let offsets: [(days: Int, label: String)] = [
+            (30, "expires in 1 month"),
+            (14, "expires in 2 weeks"),
+            (7, "expires in 1 week"),
+            (3, "expires in 3 days"),
+            (0, "expires today"),
+        ]
+
+        for license in licenses {
+            guard let expiry = license.expiryDate else { continue }
+            for offset in offsets {
+                guard let fireDate = calendar.date(byAdding: .day, value: -offset.days, to: expiry) else { continue }
+                // 9am local on the reminder day, and only if it's in the future.
+                var comps = calendar.dateComponents([.year, .month, .day], from: fireDate)
+                comps.hour = 9
+                guard let stamped = calendar.date(from: comps), stamped > .now else { continue }
+
+                let content = UNMutableNotificationContent()
+                content.title = "Fishing licence reminder"
+                content.body = "\(license.title) \(offset.label)."
+                content.sound = .default
+
+                let trigger = UNCalendarNotificationTrigger(
+                    dateMatching: calendar.dateComponents([.year, .month, .day, .hour], from: stamped),
+                    repeats: false
+                )
+                let request = UNNotificationRequest(
+                    identifier: "license-\(license.id)-\(offset.days)",
+                    content: content,
+                    trigger: trigger
+                )
+                try? await center.add(request)
+            }
+        }
+    }
 }
