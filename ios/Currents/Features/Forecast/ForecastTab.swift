@@ -92,6 +92,9 @@ struct ForecastTab: View {
                         breakdownCard(forecast)
                     }
 
+                    // Solunar bite heatmap for the week ahead
+                    SolunarHeatmapView(coordinate: coordinate)
+
                     // Species picker
                     speciesPicker
                 }

@@ -382,6 +382,27 @@ struct LogCatchView: View {
                 Text("kg")
                     .foregroundStyle(.secondary)
             }
+            // Length-based weight estimate — offered when a length is entered
+            // but no weight yet (uses the selected species' body shape).
+            if let len = lengthCm.measurementValue, len > 0, weightKg.measurementValue == nil,
+               let est = WeightEstimator.estimateKg(
+                   lengthCm: len,
+                   species: allSpecies.first { $0.id == selectedSpeciesId }
+               ) {
+                Button {
+                    weightKg = String(format: "%.2f", est)
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "scalemass")
+                        Text("Estimated ~\(String(format: "%.1f", est)) kg")
+                        Spacer()
+                        Text("Use").fontWeight(.semibold)
+                    }
+                    .font(.caption)
+                    .foregroundStyle(CurrentsTheme.accent)
+                }
+                .buttonStyle(.plain)
+            }
             Toggle("Released", isOn: $released)
         }
     }
