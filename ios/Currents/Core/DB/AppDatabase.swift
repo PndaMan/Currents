@@ -348,6 +348,12 @@ final class AppDatabase: Sendable {
             }
         }
 
+        migrator.registerMigration("v16_trip_track") { db in
+            try db.alter(table: "trip") { t in
+                t.add(column: "trackPoints", .text)   // JSON GPS breadcrumb
+            }
+        }
+
         return migrator
     }
 }

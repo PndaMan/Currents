@@ -24,6 +24,10 @@
 	</array>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Currents uses your location to tag catches and find nearby fishing spots.</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>location</string>
+	</array>
 	<key>NSCameraUsageDescription</key>
 	<string>Take photos of your catches for logging and fish identification.</string>
 	<key>NSPhotoLibraryUsageDescription</key>

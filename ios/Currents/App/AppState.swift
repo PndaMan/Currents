@@ -11,6 +11,7 @@ final class AppState {
     let embeddingIdentifier = EmbeddingSpeciesIdentifier()
     let mapManager = MapManager()
     let inaturalist = INaturalistPublisher()
+    let tripTracker = TripTracker()
 
     // Repositories (share the db)
     let catchRepository: CatchRepository
@@ -71,6 +72,9 @@ final class AppState {
             locationManager.requestPermission()
         }
         mapManager.refreshDownloadedRegions()
+
+        // Resume any live fishing session left running.
+        tripTracker.configure(repository: tripRepository)
 
         // Refresh licence-expiry reminders from stored licences.
         if let licenses = try? licenseRepository.fetchAll(), !licenses.isEmpty {

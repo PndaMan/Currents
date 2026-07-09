@@ -131,9 +131,9 @@ struct ProfileTab: View {
 
                     if FeatureFlags.liveTrips {
                         NavigationLink {
-                            TripListView()
+                            SessionsView()
                         } label: {
-                            Label("Trips", systemImage: "tent.fill")
+                            Label("Fishing Sessions", systemImage: "figure.fishing")
                         }
                     }
 

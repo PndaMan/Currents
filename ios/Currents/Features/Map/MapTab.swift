@@ -22,7 +22,6 @@ struct MapTab: View {
     @State private var showingAddSpot = false
     @State private var selectedSpot: Spot?
     @State private var showingLiveTrip = false
-    @State private var activeTrip: Trip?
     @State private var showingNewTrip = false
     // The offline (cached-tile) map is the default main map; persisted so a
     // style choice sticks across launches.
@@ -286,20 +285,20 @@ struct MapTab: View {
                     // (Forecast lives on the main tab bar — no duplicate button
                     // here. This column slot is used by the trip button below.)
 
-                    // Start/view live trip (hidden until a later release)
+                    // Start / resume a fishing session
                     if FeatureFlags.liveTrips {
                         Button {
-                            if activeTrip != nil {
+                            if appState.tripTracker.isTracking {
                                 showingLiveTrip = true
                             } else {
                                 showingNewTrip = true
                             }
                         } label: {
-                            mapButton(icon: activeTrip != nil ? "timer" : "play.fill")
+                            mapButton(icon: appState.tripTracker.isTracking ? "figure.fishing" : "play.fill")
                                 .overlay(alignment: .topTrailing) {
-                                    if activeTrip != nil {
+                                    if appState.tripTracker.isTracking {
                                         Circle()
-                                            .fill(CurrentsTheme.accent)
+                                            .fill(.red)
                                             .frame(width: 8, height: 8)
                                             .offset(x: 2, y: -2)
                                     }
@@ -452,34 +451,24 @@ struct MapTab: View {
                     .presentationBackground(.ultraThinMaterial)
             }
             .sheet(isPresented: $showingNewTrip, onDismiss: {
-                Task { @MainActor in
-                    activeTrip = (try? appState.tripRepository.fetchAll())?.first(where: { $0.endDate == nil })
-                    if activeTrip != nil { showingLiveTrip = true }
-                }
+                if appState.tripTracker.isTracking { showingLiveTrip = true }
             }) {
-                NewTripSheet()
+                NewSessionSheet()
                     .presentationDetents([.medium])
                     .presentationBackground(.ultraThinMaterial)
             }
-            .fullScreenCover(isPresented: $showingLiveTrip, onDismiss: {
-                Task { @MainActor in
-                    activeTrip = (try? appState.tripRepository.fetchAll())?.first(where: { $0.endDate == nil })
-                }
-            }) {
-                if let trip = activeTrip {
-                    NavigationStack {
-                        LiveTripView(trip: trip)
-                            .toolbar {
-                                ToolbarItem(placement: .cancellationAction) {
-                                    Button("Minimise") { showingLiveTrip = false }
-                                }
+            .fullScreenCover(isPresented: $showingLiveTrip) {
+                NavigationStack {
+                    ActiveSessionView()
+                        .toolbar {
+                            ToolbarItem(placement: .cancellationAction) {
+                                Button("Minimise") { showingLiveTrip = false }
                             }
-                    }
+                        }
                 }
             }
             .task {
                 await loadData()
-                activeTrip = (try? appState.tripRepository.fetchAll())?.first(where: { $0.endDate == nil })
                 if let loc = appState.locationManager.currentLocation {
                     appState.mapManager.maintainOfflineCache(around: loc.coordinate)
                 }
