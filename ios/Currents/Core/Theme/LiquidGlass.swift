@@ -223,9 +223,12 @@ struct FilterChip: View {
     let isSelected: Bool
     var systemImage: String? = nil
     let action: () -> Void
-    // Observed so selected chips re-tint the moment the theme changes —
-    // CurrentsTheme.accent alone reads UserDefaults without invalidating the view.
-    @AppStorage("selectedTheme") private var selectedTheme = ""
+    // Observed so selected chips re-tint the moment the theme changes.
+    // The accent is derived FROM this value (not CurrentsTheme.accent, which
+    // reads UserDefaults without creating a view dependency) so the body
+    // actually depends on it and re-renders automatically on a theme switch.
+    @AppStorage("selectedTheme") private var selectedTheme = ThemeOption.ocean.rawValue
+    private var accent: Color { (ThemeOption(rawValue: selectedTheme) ?? .ocean).primary }
 
     var body: some View {
         Button(action: action) {
@@ -241,7 +244,7 @@ struct FilterChip: View {
             .padding(.vertical, 7)
             .background {
                 if isSelected {
-                    Capsule().fill(CurrentsTheme.accent)
+                    Capsule().fill(accent)
                 } else {
                     Capsule().fill(.ultraThinMaterial)
                 }
