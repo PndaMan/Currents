@@ -120,8 +120,12 @@ struct ZoomableImage: UIViewRepresentable {
     }
 }
 
-/// UIScrollView that lays out its image view at natural size and derives the
-/// minimum (fit-to-screen) zoom in `layoutSubviews`, then centres the content.
+/// UIScrollView that fits its image (aspect-fit) to the viewport at zoomScale 1
+/// with fixed 1…4× zoom. Fitting the image with an aspect-fit image view at
+/// scale 1 — rather than laying the image out at its natural (huge) size and
+/// using a fractional minimum zoom — keeps pinch behaviour sane: a large camera
+/// photo previously produced a tiny min-zoom (~0.13) that made pinches jump
+/// straight to max and refuse to zoom back out.
 final class ZoomScrollView: UIScrollView {
     let imageView = UIImageView()
     var needsRefit = true
@@ -129,7 +133,11 @@ final class ZoomScrollView: UIScrollView {
 
     override init(frame: CGRect) {
         super.init(frame: frame)
+        imageView.contentMode = .scaleAspectFit
         imageView.isUserInteractionEnabled = true
+        imageView.clipsToBounds = true
+        minimumZoomScale = 1
+        maximumZoomScale = 4
         addSubview(imageView)
     }
 
@@ -137,16 +145,16 @@ final class ZoomScrollView: UIScrollView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        if (needsRefit || bounds != lastBounds), bounds.width > 0, let img = imageView.image {
+        // Reset to a fitted layout whenever the bounds change or a new image
+        // arrives. Runs here (not in updateUIView) so the timing is reliable —
+        // that's what stops the photo opening pre-zoomed. Bounds don't change
+        // during a pinch, so this never fights the user's zoom.
+        if (needsRefit || bounds != lastBounds), bounds.width > 0, imageView.image != nil {
             lastBounds = bounds
             needsRefit = false
-            imageView.frame = CGRect(origin: .zero, size: img.size)
-            contentSize = img.size
-
-            let fit = min(bounds.width / img.size.width, bounds.height / img.size.height)
-            minimumZoomScale = fit
-            maximumZoomScale = fit * 6
-            zoomScale = fit    // open fitted to the screen
+            zoomScale = 1
+            imageView.frame = bounds
+            contentSize = bounds.size
         }
         centerContent()
     }
