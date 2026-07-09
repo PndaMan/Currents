@@ -106,10 +106,11 @@ struct ForecastTab: View {
                 }
                 ToolbarItem(placement: .primaryAction) {
                     Button {
-                        Task { await fetchWeatherAndCompute() }
+                        Task { await fetchWeatherAndCompute(force: true) }
                     } label: {
                         Image(systemName: "arrow.clockwise")
                     }
+                    .disabled(isLoadingWeather)
                 }
             }
             .task {
@@ -714,12 +715,14 @@ struct ForecastTab: View {
 
     // MARK: - Data Loading
 
-    private func fetchWeatherAndCompute() async {
+    private func fetchWeatherAndCompute(force: Bool = false) async {
         isLoadingWeather = true
-        weather = await WeatherService.shared.current(for: coordinate)
+        // `force` (the toolbar refresh) bypasses the freshness cache and pulls
+        // a live reading; the initial load serves the cache when it's fresh.
+        weather = await WeatherService.shared.current(for: coordinate, force: force)
         // 7-day outlook so every card follows the day picker; served from the
         // disk cache when offline.
-        dayWeathers = await WeatherService.shared.forecastDays(for: coordinate)
+        dayWeathers = await WeatherService.shared.forecastDays(for: coordinate, force: force)
         isLoadingWeather = false
         recompute()
     }

@@ -88,12 +88,12 @@ actor WeatherService {
     /// Fetch current weather for a coordinate. Returns cached data if <30 min
     /// old; when the network is down, the last data ever fetched (any age,
     /// persisted across launches) is returned instead of nothing.
-    func current(for coordinate: CLLocationCoordinate2D) async -> WeatherData? {
+    func current(for coordinate: CLLocationCoordinate2D, force: Bool = false) async -> WeatherData? {
         loadDiskIfNeeded()
         let key = Self.cacheKey(coordinate)
 
-        // Return cache if fresh
-        if let cached = cache[key], Date.now.timeIntervalSince(cached.fetchedAt) < 1800 {
+        // Return cache if fresh (skipped on a manual refresh).
+        if !force, let cached = cache[key], Date.now.timeIntervalSince(cached.fetchedAt) < 1800 {
             return cached.data
         }
 
@@ -201,11 +201,11 @@ actor WeatherService {
     /// Open-Meteo's hourly forecast: midday conditions, daylight-mean wind,
     /// the day's own pressure trend and precipitation total. Cached for an
     /// hour and persisted to disk so the outlook survives going offline.
-    func forecastDays(for coordinate: CLLocationCoordinate2D) async -> [WeatherData] {
+    func forecastDays(for coordinate: CLLocationCoordinate2D, force: Bool = false) async -> [WeatherData] {
         loadDiskIfNeeded()
         let key = Self.cacheKey(coordinate)
 
-        if let cached = dailyCache[key], Date.now.timeIntervalSince(cached.fetchedAt) < 3600 {
+        if !force, let cached = dailyCache[key], Date.now.timeIntervalSince(cached.fetchedAt) < 3600 {
             return cached.days
         }
 
