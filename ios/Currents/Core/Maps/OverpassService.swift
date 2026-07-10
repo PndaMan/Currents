@@ -12,9 +12,21 @@ actor OverpassService {
     /// Tracks which geohash-3 cells we've already fetched to avoid re-querying.
     private var fetchedCells: Set<String> = []
 
-    /// Minimum seconds between queries to be polite to the public Overpass server.
+    /// Minimum seconds between queries to be polite to the public Overpass servers.
+    /// Kept low because we race several mirrors — the winner returns fast, so we
+    /// can afford to refire sooner as the user pans/zooms.
     private var lastQueryTime: Date = .distantPast
-    private let minQueryInterval: TimeInterval = 6
+    private let minQueryInterval: TimeInterval = 2
+
+    /// Public Overpass mirrors, raced in parallel — the fastest to respond wins,
+    /// the rest are cancelled. `overpass-api.de` alone is frequently overloaded
+    /// and can take 10-20s; racing mirrors typically returns in 1-3s.
+    private let endpoints = [
+        "https://overpass.kumi.systems/api/interpreter",
+        "https://overpass-api.de/api/interpreter",
+        "https://overpass.private.coffee/api/interpreter",
+        "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
+    ]
 
     /// Fetch water bodies in a map region from Overpass, parse them, and return.
     /// Returns nil if the region was already fetched or if offline.
@@ -44,7 +56,7 @@ actor OverpassService {
         // We get the center point (out center), name, and other tags
         let bbox = "\(minLat),\(minLon),\(maxLat),\(maxLon)"
         let query = """
-        [out:json][timeout:15];
+        [out:json][timeout:10];
         (
           way["natural"="water"]["name"~"."](\(bbox));
           relation["natural"="water"]["name"~"."](\(bbox));
@@ -59,28 +71,51 @@ actor OverpassService {
         out center tags 100;
         """
 
-        let urlString = "https://overpass-api.de/api/interpreter"
-        guard let url = URL(string: urlString) else { return nil }
+        let body = "data=\(query)".addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)?.data(using: .utf8)
 
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.httpBody = "data=\(query)".addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)?.data(using: .utf8)
-        request.setValue("Currents Fishing App", forHTTPHeaderField: "User-Agent")
-        request.timeoutInterval = 20
+        // Race every mirror; take the first that returns valid data, cancel the rest.
+        let data = await withTaskGroup(of: Data?.self) { group -> Data? in
+            for endpoint in endpoints {
+                group.addTask { await Self.query(endpoint: endpoint, body: body) }
+            }
+            for await result in group {
+                if let result {
+                    group.cancelAll()
+                    return result
+                }
+            }
+            return nil
+        }
+
+        guard let data else {
+            print("[Currents] Overpass fetch failed: all mirrors timed out or errored")
+            return nil
+        }
 
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-
-            guard let httpResponse = response as? HTTPURLResponse,
-                  httpResponse.statusCode == 200 else {
-                return nil
-            }
-
             let parsed = try parseOverpassResponse(data)
             fetchedCells.insert(cellKey)
             return parsed
         } catch {
-            print("[Currents] Overpass fetch failed: \(error.localizedDescription)")
+            print("[Currents] Overpass parse failed: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    /// POST the query to a single Overpass endpoint. Returns the response body on
+    /// HTTP 200, else nil. Runs off the actor so mirrors race concurrently.
+    private static func query(endpoint: String, body: Data?) async -> Data? {
+        guard let url = URL(string: endpoint) else { return nil }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.httpBody = body
+        request.setValue("Currents Fishing App", forHTTPHeaderField: "User-Agent")
+        request.timeoutInterval = 15
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return nil }
+            return data
+        } catch {
             return nil
         }
     }

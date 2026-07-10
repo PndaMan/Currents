@@ -12,6 +12,10 @@ struct Trip: Codable, Identifiable, Sendable {
     var weatherConditions: String? // "clear", "cloudy", "rain", etc.
     var photoPaths: String? // JSON array of photo filenames stored via PhotoManager
     var trackPoints: String? // JSON array of GPS breadcrumb points
+    // Planning: set when a session is scheduled ahead of time (not yet started).
+    var plannedDate: Date?
+    var plannedLatitude: Double?
+    var plannedLongitude: Double?
     var createdAt: Date
 
     init(
@@ -23,7 +27,10 @@ struct Trip: Codable, Identifiable, Sendable {
         notes: String? = nil,
         weatherConditions: String? = nil,
         photoPaths: String? = nil,
-        trackPoints: String? = nil
+        trackPoints: String? = nil,
+        plannedDate: Date? = nil,
+        plannedLatitude: Double? = nil,
+        plannedLongitude: Double? = nil
     ) {
         self.id = id
         self.name = name
@@ -34,7 +41,18 @@ struct Trip: Codable, Identifiable, Sendable {
         self.weatherConditions = weatherConditions
         self.photoPaths = photoPaths
         self.trackPoints = trackPoints
+        self.plannedDate = plannedDate
+        self.plannedLatitude = plannedLatitude
+        self.plannedLongitude = plannedLongitude
         self.createdAt = .now
+    }
+
+    /// A scheduled-but-not-started session.
+    var isPlanned: Bool { plannedDate != nil && endDate == nil }
+
+    var plannedCoordinate: CLLocationCoordinate2D? {
+        guard let plannedLatitude, let plannedLongitude else { return nil }
+        return CLLocationCoordinate2D(latitude: plannedLatitude, longitude: plannedLongitude)
     }
 
     /// Decoded photo filenames.
@@ -83,7 +101,9 @@ struct Trip: Codable, Identifiable, Sendable {
 
     /// Elapsed session time (running total if still active).
     var durationSeconds: TimeInterval { (endDate ?? .now).timeIntervalSince(startDate) }
-    var isActive: Bool { endDate == nil }
+    /// Currently-recording session (not planned, not ended).
+    var isActive: Bool { endDate == nil && plannedDate == nil }
+    var isCompleted: Bool { endDate != nil }
 }
 
 extension Trip: FetchableRecord, PersistableRecord {

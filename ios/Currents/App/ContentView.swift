@@ -33,6 +33,8 @@ struct ContentView: View {
         }
     }
 
+    @State private var planPrompt: Trip?
+
     var body: some View {
         TabView(selection: $selectedTab) {
             ForEach(Tab.allCases, id: \.self) { tab in
@@ -51,6 +53,30 @@ struct ContentView: View {
                     }
                 }
             }
+        }
+        .task { checkPlannedSession() }
+        .alert("Start planned session?", isPresented: Binding(
+            get: { planPrompt != nil }, set: { if !$0 { planPrompt = nil } }
+        ), presenting: planPrompt) { trip in
+            Button("Start Now") {
+                _ = appState.tripTracker.startPlanned(trip)
+                planPrompt = nil
+                selectedTab = .map
+            }
+            Button("Not Now", role: .cancel) { planPrompt = nil }
+        } message: { trip in
+            Text("\(trip.name) is planned for \(trip.plannedDate?.formatted(date: .omitted, time: .shortened) ?? "now").")
+        }
+    }
+
+    /// On launch, if a planned session is within ~2 hours of now and nothing is
+    /// already recording, offer to start it.
+    private func checkPlannedSession() {
+        guard !appState.tripTracker.isTracking, !ScreenshotSupport.isActive else { return }
+        let planned = (try? appState.tripRepository.fetchPlanned()) ?? []
+        planPrompt = planned.first { trip in
+            guard let d = trip.plannedDate else { return false }
+            return abs(d.timeIntervalSinceNow) < 2 * 3600
         }
     }
 }

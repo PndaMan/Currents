@@ -457,7 +457,7 @@ struct MapTab: View {
                     .presentationDetents([.medium])
                     .presentationBackground(.ultraThinMaterial)
             }
-            .fullScreenCover(isPresented: $showingLiveTrip) {
+            .sheet(isPresented: $showingLiveTrip) {
                 NavigationStack {
                     ActiveSessionView()
                         .toolbar {
@@ -466,6 +466,10 @@ struct MapTab: View {
                             }
                         }
                 }
+                // Pull the sheet down to minimise it (the session keeps
+                // recording in the background); ending is a separate action.
+                .presentationDetents([.large, .medium])
+                .presentationDragIndicator(.visible)
             }
             .task {
                 await loadData()
@@ -661,7 +665,7 @@ struct MapTab: View {
         // Debounce: cancel prior pending load, wait 300ms before firing
         waterbodyDebounceTask?.cancel()
         waterbodyDebounceTask = Task {
-            try? await Task.sleep(for: .milliseconds(300))
+            try? await Task.sleep(for: .milliseconds(150))
             guard !Task.isCancelled else { return }
             await loadWaterbodies(region: region)
         }

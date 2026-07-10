@@ -354,6 +354,14 @@ final class AppDatabase: Sendable {
             }
         }
 
+        migrator.registerMigration("v17_trip_planning") { db in
+            try db.alter(table: "trip") { t in
+                t.add(column: "plannedDate", .datetime)
+                t.add(column: "plannedLatitude", .double)
+                t.add(column: "plannedLongitude", .double)
+            }
+        }
+
         return migrator
     }
 }

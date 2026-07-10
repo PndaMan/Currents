@@ -152,6 +152,27 @@ final class NotificationManager: @unchecked Sendable {
         center.removeAllPendingNotificationRequests()
     }
 
+    // MARK: - Planned Session Reminder
+
+    /// Remind the angler ~30 minutes before a planned session so they can open
+    /// the app and start it.
+    func schedulePlannedSessionAlert(trip: Trip) async {
+        center.removePendingNotificationRequests(withIdentifiers: ["session-plan-\(trip.id)"])
+        guard let planned = trip.plannedDate else { return }
+        let fire = planned.addingTimeInterval(-30 * 60)
+        guard fire > .now else { return }
+        guard (try? await center.requestAuthorization(options: [.alert, .sound])) == true else { return }
+
+        let content = UNMutableNotificationContent()
+        content.title = "Session soon: \(trip.name)"
+        content.body = "Your planned session starts at \(planned.formatted(date: .omitted, time: .shortened)). Open Currents to start tracking."
+        content.sound = .default
+
+        let comps = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: fire)
+        let trigger = UNCalendarNotificationTrigger(dateMatching: comps, repeats: false)
+        try? await center.add(UNNotificationRequest(identifier: "session-plan-\(trip.id)", content: content, trigger: trigger))
+    }
+
     // MARK: - Licence Expiry Reminders
 
     /// Schedule expiry reminders for each licence at 1 month, 2 weeks, 1 week,

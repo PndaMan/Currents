@@ -90,11 +90,14 @@ struct AddLicenseSheet: View {
             }
             HStack {
                 Button { showingFileImporter = true } label: { Label("PDF / File", systemImage: "doc") }
+                    .buttonStyle(.borderless)
                 Spacer()
                 PhotosPicker(selection: $photoItem, matching: .images) { Label("Photo", systemImage: "photo") }
+                    .buttonStyle(.borderless)
                 Spacer()
                 if UIImagePickerController.isSourceTypeAvailable(.camera) {
                     Button { showingCamera = true } label: { Label("Scan", systemImage: "camera") }
+                        .buttonStyle(.borderless)
                 }
             }
             .font(.subheadline)

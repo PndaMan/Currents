@@ -47,6 +47,21 @@ final class TripTracker: NSObject, CLLocationManagerDelegate {
         return trip
     }
 
+    /// Begin a previously-planned session (clears its planned fields).
+    @discardableResult
+    func startPlanned(_ trip: Trip) -> Trip {
+        var t = trip
+        t.plannedDate = nil
+        t.plannedLatitude = nil
+        t.plannedLongitude = nil
+        t.startDate = .now
+        try? repository?.save(&t)
+        activeTrip = t
+        track = []
+        beginUpdates()
+        return t
+    }
+
     /// End the active session, saving its final track and end time.
     @discardableResult
     func end() -> Trip? {

@@ -17,6 +17,10 @@ final class TripRepository: ObservableObject {
 
     func delete(_ trip: Trip) throws {
         try db.db.write { db in
+            // Keep any catches logged on this trip — just unlink them, so
+            // deleting a session never deletes the fish you caught. (Without
+            // this the foreign key blocked the delete when catches existed.)
+            try db.execute(sql: "UPDATE catch SET tripId = NULL WHERE tripId = ?", arguments: [trip.id])
             _ = try trip.delete(db)
         }
     }
@@ -36,8 +40,18 @@ final class TripRepository: ObservableObject {
     func fetchActive() throws -> [Trip] {
         try db.db.read { db in
             try Trip
-                .filter(Column("endDate") == nil)
+                .filter(Column("endDate") == nil && Column("plannedDate") == nil)
                 .order(Column("startDate").desc)
+                .fetchAll(db)
+        }
+    }
+
+    /// Scheduled-but-not-started sessions, soonest first.
+    func fetchPlanned() throws -> [Trip] {
+        try db.db.read { db in
+            try Trip
+                .filter(Column("plannedDate") != nil && Column("endDate") == nil)
+                .order(Column("plannedDate").asc)
                 .fetchAll(db)
         }
     }

@@ -6,9 +6,12 @@ import MapKit
 struct SessionsView: View {
     @Environment(AppState.self) private var appState
     @State private var sessions: [Trip] = []
+    @State private var planned: [Trip] = []
     @State private var catchCounts: [String: Int] = [:]
     @State private var showingNew = false
     @State private var showingPlanner = false
+    @State private var editingTrip: Trip?
+    @State private var tripToDelete: Trip?
 
     private var tracker: TripTracker { appState.tripTracker }
 
@@ -16,25 +19,28 @@ struct SessionsView: View {
         List {
             if let active = tracker.activeTrip {
                 Section {
-                    NavigationLink {
-                        ActiveSessionView()
-                    } label: {
-                        ActiveSessionRow(trip: active)
-                    }
+                    NavigationLink { ActiveSessionView() } label: { ActiveSessionRow(trip: active) }
                 }
             }
 
             Section {
-                Button {
-                    showingNew = true
-                } label: {
+                Button { showingNew = true } label: {
                     Label("Start a Session", systemImage: "play.circle.fill")
                 }
                 .disabled(tracker.isTracking)
-                Button {
-                    showingPlanner = true
-                } label: {
+                Button { showingPlanner = true } label: {
                     Label("Plan a Session", systemImage: "calendar.badge.clock")
+                }
+            }
+
+            if !planned.isEmpty {
+                Section("Planned") {
+                    ForEach(planned) { trip in
+                        PlannedRow(trip: trip, canStart: !tracker.isTracking) {
+                            _ = tracker.startPlanned(trip); reload()
+                        }
+                        .contextMenu { rowMenu(trip) }
+                    }
                 }
             }
 
@@ -46,30 +52,113 @@ struct SessionsView: View {
                         } label: {
                             SessionRow(trip: trip, catchCount: catchCounts[trip.id] ?? 0)
                         }
+                        .contextMenu { rowMenu(trip) }
                     }
-                    .onDelete(perform: deleteSessions)
                 }
             }
         }
         .navigationTitle("Sessions")
         .sheet(isPresented: $showingNew, onDismiss: reload) { NewSessionSheet() }
-        .sheet(isPresented: $showingPlanner) { PlanSessionSheet() }
+        .sheet(isPresented: $showingPlanner, onDismiss: reload) { PlanSessionSheet() }
+        .sheet(item: $editingTrip, onDismiss: reload) { EditSessionSheet(trip: $0) }
+        .confirmationDialog(
+            "Delete this session?",
+            isPresented: Binding(get: { tripToDelete != nil }, set: { if !$0 { tripToDelete = nil } }),
+            presenting: tripToDelete
+        ) { trip in
+            Button("Delete", role: .destructive) {
+                try? appState.tripRepository.delete(trip); tripToDelete = nil; reload()
+            }
+            Button("Cancel", role: .cancel) { tripToDelete = nil }
+        } message: { _ in
+            Text("Catches you logged are kept — only the session is removed.")
+        }
         .task { reload() }
     }
 
-    private var pastSessions: [Trip] { sessions.filter { !$0.isActive } }
+    @ViewBuilder private func rowMenu(_ trip: Trip) -> some View {
+        Button { editingTrip = trip } label: { Label("Edit", systemImage: "pencil") }
+        Button(role: .destructive) { tripToDelete = trip } label: { Label("Delete", systemImage: "trash") }
+    }
+
+    private var pastSessions: [Trip] { sessions.filter { $0.isCompleted } }
 
     private func reload() {
         sessions = (try? appState.tripRepository.fetchAll()) ?? []
+        planned = (try? appState.tripRepository.fetchPlanned()) ?? []
         for trip in sessions {
             catchCounts[trip.id] = (try? appState.tripRepository.catchCount(tripId: trip.id)) ?? 0
         }
     }
+}
 
-    private func deleteSessions(at offsets: IndexSet) {
-        let items = offsets.map { pastSessions[$0] }
-        for trip in items { try? appState.tripRepository.delete(trip) }
-        reload()
+struct PlannedRow: View {
+    let trip: Trip
+    let canStart: Bool
+    let onStart: () -> Void
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "calendar.badge.clock").foregroundStyle(CurrentsTheme.accent)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(trip.name).font(.subheadline.bold())
+                if let d = trip.plannedDate {
+                    Text(d.formatted(date: .abbreviated, time: .shortened))
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            Spacer()
+            Button("Start", action: onStart)
+                .buttonStyle(.borderedProminent).tint(CurrentsTheme.accent)
+                .disabled(!canStart)
+        }
+    }
+}
+
+struct EditSessionSheet: View {
+    @Environment(AppState.self) private var appState
+    @Environment(\.dismiss) private var dismiss
+    @State private var trip: Trip
+    @State private var spots: [Spot] = []
+    init(trip: Trip) { _trip = State(initialValue: trip) }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Session") {
+                    TextField("Name", text: $trip.name)
+                    if trip.isPlanned {
+                        DatePicker("Planned", selection: Binding(
+                            get: { trip.plannedDate ?? .now },
+                            set: { trip.plannedDate = $0; trip.startDate = $0 }
+                        ), displayedComponents: [.date, .hourAndMinute])
+                    }
+                    Picker("Spot", selection: $trip.spotId) {
+                        Text("None").tag(nil as String?)
+                        ForEach(spots) { Text($0.name).tag($0.id as String?) }
+                    }
+                }
+                Section("Notes") {
+                    TextField("Notes", text: Binding(
+                        get: { trip.notes ?? "" },
+                        set: { trip.notes = $0.isEmpty ? nil : $0 }
+                    ), axis: .vertical).lineLimit(2...5)
+                }
+            }
+            .navigationTitle("Edit Session")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) { Button("Save") { save() }.bold() }
+            }
+            .task { spots = (try? appState.spotRepository.fetchAll()) ?? [] }
+        }
+    }
+
+    private func save() {
+        var t = trip
+        try? appState.tripRepository.save(&t)
+        if t.isPlanned { Task { await NotificationManager.shared.schedulePlannedSessionAlert(trip: t) } }
+        dismiss()
     }
 }
 
@@ -276,6 +365,7 @@ struct SessionDetailView: View {
     @State var trip: Trip
     @State private var catches: [CatchDetail] = []
     @State private var showingDeleteConfirm = false
+    @State private var showingEdit = false
 
     var body: some View {
         ScrollView {
@@ -316,6 +406,14 @@ struct SessionDetailView: View {
         }
         .navigationTitle(trip.name)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) { Button("Edit") { showingEdit = true } }
+        }
+        .sheet(isPresented: $showingEdit, onDismiss: {
+            trip = (try? appState.tripRepository.fetch(trip.id)) ?? trip
+        }) {
+            EditSessionSheet(trip: trip)
+        }
         .alert("Delete Session?", isPresented: $showingDeleteConfirm) {
             Button("Delete", role: .destructive) {
                 try? appState.tripRepository.delete(trip); dismiss()
