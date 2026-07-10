@@ -239,9 +239,12 @@ final class CommunityService: ObservableObject {
     /// so you can always see where you sit even if you're outside the top.
     /// We fetch catches with a system-field sort and rank on-device, so no
     /// custom CloudKit indexes need configuring for it to work.
-    func board(scope: Scope, metric: Metric, region: String)
+    /// `myRows` are the caller's own catches built from the LOCAL database, so
+    /// you always see yourself and your full history even if the CloudKit query
+    /// returns nothing (e.g. indexes not yet configured, or backfill pending).
+    func board(scope: Scope, metric: Metric, region: String, myRows: [LeaderRow] = [])
         async -> (rows: [LeaderRow], mine: (rank: Int, row: LeaderRow)?) {
-        let ranked = await rankedRows(scope: scope, metric: metric, region: region)
+        let ranked = await rankedRows(scope: scope, metric: metric, region: region, myRows: myRows)
         let cap = metric == .count ? 50 : 20
         let top = Array(ranked.prefix(cap))
         var mine: (rank: Int, row: LeaderRow)?
@@ -252,8 +255,12 @@ final class CommunityService: ObservableObject {
     }
 
     /// The full ranked list for a board (no truncation).
-    private func rankedRows(scope: Scope, metric: Metric, region: String) async -> [LeaderRow] {
+    private func rankedRows(scope: Scope, metric: Metric, region: String, myRows: [LeaderRow]) async -> [LeaderRow] {
         var catches = await fetchAllLeaderCatches()
+        // Local catches are authoritative for me: drop any remote copies of my
+        // own catches and use the local ones so I always appear.
+        catches.removeAll { $0.friendCode == friendCode }
+        catches += myRows
 
         switch scope {
         case .global: break
@@ -292,10 +299,10 @@ final class CommunityService: ObservableObject {
         }
     }
 
-    /// All published catches (client-side ranking avoids custom-index needs).
+    /// All published catches. No server-side sort (we rank client-side), so the
+    /// query needs no custom Sortable index — one less CloudKit setup step.
     private func fetchAllLeaderCatches(limit: Int = 400) async -> [LeaderRow] {
         let query = CKQuery(recordType: catchType, predicate: NSPredicate(value: true))
-        query.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
         guard let results = try? await db.records(matching: query, resultsLimit: limit) else { return [] }
         return results.matchResults.compactMap { _, res -> LeaderRow? in
             guard let r = try? res.get() else { return nil }

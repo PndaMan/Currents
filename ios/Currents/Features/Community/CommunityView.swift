@@ -154,6 +154,7 @@ struct AnglerAvatar: View {
 
 private struct LeaderboardSection: View {
     let region: String
+    @Environment(AppState.self) private var appState
     @StateObject private var svc = CommunityService.shared
     @AppStorage("units") private var units = "metric"
     private var imperial: Bool { units == "imperial" }
@@ -251,9 +252,28 @@ private struct LeaderboardSection: View {
         }
     }
 
+    /// My own catches, straight from the local database, so I always appear on
+    /// the board (and see my full history) regardless of CloudKit sync state.
+    private func myLocalRows() -> [CommunityService.LeaderRow] {
+        let local = (try? appState.catchRepository.fetchAll(limit: 100000)) ?? []
+        return local.map {
+            CommunityService.LeaderRow(
+                id: "me-\($0.catchRecord.id)",
+                anglerName: svc.myName,
+                friendCode: svc.friendCode,
+                species: $0.species?.commonName ?? "Fish",
+                weightKg: $0.catchRecord.weightKg,
+                lengthCm: $0.catchRecord.lengthCm,
+                catchCount: nil,
+                region: svc.myRegion,
+                date: $0.catchRecord.caughtAt
+            )
+        }
+    }
+
     private func reload() async {
         loading = true
-        let result = await svc.board(scope: scope, metric: metric, region: region)
+        let result = await svc.board(scope: scope, metric: metric, region: region, myRows: myLocalRows())
         rows = result.rows
         myStanding = result.mine
         loading = false
