@@ -223,7 +223,7 @@ private struct LeaderboardSection: View {
                 .background(i < 3 ? CurrentsTheme.accent : Color.secondary.opacity(0.15), in: Circle())
             VStack(alignment: .leading, spacing: 1) {
                 HStack(spacing: 6) {
-                    Text(isSelf ? "You" : row.anglerName).font(.subheadline.bold())
+                    Text(row.anglerName).font(.subheadline.bold())
                     if isSelf {
                         Text("YOU").font(.system(size: 9, weight: .heavy))
                             .padding(.horizontal, 5).padding(.vertical, 1)
@@ -266,7 +266,8 @@ private struct LeaderboardSection: View {
                 lengthCm: $0.catchRecord.lengthCm,
                 catchCount: nil,
                 region: svc.myRegion,
-                date: $0.catchRecord.caughtAt
+                date: $0.catchRecord.caughtAt,
+                localPhotoPath: $0.catchRecord.photoPath
             )
         }
     }
@@ -660,19 +661,27 @@ struct CommunityCatchDetailView: View {
     @AppStorage("units") private var units = "metric"
     private var imperial: Bool { units == "imperial" }
     @State private var species: Species?
+    @State private var photo: UIImage?
 
     var body: some View {
         ScrollView {
             VStack(spacing: 16) {
                 Group {
-                    if let species {
+                    if let photo {
+                        Image(uiImage: photo)
+                            .resizable().scaledToFill()
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 240)
+                            .clipShape(RoundedRectangle(cornerRadius: 16))
+                    } else if let species {
                         SpeciesArtworkView(species: species, caught: true, size: 150)
+                            .frame(height: 160)
                     } else {
                         Image(systemName: "fish.fill")
                             .font(.system(size: 84)).foregroundStyle(CurrentsTheme.accent.opacity(0.5))
+                            .frame(height: 160)
                     }
                 }
-                .frame(height: 160)
 
                 VStack(spacing: 3) {
                     Text(row.species).font(.title2.bold())
@@ -698,6 +707,7 @@ struct CommunityCatchDetailView: View {
         .navigationTitle("Catch")
         .navigationBarTitleDisplayMode(.inline)
         .task {
+            if let path = row.localPhotoPath { photo = PhotoManager.load(path) }
             let all = (try? appState.speciesRepository.fetchAll()) ?? []
             species = all.first { $0.commonName.localizedCaseInsensitiveCompare(row.species) == .orderedSame }
         }

@@ -36,10 +36,44 @@ final class CommunityService: ObservableObject {
 
     var friendCode: String {
         if let c = UserDefaults.standard.string(forKey: "communityFriendCode") { return c }
-        let chars = Array("ABCDEFGHJKLMNPQRSTUVWXYZ23456789")
-        let code = String((0..<6).map { _ in chars[Int.random(in: 0..<chars.count)] })
+        let code = Self.randomCode()
         UserDefaults.standard.set(code, forKey: "communityFriendCode")
         return code
+    }
+
+    // 6 chars from a 31-symbol alphabet (ambiguous 0/O/1/I excluded) ≈ 887M
+    // combinations. Random alone would collide by the birthday bound at tens of
+    // thousands of users, so we reserve the code (below) rather than trust luck.
+    private static func randomCode() -> String {
+        let chars = Array("ABCDEFGHJKLMNPQRSTUVWXYZ23456789")
+        return String((0..<6).map { _ in chars[Int.random(in: 0..<chars.count)] })
+    }
+
+    /// Guarantee this device's friend code is unique. CloudKit's public DB
+    /// enforces record-name uniqueness, so the first angler to save
+    /// "codeclaim-<code>" owns it; a collision fails the save and we pick a new
+    /// code and retry. Runs once (until claimed); the code is stable afterwards,
+    /// so already-shared codes never change out from under a friend.
+    func claimFriendCode(maxAttempts: Int = 6) async {
+        guard !UserDefaults.standard.bool(forKey: "friendCodeClaimed") else { return }
+        for _ in 0..<maxAttempts {
+            let code = friendCode
+            let id = CKRecord.ID(recordName: "codeclaim-\(code)")
+            let record = CKRecord(recordType: "CodeClaim", recordID: id)
+            record["claimedAt"] = Date() as CKRecordValue
+            do {
+                _ = try await db.save(record)
+                UserDefaults.standard.set(true, forKey: "friendCodeClaimed")
+                return
+            } catch let ckError as CKError where ckError.code == .serverRecordChanged {
+                // Code is taken — regenerate and try again (only safe because we
+                // haven't claimed/shared it yet).
+                UserDefaults.standard.set(Self.randomCode(), forKey: "communityFriendCode")
+            } catch {
+                // Network/other: leave unclaimed and retry on a later join/open.
+                return
+            }
+        }
     }
 
     var friends: [String] {
@@ -85,6 +119,7 @@ final class CommunityService: ObservableObject {
         var catchCount: Int?   // set for the "most fish" board
         let region: String
         let date: Date
+        var localPhotoPath: String? = nil   // set for your own catches (local)
     }
 
     struct SharedSpot: Identifiable {
@@ -111,6 +146,8 @@ final class CommunityService: ObservableObject {
     // MARK: - Join / leave
 
     func join(name: String, region: String) async {
+        // Settle on a unique friend code before anything is saved or shared.
+        await claimFriendCode()
         let clean = name.trimmingCharacters(in: .whitespaces)
         UserDefaults.standard.set(clean.isEmpty ? "Angler \(friendCode)" : clean, forKey: "communityName")
         UserDefaults.standard.set(region, forKey: "communityRegion")
@@ -325,6 +362,7 @@ final class CommunityService: ObservableObject {
     /// ids, force-overwrite) and throttled so it isn't re-run constantly.
     func syncAllCatches(_ details: [(id: String, species: String, weightKg: Double?, lengthCm: Double?, caughtAt: Date)]) async {
         guard joined else { return }
+        await claimFriendCode()   // no-op once claimed; retries if a prior claim failed offline
         let last = UserDefaults.standard.object(forKey: "lastCatchSync") as? Date ?? .distantPast
         guard Date().timeIntervalSince(last) > 1800 else { return }
         UserDefaults.standard.set(Date(), forKey: "lastCatchSync")
