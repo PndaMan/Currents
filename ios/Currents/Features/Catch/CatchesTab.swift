@@ -177,6 +177,19 @@ struct CatchesTab: View {
             }) {
                 LogCatchView()
             }
+            .onChange(of: appState.siriRequestedLogCatch) { _, requested in
+                if requested {
+                    showingLogCatch = true
+                    appState.siriRequestedLogCatch = false
+                }
+            }
+            .onAppear {
+                // Handle the flag if it was set before this tab appeared.
+                if appState.siriRequestedLogCatch {
+                    showingLogCatch = true
+                    appState.siriRequestedLogCatch = false
+                }
+            }
             .navigationDestination(for: String.self) { catchId in
                 if let detail = filteredCatches.first(where: { $0.catchRecord.id == catchId }) {
                     CatchDetailView(detail: detail)

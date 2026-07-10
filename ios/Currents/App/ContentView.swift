@@ -55,6 +55,11 @@ struct ContentView: View {
             }
         }
         .task { checkPlannedSession() }
+        .onChange(of: appState.siriRequestedLogCatch) { _, requested in
+            // Siri "Log a Catch" shortcut — surface the Catches tab so its
+            // log sheet (which watches the same flag) can present.
+            if requested { selectedTab = .catches }
+        }
         .alert("Start planned session?", isPresented: Binding(
             get: { planPrompt != nil }, set: { if !$0 { planPrompt = nil } }
         ), presenting: planPrompt) { trip in

@@ -5,6 +5,14 @@ import Observation
 @MainActor
 @Observable
 final class AppState {
+    /// Shared handle so App Intents (Siri Shortcuts) can reach the live app
+    /// state. Set on init; the app and the intent process share one instance.
+    static var shared: AppState?
+
+    /// Set by the "Log a Catch" Siri shortcut — ContentView switches to the
+    /// Catches tab and CatchesTab presents the log sheet, then resets it.
+    var siriRequestedLogCatch = false
+
     let db: AppDatabase
     let locationManager = LocationManager()
     let fishModelDownloader = FishModelDownloader()
@@ -26,6 +34,7 @@ final class AppState {
     let licenseRepository: LicenseRepository
 
     init() {
+        defer { Self.shared = self }
         do {
             self.db = try AppDatabase.persistent()
         } catch {
