@@ -550,6 +550,13 @@ jobs:
           echo "PROFILE_UUID=$PROFILE_UUID" >> $GITHUB_ENV
           echo "PROFILE_NAME=$PROFILE_NAME" >> $GITHUB_ENV
 
+      - name: Provision app extensions (widget)
+        run: |
+          set -euo pipefail
+          python3 ci/provision_extensions.py \
+            --main "com.aidanmcconnon.currents=$PROFILE_NAME" \
+            --ext  "com.aidanmcconnon.currents.widgets=Currents Widgets AppStore Manual"
+
       - name: Align entitlements with provisioning profile
         run: |
           set -euo pipefail
@@ -608,20 +615,27 @@ jobs:
 
       - name: Create ExportOptions.plist
         run: |
-          python3 - "$PROFILE_NAME" > $RUNNER_TEMP/ExportOptions.plist <<'PYSCRIPT'
-          import sys, plistlib
-          profile_name = sys.argv[1]
+          python3 > $RUNNER_TEMP/ExportOptions.plist <<'PYSCRIPT'
+          import plistlib
+          # Map every bundle id -> profile name provisioned this run (main app
+          # plus each embedded extension).
+          profiles = {}
+          for line in open("/tmp/ext_profiles"):
+              line = line.strip()
+              if "=" in line:
+                  bundle, name = line.split("=", 1)
+                  profiles[bundle] = name
           options = {
               "method": "app-store-connect",
               "teamID": "DBC26UPRGK",
               "destination": "upload",
               "signingStyle": "manual",
-              "provisioningProfiles": {
-                  "com.aidanmcconnon.currents": profile_name
-              }
+              "provisioningProfiles": profiles,
           }
+          import sys
           sys.stdout.buffer.write(plistlib.dumps(options))
           PYSCRIPT
+          cat $RUNNER_TEMP/ExportOptions.plist
 
       - name: Export & Upload to TestFlight
         run: |

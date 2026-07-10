@@ -67,10 +67,8 @@ targets:
         Release:
           PROVISIONING_PROFILE_SPECIFIER: "Currents AppStore Manual"
     dependencies:
-      # Widget extension embed is disabled until its App ID + App Group +
-      # App Store profile exist; re-enable to ship widgets/Live Activity:
-      # - target: CurrentsWidgets
-      #   embed: true
+      - target: CurrentsWidgets
+        embed: true
       - package: GRDB
         product: GRDB
       - package: Nuke
