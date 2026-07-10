@@ -634,17 +634,32 @@ extension URL: @retroactive Identifiable {
 struct UnitsSettingsView: View {
     @AppStorage("units") private var units = "metric"
     @AppStorage("use24HourTime") private var use24HourTime = true
+    @AppStorage("dateOrder") private var dateOrder = "auto"
 
     var body: some View {
         Form {
-            Picker("System", selection: $units) {
-                Text("Metric (kg, cm, °C)").tag("metric")
-                Text("Imperial (lb, in, °F)").tag("imperial")
+            Section("Measurement System") {
+                Picker("System", selection: $units) {
+                    Text("Metric (kg, cm, °C, km)").tag("metric")
+                    Text("Imperial (lb, in, °F, mi)").tag("imperial")
+                }
+                .pickerStyle(.inline)
             }
-            .pickerStyle(.inline)
 
             Section("Time Format") {
                 Toggle("24-hour time", isOn: $use24HourTime)
+            }
+
+            Section {
+                Picker("Date format", selection: $dateOrder) {
+                    Text("Automatic (your region)").tag("auto")
+                    Text("Day / Month / Year").tag("dayFirst")
+                    Text("Month / Day / Year").tag("monthFirst")
+                }
+            } header: {
+                Text("Date Format")
+            } footer: {
+                Text("Used when reading dates off scanned licences & permits. Most countries (incl. South Africa) use Day/Month/Year; the US uses Month/Day/Year.")
             }
         }
         .navigationTitle("Units")

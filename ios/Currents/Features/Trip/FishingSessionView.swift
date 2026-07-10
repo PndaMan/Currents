@@ -514,12 +514,36 @@ struct SessionTrackMap: View {
         .mapStyle(.hybrid)
     }
 
+    /// Frame the whole route by default (no manual zoom-out needed); pan/zoom
+    /// stay fully interactive from there.
     private var initialPosition: MapCameraPosition {
-        if let first = coords.first {
-            return .region(MKCoordinateRegion(center: first,
-                span: MKCoordinateSpan(latitudeDelta: 0.02, longitudeDelta: 0.02)))
+        guard let region = Self.fittingRegion(for: coords) else {
+            return .userLocation(fallback: .automatic)
         }
-        return .userLocation(fallback: .automatic)
+        return .region(region)
+    }
+
+    /// A region that contains every track point with a little breathing room.
+    static func fittingRegion(for coords: [CLLocationCoordinate2D]) -> MKCoordinateRegion? {
+        guard let first = coords.first else { return nil }
+        if coords.count == 1 {
+            return MKCoordinateRegion(center: first,
+                span: MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01))
+        }
+        var minLat = first.latitude, maxLat = first.latitude
+        var minLon = first.longitude, maxLon = first.longitude
+        for c in coords {
+            minLat = min(minLat, c.latitude); maxLat = max(maxLat, c.latitude)
+            minLon = min(minLon, c.longitude); maxLon = max(maxLon, c.longitude)
+        }
+        let center = CLLocationCoordinate2D(latitude: (minLat + maxLat) / 2,
+                                            longitude: (minLon + maxLon) / 2)
+        // 1.4× padding so start/end markers aren't flush against the edges.
+        let span = MKCoordinateSpan(
+            latitudeDelta: max((maxLat - minLat) * 1.4, 0.004),
+            longitudeDelta: max((maxLon - minLon) * 1.4, 0.004)
+        )
+        return MKCoordinateRegion(center: center, span: span)
     }
 }
 

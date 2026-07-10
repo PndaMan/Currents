@@ -108,13 +108,26 @@ struct LicenseDetailView: View {
     var onChange: () -> Void
     @State private var showingEdit = false
     @State private var showingDeleteConfirm = false
+    @State private var showingDocument = false
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: CurrentsTheme.paddingM) {
-                LicenseDocumentView(license: license)
-                    .frame(height: 320)
-                    .clipShape(RoundedRectangle(cornerRadius: 16))
+                if license.fileName != nil {
+                    Button { showingDocument = true } label: {
+                        LicenseDocumentView(license: license)
+                            .frame(height: 320)
+                            .clipShape(RoundedRectangle(cornerRadius: 16))
+                            .overlay(alignment: .bottomTrailing) {
+                                Label("Tap to view", systemImage: "arrow.up.left.and.arrow.down.right")
+                                    .font(.caption2.bold())
+                                    .padding(.horizontal, 8).padding(.vertical, 5)
+                                    .background(.ultraThinMaterial, in: Capsule())
+                                    .padding(8)
+                            }
+                    }
+                    .buttonStyle(.plain)
+                }
 
                 VStack(alignment: .leading, spacing: 10) {
                     detailRow("Type", license.licenseType)
@@ -159,6 +172,9 @@ struct LicenseDetailView: View {
                 dismiss()
             }
             Button("Cancel", role: .cancel) {}
+        }
+        .fullScreenCover(isPresented: $showingDocument) {
+            LicenseDocumentFullScreen(license: license)
         }
     }
 
@@ -212,5 +228,93 @@ struct PDFKitView: UIViewRepresentable {
     }
     func updateUIView(_ view: PDFView, context: Context) {
         if view.document == nil { view.document = PDFDocument(url: url) }
+    }
+}
+
+// MARK: - Fullscreen document viewer
+
+/// Full-screen, zoomable view of the licence document — the whole PDF (scrolls +
+/// pinch-zooms) or the photo (pinch-zooms), with a Done button.
+struct LicenseDocumentFullScreen: View {
+    let license: FishingLicense
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if let name = license.fileName {
+                    let url = LicenseFileStore.url(for: name)
+                    if license.fileKind == "pdf" {
+                        PDFFullView(url: url).ignoresSafeArea(edges: .bottom)
+                    } else if let img = UIImage(contentsOfFile: url.path) {
+                        ZoomableImage(image: img)
+                    } else {
+                        ContentUnavailableView("Can't open document", systemImage: "doc.text.image")
+                    }
+                } else {
+                    ContentUnavailableView("No document", systemImage: "doc.text.image")
+                }
+            }
+            .navigationTitle(license.title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
+            }
+        }
+    }
+}
+
+/// PDF viewer configured for full-document reading (all pages, zoomable).
+private struct PDFFullView: UIViewRepresentable {
+    let url: URL
+    func makeUIView(context: Context) -> PDFView {
+        let view = PDFView()
+        view.autoScales = true
+        view.displayMode = .singlePageContinuous
+        view.displayDirection = .vertical
+        view.maxScaleFactor = 6
+        view.minScaleFactor = view.scaleFactorForSizeToFit
+        view.document = PDFDocument(url: url)
+        return view
+    }
+    func updateUIView(_ view: PDFView, context: Context) {
+        if view.document == nil { view.document = PDFDocument(url: url) }
+    }
+}
+
+/// Pinch-to-zoom / pan image via a UIScrollView.
+private struct ZoomableImage: UIViewRepresentable {
+    let image: UIImage
+
+    func makeUIView(context: Context) -> UIScrollView {
+        let scroll = UIScrollView()
+        scroll.minimumZoomScale = 1
+        scroll.maximumZoomScale = 6
+        scroll.showsVerticalScrollIndicator = false
+        scroll.showsHorizontalScrollIndicator = false
+        scroll.delegate = context.coordinator
+        scroll.backgroundColor = .black
+
+        let iv = UIImageView(image: image)
+        iv.contentMode = .scaleAspectFit
+        iv.translatesAutoresizingMaskIntoConstraints = false
+        scroll.addSubview(iv)
+        NSLayoutConstraint.activate([
+            iv.leadingAnchor.constraint(equalTo: scroll.contentLayoutGuide.leadingAnchor),
+            iv.trailingAnchor.constraint(equalTo: scroll.contentLayoutGuide.trailingAnchor),
+            iv.topAnchor.constraint(equalTo: scroll.contentLayoutGuide.topAnchor),
+            iv.bottomAnchor.constraint(equalTo: scroll.contentLayoutGuide.bottomAnchor),
+            iv.widthAnchor.constraint(equalTo: scroll.frameLayoutGuide.widthAnchor),
+            iv.heightAnchor.constraint(equalTo: scroll.frameLayoutGuide.heightAnchor),
+        ])
+        context.coordinator.imageView = iv
+        return scroll
+    }
+    func updateUIView(_ uiView: UIScrollView, context: Context) {}
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    final class Coordinator: NSObject, UIScrollViewDelegate {
+        var imageView: UIImageView?
+        func viewForZooming(in scrollView: UIScrollView) -> UIView? { imageView }
     }
 }
