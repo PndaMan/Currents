@@ -235,6 +235,18 @@ final class NotificationManager: @unchecked Sendable {
             identifier: "tripinvite-\(UUID().uuidString)", content: content, trigger: trigger))
     }
 
+    /// Local alert when someone sends you a friend request.
+    func scheduleFriendRequestAlert(fromName: String) async {
+        guard (try? await center.requestAuthorization(options: [.alert, .sound])) == true else { return }
+        let content = UNMutableNotificationContent()
+        content.title = "New friend request"
+        content.body = "\(fromName) wants to connect on Currents — open the app to accept."
+        content.sound = .default
+        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 1, repeats: false)
+        try? await center.add(UNNotificationRequest(
+            identifier: "friendreq-\(UUID().uuidString)", content: content, trigger: trigger))
+    }
+
     // MARK: - Licence Expiry Reminders
 
     /// Schedule expiry reminders for each licence at 1 month, 2 weeks, 1 week,

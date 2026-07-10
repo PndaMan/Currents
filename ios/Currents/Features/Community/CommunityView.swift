@@ -74,6 +74,7 @@ struct CommunityView: View {
                 Button { showingEdit = true } label: { MyProfileHeader(stats: computeStats()) }
                     .buttonStyle(.plain)
             }
+            FriendRequestsSection()
             TripInvitesSection()
             LeaderboardSection(region: region)
             Section("Group Trips") {
@@ -287,6 +288,7 @@ private struct FriendsSection: View {
     @StateObject private var svc = CommunityService.shared
     @State private var friends: [CommunityService.Profile] = []
     @State private var addCode = ""
+    @State private var requestSent = false
 
     var body: some View {
         Section("Friends") {
@@ -301,11 +303,23 @@ private struct FriendsSection: View {
             HStack {
                 TextField("Add friend by 6-char code", text: $addCode)
                     .textInputAutocapitalization(.characters).autocorrectionDisabled()
-                Button("Add") { Task { _ = await svc.addFriend(code: addCode); addCode = ""; await reload() } }
-                    .disabled(addCode.trimmingCharacters(in: .whitespaces).count != 6)
+                Button("Request") {
+                    let code = addCode
+                    addCode = ""
+                    Task {
+                        let ok = await svc.sendFriendRequest(to: code)
+                        requestSent = ok
+                        await reload()
+                    }
+                }
+                .disabled(addCode.trimmingCharacters(in: .whitespaces).count != 6)
+            }
+            if requestSent {
+                Label("Friend request sent — they'll get it in Community.", systemImage: "paperplane.fill")
+                    .font(.caption).foregroundStyle(.green)
             }
             if friends.isEmpty {
-                Text("Add friends by code to compare catches and share spots privately.")
+                Text("Send a friend request by code to compare catches and share spots privately.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             ForEach(friends) { f in
@@ -397,6 +411,59 @@ private struct TripInvitesSection: View {
     }
 
     private func load() async { invites = await svc.refreshTripInvites() }
+}
+
+// MARK: - Friend requests (accept / decline)
+
+private struct FriendRequestsSection: View {
+    @StateObject private var svc = CommunityService.shared
+    @State private var requests: [CommunityService.FriendRequest] = []
+    @State private var profiles: [String: CommunityService.Profile] = [:]
+
+    var body: some View {
+        Group {
+            if !requests.isEmpty {
+                Section("Friend Requests") {
+                    ForEach(requests) { req in
+                        VStack(alignment: .leading, spacing: 8) {
+                            NavigationLink { FriendProfileView(code: req.fromCode) } label: {
+                                HStack(spacing: 10) {
+                                    AnglerAvatar(image: profiles[req.fromCode]?.avatar, size: 36)
+                                    VStack(alignment: .leading, spacing: 1) {
+                                        Text(req.fromName).font(.subheadline.bold())
+                                        Text("wants to be friends").font(.caption).foregroundStyle(.secondary)
+                                    }
+                                }
+                            }
+                            HStack(spacing: 10) {
+                                Button {
+                                    Task { await svc.acceptFriendRequest(req); await load() }
+                                } label: {
+                                    Label("Accept", systemImage: "checkmark").frame(maxWidth: .infinity)
+                                }
+                                .buttonStyle(.borderedProminent).tint(CurrentsTheme.accent)
+                                Button(role: .destructive) {
+                                    Task { await svc.declineFriendRequest(req); await load() }
+                                } label: {
+                                    Label("Decline", systemImage: "xmark").frame(maxWidth: .infinity)
+                                }
+                                .buttonStyle(.bordered)
+                            }
+                        }
+                        .padding(.vertical, 2)
+                    }
+                }
+            }
+        }
+        .task { await load() }
+    }
+
+    private func load() async {
+        requests = await svc.refreshFriendRequests()
+        for req in requests where profiles[req.fromCode] == nil {
+            profiles[req.fromCode] = await svc.fetchProfile(code: req.fromCode)
+        }
+    }
 }
 
 // MARK: - Profile editor
@@ -741,7 +808,7 @@ struct AddFriendConfirmView: View {
     @AppStorage("units") private var units = "metric"
     private var imperial: Bool { units == "imperial" }
 
-    private var isFriend: Bool { svc.friends.contains(code.uppercased()) || added }
+    private var isFriend: Bool { svc.friends.contains(code.uppercased()) }
 
     var body: some View {
         List {
@@ -771,18 +838,21 @@ struct AddFriendConfirmView: View {
                 }
                 Section {
                     if isFriend {
-                        Label("Added to your friends", systemImage: "checkmark.circle.fill")
+                        Label("You're friends", systemImage: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                    } else if added {
+                        Label("Friend request sent", systemImage: "paperplane.fill")
                             .foregroundStyle(.green)
                     } else {
                         Button {
-                            Task { _ = await svc.addFriend(code: code); added = true }
+                            Task { _ = await svc.sendFriendRequest(to: code); added = true }
                         } label: {
-                            Label("Add Friend", systemImage: "person.badge.plus").frame(maxWidth: .infinity)
+                            Label("Send Friend Request", systemImage: "person.badge.plus").frame(maxWidth: .infinity)
                         }
                         .buttonStyle(.borderedProminent).tint(CurrentsTheme.accent)
                     }
                 } footer: {
-                    Text("They'll appear in your Friends list and on the friends leaderboard. Your spots stay private unless you choose to share them, per friend.")
+                    Text("They'll get your request in Community and can accept it. Your spots stay private unless you choose to share them, per friend.")
                 }
             } else {
                 Section {
@@ -798,7 +868,7 @@ struct AddFriendConfirmView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
-                Button(isFriend ? "Done" : "Close") { dismiss() }
+                Button(isFriend || added ? "Done" : "Close") { dismiss() }
             }
         }
         .task {

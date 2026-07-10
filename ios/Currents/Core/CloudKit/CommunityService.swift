@@ -848,4 +848,100 @@ final class CommunityService: ObservableObject {
         UserDefaults.standard.set(Array(seen.intersection(invites.map(\.id))), forKey: "seenTripInvites")
         return invites
     }
+
+    // MARK: - Friend requests (mutual add + accept)
+
+    private let friendReqType = "FriendRequest"
+
+    struct FriendRequest: Identifiable {
+        let id: String
+        let fromCode: String
+        let fromName: String
+        let date: Date
+    }
+
+    /// Send a friend request. The recipient gets a notification + an in-app
+    /// Accept/Decline, and both become friends on accept. The demo angler
+    /// auto-accepts. Returns false on a bad code.
+    @discardableResult
+    func sendFriendRequest(to raw: String) async -> Bool {
+        let toCode = raw.uppercased().trimmingCharacters(in: .whitespaces)
+        guard toCode.count == 6, toCode != friendCode else { return false }
+        if toCode == Self.demoCode {
+            if !friends.contains(toCode) { friends.append(toCode) }
+            UserDefaults.standard.set(true, forKey: "communityDemoAdded")
+            return true
+        }
+        if friends.contains(toCode) { return true } // already friends
+        let id = CKRecord.ID(recordName: "friendreq-\(friendCode)-\(toCode)")
+        let rec = (try? await db.record(for: id)) ?? CKRecord(recordType: friendReqType, recordID: id)
+        rec["fromCode"] = friendCode as CKRecordValue
+        rec["fromName"] = myName as CKRecordValue
+        rec["toCode"] = toCode as CKRecordValue
+        rec["status"] = "pending" as CKRecordValue
+        rec["createdAt"] = Date() as CKRecordValue
+        return (try? await db.save(rec)) != nil
+    }
+
+    /// Requests addressed to me and still pending.
+    func pendingFriendRequests() async -> [FriendRequest] {
+        let query = CKQuery(recordType: friendReqType, predicate: NSPredicate(value: true))
+        guard let results = try? await db.records(matching: query, resultsLimit: 200) else { return [] }
+        return results.matchResults.compactMap { _, res -> FriendRequest? in
+            guard let r = try? res.get(),
+                  (r["toCode"] as? String) == friendCode,
+                  (r["status"] as? String ?? "pending") == "pending" else { return nil }
+            return FriendRequest(
+                id: r.recordID.recordName,
+                fromCode: r["fromCode"] as? String ?? "",
+                fromName: r["fromName"] as? String ?? "An angler",
+                date: r["createdAt"] as? Date ?? .now
+            )
+        }
+    }
+
+    func acceptFriendRequest(_ req: FriendRequest) async {
+        if !friends.contains(req.fromCode) { friends.append(req.fromCode) }
+        // Mark accepted so the sender's app adds me back and cleans up.
+        let id = CKRecord.ID(recordName: "friendreq-\(req.fromCode)-\(friendCode)")
+        if let rec = try? await db.record(for: id) {
+            rec["status"] = "accepted" as CKRecordValue
+            _ = try? await db.save(rec)
+        }
+    }
+
+    func declineFriendRequest(_ req: FriendRequest) async {
+        _ = try? await db.deleteRecord(withID: CKRecord.ID(recordName: req.id))
+    }
+
+    /// Add friends who accepted a request I sent, then delete those records.
+    private func reconcileSentRequests() async {
+        let query = CKQuery(recordType: friendReqType, predicate: NSPredicate(value: true))
+        guard let results = try? await db.records(matching: query, resultsLimit: 200) else { return }
+        for (_, res) in results.matchResults {
+            guard let r = try? res.get(),
+                  (r["fromCode"] as? String) == friendCode,
+                  (r["status"] as? String) == "accepted" else { continue }
+            if let toCode = r["toCode"] as? String, !friends.contains(toCode) {
+                friends.append(toCode)
+            }
+            _ = try? await db.deleteRecord(withID: r.recordID)
+        }
+    }
+
+    /// Poll incoming requests (fire a one-time notification for new ones) and
+    /// reconcile ones I sent that were accepted. Returns pending incoming.
+    @discardableResult
+    func refreshFriendRequests() async -> [FriendRequest] {
+        guard joined else { return [] }
+        await reconcileSentRequests()
+        let incoming = await pendingFriendRequests()
+        var seen = Set(UserDefaults.standard.stringArray(forKey: "seenFriendRequests") ?? [])
+        for req in incoming where !seen.contains(req.id) {
+            await NotificationManager.shared.scheduleFriendRequestAlert(fromName: req.fromName)
+            seen.insert(req.id)
+        }
+        UserDefaults.standard.set(Array(seen.intersection(incoming.map(\.id))), forKey: "seenFriendRequests")
+        return incoming
+    }
 }

@@ -20,7 +20,10 @@ struct CurrentsApp: App {
             // UserDefaults avoids touching CloudKit (and the singleton) at
             // launch, which crashes the unsigned simulator test build.
             if phase == .active, UserDefaults.standard.bool(forKey: "communityJoined") {
-                Task { await CommunityService.shared.refreshTripInvites() }
+                Task {
+                    await CommunityService.shared.refreshTripInvites()
+                    await CommunityService.shared.refreshFriendRequests()
+                }
             }
             // Daily automatic backup, kicked off when the app is backgrounded.
             if phase == .background {
