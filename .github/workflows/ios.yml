@@ -550,12 +550,13 @@ jobs:
           echo "PROFILE_UUID=$PROFILE_UUID" >> $GITHUB_ENV
           echo "PROFILE_NAME=$PROFILE_NAME" >> $GITHUB_ENV
 
-      - name: Provision app extensions (widget)
+      - name: Provision app extensions (widget + watch)
         run: |
           set -euo pipefail
           python3 ci/provision_extensions.py \
             --main "com.aidanmcconnon.currents=$PROFILE_NAME" \
-            --ext  "com.aidanmcconnon.currents.widgets=Currents Widgets AppStore Manual"
+            --ext  "com.aidanmcconnon.currents.widgets=Currents Widgets AppStore Manual" \
+            --ext  "com.aidanmcconnon.currents.watchkitapp=Currents Watch AppStore Manual"
 
       - name: Align entitlements with provisioning profile
         run: |

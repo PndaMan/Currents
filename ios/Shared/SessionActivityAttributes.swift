@@ -1,4 +1,7 @@
 import Foundation
+// ActivityKit is unavailable on watchOS — this type is only used by the iOS app
+// and its widget extension, so guard the whole file for those platforms.
+#if canImport(ActivityKit)
 import ActivityKit
 
 /// Live Activity descriptor for an active fishing session. The static
@@ -27,3 +30,4 @@ public struct SessionActivityAttributes: ActivityAttributes {
         self.sessionName = sessionName
     }
 }
+#endif

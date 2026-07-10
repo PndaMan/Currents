@@ -85,6 +85,9 @@ final class AppState {
         // Resume any live fishing session left running.
         tripTracker.configure(repository: tripRepository)
 
+        // Apple Watch companion link.
+        PhoneConnectivity.shared.activate()
+
         // Refresh licence-expiry reminders from stored licences.
         if let licenses = try? licenseRepository.fetchAll(), !licenses.isEmpty {
             Task { await NotificationManager.shared.scheduleLicenseExpiryAlerts(licenses: licenses) }
