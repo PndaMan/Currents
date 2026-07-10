@@ -388,7 +388,7 @@ struct SessionDetailView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: CurrentsTheme.paddingM) {
-                SessionTrackMap(points: trip.decodedTrack, showsUser: false)
+                SessionTrackMap(points: trip.decodedTrack, showsUser: false, catches: catches)
                     .frame(height: 220)
                     .clipShape(RoundedRectangle(cornerRadius: 16))
 
@@ -397,6 +397,8 @@ struct SessionDetailView: View {
                     stat(SessionFormat.distance(trip.trackDistanceMeters), "Distance", "map")
                     stat("\(catches.count)", "Catches", "fish.fill")
                 }
+
+                TripOverviewHighlights(catches: catches)
 
                 CatchLimitBar(catches: catches)
 
@@ -448,6 +450,134 @@ struct SessionDetailView: View {
             Text(label).font(.caption2).foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity).glassCard()
+    }
+}
+
+// MARK: - Trip overview highlights
+
+/// Rich session summary: the standout catch (with artwork + photo), a species
+/// breakdown, and the most productive spot & tackle.
+struct TripOverviewHighlights: View {
+    let catches: [CatchDetail]
+    @AppStorage("units") private var units = "metric"
+    private var imperial: Bool { units == "imperial" }
+
+    var body: some View {
+        if !catches.isEmpty {
+            VStack(alignment: .leading, spacing: 12) {
+                if let best = largestCatch { largestCard(best) }
+                if speciesCounts.count > 0 { speciesBreakdown }
+                HStack(spacing: 12) {
+                    if let spot = bestSpot { miniStat("Best Spot", spot.0, "\(spot.1) fish", "mappin.circle.fill") }
+                    if let tackle = bestTackle { miniStat("Top Tackle", tackle.0, "\(tackle.1) fish", "wrench.and.screwdriver.fill") }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    // MARK: Standout catch
+
+    private var largestCatch: CatchDetail? {
+        // Rank by weight when any catch is weighed; otherwise by length. Mixing
+        // the two magnitudes would let a long-but-light fish outrank a heavy one.
+        if catches.contains(where: { $0.catchRecord.weightKg != nil }) {
+            return catches.max { ($0.catchRecord.weightKg ?? 0) < ($1.catchRecord.weightKg ?? 0) }
+        }
+        return catches.max { ($0.catchRecord.lengthCm ?? 0) < ($1.catchRecord.lengthCm ?? 0) }
+    }
+
+    @ViewBuilder private func largestCard(_ detail: CatchDetail) -> some View {
+        HStack(spacing: 12) {
+            ZStack {
+                Circle().fill(CurrentsTheme.accent.opacity(0.12)).frame(width: 62, height: 62)
+                if let photo = detail.catchRecord.allPhotoPaths.first, let img = PhotoManager.load(photo) {
+                    Image(uiImage: img).resizable().scaledToFill()
+                        .frame(width: 62, height: 62).clipShape(Circle())
+                } else if let species = detail.species {
+                    SpeciesArtworkView(species: species, caught: true, size: 54)
+                } else {
+                    Image(systemName: "trophy.fill").font(.title2).foregroundStyle(CurrentsTheme.accent)
+                }
+            }
+            VStack(alignment: .leading, spacing: 3) {
+                Label("Catch of the Trip", systemImage: "trophy.fill")
+                    .font(.caption.bold()).foregroundStyle(CurrentsTheme.accent)
+                Text(detail.species?.commonName ?? "Catch").font(.headline)
+                HStack(spacing: 8) {
+                    if let w = detail.catchRecord.weightKg {
+                        Text(Units.weight(kg: w, imperial: imperial)).font(.subheadline.bold())
+                    }
+                    if let l = detail.catchRecord.lengthCm {
+                        Text(Units.length(cm: l, imperial: imperial))
+                            .font(.subheadline).foregroundStyle(.secondary)
+                    }
+                }
+            }
+            Spacer()
+        }
+        .padding(12)
+        .glassCard()
+    }
+
+    // MARK: Species breakdown
+
+    private var speciesCounts: [(name: String, count: Int, species: Species?)] {
+        var acc: [String: (Int, Species?)] = [:]
+        for c in catches {
+            let name = c.species?.commonName ?? "Unknown"
+            let e = acc[name] ?? (0, c.species)
+            acc[name] = (e.0 + 1, e.1)
+        }
+        return acc.map { ($0.key, $0.value.0, $0.value.1) }.sorted { $0.count > $1.count }
+    }
+
+    private var speciesBreakdown: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Species").font(.subheadline.bold())
+            ForEach(speciesCounts, id: \.name) { row in
+                HStack(spacing: 10) {
+                    if let sp = row.species {
+                        SpeciesArtworkView(species: sp, caught: true, size: 30)
+                    } else {
+                        Image(systemName: "fish.fill").foregroundStyle(.secondary).frame(width: 30)
+                    }
+                    Text(row.name).font(.subheadline)
+                    Spacer()
+                    Text("×\(row.count)").font(.subheadline.bold().monospacedDigit())
+                        .foregroundStyle(CurrentsTheme.accent)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassCard()
+    }
+
+    // MARK: Best spot & tackle
+
+    private var bestSpot: (String, Int)? {
+        var acc: [String: Int] = [:]
+        for c in catches { if let name = c.spot?.name { acc[name, default: 0] += 1 } }
+        return acc.max { $0.value < $1.value }.map { ($0.key, $0.value) }
+    }
+
+    private var bestTackle: (String, Int)? {
+        var acc: [String: Int] = [:]
+        for c in catches {
+            let label = c.gearLoadout?.lure ?? c.gearLoadout?.technique ?? c.gearLoadout?.name
+            if let label, !label.isEmpty { acc[label, default: 0] += 1 }
+        }
+        return acc.max { $0.value < $1.value }.map { ($0.key, $0.value) }
+    }
+
+    private func miniStat(_ title: String, _ value: String, _ sub: String, _ icon: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Label(title, systemImage: icon).font(.caption2.bold()).foregroundStyle(.secondary)
+            Text(value).font(.subheadline.bold()).lineLimit(1)
+            Text(sub).font(.caption2).foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassCard()
     }
 }
 
@@ -522,9 +652,16 @@ struct CatchLimitBar: View {
 struct SessionTrackMap: View {
     let points: [Trip.TrackPoint]
     var showsUser: Bool
+    /// Catches to drop as pins along the route.
+    var catches: [CatchDetail] = []
 
     private var coords: [CLLocationCoordinate2D] {
         points.map { CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon) }
+    }
+
+    /// Catches that carry a real coordinate (skip the 0,0 placeholders).
+    private var catchPins: [CatchDetail] {
+        catches.filter { abs($0.catchRecord.latitude) > 0.0001 || abs($0.catchRecord.longitude) > 0.0001 }
     }
 
     var body: some View {
@@ -539,6 +676,13 @@ struct SessionTrackMap: View {
             if coords.count > 1, let end = coords.last {
                 Marker("End", systemImage: "checkered.flag", coordinate: end).tint(.red)
             }
+            ForEach(catchPins, id: \.catchRecord.id) { detail in
+                Marker(detail.species?.commonName ?? "Catch",
+                       systemImage: "fish.fill",
+                       coordinate: CLLocationCoordinate2D(latitude: detail.catchRecord.latitude,
+                                                          longitude: detail.catchRecord.longitude))
+                    .tint(CurrentsTheme.accent)
+            }
             if showsUser { UserAnnotation() }
         }
         .mapStyle(.hybrid)
@@ -547,7 +691,11 @@ struct SessionTrackMap: View {
     /// Frame the whole route by default (no manual zoom-out needed); pan/zoom
     /// stay fully interactive from there.
     private var initialPosition: MapCameraPosition {
-        guard let region = Self.fittingRegion(for: coords) else {
+        // Include catch pins in the framing so nothing sits off-screen.
+        let all = coords + catchPins.map {
+            CLLocationCoordinate2D(latitude: $0.catchRecord.latitude, longitude: $0.catchRecord.longitude)
+        }
+        guard let region = Self.fittingRegion(for: all) else {
             return .userLocation(fallback: .automatic)
         }
         return .region(region)

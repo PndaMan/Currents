@@ -81,7 +81,7 @@ struct LogCatchView: View {
                     Button("Cancel") { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") { saveCatch() }
+                    Button("Save") { Task { await saveCatch() } }
                         .bold()
                 }
             }
@@ -677,8 +677,20 @@ struct LogCatchView: View {
         newSpotName = ""
     }
 
-    private func saveCatch() {
+    /// Codable matching CatchDetailView's WeatherSnapshot keys so the stored
+    /// conditions decode back on the catch detail.
+    private struct WxSnap: Codable {
+        var temperatureC: Double?
+        var waterTempC: Double?
+        var windSpeedKmh: Double?
+        var windDirectionDeg: Double?
+        var pressureHpa: Double?
+        var condition: String?
+    }
+
+    private func saveCatch() async {
         let (lat, lon) = resolveLocation()
+        let coord = CLLocationCoordinate2D(latitude: lat, longitude: lon)
         let catchId = UUID().uuidString
 
         // Save multiple photos
@@ -687,16 +699,28 @@ struct LogCatchView: View {
             photoPaths = (try? PhotoManager.saveMultiple(capturedImages, catchId: catchId)) ?? []
         }
 
-        let moonPhase = MoonPhase.current(for: caughtAt)
-        let forecast = ForecastEngine.compute(
-            currentPressureHpa: nil,
-            pressureChange6h: nil,
-            tidePhase: nil,
-            moonPhase: moonPhase,
-            waterTempC: nil,
-            species: allSpecies.first(where: { $0.id == selectedSpeciesId }),
+        // Capture the actual conditions at the catch (weather + real bite score).
+        let wx = await WeatherService.shared.current(for: coord)
+        let species = allSpecies.first(where: { $0.id == selectedSpeciesId })
+        let forecast = ForecastEngine.forecast(
+            date: caughtAt,
+            coordinate: coord,
+            currentPressureHpa: wx?.pressureHpa,
+            pressureChange6h: wx?.pressureChange6h,
+            waterTempC: wx?.waterTempC,
+            windSpeedKmh: wx?.windSpeedKmh,
+            windDirection: wx?.windDirectionDeg,
+            species: species,
             isInSpawningZone: false
         )
+        let weatherJSON: String? = wx.flatMap {
+            let snap = WxSnap(temperatureC: $0.temperatureC, waterTempC: $0.waterTempC,
+                              windSpeedKmh: $0.windSpeedKmh, windDirectionDeg: $0.windDirectionDeg,
+                              pressureHpa: $0.pressureHpa, condition: $0.condition)
+            return (try? JSONEncoder().encode(snap)).flatMap { String(data: $0, encoding: .utf8) }
+        }
+        // Any fish logged while a session is recording belongs to that session.
+        let tripId = appState.tripTracker.activeTrip?.id ?? selectedTripId
 
         // Use the selected preset if one was chosen. If individual gear was
         // picked instead, store it on a HIDDEN loadout (isAutoCreated) so the
@@ -731,8 +755,9 @@ struct LogCatchView: View {
             photoPaths: Catch.encodePhotoPaths(photoPaths),
             mlConfidence: speciesMatches.first.map { Double($0.confidence) },
             forecastScoreAtCapture: forecast.score,
+            weatherSnapshot: weatherJSON,
             gearLoadoutId: gearId,
-            tripId: selectedTripId,
+            tripId: tripId,
             notes: notes.isEmpty ? nil : notes
         )
 
