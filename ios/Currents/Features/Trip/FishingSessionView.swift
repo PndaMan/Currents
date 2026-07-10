@@ -437,6 +437,7 @@ struct SessionDetailView: View {
     @State private var spotToAdd: CoordItem?
     @State private var recapImage: UIImage?
     @State private var showingShare = false
+    @State private var generatingRecap = false
 
     struct CoordItem: Identifiable {
         let id = UUID()
@@ -485,11 +486,21 @@ struct SessionDetailView: View {
                 }
 
                 Button {
-                    recapImage = TripRecapCard.render(trip: trip, catches: catches)
-                    showingShare = true
+                    generatingRecap = true
+                    Task {
+                        let image = await TripRecapCard.render(trip: trip, catches: catches)
+                        generatingRecap = false
+                        recapImage = image
+                        if image != nil { showingShare = true }
+                    }
                 } label: {
-                    Label("Share Recap", systemImage: "square.and.arrow.up").frame(maxWidth: .infinity)
+                    HStack {
+                        if generatingRecap { ProgressView().tint(.white) }
+                        Label(generatingRecap ? "Building Recap…" : "Share Recap",
+                              systemImage: "square.and.arrow.up")
+                    }.frame(maxWidth: .infinity)
                 }.buttonStyle(.borderedProminent).tint(CurrentsTheme.accent)
+                    .disabled(generatingRecap)
 
                 Button(role: .destructive) { showingDeleteConfirm = true } label: {
                     Label("Delete Session", systemImage: "trash").frame(maxWidth: .infinity)
