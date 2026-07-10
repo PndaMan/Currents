@@ -173,6 +173,28 @@ final class NotificationManager: @unchecked Sendable {
         try? await center.add(UNNotificationRequest(identifier: "session-plan-\(trip.id)", content: content, trigger: trigger))
     }
 
+    // MARK: - Cold-streak nudge (during a session)
+
+    /// Nudge the angler if no catch is logged for a while during an active
+    /// session. Rescheduled on each catch, cancelled when the session ends.
+    /// Opt-out via the "coldStreakNudges" setting (default on).
+    func scheduleColdStreakNudge(minutes: Int = 45) async {
+        center.removePendingNotificationRequests(withIdentifiers: ["cold-streak"])
+        if UserDefaults.standard.object(forKey: "coldStreakNudges") != nil,
+           !UserDefaults.standard.bool(forKey: "coldStreakNudges") { return }
+        guard (try? await center.requestAuthorization(options: [.alert, .sound])) == true else { return }
+        let content = UNMutableNotificationContent()
+        content.title = "Slow bite?"
+        content.body = "No catches in a while — try switching lure, changing depth, or moving spots."
+        content.sound = .default
+        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: Double(minutes) * 60, repeats: false)
+        try? await center.add(UNNotificationRequest(identifier: "cold-streak", content: content, trigger: trigger))
+    }
+
+    func cancelColdStreakNudge() {
+        center.removePendingNotificationRequests(withIdentifiers: ["cold-streak"])
+    }
+
     // MARK: - Licence Expiry Reminders
 
     /// Schedule expiry reminders for each licence at 1 month, 2 weeks, 1 week,

@@ -763,6 +763,11 @@ struct LogCatchView: View {
 
         try? appState.catchRepository.save(&catchRecord)
 
+        // Reset the cold-streak nudge — you just caught something.
+        if tripId != nil, appState.tripTracker.isTracking {
+            await NotificationManager.shared.scheduleColdStreakNudge()
+        }
+
         // Auto-share to iNaturalist when the user has connected their account.
         // No-op otherwise, so nothing leaves the device by default.
         appState.inaturalist.uploadIfConnected(

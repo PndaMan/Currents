@@ -18,6 +18,11 @@ final class TripTracker: NSObject, CLLocationManagerDelegate {
     /// True while a day within the active trip is being recorded. False when a
     /// multi-day trip is open but paused between days.
     private(set) var isDayActive = false
+    /// True while auto-paused (stationary a while) — recording resumes on
+    /// movement. Surfaced in the UI.
+    private(set) var autoPaused = false
+    private var pauseAnchor: CLLocation?
+    private var stationaryStart: Date?
 
     var isTracking: Bool { activeTrip != nil }
 
@@ -91,6 +96,7 @@ final class TripTracker: NSObject, CLLocationManagerDelegate {
         isDayActive = false
         manager.allowsBackgroundLocationUpdates = false
         manager.stopUpdatingLocation()
+        NotificationManager.shared.cancelColdStreakNudge()
     }
 
     /// Start a new day within the already-open trip.
@@ -101,7 +107,9 @@ final class TripTracker: NSObject, CLLocationManagerDelegate {
         activeTrip = trip
         track = []
         isDayActive = true
+        resetAutoPause()
         beginUpdates()
+        Task { await NotificationManager.shared.scheduleColdStreakNudge() }
     }
 
     /// End the active session, saving its final track and end time.
@@ -116,6 +124,7 @@ final class TripTracker: NSObject, CLLocationManagerDelegate {
         activeTrip = nil
         track = []
         isDayActive = false
+        NotificationManager.shared.cancelColdStreakNudge()
         LiveActivityManager.shared.end()
         WidgetSnapshotWriter.writeActiveSession(name: nil, start: nil, catches: 0)
         return trip
@@ -123,8 +132,17 @@ final class TripTracker: NSObject, CLLocationManagerDelegate {
 
     /// Kick off the Live Activity + widget snapshot for a newly-started session.
     private func beginLiveSession(_ trip: Trip) {
+        resetAutoPause()
         LiveActivityManager.shared.start(sessionName: trip.name, startDate: trip.startDate, biteScore: 0)
         WidgetSnapshotWriter.writeActiveSession(name: trip.name, start: trip.startDate, catches: 0)
+        Task { await NotificationManager.shared.scheduleColdStreakNudge() }
+    }
+
+    private func resetAutoPause() {
+        autoPaused = false
+        pauseAnchor = nil
+        stationaryStart = nil
+        manager.desiredAccuracy = kCLLocationAccuracyBest
     }
 
     private func beginUpdates() {
@@ -152,7 +170,29 @@ final class TripTracker: NSObject, CLLocationManagerDelegate {
         guard let loc = locations.last, loc.horizontalAccuracy >= 0, loc.horizontalAccuracy < 60 else { return }
         Task { @MainActor in
             self.currentLocation = loc
-            guard self.isTracking else { return }
+            guard self.isTracking, self.isDayActive else { return }
+
+            // Auto-pause: after being stationary a few minutes, stop recording
+            // and drop to coarse accuracy (battery); resume on real movement.
+            let movedFromAnchor = self.pauseAnchor.map { loc.distance(from: $0) } ?? .greatestFiniteMagnitude
+            if movedFromAnchor > 30 {
+                self.pauseAnchor = loc
+                self.stationaryStart = nil
+                if self.autoPaused {
+                    self.autoPaused = false
+                    self.manager.desiredAccuracy = kCLLocationAccuracyBest
+                }
+            } else {
+                if self.stationaryStart == nil { self.stationaryStart = loc.timestamp }
+                if let s = self.stationaryStart, loc.timestamp.timeIntervalSince(s) > 180 {
+                    if !self.autoPaused {
+                        self.autoPaused = true
+                        self.manager.desiredAccuracy = kCLLocationAccuracyHundredMeters
+                    }
+                    return
+                }
+            }
+
             if let last = self.track.last {
                 let moved = CLLocation(latitude: last.lat, longitude: last.lon).distance(from: loc)
                 let elapsed = loc.timestamp.timeIntervalSince(last.t)

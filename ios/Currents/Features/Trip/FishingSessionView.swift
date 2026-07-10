@@ -257,6 +257,12 @@ struct ActiveSessionView: View {
             VStack(spacing: CurrentsTheme.paddingM) {
                 if let trip = tracker.activeTrip {
                     statsHeader(trip)
+                    if tracker.autoPaused {
+                        Label("Auto-paused — you've stopped moving. Tracking resumes when you move.",
+                              systemImage: "pause.circle.fill")
+                            .font(.caption).foregroundStyle(.orange)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
                     sessionMap
                     if let biteScore {
                         HStack {
@@ -427,6 +433,13 @@ struct SessionDetailView: View {
     @State private var catches: [CatchDetail] = []
     @State private var showingDeleteConfirm = false
     @State private var showingEdit = false
+    @State private var suggestedSpots: [CoordItem] = []
+    @State private var spotToAdd: CoordItem?
+
+    struct CoordItem: Identifiable {
+        let id = UUID()
+        let coord: CLLocationCoordinate2D
+    }
 
     var body: some View {
         ScrollView {
@@ -442,6 +455,8 @@ struct SessionDetailView: View {
                 }
 
                 if trip.isMultiDay { dayBreakdown }
+
+                if !suggestedSpots.isEmpty { suggestedSpotsCard }
 
                 TripOverviewHighlights(catches: catches)
 
@@ -485,7 +500,44 @@ struct SessionDetailView: View {
             }
             Button("Cancel", role: .cancel) {}
         }
-        .task { catches = (try? appState.tripRepository.catches(tripId: trip.id)) ?? [] }
+        .sheet(item: $spotToAdd, onDismiss: { load() }) { item in
+            AddSpotSheet(prefillCoordinate: item.coord)
+        }
+        .task { load() }
+    }
+
+    private func load() {
+        catches = (try? appState.tripRepository.catches(tripId: trip.id)) ?? []
+        let existing = (try? appState.spotRepository.fetchAll()) ?? []
+        // Detected dwell spots not already close to a saved spot.
+        let detected = SpotDetector.detectDwellSpots(in: trip.allTrackPoints)
+        suggestedSpots = detected.filter { c in
+            !existing.contains(where: {
+                CLLocation(latitude: $0.latitude, longitude: $0.longitude)
+                    .distance(from: CLLocation(latitude: c.latitude, longitude: c.longitude)) < 80
+            })
+        }.map { CoordItem(coord: $0) }
+    }
+
+    private var suggestedSpotsCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label("Spots you fished", systemImage: "mappin.and.ellipse")
+                .font(.headline)
+            Text("You lingered at these spots — save them for next time.")
+                .font(.caption).foregroundStyle(.secondary)
+            ForEach(suggestedSpots) { item in
+                HStack {
+                    Image(systemName: "mappin.circle.fill").foregroundStyle(CurrentsTheme.accent)
+                    Text(String(format: "%.4f, %.4f", item.coord.latitude, item.coord.longitude))
+                        .font(.caption).foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Save") { spotToAdd = item }
+                        .font(.caption.bold()).buttonStyle(.bordered).tint(CurrentsTheme.accent)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassCard()
     }
 
     /// Per-day summary for multi-day trips: date, hours, distance, catches.
