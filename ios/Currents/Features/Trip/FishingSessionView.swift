@@ -279,6 +279,14 @@ struct ActiveSessionView: View {
                     }
                     .buttonStyle(.borderedProminent).tint(CurrentsTheme.accent)
 
+                    NavigationLink {
+                        GroupTripView(tripId: trip.id, tripName: trip.name)
+                    } label: {
+                        Label(groupLinked(trip) ? "Group Trip" : "Invite Friends",
+                              systemImage: "person.3.fill").frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered).tint(CurrentsTheme.accent)
+
                     if !catches.isEmpty {
                         VStack(alignment: .leading, spacing: 8) {
                             Text("Caught this session").font(.headline)
@@ -393,6 +401,10 @@ struct ActiveSessionView: View {
         pushLiveUpdate()
     }
 
+    private func groupLinked(_ trip: Trip) -> Bool {
+        CommunityService.shared.groupCode(forTripId: trip.id) != nil
+    }
+
     private func refreshBite() async {
         let coord = tracker.currentLocation?.coordinate
             ?? appState.locationManager.currentLocation?.coordinate
@@ -484,6 +496,13 @@ struct SessionDetailView: View {
                     Text(notes).font(.body).foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, alignment: .leading).glassCard()
                 }
+
+                NavigationLink {
+                    GroupTripView(tripId: trip.id, tripName: trip.name)
+                } label: {
+                    Label(CommunityService.shared.groupCode(forTripId: trip.id) != nil ? "Group Trip" : "Invite Friends",
+                          systemImage: "person.3.fill").frame(maxWidth: .infinity)
+                }.buttonStyle(.bordered).tint(CurrentsTheme.accent)
 
                 Button {
                     generatingRecap = true

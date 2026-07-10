@@ -118,6 +118,12 @@ struct ProfileTab: View {
                 // Browse & Analytics
                 Section("Explore") {
                     NavigationLink {
+                        CommunityView()
+                    } label: {
+                        Label("Community & Friends", systemImage: "person.3.fill")
+                    }
+
+                    NavigationLink {
                         AnalyticsView()
                     } label: {
                         Label("Analytics & Personal Bests", systemImage: "chart.xyaxis.line")

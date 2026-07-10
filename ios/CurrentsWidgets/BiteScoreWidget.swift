@@ -42,7 +42,8 @@ struct BiteScoreWidget: Widget {
         }
         .configurationDisplayName("Bite Score")
         .description("The current fishing bite forecast at your location.")
-        .supportedFamilies([.systemSmall, .systemMedium])
+        .supportedFamilies([.systemSmall, .systemMedium,
+                            .accessoryCircular, .accessoryRectangular, .accessoryInline])
     }
 }
 
@@ -51,6 +52,36 @@ private struct BiteScoreView: View {
     @Environment(\.widgetFamily) private var family
 
     var body: some View {
+        switch family {
+        case .accessoryCircular:
+            // Lock-screen 1-tile: a gauge ringed with the bite score.
+            Gauge(value: Double(snapshot.biteScore), in: 0...100) {
+                Image(systemName: "fish.fill")
+            } currentValueLabel: {
+                Text("\(snapshot.biteScore)")
+                    .font(.system(.body, design: .rounded).bold())
+            }
+            .gaugeStyle(.accessoryCircular)
+            .tint(scoreColor(snapshot.biteScore))
+            .widgetAccentable()
+        case .accessoryRectangular:
+            VStack(alignment: .leading, spacing: 1) {
+                Label("Bite \(snapshot.biteScore)/100", systemImage: "fish.fill")
+                    .font(.headline).widgetAccentable()
+                Text(snapshot.biteVerdict).font(.subheadline)
+                if !snapshot.locationName.isEmpty {
+                    Text(snapshot.locationName).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        case .accessoryInline:
+            Label("Bite \(snapshot.biteScore) · \(snapshot.biteVerdict)", systemImage: "fish.fill")
+        default:
+            standardBody
+        }
+    }
+
+    @ViewBuilder private var standardBody: some View {
         if family == .systemSmall {
             VStack(alignment: .leading, spacing: 6) {
                 Label("Bite", systemImage: "cloud.sun.fill").font(.caption2.bold()).foregroundStyle(.secondary)

@@ -776,6 +776,21 @@ struct LogCatchView: View {
             catchRepository: appState.catchRepository
         )
 
+        // Publish a measured catch to the community leaderboard and, when this
+        // trip is a shared group trip, to the group's live feed. No-op unless
+        // the angler has joined; carries species + size + broad region only,
+        // never coordinates.
+        if catchRecord.weightKg != nil || catchRecord.lengthCm != nil {
+            let name = species?.commonName ?? "Fish"
+            let groupCode = tripId.flatMap { CommunityService.shared.groupCode(forTripId: $0) }
+            await CommunityService.shared.publish(
+                catchRecord: catchRecord,
+                speciesName: name,
+                region: CommunityService.shared.myRegion,
+                groupCode: groupCode
+            )
+        }
+
         dismiss()
     }
 

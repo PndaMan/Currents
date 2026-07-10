@@ -34,6 +34,9 @@ struct ContentView: View {
     }
 
     @State private var planPrompt: Trip?
+    @State private var joinGroupCode: JoinCode?
+
+    struct JoinCode: Identifiable { let id: String }
 
     var body: some View {
         TabView(selection: $selectedTab) {
@@ -55,6 +58,17 @@ struct ContentView: View {
             }
         }
         .task { checkPlannedSession() }
+        .onOpenURL { url in handleDeepLink(url) }
+        .sheet(item: $joinGroupCode) { join in
+            NavigationStack {
+                GroupTripView(tripId: nil, tripName: "Group Trip", initialCode: join.id)
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Done") { joinGroupCode = nil }
+                        }
+                    }
+            }
+        }
         .onChange(of: appState.siriRequestedLogCatch) { _, requested in
             // Siri "Log a Catch" shortcut — surface the Catches tab so its
             // log sheet (which watches the same flag) can present.
@@ -72,6 +86,22 @@ struct ContentView: View {
         } message: { trip in
             Text("\(trip.name) is planned for \(trip.plannedDate?.formatted(date: .omitted, time: .shortened) ?? "now").")
         }
+    }
+
+    /// Handle `currents://trip/<CODE>` group-trip invite links.
+    private func handleDeepLink(_ url: URL) {
+        guard url.scheme == "currents" else { return }
+        // currents://trip/ABC123  → host "trip", path "/ABC123"
+        // (also tolerate currents://trip/join?code=ABC123)
+        var code = url.lastPathComponent
+        if code == "join" || code.isEmpty || code == "trip",
+           let q = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+            .queryItems?.first(where: { $0.name == "code" })?.value {
+            code = q
+        }
+        code = code.uppercased()
+        guard (url.host == "trip" || url.pathComponents.contains("trip")), code.count == 6 else { return }
+        joinGroupCode = JoinCode(id: code)
     }
 
     /// On launch, if a planned session is within ~2 hours of now and nothing is
