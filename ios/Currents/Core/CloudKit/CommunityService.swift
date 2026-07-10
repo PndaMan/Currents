@@ -231,13 +231,26 @@ final class CommunityService: ObservableObject {
         _ = try? await db.save(record)
     }
 
-    /// Leaderboards. We fetch catches with a system-field sort and do the
-    /// scoping / ranking / counting on-device, so no custom CloudKit indexes
-    /// need configuring for it to work.
-    func leaderboard(scope: Scope, metric: Metric, region: String, limit: Int = 50) async -> [LeaderRow] {
+    /// A leaderboard: the visible top rows PLUS your own standing (rank + row)
+    /// so you can always see where you sit even if you're outside the top.
+    /// We fetch catches with a system-field sort and rank on-device, so no
+    /// custom CloudKit indexes need configuring for it to work.
+    func board(scope: Scope, metric: Metric, region: String)
+        async -> (rows: [LeaderRow], mine: (rank: Int, row: LeaderRow)?) {
+        let ranked = await rankedRows(scope: scope, metric: metric, region: region)
+        let cap = metric == .count ? 50 : 20
+        let top = Array(ranked.prefix(cap))
+        var mine: (rank: Int, row: LeaderRow)?
+        if let idx = ranked.firstIndex(where: { $0.friendCode == friendCode }) {
+            mine = (idx + 1, ranked[idx])
+        }
+        return (top, mine)
+    }
+
+    /// The full ranked list for a board (no truncation).
+    private func rankedRows(scope: Scope, metric: Metric, region: String) async -> [LeaderRow] {
         var catches = await fetchAllLeaderCatches()
 
-        // Scope filter.
         switch scope {
         case .global: break
         case .region: catches = catches.filter { $0.region == region }
@@ -265,17 +278,13 @@ final class CommunityService: ObservableObject {
                     )
                 }
             }
-            return byCode.values
-                .sorted { ($0.catchCount ?? 0) > ($1.catchCount ?? 0) }
-                .prefix(limit).map { $0 }
+            return byCode.values.sorted { ($0.catchCount ?? 0) > ($1.catchCount ?? 0) }
         case .weight:
             return catches.filter { ($0.weightKg ?? 0) > 0 }
                 .sorted { ($0.weightKg ?? 0) > ($1.weightKg ?? 0) }
-                .prefix(limit).map { $0 }
         case .length:
             return catches.filter { ($0.lengthCm ?? 0) > 0 }
                 .sorted { ($0.lengthCm ?? 0) > ($1.lengthCm ?? 0) }
-                .prefix(limit).map { $0 }
         }
     }
 
@@ -365,55 +374,92 @@ final class CommunityService: ObservableObject {
         if let data = try? JSONEncoder().encode(p) {
             UserDefaults.standard.set(data, forKey: "friendPrivacy-\(code)")
         }
-        Task { await republishSharedSpots() }
+        Task { await updateCatchGrant(for: code, share: p.shareCatches) }
+        // (The profile screen re-runs republishSharedSpots with the live spots.)
+    }
+
+    // MARK: - Catch-sharing permission (shareCatches)
+
+    private let catchGrantType = "CatchGrant"
+
+    /// A grant record lets a specific friend see my individual catch history
+    /// (leaderboard bests stay public; the full list is friends-only, gated).
+    private func updateCatchGrant(for code: String, share: Bool) async {
+        let id = CKRecord.ID(recordName: "catchgrant-\(friendCode)-\(code)")
+        if share {
+            let rec = (try? await db.record(for: id)) ?? CKRecord(recordType: catchGrantType, recordID: id)
+            rec["ownerCode"] = friendCode as CKRecordValue
+            rec["viewerCode"] = code as CKRecordValue
+            _ = try? await db.save(rec)
+        } else {
+            _ = try? await db.deleteRecord(withID: id)
+        }
+    }
+
+    /// Whether a given angler has shared their catches with me.
+    func hasCatchAccess(to code: String) async -> Bool {
+        if code == Self.demoCode { return true }
+        let id = CKRecord.ID(recordName: "catchgrant-\(code)-\(friendCode)")
+        return (try? await db.record(for: id)) != nil
+    }
+
+    var isFriend: (String) -> Bool { { [friends] code in friends.contains(code.uppercased()) } }
+
+    /// A specific angler's individual catches (from the published catch data).
+    func anglerCatches(code: String, limit: Int = 60) async -> [LeaderRow] {
+        if code == Self.demoCode { return demoCatchRows }
+        let all = await fetchAllLeaderCatches(limit: 400)
+        return Array(all.filter { $0.friendCode == code }.prefix(limit))
     }
 
     // MARK: - Shared spots (per-friend, spot-protective)
 
-    /// Republish the caller's shared spots so each carries the current set of
-    /// friends allowed to see it (only friends with shareSpots enabled), and
-    /// strips coordinates for friends without shareExactLocations.
+    /// Republish shared spots as ONE record per (spot, recipient), so a record
+    /// only ever contains what that specific friend is allowed to see: no record
+    /// for friends without shareSpots, and no coordinates for friends without
+    /// shareExactLocations (previously exact coords leaked into a shared record
+    /// that non-exact friends could read).
     func republishSharedSpots(spots: [Spot] = []) async {
-        // Callers pass their spots; without them this is a no-op placeholder
-        // that the profile screen invokes with the live spot list.
         guard joined, !spots.isEmpty else { return }
-        let allowed = friends.filter { privacy(for: $0).shareSpots }
-        let exactAllowed = Set(friends.filter { privacy(for: $0).shareExactLocations })
         for spot in spots {
-            let id = CKRecord.ID(recordName: "spot-\(friendCode)-\(spot.id)")
-            if allowed.isEmpty {
-                _ = try? await db.deleteRecord(withID: id)
-                continue
+            for code in friends {
+                let p = privacy(for: code)
+                let id = CKRecord.ID(recordName: "spot-\(friendCode)-\(spot.id)-\(code)")
+                if !p.shareSpots {
+                    _ = try? await db.deleteRecord(withID: id)
+                    continue
+                }
+                let record = (try? await db.record(for: id)) ?? CKRecord(recordType: sharedSpotType, recordID: id)
+                record["ownerCode"] = friendCode as CKRecordValue
+                record["toCode"] = code as CKRecordValue
+                record["name"] = spot.name as CKRecordValue
+                record["type"] = (spot.spotType ?? "General") as CKRecordValue
+                record["notes"] = (spot.notes ?? "") as CKRecordValue
+                if p.shareExactLocations {
+                    record["lat"] = spot.latitude as CKRecordValue
+                    record["lon"] = spot.longitude as CKRecordValue
+                } else {
+                    record["lat"] = nil
+                    record["lon"] = nil
+                }
+                _ = try? await db.save(record)
             }
-            let record = (try? await db.record(for: id)) ?? CKRecord(recordType: sharedSpotType, recordID: id)
-            record["ownerCode"] = friendCode as CKRecordValue
-            record["name"] = spot.name as CKRecordValue
-            record["type"] = (spot.spotType ?? "General") as CKRecordValue
-            record["notes"] = (spot.notes ?? "") as CKRecordValue
-            record["allowedCodes"] = allowed as CKRecordValue
-            // Share exact coords only with friends allowed exact locations.
-            if !exactAllowed.isDisjoint(with: Set(allowed)) {
-                record["lat"] = spot.latitude as CKRecordValue
-                record["lon"] = spot.longitude as CKRecordValue
-                record["exactAllowedCodes"] = Array(exactAllowed) as CKRecordValue
-            } else {
-                record["lat"] = nil
-                record["lon"] = nil
-            }
-            _ = try? await db.save(record)
         }
     }
 
-    /// Spots a friend has shared with me (respecting their exact-location rule).
+    /// Spots a friend has shared with me. Coordinates are present only when they
+    /// granted exact locations (the record simply won't contain them otherwise).
     func sharedSpots(fromFriend code: String) async -> [SharedSpot] {
-        let predicate = NSPredicate(format: "ownerCode == %@ AND allowedCodes CONTAINS %@", code, friendCode)
-        let query = CKQuery(recordType: sharedSpotType, predicate: predicate)
-        guard let results = try? await db.records(matching: query, resultsLimit: 100) else { return [] }
+        if code == Self.demoCode { return demoSharedSpots }
+        let query = CKQuery(recordType: sharedSpotType, predicate: NSPredicate(value: true))
+        query.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
+        guard let results = try? await db.records(matching: query, resultsLimit: 200) else { return [] }
         return results.matchResults.compactMap { _, res -> SharedSpot? in
-            guard let r = try? res.get() else { return nil }
+            guard let r = try? res.get(),
+                  (r["ownerCode"] as? String) == code,
+                  (r["toCode"] as? String) == friendCode else { return nil }
             var coord: CLLocationCoordinate2D?
-            if let lat = r["lat"] as? Double, let lon = r["lon"] as? Double,
-               let exact = r["exactAllowedCodes"] as? [String], exact.contains(friendCode) {
+            if let lat = r["lat"] as? Double, let lon = r["lon"] as? Double {
                 coord = CLLocationCoordinate2D(latitude: lat, longitude: lon)
             }
             return SharedSpot(
@@ -452,7 +498,12 @@ final class CommunityService: ObservableObject {
     private func demoLeaderCatches(scope: Scope, region: String) -> [LeaderRow] {
         guard demoAdded else { return [] }
         if scope == .region && region != myRegion { return [] }
-        return Self.demoCatchSeeds.enumerated().map { i, s in
+        return demoCatchRows
+    }
+
+    /// The demo angler's individual catches (used for their profile + boards).
+    var demoCatchRows: [LeaderRow] {
+        Self.demoCatchSeeds.enumerated().map { i, s in
             LeaderRow(
                 id: "demo-\(i)", anglerName: "Sasha Rivers", friendCode: Self.demoCode,
                 species: s.species, weightKg: s.weightKg, lengthCm: s.lengthCm,
@@ -460,6 +511,23 @@ final class CommunityService: ObservableObject {
                 date: Date().addingTimeInterval(-Double(i) * 3.2 * 24 * 3600)
             )
         }
+    }
+
+    /// Spots the demo angler "shares" with you — one approximate to show the
+    /// exact-location rule in action.
+    var demoSharedSpots: [SharedSpot] {
+        guard demoAdded else { return [] }
+        return [
+            SharedSpot(id: "demo-spot-1", ownerCode: Self.demoCode, name: "Sasha's Dawn Point",
+                       type: "Bank", notes: "Topwater at first light — big bass patrol the reed line.",
+                       coordinate: CLLocationCoordinate2D(latitude: -34.0498, longitude: 19.2830)),
+            SharedSpot(id: "demo-spot-2", ownerCode: Self.demoCode, name: "The Deep Channel",
+                       type: "Boat", notes: "Drop-off to ~8 m. Slow-roll spinnerbaits when it's overcast.",
+                       coordinate: CLLocationCoordinate2D(latitude: -34.0655, longitude: 19.3011)),
+            SharedSpot(id: "demo-spot-3", ownerCode: Self.demoCode, name: "Carp Bay",
+                       type: "Bank", notes: "Shared as an approximate area — exact spot kept private.",
+                       coordinate: nil),
+        ]
     }
 
     private struct DemoCatch { let species: String; let weightKg: Double?; let lengthCm: Double? }

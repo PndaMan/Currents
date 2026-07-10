@@ -161,6 +161,7 @@ private struct LeaderboardSection: View {
     @State private var scope: CommunityService.Scope = .friends
     @State private var metric: CommunityService.Metric = .count
     @State private var rows: [CommunityService.LeaderRow] = []
+    @State private var myStanding: (rank: Int, row: CommunityService.LeaderRow)?
     @State private var loading = false
 
     var body: some View {
@@ -183,24 +184,58 @@ private struct LeaderboardSection: View {
                     .font(.caption).foregroundStyle(.secondary)
             } else {
                 ForEach(Array(rows.enumerated()), id: \.element.id) { i, row in
-                    HStack(spacing: 10) {
-                        Text("\(i + 1)").font(.subheadline.bold().monospacedDigit())
-                            .foregroundStyle(i < 3 ? .white : .secondary)
-                            .frame(width: 26, height: 26)
-                            .background(i < 3 ? CurrentsTheme.accent : Color.secondary.opacity(0.15), in: Circle())
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(row.anglerName).font(.subheadline.bold())
-                            Text(subtitle(row)).font(.caption2).foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                        Text(value(row)).font(.subheadline.bold()).foregroundStyle(CurrentsTheme.accent)
-                    }
+                    leaderRow(i, row)
+                }
+                // Always show where you stand, even outside the visible top.
+                if let mine = myStanding,
+                   !rows.contains(where: { $0.friendCode == svc.friendCode }) {
+                    Divider()
+                    rowBody(mine.rank - 1, mine.row)
                 }
             }
         }
         .task { await reload() }
         .onChange(of: scope) { _, _ in Task { await reload() } }
         .onChange(of: metric) { _, _ in Task { await reload() } }
+    }
+
+    /// Rows are only tappable for friends (and yourself) — individual catches
+    /// and profiles are friends-only; global just shows the ranking.
+    @ViewBuilder private func leaderRow(_ i: Int, _ row: CommunityService.LeaderRow) -> some View {
+        let isSelf = row.friendCode == svc.friendCode
+        let isFriend = svc.isFriend(row.friendCode)
+        if metric == .count, isFriend {
+            NavigationLink { FriendProfileView(code: row.friendCode) } label: { rowBody(i, row) }
+        } else if metric != .count, isFriend || isSelf {
+            NavigationLink { CommunityCatchDetailView(row: row) } label: { rowBody(i, row) }
+        } else {
+            rowBody(i, row)
+        }
+    }
+
+    private func rowBody(_ i: Int, _ row: CommunityService.LeaderRow) -> some View {
+        let isSelf = row.friendCode == svc.friendCode
+        return HStack(spacing: 10) {
+            Text("\(i + 1)").font(.subheadline.bold().monospacedDigit())
+                .foregroundStyle(i < 3 ? .white : .secondary)
+                .frame(width: 26, height: 26)
+                .background(i < 3 ? CurrentsTheme.accent : Color.secondary.opacity(0.15), in: Circle())
+            VStack(alignment: .leading, spacing: 1) {
+                HStack(spacing: 6) {
+                    Text(isSelf ? "You" : row.anglerName).font(.subheadline.bold())
+                    if isSelf {
+                        Text("YOU").font(.system(size: 9, weight: .heavy))
+                            .padding(.horizontal, 5).padding(.vertical, 1)
+                            .background(CurrentsTheme.accent, in: Capsule())
+                            .foregroundStyle(.white)
+                    }
+                }
+                Text(subtitle(row)).font(.caption2).foregroundStyle(.secondary)
+            }
+            Spacer()
+            Text(value(row)).font(.subheadline.bold()).foregroundStyle(CurrentsTheme.accent)
+        }
+        .listRowBackground(isSelf ? CurrentsTheme.accent.opacity(0.10) : nil)
     }
 
     private func subtitle(_ row: CommunityService.LeaderRow) -> String {
@@ -218,7 +253,9 @@ private struct LeaderboardSection: View {
 
     private func reload() async {
         loading = true
-        rows = await svc.leaderboard(scope: scope, metric: metric, region: region)
+        let result = await svc.board(scope: scope, metric: metric, region: region)
+        rows = result.rows
+        myStanding = result.mine
         loading = false
     }
 }
@@ -429,6 +466,9 @@ struct FriendProfileView: View {
     @State private var profile: CommunityService.Profile?
     @State private var privacy = CommunityService.FriendPrivacy()
     @State private var sharedSpots: [CommunityService.SharedSpot] = []
+    @State private var catches: [CommunityService.LeaderRow] = []
+    @State private var catchAccess = false
+    @State private var copiedSpots: Set<String> = []
     @AppStorage("units") private var units = "metric"
     private var imperial: Bool { units == "imperial" }
 
@@ -437,8 +477,8 @@ struct FriendProfileView: View {
             if let p = profile {
                 Section {
                     VStack(spacing: 8) {
-                        AnglerAvatar(image: p.avatar, size: 84)
-                        Text(p.name).font(.title3.bold())
+                        AnglerAvatar(image: p.avatar, size: 88)
+                        Text(p.name).font(.title2.bold())
                         if !p.bio.isEmpty { Text(p.bio).font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center) }
                         if !p.homeWater.isEmpty {
                             Label(p.homeWater, systemImage: "water.waves").font(.caption).foregroundStyle(.secondary)
@@ -448,15 +488,48 @@ struct FriendProfileView: View {
                     }
                     .frame(maxWidth: .infinity).padding(.vertical, 6)
                 }
-                Section("Personal bests") {
-                    LabeledContent("Catches", value: "\(p.totalCatches)")
-                    LabeledContent("Species", value: "\(p.speciesCount)")
-                    if p.bestWeightKg > 0 { LabeledContent("Heaviest", value: Units.weight(kg: p.bestWeightKg, imperial: imperial)) }
-                    if p.bestLengthCm > 0 { LabeledContent("Longest", value: Units.length(cm: p.bestLengthCm, imperial: imperial)) }
-                    if !p.favoriteSpecies.isEmpty { LabeledContent("Favourite", value: p.favoriteSpecies) }
+                .listRowBackground(Color.clear)
+
+                Section {
+                    HStack(spacing: 10) {
+                        statTile("\(p.totalCatches)", "Catches", "fish.fill")
+                        statTile("\(p.speciesCount)", "Species", "square.grid.2x2")
+                        if p.bestWeightKg > 0 {
+                            statTile(Units.weight(kg: p.bestWeightKg, imperial: imperial), "Heaviest", "scalemass")
+                        }
+                        if p.bestLengthCm > 0 {
+                            statTile(Units.length(cm: p.bestLengthCm, imperial: imperial), "Longest", "ruler")
+                        }
+                    }
+                    if !p.favoriteSpecies.isEmpty {
+                        Label("Favourite: \(p.favoriteSpecies)", systemImage: "star.fill")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
                 }
+                .listRowBackground(Color.clear)
             } else {
                 Section { HStack { ProgressView(); Text("Loading profile…").foregroundStyle(.secondary) } }
+            }
+
+            // Their catches — friends-only, and only if they've shared them.
+            Section("Catches") {
+                if !catchAccess {
+                    Label("This angler hasn't shared their catch history with you.",
+                          systemImage: "lock.fill")
+                        .font(.caption).foregroundStyle(.secondary)
+                } else if catches.isEmpty {
+                    Text("No catches shared yet.").font(.caption).foregroundStyle(.secondary)
+                } else {
+                    ForEach(catches) { c in
+                        NavigationLink { CommunityCatchDetailView(row: c) } label: { catchRow(c) }
+                    }
+                }
+            }
+
+            if !sharedSpots.isEmpty {
+                Section("Spots they've shared with you") {
+                    ForEach(sharedSpots) { s in sharedSpotRow(s) }
+                }
             }
 
             Section {
@@ -469,30 +542,13 @@ struct FriendProfileView: View {
             } header: {
                 Text("What you share with \(profile?.name ?? "this friend")")
             } footer: {
-                Text("Spots are private by default. Turn this on to share your saved spots with just this friend — exact GPS stays off unless you allow it.")
+                Text("Spots are private by default. Turn this on to share your saved spots with just this friend — exact GPS stays off unless you allow it. Your catch history is friends-only, per friend.")
             }
             .onChange(of: privacy) { _, new in
                 svc.setPrivacy(new, for: code)
                 Task {
                     let spots = (try? appState.spotRepository.fetchAll()) ?? []
                     await svc.republishSharedSpots(spots: spots)
-                }
-            }
-
-            if !sharedSpots.isEmpty {
-                Section("Spots they've shared with you") {
-                    ForEach(sharedSpots) { s in
-                        HStack {
-                            Image(systemName: "mappin.circle.fill").foregroundStyle(CurrentsTheme.accent)
-                            VStack(alignment: .leading, spacing: 1) {
-                                Text(s.name).font(.subheadline.bold())
-                                Text(s.coordinate == nil ? "\(s.type) · approximate area" : s.type)
-                                    .font(.caption2).foregroundStyle(.secondary)
-                            }
-                            Spacer()
-                            if s.coordinate != nil { Image(systemName: "location.fill").font(.caption).foregroundStyle(CurrentsTheme.accent) }
-                        }
-                    }
                 }
             }
         }
@@ -502,7 +558,140 @@ struct FriendProfileView: View {
             privacy = svc.privacy(for: code)
             profile = await svc.fetchProfile(code: code)
             sharedSpots = await svc.sharedSpots(fromFriend: code)
+            catchAccess = await svc.hasCatchAccess(to: code)
+            if catchAccess { catches = await svc.anglerCatches(code: code) }
         }
+    }
+
+    private func statTile(_ value: String, _ label: String, _ icon: String) -> some View {
+        VStack(spacing: 3) {
+            Image(systemName: icon).font(.caption).foregroundStyle(CurrentsTheme.accent)
+            Text(value).font(.subheadline.bold()).lineLimit(1).minimumScaleFactor(0.6)
+            Text(label).font(.caption2).foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 10)
+        .background(CurrentsTheme.accent.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    private func catchRow(_ c: CommunityService.LeaderRow) -> some View {
+        HStack {
+            Image(systemName: "fish.fill").foregroundStyle(CurrentsTheme.accent)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(c.species).font(.subheadline.bold())
+                Text(c.date.formatted(date: .abbreviated, time: .omitted))
+                    .font(.caption2).foregroundStyle(.secondary)
+            }
+            Spacer()
+            Text(c.weightKg.map { Units.weight(kg: $0, imperial: imperial) }
+                 ?? c.lengthCm.map { Units.length(cm: $0, imperial: imperial) } ?? "")
+                .font(.caption.bold()).foregroundStyle(CurrentsTheme.accent)
+        }
+    }
+
+    @ViewBuilder private func sharedSpotRow(_ s: CommunityService.SharedSpot) -> some View {
+        HStack {
+            Image(systemName: "mappin.circle.fill").foregroundStyle(CurrentsTheme.accent)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(s.name).font(.subheadline.bold())
+                Text(s.coordinate == nil ? "\(s.type) · approximate area" : s.type)
+                    .font(.caption2).foregroundStyle(.secondary)
+                if !s.notes.isEmpty {
+                    Text(s.notes).font(.caption2).foregroundStyle(.tertiary).lineLimit(2)
+                }
+            }
+            Spacer()
+            if s.coordinate != nil {
+                if copiedSpots.contains(s.id) {
+                    Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+                } else {
+                    Button {
+                        copySpot(s)
+                    } label: {
+                        Image(systemName: "square.and.arrow.down").foregroundStyle(CurrentsTheme.accent)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+
+    private func copySpot(_ s: CommunityService.SharedSpot) {
+        guard let coord = s.coordinate else { return }
+        var spot = Spot(
+            name: s.name,
+            latitude: coord.latitude,
+            longitude: coord.longitude,
+            notes: s.notes.isEmpty ? "Shared by \(profile?.name ?? "a friend")" : s.notes,
+            spotType: Spot.SpotType(rawValue: s.type) ?? .general
+        )
+        try? appState.spotRepository.save(&spot)
+        copiedSpots.insert(s.id)
+    }
+}
+
+// MARK: - Community catch detail
+
+/// A single community catch, tappable from a friend's profile or a friends
+/// leaderboard row. Resolves species artwork by name where possible.
+struct CommunityCatchDetailView: View {
+    let row: CommunityService.LeaderRow
+    @Environment(AppState.self) private var appState
+    @AppStorage("units") private var units = "metric"
+    private var imperial: Bool { units == "imperial" }
+    @State private var species: Species?
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 16) {
+                Group {
+                    if let species {
+                        SpeciesArtworkView(species: species, caught: true, size: 150)
+                    } else {
+                        Image(systemName: "fish.fill")
+                            .font(.system(size: 84)).foregroundStyle(CurrentsTheme.accent.opacity(0.5))
+                    }
+                }
+                .frame(height: 160)
+
+                VStack(spacing: 3) {
+                    Text(row.species).font(.title2.bold())
+                    Text("Caught by \(row.anglerName)").font(.subheadline).foregroundStyle(.secondary)
+                }
+
+                HStack(spacing: 12) {
+                    if let w = row.weightKg {
+                        tile(Units.weight(kg: w, imperial: imperial), "Weight", "scalemass")
+                    }
+                    if let l = row.lengthCm {
+                        tile(Units.length(cm: l, imperial: imperial), "Length", "ruler")
+                    }
+                    tile(row.date.formatted(date: .abbreviated, time: .omitted), "Date", "calendar")
+                }
+
+                if !row.region.isEmpty {
+                    Label(row.region, systemImage: "globe").font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            .padding()
+        }
+        .navigationTitle("Catch")
+        .navigationBarTitleDisplayMode(.inline)
+        .task {
+            let all = (try? appState.speciesRepository.fetchAll()) ?? []
+            species = all.first { $0.commonName.localizedCaseInsensitiveCompare(row.species) == .orderedSame }
+        }
+    }
+
+    private func tile(_ value: String, _ label: String, _ icon: String) -> some View {
+        VStack(spacing: 3) {
+            Image(systemName: icon).font(.caption).foregroundStyle(CurrentsTheme.accent)
+            Text(value).font(.subheadline.bold()).lineLimit(1).minimumScaleFactor(0.6)
+            Text(label).font(.caption2).foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 12)
+        .background(CurrentsTheme.accent.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
     }
 }
 
