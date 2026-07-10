@@ -435,6 +435,8 @@ struct SessionDetailView: View {
     @State private var showingEdit = false
     @State private var suggestedSpots: [CoordItem] = []
     @State private var spotToAdd: CoordItem?
+    @State private var recapImage: UIImage?
+    @State private var showingShare = false
 
     struct CoordItem: Identifiable {
         let id = UUID()
@@ -478,6 +480,13 @@ struct SessionDetailView: View {
                         .frame(maxWidth: .infinity, alignment: .leading).glassCard()
                 }
 
+                Button {
+                    recapImage = TripRecapCard.render(trip: trip, catches: catches)
+                    showingShare = true
+                } label: {
+                    Label("Share Recap", systemImage: "square.and.arrow.up").frame(maxWidth: .infinity)
+                }.buttonStyle(.borderedProminent).tint(CurrentsTheme.accent)
+
                 Button(role: .destructive) { showingDeleteConfirm = true } label: {
                     Label("Delete Session", systemImage: "trash").frame(maxWidth: .infinity)
                 }.buttonStyle(.bordered)
@@ -502,6 +511,12 @@ struct SessionDetailView: View {
         }
         .sheet(item: $spotToAdd, onDismiss: { load() }) { item in
             AddSpotSheet(prefillCoordinate: item.coord)
+        }
+        .sheet(isPresented: $showingShare) {
+            if let recapImage {
+                ImageShareSheet(image: recapImage, filename: "Currents-Trip",
+                                caption: TripRecapCard.caption(for: trip, catches: catches))
+            }
         }
         .task { load() }
     }

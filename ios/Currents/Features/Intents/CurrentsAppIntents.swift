@@ -104,6 +104,40 @@ struct LogCatchIntent: AppIntent {
     }
 }
 
+// MARK: - Quick-log a catch (headless)
+
+/// Records a minimal catch at the last known location — auto-added to the
+/// active session — without opening the app. Species/size are filled in later
+/// on the phone. Ideal hands-free while fishing.
+struct QuickLogCatchIntent: AppIntent {
+    static var title: LocalizedStringResource = "Quick Log Catch"
+    static var description = IntentDescription("Log a catch at your current spot without opening the app.")
+    static var openAppWhenRun = false
+
+    @MainActor
+    func perform() async throws -> some IntentResult & ProvidesDialog {
+        let app = liveAppState()
+        let coord = app.locationManager.currentLocation?.coordinate
+            ?? app.tripTracker.currentLocation?.coordinate
+            ?? fallbackCoordinate
+        var record = Catch(
+            speciesId: nil,
+            spotId: nil,
+            caughtAt: .now,
+            latitude: coord.latitude,
+            longitude: coord.longitude,
+            tripId: app.tripTracker.activeTrip?.id,
+            notes: "Quick-logged via Siri"
+        )
+        try? app.catchRepository.save(&record)
+        if app.tripTracker.isTracking {
+            await NotificationManager.shared.scheduleColdStreakNudge()
+            return .result(dialog: "Logged a catch on your session. Fill in the details later. Tight lines!")
+        }
+        return .result(dialog: "Catch logged. Open Currents to add the species and size.")
+    }
+}
+
 // MARK: - Shortcut phrases
 
 struct CurrentsShortcuts: AppShortcutsProvider {
@@ -144,6 +178,16 @@ struct CurrentsShortcuts: AppShortcutsProvider {
             ],
             shortTitle: "Log Catch",
             systemImageName: "fish.fill"
+        )
+        AppShortcut(
+            intent: QuickLogCatchIntent(),
+            phrases: [
+                "Quick log a catch in \(.applicationName)",
+                "I caught one in \(.applicationName)",
+                "Fish on in \(.applicationName)",
+            ],
+            shortTitle: "Quick Catch",
+            systemImageName: "bolt.fill"
         )
     }
 }
