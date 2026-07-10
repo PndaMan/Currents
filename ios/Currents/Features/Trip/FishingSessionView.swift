@@ -341,6 +341,7 @@ struct ActiveSessionView: View {
     private func reload() {
         guard let id = tracker.activeTrip?.id else { catches = []; return }
         catches = (try? appState.tripRepository.catches(tripId: id)) ?? []
+        pushLiveUpdate()
     }
 
     private func refreshBite() async {
@@ -354,6 +355,23 @@ struct ActiveSessionView: View {
             waterTempC: w?.waterTempC, windSpeedKmh: w?.windSpeedKmh,
             windDirection: w?.windDirectionDeg, species: nil, isInSpawningZone: false
         ).score
+        pushLiveUpdate()
+    }
+
+    /// Keep the Live Activity + widgets in sync with the live catch count and
+    /// bite score.
+    private func pushLiveUpdate() {
+        guard tracker.isTracking else { return }
+        LiveActivityManager.shared.update(
+            catchCount: catches.count,
+            biteScore: biteScore ?? 0,
+            catchLimitText: CatchLimitBar.summary(for: catches)
+        )
+        WidgetSnapshotWriter.writeActiveSession(
+            name: tracker.activeTrip?.name,
+            start: tracker.activeTrip?.startDate,
+            catches: catches.count
+        )
     }
 }
 
@@ -473,6 +491,10 @@ struct CatchLimitBar: View {
     }
 
     private func limitedSpecies() -> [LimitItem] {
+        Self.limitedSpecies(in: catches)
+    }
+
+    static func limitedSpecies(in catches: [CatchDetail]) -> [LimitItem] {
         var acc: [Int64: (name: String, kept: Int, limit: Int)] = [:]
         for c in catches {
             guard let sp = c.species, !c.catchRecord.released,
@@ -484,6 +506,14 @@ struct CatchLimitBar: View {
         }
         return acc.map { LimitItem(id: $0.key, name: $0.value.name, kept: $0.value.kept, limit: $0.value.limit) }
             .sorted { $0.name < $1.name }
+    }
+
+    /// Short line for the Live Activity: the species nearest its bag limit,
+    /// e.g. "Bass 2/4". Nil when no logged species has a limit.
+    static func summary(for catches: [CatchDetail]) -> String? {
+        let items = limitedSpecies(in: catches)
+        guard let tightest = items.min(by: { $0.remaining < $1.remaining }) else { return nil }
+        return "\(tightest.name) \(tightest.kept)/\(tightest.limit)"
     }
 }
 
