@@ -44,6 +44,7 @@ final class TripTracker: NSObject, CLLocationManagerDelegate {
         activeTrip = trip
         track = []
         beginUpdates()
+        beginLiveSession(trip)
         return trip
     }
 
@@ -59,6 +60,7 @@ final class TripTracker: NSObject, CLLocationManagerDelegate {
         activeTrip = t
         track = []
         beginUpdates()
+        beginLiveSession(t)
         return t
     }
 
@@ -73,7 +75,15 @@ final class TripTracker: NSObject, CLLocationManagerDelegate {
         try? repository?.save(&trip)
         activeTrip = nil
         track = []
+        LiveActivityManager.shared.end()
+        WidgetSnapshotWriter.writeActiveSession(name: nil, start: nil, catches: 0)
         return trip
+    }
+
+    /// Kick off the Live Activity + widget snapshot for a newly-started session.
+    private func beginLiveSession(_ trip: Trip) {
+        LiveActivityManager.shared.start(sessionName: trip.name, startDate: trip.startDate, biteScore: 0)
+        WidgetSnapshotWriter.writeActiveSession(name: trip.name, start: trip.startDate, catches: 0)
     }
 
     private func beginUpdates() {

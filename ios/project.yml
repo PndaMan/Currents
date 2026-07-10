@@ -33,6 +33,7 @@ targets:
       - path: Currents
         excludes:
           - "Resources/**"
+      - path: Shared
       - path: Currents/Resources/Assets.xcassets
       - path: Currents/Resources/Data
         type: folder
@@ -66,6 +67,8 @@ targets:
         Release:
           PROVISIONING_PROFILE_SPECIFIER: "Currents AppStore Manual"
     dependencies:
+      - target: CurrentsWidgets
+        embed: true
       - package: GRDB
         product: GRDB
       - package: Nuke
@@ -74,6 +77,31 @@ targets:
         product: NukeUI
       - package: ZIPFoundation
         product: ZIPFoundation
+
+  # WidgetKit extension: home-screen widgets (bite score, next session) and the
+  # fishing-session Live Activity. Shares the Shared/ folder with the app and
+  # reads a snapshot from the App Group.
+  CurrentsWidgets:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: CurrentsWidgets
+      - path: Shared
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.aidanmcconnon.currents.widgets
+        TARGETED_DEVICE_FAMILY: "1"
+        INFOPLIST_FILE: CurrentsWidgets/Info.plist
+        GENERATE_INFOPLIST_FILE: "NO"
+        DEVELOPMENT_TEAM: "DBC26UPRGK"
+        MARKETING_VERSION: "1.0.0"
+        CURRENT_PROJECT_VERSION: "1"
+        SWIFT_VERSION: "5"
+        SKIP_INSTALL: "YES"
+        CODE_SIGN_ENTITLEMENTS: CurrentsWidgets/CurrentsWidgets.entitlements
+      configs:
+        Release:
+          PROVISIONING_PROFILE_SPECIFIER: "Currents Widgets AppStore Manual"
 
   CurrentsTests:
     type: bundle.unit-test

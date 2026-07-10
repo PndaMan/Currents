@@ -750,6 +750,19 @@ struct ForecastTab: View {
             species: selectedSpecies,
             isInSpawningZone: false
         )
+
+        // Feed the home-screen widgets with today's bite score at the user's
+        // location (only for today + no species filter, so it stays "general").
+        if selectedDay == 0, selectedSpecies == nil, let f = forecast {
+            let verdict: String
+            switch f.score {
+            case 80...: verdict = "Excellent"
+            case 60..<80: verdict = "Good"
+            case 40..<60: verdict = "Fair"
+            default: verdict = "Slow"
+            }
+            WidgetSnapshotWriter.writeBite(score: f.score, verdict: verdict, location: "")
+        }
     }
 
     // MARK: - Helpers

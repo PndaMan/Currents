@@ -77,8 +77,15 @@ struct ContentView: View {
     /// On launch, if a planned session is within ~2 hours of now and nothing is
     /// already recording, offer to start it.
     private func checkPlannedSession() {
-        guard !appState.tripTracker.isTracking, !ScreenshotSupport.isActive else { return }
+        guard !ScreenshotSupport.isActive else { return }
         let planned = (try? appState.tripRepository.fetchPlanned()) ?? []
+        // Keep the "Next Session" widget in sync with the soonest upcoming plan.
+        let upcoming = planned
+            .filter { ($0.plannedDate ?? .distantPast) > .now }
+            .min { ($0.plannedDate ?? .distantFuture) < ($1.plannedDate ?? .distantFuture) }
+        WidgetSnapshotWriter.writeNextSession(name: upcoming?.name, date: upcoming?.plannedDate)
+
+        guard !appState.tripTracker.isTracking else { return }
         planPrompt = planned.first { trip in
             guard let d = trip.plannedDate else { return false }
             return abs(d.timeIntervalSinceNow) < 2 * 3600
