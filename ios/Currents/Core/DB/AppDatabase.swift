@@ -362,6 +362,13 @@ final class AppDatabase: Sendable {
             }
         }
 
+        migrator.registerMigration("v18_trip_multiday") { db in
+            try db.alter(table: "trip") { t in
+                t.add(column: "days", .text)             // JSON [DayLog] of finished days
+                t.add(column: "currentDayStart", .datetime)
+            }
+        }
+
         return migrator
     }
 }

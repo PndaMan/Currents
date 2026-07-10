@@ -248,6 +248,7 @@ struct ActiveSessionView: View {
     @State private var biteScore: Int?
     @State private var showingLog = false
     @State private var showingEndConfirm = false
+    @State private var showingEndDayConfirm = false
 
     private var tracker: TripTracker { appState.tripTracker }
 
@@ -283,9 +284,7 @@ struct ActiveSessionView: View {
                         }.frame(maxWidth: .infinity, alignment: .leading)
                     }
 
-                    Button(role: .destructive) { showingEndConfirm = true } label: {
-                        Label("End Session", systemImage: "stop.circle").frame(maxWidth: .infinity)
-                    }.buttonStyle(.bordered)
+                    sessionControls(trip)
                 } else {
                     ContentUnavailableView("No Active Session", systemImage: "figure.fishing")
                 }
@@ -295,19 +294,61 @@ struct ActiveSessionView: View {
         .navigationTitle(tracker.activeTrip?.name ?? "Session")
         .navigationBarTitleDisplayMode(.inline)
         .fullScreenCover(isPresented: $showingLog, onDismiss: reload) { LogCatchView() }
-        .alert("End Session?", isPresented: $showingEndConfirm) {
-            Button("End", role: .destructive) { tracker.end(); dismiss() }
+        .alert("End this day?", isPresented: $showingEndDayConfirm) {
+            Button("End Day", role: .destructive) { tracker.endDay() }
+            Button("Keep Going", role: .cancel) {}
+        } message: {
+            Text("Saves today's stats and pauses tracking. The trip stays open — start the next day whenever you're back out.")
+        }
+        .alert("End the whole trip?", isPresented: $showingEndConfirm) {
+            Button("End Trip", role: .destructive) { tracker.end(); dismiss() }
             Button("Keep Going", role: .cancel) {}
         }
         .task { reload(); await refreshBite() }
     }
 
+    /// Multi-day controls: while a day is recording you can end just the day
+    /// (keeping the trip) or end the whole trip; between days you can start the
+    /// next day.
+    @ViewBuilder private func sessionControls(_ trip: Trip) -> some View {
+        VStack(spacing: 10) {
+            if tracker.isDayActive {
+                Button { showingEndDayConfirm = true } label: {
+                    Label("End Day \(trip.dayCount)", systemImage: "moon.zzz.fill").frame(maxWidth: .infinity)
+                }.buttonStyle(.bordered).tint(.orange)
+            } else {
+                Label("Trip paused between days", systemImage: "pause.circle")
+                    .font(.caption).foregroundStyle(.secondary)
+                Button { tracker.startNextDay(); Task { await refreshBite() } } label: {
+                    Label("Start Day \(trip.decodedDays.count + 1)", systemImage: "sun.max.fill").frame(maxWidth: .infinity)
+                }.buttonStyle(.borderedProminent).tint(CurrentsTheme.accent)
+            }
+            Button(role: .destructive) { showingEndConfirm = true } label: {
+                Label("End Trip", systemImage: "stop.circle").frame(maxWidth: .infinity)
+            }.buttonStyle(.bordered)
+        }
+    }
+
     private func statsHeader(_ trip: Trip) -> some View {
-        TimelineView(.periodic(from: .now, by: 1)) { _ in
-            HStack(spacing: 12) {
-                sessionStat(SessionFormat.duration(trip.durationSeconds), "Elapsed", "clock")
-                sessionStat(SessionFormat.distance(tracker.track.isEmpty ? trip.trackDistanceMeters : trackDistance()), "Distance", "point.topleft.down.to.point.bottomright.curvepath")
-                sessionStat("\(catches.count)", "Catches", "fish.fill")
+        let priorDist = trip.decodedDays.reduce(0.0) { $0 + $1.distanceMeters }
+        let priorDur = trip.decodedDays.reduce(0.0) { $0 + $1.durationSeconds }
+        return VStack(spacing: 8) {
+            if trip.isMultiDay {
+                HStack(spacing: 6) {
+                    Image(systemName: "calendar")
+                    Text(tracker.isDayActive ? "Day \(trip.decodedDays.count + 1)" : "\(trip.decodedDays.count) days • paused")
+                        .font(.caption.bold())
+                }
+                .foregroundStyle(CurrentsTheme.accent)
+                .frame(maxWidth: .infinity)
+            }
+            TimelineView(.periodic(from: .now, by: 1)) { _ in
+                let curDur = tracker.isDayActive ? Date.now.timeIntervalSince(trip.currentDayStart ?? trip.startDate) : 0
+                HStack(spacing: 12) {
+                    sessionStat(SessionFormat.duration(priorDur + curDur), trip.isMultiDay ? "Total Time" : "Elapsed", "clock")
+                    sessionStat(SessionFormat.distance(priorDist + trackDistance()), "Distance", "point.topleft.down.to.point.bottomright.curvepath")
+                    sessionStat("\(catches.count)", "Catches", "fish.fill")
+                }
             }
         }
     }
@@ -333,7 +374,9 @@ struct ActiveSessionView: View {
     }
 
     private var sessionMap: some View {
-        SessionTrackMap(points: tracker.track, showsUser: true)
+        // Prior days (persisted) + the live current day + catch pins.
+        let prior = tracker.activeTrip?.decodedDays.flatMap(\.track) ?? []
+        return SessionTrackMap(points: prior + tracker.track, showsUser: true, catches: catches)
             .frame(height: 220)
             .clipShape(RoundedRectangle(cornerRadius: 16))
     }
@@ -388,15 +431,17 @@ struct SessionDetailView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: CurrentsTheme.paddingM) {
-                SessionTrackMap(points: trip.decodedTrack, showsUser: false, catches: catches)
+                SessionTrackMap(points: trip.allTrackPoints, showsUser: false, catches: catches)
                     .frame(height: 220)
                     .clipShape(RoundedRectangle(cornerRadius: 16))
 
                 HStack(spacing: 12) {
-                    stat(SessionFormat.duration(trip.durationSeconds), "Duration", "clock")
-                    stat(SessionFormat.distance(trip.trackDistanceMeters), "Distance", "map")
+                    stat(SessionFormat.duration(trip.totalDurationSeconds), "Duration", "clock")
+                    stat(SessionFormat.distance(trip.totalTrackDistanceMeters), "Distance", "map")
                     stat("\(catches.count)", "Catches", "fish.fill")
                 }
+
+                if trip.isMultiDay { dayBreakdown }
 
                 TripOverviewHighlights(catches: catches)
 
@@ -441,6 +486,34 @@ struct SessionDetailView: View {
             Button("Cancel", role: .cancel) {}
         }
         .task { catches = (try? appState.tripRepository.catches(tripId: trip.id)) ?? [] }
+    }
+
+    /// Per-day summary for multi-day trips: date, hours, distance, catches.
+    private var dayBreakdown: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Days").font(.headline)
+            ForEach(trip.allDayLogs) { day in
+                let dayCatches = catches.filter { $0.catchRecord.caughtAt >= day.start && $0.catchRecord.caughtAt <= day.end }.count
+                HStack(spacing: 10) {
+                    ZStack {
+                        Circle().fill(CurrentsTheme.accent.opacity(0.15)).frame(width: 34, height: 34)
+                        Text("\(day.index + 1)").font(.subheadline.bold()).foregroundStyle(CurrentsTheme.accent)
+                    }
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(day.start.formatted(date: .abbreviated, time: .omitted)).font(.subheadline.bold())
+                        Text("\(SessionFormat.duration(day.durationSeconds)) · \(SessionFormat.distance(day.distanceMeters))")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    if dayCatches > 0 {
+                        Label("\(dayCatches)", systemImage: "fish.fill")
+                            .font(.caption.bold()).foregroundStyle(CurrentsTheme.accent)
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassCard()
     }
 
     private func stat(_ value: String, _ label: String, _ icon: String) -> some View {

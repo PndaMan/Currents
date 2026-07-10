@@ -16,6 +16,10 @@ struct Trip: Codable, Identifiable, Sendable {
     var plannedDate: Date?
     var plannedLatitude: Double?
     var plannedLongitude: Double?
+    // Multi-day: `days` holds finished days (JSON [DayLog]); `currentDayStart`
+    // marks when the in-progress day began (its track is in `trackPoints`).
+    var days: String?
+    var currentDayStart: Date?
     var createdAt: Date
 
     init(
@@ -30,7 +34,9 @@ struct Trip: Codable, Identifiable, Sendable {
         trackPoints: String? = nil,
         plannedDate: Date? = nil,
         plannedLatitude: Double? = nil,
-        plannedLongitude: Double? = nil
+        plannedLongitude: Double? = nil,
+        days: String? = nil,
+        currentDayStart: Date? = nil
     ) {
         self.id = id
         self.name = name
@@ -44,6 +50,8 @@ struct Trip: Codable, Identifiable, Sendable {
         self.plannedDate = plannedDate
         self.plannedLatitude = plannedLatitude
         self.plannedLongitude = plannedLongitude
+        self.days = days
+        self.currentDayStart = currentDayStart
         self.createdAt = .now
     }
 
@@ -104,6 +112,69 @@ struct Trip: Codable, Identifiable, Sendable {
     /// Currently-recording session (not planned, not ended).
     var isActive: Bool { endDate == nil && plannedDate == nil }
     var isCompleted: Bool { endDate != nil }
+
+    // MARK: - Multi-day
+
+    /// One outing within a multi-day trip.
+    struct DayLog: Codable, Sendable, Identifiable {
+        var index: Int
+        var start: Date
+        var end: Date
+        var trackPoints: String?
+        var notes: String?
+
+        var id: Int { index }
+        var durationSeconds: TimeInterval { end.timeIntervalSince(start) }
+        var track: [TrackPoint] {
+            guard let trackPoints, let data = trackPoints.data(using: .utf8) else { return [] }
+            return (try? JSONDecoder().decode([TrackPoint].self, from: data)) ?? []
+        }
+        var distanceMeters: Double {
+            let pts = track
+            guard pts.count > 1 else { return 0 }
+            var total = 0.0
+            for i in 1..<pts.count {
+                total += CLLocation(latitude: pts[i].lat, longitude: pts[i].lon)
+                    .distance(from: CLLocation(latitude: pts[i - 1].lat, longitude: pts[i - 1].lon))
+            }
+            return total
+        }
+    }
+
+    var decodedDays: [DayLog] {
+        guard let days, let data = days.data(using: .utf8) else { return [] }
+        return (try? JSONDecoder().decode([DayLog].self, from: data)) ?? []
+    }
+
+    static func encodeDays(_ days: [DayLog]) -> String? {
+        guard !days.isEmpty, let data = try? JSONEncoder().encode(days) else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
+    /// Every day of the trip, uniform across single- and multi-day trips:
+    /// finished days plus the current/last day (synthesised from the trip's own
+    /// track for legacy single-day trips that predate the day model).
+    var allDayLogs: [DayLog] {
+        var result = decodedDays
+        if let cds = currentDayStart {
+            result.append(DayLog(index: result.count, start: cds, end: endDate ?? .now,
+                                 trackPoints: trackPoints, notes: nil))
+        } else if result.isEmpty {
+            result.append(DayLog(index: 0, start: startDate, end: endDate ?? .now,
+                                 trackPoints: trackPoints, notes: notes))
+        }
+        return result
+    }
+
+    var dayCount: Int { max(1, allDayLogs.count) }
+    var isMultiDay: Bool { !decodedDays.isEmpty }
+
+    /// Total distance/duration across every day of the trip.
+    var totalTrackDistanceMeters: Double { allDayLogs.reduce(0) { $0 + $1.distanceMeters } }
+    var totalDurationSeconds: TimeInterval { allDayLogs.reduce(0) { $0 + $1.durationSeconds } }
+
+    /// All track points across every day, for drawing the full route.
+    var allTrackPoints: [TrackPoint] { allDayLogs.flatMap(\.track) }
 }
 
 extension Trip: FetchableRecord, PersistableRecord {

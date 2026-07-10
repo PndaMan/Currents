@@ -15,6 +15,9 @@ final class TripTracker: NSObject, CLLocationManagerDelegate {
     private(set) var activeTrip: Trip?
     private(set) var track: [Trip.TrackPoint] = []
     private(set) var currentLocation: CLLocation?
+    /// True while a day within the active trip is being recorded. False when a
+    /// multi-day trip is open but paused between days.
+    private(set) var isDayActive = false
 
     var isTracking: Bool { activeTrip != nil }
 
@@ -33,16 +36,19 @@ final class TripTracker: NSObject, CLLocationManagerDelegate {
         if activeTrip == nil, let active = (try? repository.fetchActive())?.first {
             activeTrip = active
             track = active.decodedTrack
-            beginUpdates()
+            // A day is active only if the trip has an open current day.
+            isDayActive = active.currentDayStart != nil
+            if isDayActive { beginUpdates() }
         }
     }
 
     @discardableResult
     func start(name: String, spotId: String?) -> Trip {
-        var trip = Trip(name: name, startDate: .now, spotId: spotId)
+        var trip = Trip(name: name, startDate: .now, spotId: spotId, currentDayStart: .now)
         try? repository?.save(&trip)
         activeTrip = trip
         track = []
+        isDayActive = true
         beginUpdates()
         beginLiveSession(trip)
         return trip
@@ -56,12 +62,46 @@ final class TripTracker: NSObject, CLLocationManagerDelegate {
         t.plannedLatitude = nil
         t.plannedLongitude = nil
         t.startDate = .now
+        t.currentDayStart = .now
         try? repository?.save(&t)
         activeTrip = t
         track = []
+        isDayActive = true
         beginUpdates()
         beginLiveSession(t)
         return t
+    }
+
+    /// Finish the current day but keep the trip open (multi-day). The day's
+    /// track + times are archived; tracking pauses until `startNextDay()`.
+    func endDay() {
+        guard var trip = activeTrip, isDayActive else { return }
+        var days = trip.decodedDays
+        days.append(Trip.DayLog(index: days.count,
+                                start: trip.currentDayStart ?? trip.startDate,
+                                end: .now,
+                                trackPoints: Trip.encodeTrack(track),
+                                notes: nil))
+        trip.days = Trip.encodeDays(days)
+        trip.currentDayStart = nil
+        trip.trackPoints = nil
+        try? repository?.save(&trip)
+        activeTrip = trip
+        track = []
+        isDayActive = false
+        manager.allowsBackgroundLocationUpdates = false
+        manager.stopUpdatingLocation()
+    }
+
+    /// Start a new day within the already-open trip.
+    func startNextDay() {
+        guard var trip = activeTrip, !isDayActive else { return }
+        trip.currentDayStart = .now
+        try? repository?.save(&trip)
+        activeTrip = trip
+        track = []
+        isDayActive = true
+        beginUpdates()
     }
 
     /// End the active session, saving its final track and end time.
@@ -75,6 +115,7 @@ final class TripTracker: NSObject, CLLocationManagerDelegate {
         try? repository?.save(&trip)
         activeTrip = nil
         track = []
+        isDayActive = false
         LiveActivityManager.shared.end()
         WidgetSnapshotWriter.writeActiveSession(name: nil, start: nil, catches: 0)
         return trip
