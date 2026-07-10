@@ -1,0 +1,160 @@
+DEFINE SCHEMA
+
+    RECORD TYPE AnglerProfile (
+        displayName     STRING,
+        friendCode      STRING QUERYABLE,
+        bio             STRING,
+        homeWater       STRING,
+        region          STRING QUERYABLE,
+        memberSince     TIMESTAMP,
+        totalCatches    INT64,
+        speciesCount    INT64,
+        bestWeightKg    DOUBLE,
+        bestLengthCm    DOUBLE,
+        favoriteSpecies STRING,
+        avatar          ASSET,
+        updatedAt       TIMESTAMP,
+        "___createTime" TIMESTAMP,
+        "___createdBy"  REFERENCE,
+        "___etag"       STRING,
+        "___modTime"    TIMESTAMP,
+        "___modifiedBy" REFERENCE,
+        "___recordID"   REFERENCE QUERYABLE,
+        GRANT WRITE TO "_creator",
+        GRANT CREATE TO "_icloud",
+        GRANT READ TO "_world"
+    );
+
+    RECORD TYPE LeaderCatch (
+        anglerName  STRING,
+        friendCode  STRING QUERYABLE,
+        species     STRING,
+        weightKg    DOUBLE,
+        lengthCm    DOUBLE,
+        region      STRING QUERYABLE,
+        caughtAt    TIMESTAMP,
+        groupCode   STRING QUERYABLE,
+        "___createTime" TIMESTAMP,
+        "___createdBy"  REFERENCE,
+        "___etag"       STRING,
+        "___modTime"    TIMESTAMP,
+        "___modifiedBy" REFERENCE,
+        "___recordID"   REFERENCE QUERYABLE,
+        GRANT WRITE TO "_creator",
+        GRANT CREATE TO "_icloud",
+        GRANT READ TO "_world"
+    );
+
+    RECORD TYPE SharedSpot (
+        ownerCode   STRING QUERYABLE,
+        toCode      STRING QUERYABLE,
+        name        STRING,
+        type        STRING,
+        notes       STRING,
+        lat         DOUBLE,
+        lon         DOUBLE,
+        "___createTime" TIMESTAMP,
+        "___createdBy"  REFERENCE,
+        "___etag"       STRING,
+        "___modTime"    TIMESTAMP,
+        "___modifiedBy" REFERENCE,
+        "___recordID"   REFERENCE QUERYABLE,
+        GRANT WRITE TO "_creator",
+        GRANT CREATE TO "_icloud",
+        GRANT READ TO "_world"
+    );
+
+    RECORD TYPE GroupTrip (
+        code        STRING QUERYABLE,
+        name        STRING,
+        hostCode    STRING,
+        hostName    STRING,
+        createdAt   TIMESTAMP,
+        "___createTime" TIMESTAMP,
+        "___createdBy"  REFERENCE,
+        "___etag"       STRING,
+        "___modTime"    TIMESTAMP,
+        "___modifiedBy" REFERENCE,
+        "___recordID"   REFERENCE QUERYABLE,
+        GRANT WRITE TO "_creator",
+        GRANT CREATE TO "_icloud",
+        GRANT READ TO "_world"
+    );
+
+    RECORD TYPE GroupMember (
+        groupCode   STRING QUERYABLE,
+        memberCode  STRING,
+        memberName  STRING,
+        joinedAt    TIMESTAMP,
+        "___createTime" TIMESTAMP,
+        "___createdBy"  REFERENCE,
+        "___etag"       STRING,
+        "___modTime"    TIMESTAMP,
+        "___modifiedBy" REFERENCE,
+        "___recordID"   REFERENCE QUERYABLE,
+        GRANT WRITE TO "_creator",
+        GRANT CREATE TO "_icloud",
+        GRANT READ TO "_world"
+    );
+
+    RECORD TYPE GroupInvite (
+        groupCode   STRING,
+        tripName    STRING,
+        fromCode    STRING,
+        fromName    STRING,
+        toCode      STRING QUERYABLE,
+        createdAt   TIMESTAMP,
+        "___createTime" TIMESTAMP,
+        "___createdBy"  REFERENCE,
+        "___etag"       STRING,
+        "___modTime"    TIMESTAMP,
+        "___modifiedBy" REFERENCE,
+        "___recordID"   REFERENCE QUERYABLE,
+        GRANT WRITE TO "_world",
+        GRANT CREATE TO "_icloud",
+        GRANT READ TO "_world"
+    );
+
+    RECORD TYPE FriendRequest (
+        fromCode    STRING QUERYABLE,
+        fromName    STRING,
+        toCode      STRING QUERYABLE,
+        status      STRING,
+        createdAt   TIMESTAMP,
+        "___createTime" TIMESTAMP,
+        "___createdBy"  REFERENCE,
+        "___etag"       STRING,
+        "___modTime"    TIMESTAMP,
+        "___modifiedBy" REFERENCE,
+        "___recordID"   REFERENCE QUERYABLE,
+        GRANT WRITE TO "_world",
+        GRANT CREATE TO "_icloud",
+        GRANT READ TO "_world"
+    );
+
+    RECORD TYPE CatchGrant (
+        ownerCode   STRING QUERYABLE,
+        viewerCode  STRING QUERYABLE,
+        "___createTime" TIMESTAMP,
+        "___createdBy"  REFERENCE,
+        "___etag"       STRING,
+        "___modTime"    TIMESTAMP,
+        "___modifiedBy" REFERENCE,
+        "___recordID"   REFERENCE QUERYABLE,
+        GRANT WRITE TO "_creator",
+        GRANT CREATE TO "_icloud",
+        GRANT READ TO "_world"
+    );
+
+    RECORD TYPE CodeClaim (
+        claimedAt   TIMESTAMP,
+        "___createTime" TIMESTAMP,
+        "___createdBy"  REFERENCE,
+        "___etag"       STRING,
+        "___modTime"    TIMESTAMP,
+        "___modifiedBy" REFERENCE,
+        "___recordID"   REFERENCE QUERYABLE,
+        GRANT WRITE TO "_creator",
+        GRANT CREATE TO "_icloud",
+        GRANT READ TO "_world"
+    );
