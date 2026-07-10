@@ -18,6 +18,12 @@ struct OfflineMapView: UIViewRepresentable {
     /// built asynchronously by the parent (it needs a fetched frame path).
     var showNautical: Bool = false
     var radarOverlay: MKTileOverlay? = nil
+    /// Animated flow fields (off by default). Wind uses live weather; current
+    /// uses a wind-driven surface-drift approximation.
+    var showWind: Bool = false
+    var showCurrent: Bool = false
+    var windSpeedKmh: Double? = nil
+    var windFromDeg: Double = 0
 
     /// Set to move the camera (search result, recentre button); consumed once.
     @Binding var flyTo: CLLocationCoordinate2D?
@@ -53,6 +59,22 @@ struct OfflineMapView: UIViewRepresentable {
         tap.delegate = context.coordinator
         map.addGestureRecognizer(tap)
 
+        // Animated flow fields sit above the map, below the buttons, and never
+        // intercept touches.
+        let current = WindFieldView(frame: map.bounds)
+        current.mode = .current
+        current.tint = UIColor.systemTeal
+        current.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        map.addSubview(current)
+        context.coordinator.currentField = current
+
+        let wind = WindFieldView(frame: map.bounds)
+        wind.mode = .wind
+        wind.tint = UIColor(white: 1, alpha: 1)
+        wind.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        map.addSubview(wind)
+        context.coordinator.windField = wind
+
         context.coordinator.centerInitially(map)
         return map
     }
@@ -68,6 +90,7 @@ struct OfflineMapView: UIViewRepresentable {
         }
         context.coordinator.syncAnnotations(on: map)
         context.coordinator.syncOverlays(on: map)
+        context.coordinator.syncFlowFields(on: map)
     }
 
     func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
@@ -128,9 +151,25 @@ struct OfflineMapView: UIViewRepresentable {
         private var fingerprint = ""
         private var seamarkOverlay: MKTileOverlay?
         private var currentRadarOverlay: MKTileOverlay?
+        weak var windField: WindFieldView?
+        weak var currentField: WindFieldView?
 
         init(parent: OfflineMapView) {
             self.parent = parent
+        }
+
+        /// Enable/disable the animated wind & current fields and push the latest
+        /// wind vector + map heading into them.
+        func syncFlowFields(on map: MKMapView) {
+            let heading = map.camera.heading
+            for (field, on) in [(windField, parent.showWind), (currentField, parent.showCurrent)] {
+                guard let field else { continue }
+                field.isHidden = !on
+                field.mapHeading = heading
+                field.windFromDeg = parent.windFromDeg
+                // Setting the speed starts/stops the CADisplayLink internally.
+                field.windSpeedKmh = on ? parent.windSpeedKmh : nil
+            }
         }
 
         /// Add/remove the optional nautical + radar tile overlays to match the

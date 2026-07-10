@@ -50,6 +50,8 @@ struct MapTab: View {
     // Optional overlay layers — off by default, toggled from the layers button.
     @AppStorage("mapLayer_nautical") private var layerNautical = false
     @AppStorage("mapLayer_radar") private var layerRadar = false
+    @AppStorage("mapLayer_wind") private var layerWind = false
+    @AppStorage("mapLayer_current") private var layerCurrent = false
     @State private var radarOverlay: MKTileOverlay?
 
     enum MapStyleOption: String, CaseIterable {
@@ -103,6 +105,10 @@ struct MapTab: View {
                         accent: accent,
                         showNautical: layerNautical,
                         radarOverlay: layerRadar ? radarOverlay : nil,
+                        showWind: layerWind,
+                        showCurrent: layerCurrent,
+                        windSpeedKmh: weather?.windSpeedKmh,
+                        windFromDeg: weather?.windDirectionDeg ?? 0,
                         flyTo: $flyToCoordinate,
                         onSelectSpot: { selectedSpot = $0 },
                         onSelectWaterbody: { selectedWaterbody = $0 },
@@ -241,11 +247,17 @@ struct MapTab: View {
                             Toggle(isOn: $layerRadar) {
                                 Label("Weather Radar", systemImage: "cloud.rain")
                             }
+                            Toggle(isOn: $layerWind) {
+                                Label("Wind (animated)", systemImage: "wind")
+                            }
+                            Toggle(isOn: $layerCurrent) {
+                                Label("Current (animated)", systemImage: "arrow.left.arrow.right")
+                            }
                         }
                     } label: {
                         mapButton(icon: "map.fill")
                             .overlay(alignment: .topTrailing) {
-                                if layerNautical || layerRadar {
+                                if layerNautical || layerRadar || layerWind || layerCurrent {
                                     Circle().fill(CurrentsTheme.accent)
                                         .frame(width: 8, height: 8)
                                         .offset(x: 2, y: -2)
@@ -422,6 +434,8 @@ struct MapTab: View {
             // it automatically when a layer is enabled.
             .onChange(of: layerNautical) { _, on in if on { mapStyle = .offline } }
             .onChange(of: layerRadar) { _, on in if on { mapStyle = .offline } }
+            .onChange(of: layerWind) { _, on in if on { mapStyle = .offline } }
+            .onChange(of: layerCurrent) { _, on in if on { mapStyle = .offline } }
             .sheet(isPresented: $showingSpeciesBrowser) {
                 NavigationStack {
                     SpeciesBrowserView()
