@@ -555,10 +555,11 @@ jobs:
           set -euo pipefail
           # This job runs with working-directory: ios, but the script lives at
           # the repo root — reference it via GITHUB_WORKSPACE.
+          # Watch temporarily not embedded — provision the widget only so
+          # ExportOptions doesn't reference a bundle absent from the archive.
           python3 "$GITHUB_WORKSPACE/ci/provision_extensions.py" \
             --main "com.aidanmcconnon.currents=$PROFILE_NAME" \
-            --ext  "com.aidanmcconnon.currents.widgets=Currents Widgets AppStore Manual" \
-            --ext  "com.aidanmcconnon.currents.watchkitapp=Currents Watch AppStore Manual"
+            --ext  "com.aidanmcconnon.currents.widgets=Currents Widgets AppStore Manual"
 
       - name: Align entitlements with provisioning profile
         run: |
