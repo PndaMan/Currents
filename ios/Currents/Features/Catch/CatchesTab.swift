@@ -369,6 +369,14 @@ struct CatchRow: View {
                 .scaledToFill()
                 .frame(width: 68, height: 68)
                 .clipShape(RoundedRectangle(cornerRadius: 12))
+        } else if let species = detail.species {
+            // No photo — fall back to the species artwork, not a generic symbol.
+            ZStack {
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(CurrentsTheme.accent.opacity(0.12))
+                SpeciesArtworkView(species: species, caught: true, size: 60)
+            }
+            .frame(width: 68, height: 68)
         } else {
             ZStack {
                 RoundedRectangle(cornerRadius: 12)

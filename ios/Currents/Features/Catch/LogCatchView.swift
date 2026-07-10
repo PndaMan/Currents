@@ -6,6 +6,10 @@ import ImageIO
 struct LogCatchView: View {
     @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss
+    @AppStorage("units") private var units = "metric"
+    /// Length/weight fields hold values in the user's chosen unit; converted to
+    /// metric (the stored canonical) at save.
+    private var imperial: Bool { units == "imperial" }
 
     // Photos (multi-photo)
     @State private var selectedPhotos: [PhotosPickerItem] = []
@@ -119,7 +123,7 @@ struct LogCatchView: View {
             }
             .fullScreenCover(isPresented: $showingARMeasure) {
                 ARMeasureView { cm in
-                    lengthCm = String(format: "%.1f", cm)
+                    lengthCm = String(format: "%.1f", imperial ? cm / 2.54 : cm)
                 }
             }
             .alert("New Spot", isPresented: $showingNewSpot) {
@@ -364,7 +368,7 @@ struct LogCatchView: View {
             HStack {
                 TextField("Length", text: $lengthCm)
                     .keyboardType(.decimalPad)
-                Text("cm")
+                Text(imperial ? "in" : "cm")
                     .foregroundStyle(.secondary)
                 if ARMeasureView.isSupported {
                     Button {
@@ -379,22 +383,25 @@ struct LogCatchView: View {
             HStack {
                 TextField("Weight", text: $weightKg)
                     .keyboardType(.decimalPad)
-                Text("kg")
+                Text(imperial ? "lb" : "kg")
                     .foregroundStyle(.secondary)
             }
             // Length-based weight estimate — offered when a length is entered
-            // but no weight yet (uses the selected species' body shape).
-            if let len = lengthCm.measurementValue, len > 0, weightKg.measurementValue == nil,
-               let est = WeightEstimator.estimateKg(
-                   lengthCm: len,
+            // but no weight yet (uses the selected species' body shape). Field
+            // values are in the display unit, so convert length → cm for the
+            // estimator and the result kg → display unit.
+            if let lenTyped = lengthCm.measurementValue, lenTyped > 0, weightKg.measurementValue == nil,
+               let estKg = WeightEstimator.estimateKg(
+                   lengthCm: imperial ? lenTyped * 2.54 : lenTyped,
                    species: allSpecies.first { $0.id == selectedSpeciesId }
                ) {
+                let estDisplay = imperial ? estKg * 2.2046226 : estKg
                 Button {
-                    weightKg = String(format: "%.2f", est)
+                    weightKg = String(format: "%.2f", estDisplay)
                 } label: {
                     HStack(spacing: 6) {
                         Image(systemName: "scalemass")
-                        Text("Estimated ~\(String(format: "%.1f", est)) kg")
+                        Text("Estimated ~\(String(format: "%.1f", estDisplay)) \(imperial ? "lb" : "kg")")
                         Spacer()
                         Text("Use").fontWeight(.semibold)
                     }
@@ -717,8 +724,8 @@ struct LogCatchView: View {
             caughtAt: caughtAt,
             latitude: lat,
             longitude: lon,
-            lengthCm: lengthCm.measurementValue,
-            weightKg: weightKg.measurementValue,
+            lengthCm: lengthCm.measurementValue.map { imperial ? $0 * 2.54 : $0 },
+            weightKg: weightKg.measurementValue.map { imperial ? $0 / 2.2046226 : $0 },
             released: released,
             photoPath: photoPaths.first,
             photoPaths: Catch.encodePhotoPaths(photoPaths),

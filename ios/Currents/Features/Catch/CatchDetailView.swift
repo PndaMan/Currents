@@ -1,8 +1,11 @@
 import SwiftUI
 import MapKit
+import PhotosUI
 
 struct CatchDetailView: View {
     @Environment(AppState.self) private var appState
+    @AppStorage("units") private var units = "metric"
+    private var imperial: Bool { units == "imperial" }
     @Environment(\.dismiss) private var dismiss
     @State private var detail: CatchDetail
     @State private var showingDeleteConfirm = false
@@ -61,10 +64,12 @@ struct CatchDetailView: View {
                 // Measurements strip — equal-width stat cells
                 HStack(spacing: 12) {
                     if let length = detail.catchRecord.lengthCm {
-                        measureCell(value: String(format: "%.1f", length), unit: "cm", label: "Length", icon: "ruler")
+                        let p = Units.lengthParts(cm: length, imperial: imperial)
+                        measureCell(value: p.0, unit: p.1, label: "Length", icon: "ruler")
                     }
                     if let weight = detail.catchRecord.weightKg {
-                        measureCell(value: String(format: "%.2f", weight), unit: "kg", label: "Weight", icon: "scalemass")
+                        let p = Units.weightParts(kg: weight, imperial: imperial)
+                        measureCell(value: p.0, unit: p.1, label: "Weight", icon: "scalemass")
                     }
                     if let score = detail.catchRecord.forecastScoreAtCapture {
                         statCard {
@@ -123,7 +128,7 @@ struct CatchDetailView: View {
                                 VStack(spacing: 2) {
                                     Image(systemName: "thermometer")
                                         .foregroundStyle(CurrentsTheme.accent)
-                                    Text("\(Int(temp))°C")
+                                    Text(Units.temperature(temp, imperial: imperial))
                                         .font(.subheadline.bold().monospacedDigit())
                                     Text("Air")
                                         .font(.caption2)
@@ -134,7 +139,7 @@ struct CatchDetailView: View {
                                 VStack(spacing: 2) {
                                     Image(systemName: "drop.fill")
                                         .foregroundStyle(CurrentsTheme.accent)
-                                    Text("\(Int(waterTemp))°C")
+                                    Text(Units.temperature(waterTemp, imperial: imperial))
                                         .font(.subheadline.bold().monospacedDigit())
                                     Text("Water")
                                         .font(.caption2)
@@ -145,9 +150,9 @@ struct CatchDetailView: View {
                                 VStack(spacing: 2) {
                                     Image(systemName: "wind")
                                         .foregroundStyle(.secondary)
-                                    Text("\(Int(wind))")
+                                    Text("\(Int(imperial ? wind * 0.621371 : wind))")
                                         .font(.subheadline.bold().monospacedDigit())
-                                    Text("km/h")
+                                    Text(Units.speedSymbol)
                                         .font(.caption2)
                                         .foregroundStyle(.secondary)
                                 }
@@ -332,9 +337,9 @@ struct CatchDetailView: View {
                 case .legal:
                     return ("checkmark.seal.fill", .green, "Legal size to keep in \(reg.region)")
                 case .tooSmall(let mn):
-                    return ("xmark.seal.fill", .red, "Undersized — \(reg.commonName) minimum is \(Int(mn)) cm in \(reg.region)")
+                    return ("xmark.seal.fill", .red, "Undersized — \(reg.commonName) minimum is \(Units.length(cm: mn, imperial: imperial)) in \(reg.region)")
                 case .tooBig(let mx):
-                    return ("xmark.seal.fill", .red, "Over slot — \(reg.commonName) maximum is \(Int(mx)) cm in \(reg.region)")
+                    return ("xmark.seal.fill", .red, "Over slot — \(reg.commonName) maximum is \(Units.length(cm: mx, imperial: imperial)) in \(reg.region)")
                 case .unknownSize:
                     return ("questionmark.circle", .secondary, "Add a length to check against the \(reg.region) limit")
                 case .noRegulation:
@@ -447,6 +452,16 @@ struct CatchDetailView: View {
                     showingPhotoViewer = true
                 }
                 .overlay(alignment: .topTrailing) { expandButton }
+        } else if let species = detail.species {
+            // No photo — show the species artwork so the catch still reads
+            // visually instead of an empty header.
+            ZStack {
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(CurrentsTheme.accent.opacity(0.10))
+                SpeciesArtworkView(species: species, caught: true, size: 180)
+            }
+            .frame(height: 220)
+            .frame(maxWidth: .infinity)
         }
     }
 
@@ -517,6 +532,8 @@ struct CatchDetailView: View {
 struct EditCatchSheet: View {
     @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss
+    @AppStorage("units") private var units = "metric"
+    private var imperial: Bool { units == "imperial" }
     let detail: CatchDetail
     let onSave: (Catch) -> Void
 
@@ -533,6 +550,12 @@ struct EditCatchSheet: View {
     @State private var showingSpeciesPicker = false
     @State private var coordinate: CLLocationCoordinate2D?
     @State private var showingLocationPicker = false
+
+    // Photos — existing (saved paths) plus newly added images.
+    @State private var existingPhotoPaths: [String] = []
+    @State private var newImages: [UIImage] = []
+    @State private var pickerItems: [PhotosPickerItem] = []
+    @State private var showingCamera = false
 
     // Individual gear fields (matching LogCatchView)
     @State private var gearRod = ""
@@ -580,9 +603,11 @@ struct EditCatchSheet: View {
                     }
                 }
 
+                photosSection
+
                 Section("Measurements") {
                     HStack {
-                        Text("Weight (kg)")
+                        Text(imperial ? "Weight (lb)" : "Weight (kg)")
                         Spacer()
                         TextField("0.00", text: $weight)
                             .keyboardType(.decimalPad)
@@ -590,7 +615,7 @@ struct EditCatchSheet: View {
                             .frame(width: 100)
                     }
                     HStack {
-                        Text("Length (cm)")
+                        Text(imperial ? "Length (in)" : "Length (cm)")
                         Spacer()
                         TextField("0.0", text: $length)
                             .keyboardType(.decimalPad)
@@ -712,8 +737,9 @@ struct EditCatchSheet: View {
             }
             .task {
                 let c = detail.catchRecord
-                weight = c.weightKg.map { String(format: "%.2f", $0) } ?? ""
-                length = c.lengthCm.map { String(format: "%.1f", $0) } ?? ""
+                if existingPhotoPaths.isEmpty { existingPhotoPaths = c.allPhotoPaths }
+                weight = c.weightKg.map { String(format: "%.2f", imperial ? $0 * 2.2046226 : $0) } ?? ""
+                length = c.lengthCm.map { String(format: "%.1f", imperial ? $0 / 2.54 : $0) } ?? ""
                 notes = c.notes ?? ""
                 released = c.released
                 caughtAt = c.caughtAt
@@ -751,7 +777,76 @@ struct EditCatchSheet: View {
             .sheet(isPresented: $showingLocationPicker) {
                 LocationPickerSheet(coordinate: $coordinate)
             }
+            .fullScreenCover(isPresented: $showingCamera) {
+                CameraPicker { image in newImages.append(image) }
+                    .ignoresSafeArea()
+            }
+            .onChange(of: pickerItems) { _, items in
+                Task {
+                    var loaded: [UIImage] = []
+                    for item in items {
+                        if let data = try? await item.loadTransferable(type: Data.self),
+                           let img = UIImage(data: data) {
+                            loaded.append(img)
+                        }
+                    }
+                    let toAppend = loaded
+                    await MainActor.run {
+                        newImages.append(contentsOf: toAppend)
+                        pickerItems = []
+                    }
+                }
+            }
         }
+    }
+
+    @ViewBuilder
+    private var photosSection: some View {
+        Section("Photos") {
+            if !existingPhotoPaths.isEmpty || !newImages.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 10) {
+                        ForEach(existingPhotoPaths, id: \.self) { path in
+                            if let img = PhotoManager.load(path) {
+                                photoThumb(img) { existingPhotoPaths.removeAll { $0 == path } }
+                            }
+                        }
+                        ForEach(newImages.indices, id: \.self) { i in
+                            photoThumb(newImages[i]) { newImages.remove(at: i) }
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
+            }
+            HStack(spacing: 16) {
+                PhotosPicker(selection: $pickerItems, maxSelectionCount: 10, matching: .images) {
+                    Label("Add Photo", systemImage: "photo.on.rectangle")
+                }
+                .buttonStyle(.borderless)
+                if UIImagePickerController.isSourceTypeAvailable(.camera) {
+                    Button { showingCamera = true } label: {
+                        Label("Camera", systemImage: "camera")
+                    }
+                    .buttonStyle(.borderless)
+                }
+            }
+            .font(.subheadline)
+        }
+    }
+
+    private func photoThumb(_ image: UIImage, remove: @escaping () -> Void) -> some View {
+        Image(uiImage: image)
+            .resizable()
+            .scaledToFill()
+            .frame(width: 72, height: 72)
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .overlay(alignment: .topTrailing) {
+                Button(action: remove) {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.white, .black.opacity(0.6))
+                }
+                .padding(2)
+            }
     }
 
     @ViewBuilder
@@ -775,8 +870,21 @@ struct EditCatchSheet: View {
 
     private func save() {
         var updated = detail.catchRecord
-        updated.weightKg = weight.measurementValue
-        updated.lengthCm = length.measurementValue
+
+        // Photos: delete removed originals, persist newly-added images, then
+        // combine kept + new into the record.
+        let removed = detail.catchRecord.allPhotoPaths.filter { !existingPhotoPaths.contains($0) }
+        for path in removed { PhotoManager.delete(path) }
+        var savedNew: [String] = []
+        if !newImages.isEmpty {
+            savedNew = (try? PhotoManager.saveMultiple(newImages, catchId: updated.id)) ?? []
+        }
+        let allPhotos = existingPhotoPaths + savedNew
+        updated.photoPath = allPhotos.first
+        updated.photoPaths = Catch.encodePhotoPaths(allPhotos)
+
+        updated.weightKg = weight.measurementValue.map { imperial ? $0 / 2.2046226 : $0 }
+        updated.lengthCm = length.measurementValue.map { imperial ? $0 * 2.54 : $0 }
         updated.notes = notes.isEmpty ? nil : notes
         updated.released = released
         updated.caughtAt = caughtAt
