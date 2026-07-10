@@ -16,7 +16,10 @@ struct CurrentsApp: App {
         .onChange(of: scenePhase) { _, phase in
             // Check for group-trip invites on foreground; fires a local
             // notification for any new ones and surfaces them in Community.
-            if phase == .active {
+            // Only when the user has actually joined — reading the flag from
+            // UserDefaults avoids touching CloudKit (and the singleton) at
+            // launch, which crashes the unsigned simulator test build.
+            if phase == .active, UserDefaults.standard.bool(forKey: "communityJoined") {
                 Task { await CommunityService.shared.refreshTripInvites() }
             }
             // Daily automatic backup, kicked off when the app is backgrounded.

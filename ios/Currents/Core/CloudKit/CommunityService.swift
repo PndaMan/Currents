@@ -19,7 +19,11 @@ import UIKit
 final class CommunityService: ObservableObject {
     static let shared = CommunityService()
 
-    private let container = CKContainer(identifier: "iCloud.com.aidanmcconnon.currents")
+    // Lazy so merely constructing the service (e.g. reading `joined`) doesn't
+    // reach CloudKit. In the unsigned simulator TEST build there's no iCloud
+    // entitlement, and touching CloudKit at launch crashes the app before the
+    // test harness connects.
+    private lazy var container = CKContainer(identifier: "iCloud.com.aidanmcconnon.currents")
     private var db: CKDatabase { container.publicCloudDatabase }
 
     private let profileType = "AnglerProfile"
