@@ -526,6 +526,8 @@ struct MapTab: View {
                 .foregroundStyle(.secondary)
             TextField("Search dams, rivers, places...", text: $searchText)
                 .textFieldStyle(.plain)
+                .foregroundStyle(.primary)
+                .tint(accent)
                 .focused($searchFocused)
                 .submitLabel(.search)
                 .autocorrectionDisabled()
@@ -566,7 +568,9 @@ struct MapTab: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
-        .background(.ultraThinMaterial)
+        // Opaque enough that bright satellite tiles behind it can't wash the
+        // field out and hide the text being typed.
+        .background(.regularMaterial)
         .clipShape(RoundedRectangle(cornerRadius: CurrentsTheme.cornerRadius))
         .shadow(color: .black.opacity(0.15), radius: 8, y: 2)
         .padding(.horizontal, 12)
