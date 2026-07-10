@@ -67,6 +67,7 @@ final class CommunityService: ObservableObject {
         let species: String
         let weightKg: Double?
         let lengthCm: Double?
+        var catchCount: Int?   // set for the "most fish" board
         let region: String
         let date: Date
     }
@@ -90,7 +91,7 @@ final class CommunityService: ObservableObject {
     }
 
     enum Scope { case global, region, friends }
-    enum Metric { case weight, length }
+    enum Metric { case count, weight, length }
 
     // MARK: - Join / leave
 
@@ -158,6 +159,7 @@ final class CommunityService: ObservableObject {
     }
 
     func fetchProfile(code: String) async -> Profile? {
+        if code.uppercased() == Self.demoCode { return demoProfile }
         let id = CKRecord.ID(recordName: "profile-\(code)")
         guard let r = try? await db.record(for: id) else { return nil }
         return profile(from: r)
@@ -202,18 +204,58 @@ final class CommunityService: ObservableObject {
         _ = try? await db.save(record)
     }
 
+    /// Leaderboards. We fetch catches with a system-field sort and do the
+    /// scoping / ranking / counting on-device, so no custom CloudKit indexes
+    /// need configuring for it to work.
     func leaderboard(scope: Scope, metric: Metric, region: String, limit: Int = 50) async -> [LeaderRow] {
-        let field = metric == .weight ? "weightKg" : "lengthCm"
-        var predicate = NSPredicate(format: "%K > 0", field)
+        var catches = await fetchAllLeaderCatches()
+
+        // Scope filter.
         switch scope {
         case .global: break
-        case .region: predicate = NSPredicate(format: "region == %@ AND %K > 0", region, field)
+        case .region: catches = catches.filter { $0.region == region }
         case .friends:
-            let codes = friends + [friendCode]
-            predicate = NSPredicate(format: "friendCode IN %@ AND %K > 0", codes, field)
+            let codes = Set(friends + [friendCode])
+            catches = catches.filter { codes.contains($0.friendCode) }
         }
-        let query = CKQuery(recordType: catchType, predicate: predicate)
-        query.sortDescriptors = [NSSortDescriptor(key: field, ascending: false)]
+
+        // Fold in the demo angler so there's always something to look at.
+        catches += demoLeaderCatches(scope: scope, region: region)
+
+        switch metric {
+        case .count:
+            // Most fish caught — one row per angler.
+            var byCode: [String: LeaderRow] = [:]
+            for c in catches {
+                if var row = byCode[c.friendCode] {
+                    row.catchCount = (row.catchCount ?? 0) + 1
+                    byCode[c.friendCode] = row
+                } else {
+                    byCode[c.friendCode] = LeaderRow(
+                        id: "count-\(c.friendCode)", anglerName: c.anglerName,
+                        friendCode: c.friendCode, species: "", weightKg: nil, lengthCm: nil,
+                        catchCount: 1, region: c.region, date: c.date
+                    )
+                }
+            }
+            return byCode.values
+                .sorted { ($0.catchCount ?? 0) > ($1.catchCount ?? 0) }
+                .prefix(limit).map { $0 }
+        case .weight:
+            return catches.filter { ($0.weightKg ?? 0) > 0 }
+                .sorted { ($0.weightKg ?? 0) > ($1.weightKg ?? 0) }
+                .prefix(limit).map { $0 }
+        case .length:
+            return catches.filter { ($0.lengthCm ?? 0) > 0 }
+                .sorted { ($0.lengthCm ?? 0) > ($1.lengthCm ?? 0) }
+                .prefix(limit).map { $0 }
+        }
+    }
+
+    /// All published catches (client-side ranking avoids custom-index needs).
+    private func fetchAllLeaderCatches(limit: Int = 400) async -> [LeaderRow] {
+        let query = CKQuery(recordType: catchType, predicate: NSPredicate(value: true))
+        query.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
         guard let results = try? await db.records(matching: query, resultsLimit: limit) else { return [] }
         return results.matchResults.compactMap { _, res -> LeaderRow? in
             guard let r = try? res.get() else { return nil }
@@ -224,9 +266,38 @@ final class CommunityService: ObservableObject {
                 species: r["species"] as? String ?? "Fish",
                 weightKg: r["weightKg"] as? Double,
                 lengthCm: r["lengthCm"] as? Double,
+                catchCount: nil,
                 region: r["region"] as? String ?? "",
                 date: r["caughtAt"] as? Date ?? .now
             )
+        }
+    }
+
+    /// Publish every past catch so the leaderboards reflect the full history,
+    /// not just catches logged after joining. Idempotent (deterministic record
+    /// ids, force-overwrite) and throttled so it isn't re-run constantly.
+    func syncAllCatches(_ details: [(id: String, species: String, weightKg: Double?, lengthCm: Double?, caughtAt: Date)]) async {
+        guard joined else { return }
+        let last = UserDefaults.standard.object(forKey: "lastCatchSync") as? Date ?? .distantPast
+        guard Date().timeIntervalSince(last) > 1800 else { return }
+        UserDefaults.standard.set(Date(), forKey: "lastCatchSync")
+
+        let region = myRegion
+        let records: [CKRecord] = details.map { d in
+            let id = CKRecord.ID(recordName: "catch-\(friendCode)-\(d.id)")
+            let record = CKRecord(recordType: catchType, recordID: id)
+            record["anglerName"] = myName as CKRecordValue
+            record["friendCode"] = friendCode as CKRecordValue
+            record["species"] = d.species as CKRecordValue
+            if let w = d.weightKg { record["weightKg"] = w as CKRecordValue }
+            if let l = d.lengthCm { record["lengthCm"] = l as CKRecordValue }
+            record["region"] = region as CKRecordValue
+            record["caughtAt"] = d.caughtAt as CKRecordValue
+            return record
+        }
+        // Batch (CloudKit caps ~400/op); force-overwrite so re-runs are safe.
+        for chunk in stride(from: 0, to: records.count, by: 300).map({ Array(records[$0..<min($0 + 300, records.count)]) }) {
+            _ = try? await db.modifyRecords(saving: chunk, deleting: [], savePolicy: .allKeys, atomically: false)
         }
     }
 
@@ -235,6 +306,13 @@ final class CommunityService: ObservableObject {
     func addFriend(code raw: String) async -> Profile? {
         let code = raw.uppercased().trimmingCharacters(in: .whitespaces)
         guard code.count == 6, code != friendCode else { return nil }
+        // Demo angler: auto-accepts with rich sample data so you can see and
+        // style the friends + leaderboard experience without a second device.
+        if code == Self.demoCode {
+            if !friends.contains(code) { friends.append(code) }
+            UserDefaults.standard.set(true, forKey: "communityDemoAdded")
+            return demoProfile
+        }
         guard let profile = await fetchProfile(code: code) else { return nil }
         if !friends.contains(code) { friends.append(code) }
         return profile
@@ -242,6 +320,9 @@ final class CommunityService: ObservableObject {
 
     func removeFriend(_ code: String) {
         friends.removeAll { $0 == code }
+        if code.uppercased() == Self.demoCode {
+            UserDefaults.standard.set(false, forKey: "communityDemoAdded")
+        }
         UserDefaults.standard.removeObject(forKey: "friendPrivacy-\(code)")
     }
 
@@ -318,6 +399,83 @@ final class CommunityService: ObservableObject {
             )
         }
     }
+
+    // MARK: - Demo angler (styling / preview without a second device)
+
+    static let demoCode = "MARLIN"
+    var demoAdded: Bool { UserDefaults.standard.bool(forKey: "communityDemoAdded") }
+
+    var demoProfile: Profile {
+        Profile(
+            id: Self.demoCode,
+            name: "Sasha Rivers",
+            bio: "Kayak & shore angler chasing PBs across the Cape. Mostly catch-and-release. Topwater at first light is my religion 🌅",
+            region: myRegion,
+            homeWater: "Theewaterskloof Dam",
+            avatar: Self.demoAvatar,
+            memberSince: Date().addingTimeInterval(-238 * 24 * 3600),
+            totalCatches: Self.demoCatchSeeds.count,
+            speciesCount: Set(Self.demoCatchSeeds.map(\.species)).count,
+            bestWeightKg: Self.demoCatchSeeds.compactMap(\.weightKg).max() ?? 0,
+            bestLengthCm: Self.demoCatchSeeds.compactMap(\.lengthCm).max() ?? 0,
+            favoriteSpecies: "Largemouth Bass"
+        )
+    }
+
+    private func demoLeaderCatches(scope: Scope, region: String) -> [LeaderRow] {
+        guard demoAdded else { return [] }
+        if scope == .region && region != myRegion { return [] }
+        return Self.demoCatchSeeds.enumerated().map { i, s in
+            LeaderRow(
+                id: "demo-\(i)", anglerName: "Sasha Rivers", friendCode: Self.demoCode,
+                species: s.species, weightKg: s.weightKg, lengthCm: s.lengthCm,
+                catchCount: nil, region: myRegion,
+                date: Date().addingTimeInterval(-Double(i) * 3.2 * 24 * 3600)
+            )
+        }
+    }
+
+    private struct DemoCatch { let species: String; let weightKg: Double?; let lengthCm: Double? }
+    private static let demoCatchSeeds: [DemoCatch] = [
+        .init(species: "Largemouth Bass", weightKg: 6.4, lengthCm: 62),
+        .init(species: "Largemouth Bass", weightKg: 4.1, lengthCm: 54),
+        .init(species: "Common Carp", weightKg: 8.9, lengthCm: 78),
+        .init(species: "Common Carp", weightKg: 5.2, lengthCm: 66),
+        .init(species: "Sharptooth Catfish", weightKg: 12.3, lengthCm: 96),
+        .init(species: "Rainbow Trout", weightKg: 2.1, lengthCm: 51),
+        .init(species: "Rainbow Trout", weightKg: 1.6, lengthCm: 46),
+        .init(species: "Smallmouth Bass", weightKg: 2.8, lengthCm: 48),
+        .init(species: "Bluegill", weightKg: 0.4, lengthCm: 22),
+        .init(species: "Largemouth Bass", weightKg: 3.3, lengthCm: 50),
+        .init(species: "Yellowfish", weightKg: 3.9, lengthCm: 58),
+        .init(species: "Yellowfish", weightKg: 2.4, lengthCm: 49),
+        .init(species: "Common Carp", weightKg: 6.7, lengthCm: 72),
+        .init(species: "Tilapia", weightKg: 1.1, lengthCm: 31),
+        .init(species: "Largemouth Bass", weightKg: 5.5, lengthCm: 59),
+        .init(species: "Sharptooth Catfish", weightKg: 9.4, lengthCm: 88),
+    ]
+
+    private static let demoAvatar: UIImage? = {
+        let size = CGSize(width: 240, height: 240)
+        return UIGraphicsImageRenderer(size: size).image { ctx in
+            let cg = ctx.cgContext
+            let colors = [UIColor(red: 0.13, green: 0.55, blue: 0.95, alpha: 1).cgColor,
+                          UIColor(red: 0.04, green: 0.30, blue: 0.55, alpha: 1).cgColor]
+            if let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(),
+                                         colors: colors as CFArray, locations: [0, 1]) {
+                cg.drawLinearGradient(gradient, start: .zero,
+                                      end: CGPoint(x: size.width, y: size.height), options: [])
+            }
+            let initials = "SR" as NSString
+            let attrs: [NSAttributedString.Key: Any] = [
+                .font: UIFont.systemFont(ofSize: 110, weight: .bold),
+                .foregroundColor: UIColor.white,
+            ]
+            let sz = initials.size(withAttributes: attrs)
+            initials.draw(at: CGPoint(x: (size.width - sz.width) / 2, y: (size.height - sz.height) / 2),
+                          withAttributes: attrs)
+        }
+    }()
 
     // MARK: - Group trips (serverless, invite by link)
 

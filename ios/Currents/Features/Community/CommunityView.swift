@@ -21,6 +21,22 @@ struct CommunityView: View {
         .sheet(isPresented: $showingEdit) {
             ProfileEditView(stats: computeStats())
         }
+        .task { await syncCatches() }
+    }
+
+    /// Publish the full local catch history so the leaderboards reflect
+    /// everything, not just catches logged after joining. Throttled service-side.
+    private func syncCatches() async {
+        guard svc.joined else { return }
+        let catches = (try? appState.catchRepository.fetchAll(limit: 100000)) ?? []
+        let details = catches.map {
+            (id: $0.catchRecord.id,
+             species: $0.species?.commonName ?? "Fish",
+             weightKg: $0.catchRecord.weightKg,
+             lengthCm: $0.catchRecord.lengthCm,
+             caughtAt: $0.catchRecord.caughtAt)
+        }
+        await svc.syncAllCatches(details)
     }
 
     // MARK: Join gate
@@ -147,7 +163,7 @@ private struct LeaderboardSection: View {
     private var imperial: Bool { units == "imperial" }
 
     @State private var scope: CommunityService.Scope = .friends
-    @State private var metric: CommunityService.Metric = .weight
+    @State private var metric: CommunityService.Metric = .count
     @State private var rows: [CommunityService.LeaderRow] = []
     @State private var loading = false
 
@@ -159,6 +175,7 @@ private struct LeaderboardSection: View {
                 Text("Global").tag(CommunityService.Scope.global)
             }.pickerStyle(.segmented)
             Picker("By", selection: $metric) {
+                Text("Most Fish").tag(CommunityService.Metric.count)
                 Text("Heaviest").tag(CommunityService.Metric.weight)
                 Text("Longest").tag(CommunityService.Metric.length)
             }.pickerStyle(.segmented)
@@ -166,7 +183,7 @@ private struct LeaderboardSection: View {
             if loading {
                 HStack { ProgressView(); Text("Loading…").foregroundStyle(.secondary) }
             } else if rows.isEmpty {
-                Text("No entries yet — log a measured catch to appear here.")
+                Text("No entries yet — log a catch to appear here. (Add friend code MARLIN to see a demo.)")
                     .font(.caption).foregroundStyle(.secondary)
             } else {
                 ForEach(Array(rows.enumerated()), id: \.element.id) { i, row in
@@ -177,13 +194,10 @@ private struct LeaderboardSection: View {
                             .background(i < 3 ? CurrentsTheme.accent : Color.secondary.opacity(0.15), in: Circle())
                         VStack(alignment: .leading, spacing: 1) {
                             Text(row.anglerName).font(.subheadline.bold())
-                            Text("\(row.species) · \(row.region)").font(.caption2).foregroundStyle(.secondary)
+                            Text(subtitle(row)).font(.caption2).foregroundStyle(.secondary)
                         }
                         Spacer()
-                        Text(metric == .weight
-                             ? (row.weightKg.map { Units.weight(kg: $0, imperial: imperial) } ?? "—")
-                             : (row.lengthCm.map { Units.length(cm: $0, imperial: imperial) } ?? "—"))
-                            .font(.subheadline.bold()).foregroundStyle(CurrentsTheme.accent)
+                        Text(value(row)).font(.subheadline.bold()).foregroundStyle(CurrentsTheme.accent)
                     }
                 }
             }
@@ -191,6 +205,19 @@ private struct LeaderboardSection: View {
         .task { await reload() }
         .onChange(of: scope) { _, _ in Task { await reload() } }
         .onChange(of: metric) { _, _ in Task { await reload() } }
+    }
+
+    private func subtitle(_ row: CommunityService.LeaderRow) -> String {
+        if metric == .count { return row.region.isEmpty ? "angler" : row.region }
+        return row.region.isEmpty ? row.species : "\(row.species) · \(row.region)"
+    }
+
+    private func value(_ row: CommunityService.LeaderRow) -> String {
+        switch metric {
+        case .count: return "\(row.catchCount ?? 0) fish"
+        case .weight: return row.weightKg.map { Units.weight(kg: $0, imperial: imperial) } ?? "—"
+        case .length: return row.lengthCm.map { Units.length(cm: $0, imperial: imperial) } ?? "—"
+        }
     }
 
     private func reload() async {
