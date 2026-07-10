@@ -12,9 +12,26 @@ on:
   workflow_dispatch:
     inputs:
       variant:
-        description: "BioCLIP variant"
+        # NOTE: bioclip-2 changes the embedding dim 512→768. Only pick it when
+        # you also ship a fresh app build (which bundles the regenerated
+        # species_embeddings.bin) — otherwise installed apps carry a 512-d .bin,
+        # download the 768-d model, and silently match nothing. bioclip (512-d)
+        # is backward-compatible: ensemble + photo prototypes still apply.
+        description: "Backbone: bioclip (ViT-B/16, 512-d, safe) or bioclip-2 (ViT-L/14, 768-d, needs paired app build)"
         required: false
         default: "bioclip"
+      photos:
+        description: "Reference photos per species for visual prototypes (0 = text-only). Higher = more accurate, slower."
+        required: false
+        default: "4"
+      text_weight:
+        description: "Blend weight text↔image prototype (0..1). Lower leans on photos."
+        required: false
+        default: "0.5"
+      quantize_bits:
+        description: "Weight quantisation bits (8 recommended for the bigger model; 0 = fp16)"
+        required: false
+        default: "8"
 
 permissions:
   contents: write
@@ -32,11 +49,22 @@ jobs:
       - name: Install dependencies
         # Pin a coremltools-compatible stack: numpy<2 (numpy 2 breaks
         # coremltools' int() cast on 1-element arrays) + a supported torch.
-        run: pip install "numpy<2" "torch==2.3.1" "torchvision==0.18.1" open_clip_torch "coremltools==8.1"
+        # pillow + requests power the reference-photo visual prototypes.
+        run: pip install "numpy<2" "torch==2.3.1" "torchvision==0.18.1" open_clip_torch "coremltools==8.1" pillow requests
+
+      - name: Cache reference photos
+        uses: actions/cache@v4
+        with:
+          path: ml/.photo_cache
+          key: fish-photos-${{ inputs.photos }}-v1
 
       - name: Convert BioCLIP → CoreML + species embeddings
         run: |
-          python ml/bioclip_to_coreml.py --out FishID.mlpackage
+          python ml/bioclip_to_coreml.py --out FishID.mlpackage \
+            --model "${{ inputs.variant }}" \
+            --photos "${{ inputs.photos }}" \
+            --text-weight "${{ inputs.text_weight }}" \
+            --quantize-bits "${{ inputs.quantize_bits }}"
           du -sh FishID.mlpackage
           ls -lh ios/Currents/Resources/Data/species_embeddings.bin
           # Zip the .mlpackage directory into a single downloadable asset.
@@ -51,7 +79,7 @@ jobs:
           if git diff --cached --quiet; then
             echo "No embedding changes."
           else
-            git commit -m "Update BioCLIP species text embeddings"
+            git commit -m "Update BioCLIP species embeddings (ensemble + visual prototypes)"
             git push
           fi
 
@@ -62,7 +90,10 @@ jobs:
           name: Fish ID Model (BioCLIP)
           files: FishID.mlpackage.zip
           body: |
-            BioCLIP image encoder (512-d embeddings) for on-device fish ID.
-            The app downloads this zipped .mlpackage from the `fish-model`
-            release, unzips + compiles it on-device, and cosine-matches against
-            the bundled species_embeddings.bin.
+            BioCLIP image encoder for on-device fish ID (variant: ${{ inputs.variant }},
+            ${{ inputs.quantize_bits }}-bit weights). The app downloads this zipped
+            .mlpackage from the `fish-model` release, unzips + compiles it on-device,
+            and cosine-matches against the bundled species_embeddings.bin (prompt
+            ensemble + ${{ inputs.photos }}-photo visual prototypes per species).
+            Embedding dim is read from the .bin header, so backbone changes need no
+            app update.
