@@ -738,28 +738,26 @@ final class CommunityService: ObservableObject {
     }
 
     func groupMembers(code: String) async -> [GroupMember] {
-        let predicate = NSPredicate(format: "groupCode == %@", code)
-        let query = CKQuery(recordType: groupMemberType, predicate: predicate)
-        query.sortDescriptors = [NSSortDescriptor(key: "joinedAt", ascending: true)]
-        guard let results = try? await db.records(matching: query, resultsLimit: 100) else { return [] }
+        // TRUEPREDICATE + client filter so no per-field CloudKit index is needed
+        // (only the default recordName index) — same as the other queries.
+        let query = CKQuery(recordType: groupMemberType, predicate: NSPredicate(value: true))
+        guard let results = try? await db.records(matching: query, resultsLimit: 300) else { return [] }
         return results.matchResults.compactMap { _, res -> GroupMember? in
-            guard let r = try? res.get() else { return nil }
+            guard let r = try? res.get(), (r["groupCode"] as? String) == code else { return nil }
             return GroupMember(
                 id: r["memberCode"] as? String ?? "",
                 name: r["memberName"] as? String ?? "Angler",
                 joinedAt: r["joinedAt"] as? Date ?? .now
             )
-        }
+        }.sorted { $0.joinedAt < $1.joinedAt }
     }
 
     /// Every catch shared into the group, newest first.
     func groupCatches(code: String) async -> [GroupCatch] {
-        let predicate = NSPredicate(format: "groupCode == %@", code)
-        let query = CKQuery(recordType: catchType, predicate: predicate)
-        query.sortDescriptors = [NSSortDescriptor(key: "caughtAt", ascending: false)]
-        guard let results = try? await db.records(matching: query, resultsLimit: 200) else { return [] }
+        let query = CKQuery(recordType: catchType, predicate: NSPredicate(value: true))
+        guard let results = try? await db.records(matching: query, resultsLimit: 400) else { return [] }
         return results.matchResults.compactMap { _, res -> GroupCatch? in
-            guard let r = try? res.get() else { return nil }
+            guard let r = try? res.get(), (r["groupCode"] as? String) == code else { return nil }
             return GroupCatch(
                 id: r.recordID.recordName,
                 anglerName: r["anglerName"] as? String ?? "Angler",
@@ -769,7 +767,7 @@ final class CommunityService: ObservableObject {
                 lengthCm: r["lengthCm"] as? Double,
                 date: r["caughtAt"] as? Date ?? .now
             )
-        }
+        }.sorted { $0.date > $1.date }
     }
 
     func leaveGroupTrip(code: String, tripId: String?) async {
