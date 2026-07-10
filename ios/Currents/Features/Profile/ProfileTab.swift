@@ -8,7 +8,6 @@ struct ProfileTab: View {
     @State private var totalSpots = 0
     @State private var catches: [CatchDetail] = []
     @State private var speciesCounts: [(speciesId: Int64, commonName: String, count: Int)] = []
-    @State private var mapRegions: [OfflineRegion] = []
     @State private var previousBadgeCount = 0
     @State private var newBadgeTitle: String?
     @State private var showBadgeToast = false
@@ -18,13 +17,11 @@ struct ProfileTab: View {
     @State private var backupMessage: String?
     @State private var showingRestoreConfirm = false
     @State private var lastBackupDate: Date?
-    @State private var showingSaveRegion = false
     @State private var iCloudAvailable = false
     @State private var dbSize: String?
     @State private var showingCSVImport = false
     @State private var importMessage: String?
     @State private var showingImportAlert = false
-    @State private var tileCacheSize = "0 KB"
     @AppStorage("autoBackupEnabled") private var autoBackupEnabled = true
     @State private var snapshots: [FileBackup.Snapshot] = []
     @State private var restoreSnapshot: FileBackup.Snapshot?
@@ -41,78 +38,6 @@ struct ProfileTab: View {
                     }
                     .listRowBackground(Color.clear)
                     .listRowInsets(EdgeInsets())
-                }
-
-                // Offline maps
-                Section {
-                    Toggle(isOn: Binding(
-                        get: { appState.mapManager.autoCacheEnabled },
-                        set: { appState.mapManager.autoCacheEnabled = $0 }
-                    )) {
-                        Label("Auto-cache maps nearby", systemImage: "square.and.arrow.down.on.square")
-                    }
-
-                    HStack {
-                        Label("Cached tiles", systemImage: "internaldrive")
-                        Spacer()
-                        Text(tileCacheSize)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-
-                    Button(role: .destructive) {
-                        appState.mapManager.clearTileCache()
-                        tileCacheSize = ByteCountFormatter.string(
-                            fromByteCount: appState.mapManager.tileCacheSizeBytes, countStyle: .file
-                        )
-                    } label: {
-                        Label("Clear Tile Cache", systemImage: "trash")
-                    }
-
-                    Button {
-                        showingSaveRegion = true
-                    } label: {
-                        HStack {
-                            Label("Save Map Snapshot", systemImage: "camera")
-                            Spacer()
-                            if appState.mapManager.isDownloading {
-                                ProgressView()
-                            }
-                        }
-                    }
-                    .disabled(appState.mapManager.isDownloading)
-
-                    if mapRegions.isEmpty {
-                        Text("No offline regions saved")
-                            .foregroundStyle(.secondary)
-                    } else {
-                        ForEach(mapRegions) { region in
-                            HStack {
-                                Image(systemName: "map.fill")
-                                    .foregroundStyle(CurrentsTheme.accent)
-                                VStack(alignment: .leading) {
-                                    Text(region.name)
-                                    Text(region.formattedSize)
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-                                Spacer()
-                                Text(region.downloadedAt, style: .date)
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                        .onDelete { offsets in
-                            for i in offsets {
-                                appState.mapManager.deleteRegion(mapRegions[i])
-                            }
-                            mapRegions = appState.mapManager.downloadedRegions
-                        }
-                    }
-                } header: {
-                    Text("Offline Maps")
-                } footer: {
-                    Text("With auto-cache on, satellite tiles around you are saved as you browse so the offline map works without signal. Snapshots capture a fixed area as an image.")
                 }
 
                 // Browse & Analytics
@@ -226,10 +151,6 @@ struct ProfileTab: View {
                     }
                 }
 
-                // Backup — automatic daily snapshot + iCloud when the
-                // entitlement/account allow it.
-                backupSection
-
                 // Support
                 Section {
                     Link(destination: URL(string: "https://ko-fi.com/aidanmcconnon")!) {
@@ -257,6 +178,19 @@ struct ProfileTab: View {
                     Text("Currents is free and open-source. Tips help cover development costs.")
                 }
 
+                // Housekeeping — kept at the bottom to declutter the top.
+                Section("Maps & Storage") {
+                    NavigationLink {
+                        OfflineMapsView()
+                    } label: {
+                        Label("Offline Maps", systemImage: "map")
+                    }
+                }
+
+                // Backup — automatic daily snapshot + iCloud when the
+                // entitlement/account allow it.
+                backupSection
+
                 // Data
                 Section("Data") {
                     Button {
@@ -278,11 +212,6 @@ struct ProfileTab: View {
                 totalCatches = catches.count
                 totalSpots = ((try? appState.spotRepository.fetchAll()) ?? []).count
                 speciesCounts = (try? appState.catchRepository.speciesCounts()) ?? []
-                appState.mapManager.refreshDownloadedRegions()
-                mapRegions = appState.mapManager.downloadedRegions
-                tileCacheSize = ByteCountFormatter.string(
-                    fromByteCount: appState.mapManager.tileCacheSizeBytes, countStyle: .file
-                )
                 iCloudAvailable = await CloudBackup.shared.isAvailable
                 if iCloudAvailable {
                     lastBackupDate = await CloudBackup.shared.lastBackupDate
@@ -312,12 +241,6 @@ struct ProfileTab: View {
             }
             .sheet(item: $exportURL) { url in
                 ShareSheet(url: url)
-            }
-            .sheet(isPresented: $showingSaveRegion) {
-                SaveRegionSheet {
-                    appState.mapManager.refreshDownloadedRegions()
-                    mapRegions = appState.mapManager.downloadedRegions
-                }
             }
             .overlay(alignment: .top) {
                 if showBadgeToast, let title = newBadgeTitle {
@@ -561,6 +484,91 @@ struct ProfileTab: View {
         }
     }
 
+}
+
+// MARK: - Offline Maps (own screen, kept out of the main Profile list)
+
+struct OfflineMapsView: View {
+    @Environment(AppState.self) private var appState
+    @State private var mapRegions: [OfflineRegion] = []
+    @State private var tileCacheSize = "0 KB"
+    @State private var showingSaveRegion = false
+
+    var body: some View {
+        List {
+            Section {
+                Toggle(isOn: Binding(
+                    get: { appState.mapManager.autoCacheEnabled },
+                    set: { appState.mapManager.autoCacheEnabled = $0 }
+                )) {
+                    Label("Auto-cache maps nearby", systemImage: "square.and.arrow.down.on.square")
+                }
+
+                HStack {
+                    Label("Cached tiles", systemImage: "internaldrive")
+                    Spacer()
+                    Text(tileCacheSize).font(.caption).foregroundStyle(.secondary)
+                }
+
+                Button(role: .destructive) {
+                    appState.mapManager.clearTileCache()
+                    tileCacheSize = ByteCountFormatter.string(
+                        fromByteCount: appState.mapManager.tileCacheSizeBytes, countStyle: .file)
+                } label: {
+                    Label("Clear Tile Cache", systemImage: "trash")
+                }
+
+                Button {
+                    showingSaveRegion = true
+                } label: {
+                    HStack {
+                        Label("Save Map Snapshot", systemImage: "camera")
+                        Spacer()
+                        if appState.mapManager.isDownloading { ProgressView() }
+                    }
+                }
+                .disabled(appState.mapManager.isDownloading)
+            } footer: {
+                Text("With auto-cache on, satellite tiles around you are saved as you browse so the offline map works without signal. Snapshots capture a fixed area as an image.")
+            }
+
+            Section("Saved regions") {
+                if mapRegions.isEmpty {
+                    Text("No offline regions saved").foregroundStyle(.secondary)
+                } else {
+                    ForEach(mapRegions) { region in
+                        HStack {
+                            Image(systemName: "map.fill").foregroundStyle(CurrentsTheme.accent)
+                            VStack(alignment: .leading) {
+                                Text(region.name)
+                                Text(region.formattedSize).font(.caption).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Text(region.downloadedAt, style: .date)
+                                .font(.caption2).foregroundStyle(.secondary)
+                        }
+                    }
+                    .onDelete { offsets in
+                        for i in offsets { appState.mapManager.deleteRegion(mapRegions[i]) }
+                        mapRegions = appState.mapManager.downloadedRegions
+                    }
+                }
+            }
+        }
+        .navigationTitle("Offline Maps")
+        .navigationBarTitleDisplayMode(.inline)
+        .task { refresh() }
+        .sheet(isPresented: $showingSaveRegion) {
+            SaveRegionSheet { refresh() }
+        }
+    }
+
+    private func refresh() {
+        appState.mapManager.refreshDownloadedRegions()
+        mapRegions = appState.mapManager.downloadedRegions
+        tileCacheSize = ByteCountFormatter.string(
+            fromByteCount: appState.mapManager.tileCacheSizeBytes, countStyle: .file)
+    }
 }
 
 // MARK: - Save Region Sheet
