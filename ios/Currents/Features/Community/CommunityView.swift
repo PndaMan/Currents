@@ -240,7 +240,7 @@ private struct FriendsSection: View {
                 Text("Your code")
                 Spacer()
                 Text(svc.friendCode).font(.body.monospaced().bold()).foregroundStyle(CurrentsTheme.accent)
-                ShareLink(item: "Add me on Currents — my angler code is \(svc.friendCode) 🎣") {
+                ShareLink(item: svc.friendInviteMessage()) {
                     Image(systemName: "square.and.arrow.up")
                 }
             }
@@ -447,6 +447,89 @@ struct FriendProfileView: View {
             privacy = svc.privacy(for: code)
             profile = await svc.fetchProfile(code: code)
             sharedSpots = await svc.sharedSpots(fromFriend: code)
+        }
+    }
+}
+
+// MARK: - Add-friend confirmation (from an invite link)
+
+/// Shown when someone taps a `currents://friend/<CODE>` link — previews the
+/// angler's profile and lets you confirm before adding, rather than silently
+/// adding a stranger.
+struct AddFriendConfirmView: View {
+    let code: String
+    @Environment(\.dismiss) private var dismiss
+    private var svc: CommunityService { .shared }
+
+    @State private var profile: CommunityService.Profile?
+    @State private var loading = true
+    @State private var added = false
+    @AppStorage("units") private var units = "metric"
+    private var imperial: Bool { units == "imperial" }
+
+    private var isFriend: Bool { svc.friends.contains(code.uppercased()) || added }
+
+    var body: some View {
+        List {
+            if loading {
+                Section { HStack { ProgressView(); Text("Looking up angler…").foregroundStyle(.secondary) } }
+            } else if let p = profile {
+                Section {
+                    VStack(spacing: 8) {
+                        AnglerAvatar(image: p.avatar, size: 88)
+                        Text(p.name).font(.title3.bold())
+                        if !p.bio.isEmpty {
+                            Text(p.bio).font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                        }
+                        if !p.homeWater.isEmpty {
+                            Label(p.homeWater, systemImage: "water.waves").font(.caption).foregroundStyle(.secondary)
+                        }
+                        Text("Angler code \(p.id)").font(.caption2.monospaced()).foregroundStyle(.tertiary)
+                    }
+                    .frame(maxWidth: .infinity).padding(.vertical, 6)
+                }
+                Section("Personal bests") {
+                    LabeledContent("Catches", value: "\(p.totalCatches)")
+                    LabeledContent("Species", value: "\(p.speciesCount)")
+                    if p.bestWeightKg > 0 { LabeledContent("Heaviest", value: Units.weight(kg: p.bestWeightKg, imperial: imperial)) }
+                    if p.bestLengthCm > 0 { LabeledContent("Longest", value: Units.length(cm: p.bestLengthCm, imperial: imperial)) }
+                    if !p.favoriteSpecies.isEmpty { LabeledContent("Favourite", value: p.favoriteSpecies) }
+                }
+                Section {
+                    if isFriend {
+                        Label("Added to your friends", systemImage: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                    } else {
+                        Button {
+                            Task { _ = await svc.addFriend(code: code); added = true }
+                        } label: {
+                            Label("Add Friend", systemImage: "person.badge.plus").frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.borderedProminent).tint(CurrentsTheme.accent)
+                    }
+                } footer: {
+                    Text("They'll appear in your Friends list and on the friends leaderboard. Your spots stay private unless you choose to share them, per friend.")
+                }
+            } else {
+                Section {
+                    ContentUnavailableView(
+                        "Angler not found",
+                        systemImage: "person.slash",
+                        description: Text("Code \(code) doesn't match anyone yet — ask them to join Community first.")
+                    )
+                }
+            }
+        }
+        .navigationTitle("Add Friend")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .confirmationAction) {
+                Button(isFriend ? "Done" : "Close") { dismiss() }
+            }
+        }
+        .task {
+            profile = await svc.fetchProfile(code: code)
+            loading = false
         }
     }
 }

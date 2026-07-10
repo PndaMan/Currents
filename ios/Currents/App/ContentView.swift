@@ -35,6 +35,7 @@ struct ContentView: View {
 
     @State private var planPrompt: Trip?
     @State private var joinGroupCode: JoinCode?
+    @State private var pendingFriend: JoinCode?
 
     struct JoinCode: Identifiable { let id: String }
 
@@ -69,6 +70,11 @@ struct ContentView: View {
                     }
             }
         }
+        .sheet(item: $pendingFriend) { friend in
+            NavigationStack {
+                AddFriendConfirmView(code: friend.id)
+            }
+        }
         .onChange(of: appState.siriRequestedLogCatch) { _, requested in
             // Siri "Log a Catch" shortcut — surface the Catches tab so its
             // log sheet (which watches the same flag) can present.
@@ -88,20 +94,26 @@ struct ContentView: View {
         }
     }
 
-    /// Handle `currents://trip/<CODE>` group-trip invite links.
+    /// Handle invite links:
+    ///   currents://trip/<CODE>   → Join Trip confirmation
+    ///   currents://friend/<CODE> → Add Friend confirmation
     private func handleDeepLink(_ url: URL) {
         guard url.scheme == "currents" else { return }
-        // currents://trip/ABC123  → host "trip", path "/ABC123"
-        // (also tolerate currents://trip/join?code=ABC123)
+        let host = url.host
         var code = url.lastPathComponent
-        if code == "join" || code.isEmpty || code == "trip",
+        if code.isEmpty || code == "join" || code == host,
            let q = URLComponents(url: url, resolvingAgainstBaseURL: false)?
             .queryItems?.first(where: { $0.name == "code" })?.value {
             code = q
         }
         code = code.uppercased()
-        guard (url.host == "trip" || url.pathComponents.contains("trip")), code.count == 6 else { return }
-        joinGroupCode = JoinCode(id: code)
+        guard code.count == 6 else { return }
+
+        if host == "trip" || url.pathComponents.contains("trip") {
+            joinGroupCode = JoinCode(id: code)
+        } else if host == "friend" || url.pathComponents.contains("friend") {
+            pendingFriend = JoinCode(id: code)
+        }
     }
 
     /// On launch, if a planned session is within ~2 hours of now and nothing is

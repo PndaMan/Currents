@@ -43,6 +43,17 @@ final class CommunityService: ObservableObject {
         set { UserDefaults.standard.set(newValue, forKey: "communityFriends") }
     }
 
+    /// Tappable deep link that opens the app on an "Add friend" confirmation.
+    func friendLink() -> URL { URL(string: "currents://friend/\(friendCode)")! }
+
+    func friendInviteMessage() -> String {
+        """
+        Add me on Currents 🎣
+        Tap to add me: currents://friend/\(friendCode)
+        …or enter my angler code \(friendCode) in Community › Friends.
+        """
+    }
+
     // MARK: - Models
 
     struct Profile: Identifiable, Equatable {

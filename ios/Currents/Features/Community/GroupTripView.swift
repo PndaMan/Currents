@@ -14,6 +14,7 @@ struct GroupTripView: View {
     @State private var feed: [CommunityService.GroupCatch] = []
     @State private var joinCode = ""
     @State private var busy = false
+    @State private var confirming = false
 
     private let autoJoin: Bool
     private var service: CommunityService { .shared }
@@ -28,7 +29,9 @@ struct GroupTripView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: CurrentsTheme.paddingM) {
-                if let code {
+                if confirming, let code {
+                    confirmJoin(code)
+                } else if let code {
                     activeGroup(code)
                 } else {
                     setup
@@ -40,9 +43,20 @@ struct GroupTripView: View {
         .navigationBarTitleDisplayMode(.inline)
         .task {
             if code == nil, let tripId { code = service.groupCode(forTripId: tripId) }
-            // Arrived via an invite link — register my membership first.
-            if autoJoin, let c = code { _ = await service.joinGroupTrip(code: c, tripId: tripId) }
-            await refresh()
+            // Arrived via an invite link — show a confirm gate (with trip info)
+            // unless already a member, rather than silently joining.
+            if autoJoin, let c = code {
+                trip = await service.groupTrip(code: c)
+                members = await service.groupMembers(code: c)
+                let alreadyIn = members.contains { $0.id == service.friendCode }
+                if alreadyIn {
+                    await refresh()
+                } else if trip != nil {
+                    confirming = true
+                }
+            } else {
+                await refresh()
+            }
         }
     }
 
@@ -100,6 +114,44 @@ struct GroupTripView: View {
             }
             .glassCard()
         }
+    }
+
+    // MARK: - Join confirmation (from an invite link)
+
+    @ViewBuilder private func confirmJoin(_ code: String) -> some View {
+        VStack(spacing: CurrentsTheme.paddingM) {
+            Image(systemName: "person.3.sequence.fill")
+                .font(.system(size: 44)).foregroundStyle(CurrentsTheme.accent)
+                .padding(.top, 12)
+            Text(trip?.name ?? "Group Trip").font(.title2.bold())
+            if let host = trip?.hostName {
+                Text("Hosted by \(host)").font(.subheadline).foregroundStyle(.secondary)
+            }
+            Label("\(members.count) \(members.count == 1 ? "angler" : "anglers") already in",
+                  systemImage: "person.2.fill")
+                .font(.caption).foregroundStyle(.secondary)
+            Text("Join to share your catches live with the group and see everyone else's. Your saved spots and exact locations stay private.")
+                .font(.subheadline).foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+
+            Button {
+                Task {
+                    busy = true
+                    _ = await service.joinGroupTrip(code: code, tripId: tripId)
+                    confirming = false
+                    busy = false
+                    await refresh()
+                }
+            } label: {
+                HStack {
+                    if busy { ProgressView().tint(.white) }
+                    Label("Join Trip", systemImage: "person.fill.badge.plus")
+                }.frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent).tint(CurrentsTheme.accent)
+            .disabled(busy)
+        }
+        .glassCard()
     }
 
     // MARK: - Active group
