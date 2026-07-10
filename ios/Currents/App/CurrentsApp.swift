@@ -14,6 +14,11 @@ struct CurrentsApp: App {
                 .tint(ThemeOption(rawValue: selectedTheme)?.primary ?? .blue)
         }
         .onChange(of: scenePhase) { _, phase in
+            // Check for group-trip invites on foreground; fires a local
+            // notification for any new ones and surfaces them in Community.
+            if phase == .active {
+                Task { await CommunityService.shared.refreshTripInvites() }
+            }
             // Daily automatic backup, kicked off when the app is backgrounded.
             if phase == .background {
                 AutoBackup.runIfDue(db: appState.db)

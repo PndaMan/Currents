@@ -74,6 +74,7 @@ struct CommunityView: View {
                 Button { showingEdit = true } label: { MyProfileHeader(stats: computeStats()) }
                     .buttonStyle(.plain)
             }
+            TripInvitesSection()
             LeaderboardSection(region: region)
             Section("Group Trips") {
                 NavigationLink {
@@ -284,6 +285,65 @@ private struct FriendsSection: View {
         }
         friends = result
     }
+}
+
+// MARK: - Trip invites (accept a friend's group-trip invite)
+
+private struct TripInvitesSection: View {
+    @StateObject private var svc = CommunityService.shared
+    @State private var invites: [CommunityService.TripInvite] = []
+    @State private var opened: OpenedGroup?
+
+    struct OpenedGroup: Identifiable { let id: String }
+
+    var body: some View {
+        Group {
+            if !invites.isEmpty {
+                Section("Trip Invites") {
+                    ForEach(invites) { inv in
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack(spacing: 10) {
+                                Image(systemName: "person.3.fill")
+                                    .foregroundStyle(CurrentsTheme.accent)
+                                    .frame(width: 34, height: 34)
+                                    .background(CurrentsTheme.accent.opacity(0.15), in: Circle())
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text(inv.tripName).font(.subheadline.bold())
+                                    Text("Invited by \(inv.fromName)").font(.caption).foregroundStyle(.secondary)
+                                }
+                            }
+                            HStack(spacing: 10) {
+                                Button {
+                                    Task { await svc.acceptInvite(inv); opened = OpenedGroup(id: inv.groupCode); await load() }
+                                } label: {
+                                    Label("Join Trip", systemImage: "checkmark").frame(maxWidth: .infinity)
+                                }
+                                .buttonStyle(.borderedProminent).tint(CurrentsTheme.accent)
+                                Button(role: .destructive) {
+                                    Task { await svc.declineInvite(inv); await load() }
+                                } label: {
+                                    Label("Decline", systemImage: "xmark").frame(maxWidth: .infinity)
+                                }
+                                .buttonStyle(.bordered)
+                            }
+                        }
+                        .padding(.vertical, 2)
+                    }
+                }
+            }
+        }
+        .task { await load() }
+        .sheet(item: $opened) { g in
+            NavigationStack {
+                GroupTripView(tripId: nil, tripName: "Group Trip", initialCode: g.id)
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) { Button("Done") { opened = nil } }
+                    }
+            }
+        }
+    }
+
+    private func load() async { invites = await svc.refreshTripInvites() }
 }
 
 // MARK: - Profile editor

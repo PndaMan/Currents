@@ -220,6 +220,21 @@ final class NotificationManager: @unchecked Sendable {
         center.removePendingNotificationRequests(withIdentifiers: ["lowstock-\(itemId)"])
     }
 
+    // MARK: - Group Trip Invites
+
+    /// Local alert when a friend invites you to a group trip (surfaced when the
+    /// app next checks for invites; see CommunityService.refreshTripInvites).
+    func scheduleTripInviteAlert(fromName: String, tripName: String) async {
+        guard (try? await center.requestAuthorization(options: [.alert, .sound])) == true else { return }
+        let content = UNMutableNotificationContent()
+        content.title = "Trip invite from \(fromName)"
+        content.body = "Join “\(tripName)” on Currents — open the app to accept."
+        content.sound = .default
+        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 1, repeats: false)
+        try? await center.add(UNNotificationRequest(
+            identifier: "tripinvite-\(UUID().uuidString)", content: content, trigger: trigger))
+    }
+
     // MARK: - Licence Expiry Reminders
 
     /// Schedule expiry reminders for each licence at 1 month, 2 weeks, 1 week,

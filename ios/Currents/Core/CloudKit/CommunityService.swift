@@ -644,4 +644,75 @@ final class CommunityService: ObservableObject {
         _ = try? await db.deleteRecord(withID: id)
         if let tripId { setGroupCode(nil, forTripId: tripId) }
     }
+
+    // MARK: - Trip invites (pick a friend → they accept in-app)
+
+    private let inviteType = "GroupInvite"
+
+    struct TripInvite: Identifiable {
+        let id: String          // record name
+        let groupCode: String
+        let tripName: String
+        let fromName: String
+        let fromCode: String
+        let date: Date
+    }
+
+    /// Invite one of my friends to a group trip. Creates an invite record the
+    /// friend's app picks up (and a local notification when they next open it).
+    func inviteFriend(_ toCode: String, toGroup groupCode: String, tripName: String) async {
+        let id = CKRecord.ID(recordName: "invite-\(groupCode)-\(toCode)")
+        let record = (try? await db.record(for: id)) ?? CKRecord(recordType: inviteType, recordID: id)
+        record["groupCode"] = groupCode as CKRecordValue
+        record["tripName"] = tripName as CKRecordValue
+        record["fromCode"] = friendCode as CKRecordValue
+        record["fromName"] = myName as CKRecordValue
+        record["toCode"] = toCode as CKRecordValue
+        record["createdAt"] = Date() as CKRecordValue
+        _ = try? await db.save(record)
+    }
+
+    /// Trip invites addressed to me. (Client-side filter so no custom CloudKit
+    /// index is required — same approach as the leaderboards.)
+    func pendingInvites() async -> [TripInvite] {
+        let query = CKQuery(recordType: inviteType, predicate: NSPredicate(value: true))
+        query.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
+        guard let results = try? await db.records(matching: query, resultsLimit: 200) else { return [] }
+        return results.matchResults.compactMap { _, res -> TripInvite? in
+            guard let r = try? res.get(), (r["toCode"] as? String) == friendCode else { return nil }
+            return TripInvite(
+                id: r.recordID.recordName,
+                groupCode: r["groupCode"] as? String ?? "",
+                tripName: r["tripName"] as? String ?? "Group Trip",
+                fromName: r["fromName"] as? String ?? "A friend",
+                fromCode: r["fromCode"] as? String ?? "",
+                date: r["createdAt"] as? Date ?? .now
+            )
+        }
+    }
+
+    func acceptInvite(_ invite: TripInvite) async {
+        _ = await joinGroupTrip(code: invite.groupCode)
+        _ = try? await db.deleteRecord(withID: CKRecord.ID(recordName: invite.id))
+    }
+
+    func declineInvite(_ invite: TripInvite) async {
+        _ = try? await db.deleteRecord(withID: CKRecord.ID(recordName: invite.id))
+    }
+
+    /// Poll for invites and fire a one-time local notification for any new ones.
+    /// Returns the current pending set for the in-app list.
+    @discardableResult
+    func refreshTripInvites() async -> [TripInvite] {
+        guard joined else { return [] }
+        let invites = await pendingInvites()
+        var seen = Set(UserDefaults.standard.stringArray(forKey: "seenTripInvites") ?? [])
+        for inv in invites where !seen.contains(inv.id) {
+            await NotificationManager.shared.scheduleTripInviteAlert(fromName: inv.fromName, tripName: inv.tripName)
+            seen.insert(inv.id)
+        }
+        // Keep only ids that still have live invites, so re-invites re-notify.
+        UserDefaults.standard.set(Array(seen.intersection(invites.map(\.id))), forKey: "seenTripInvites")
+        return invites
+    }
 }

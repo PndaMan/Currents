@@ -15,6 +15,9 @@ struct GroupTripView: View {
     @State private var joinCode = ""
     @State private var busy = false
     @State private var confirming = false
+    @State private var friendProfiles: [CommunityService.Profile] = []
+    @State private var invited: Set<String> = []
+    @State private var showAddByCode = false
 
     private let autoJoin: Bool
     private var service: CommunityService { .shared }
@@ -157,24 +160,92 @@ struct GroupTripView: View {
     // MARK: - Active group
 
     @ViewBuilder private func activeGroup(_ code: String) -> some View {
-        // Invite card
-        VStack(spacing: 12) {
-            Text(trip?.name ?? tripName).font(.title3.bold())
-            Text("Invite code").font(.caption).foregroundStyle(.secondary)
-            Text(code)
-                .font(.system(.largeTitle, design: .monospaced).bold())
-                .tracking(4)
-                .foregroundStyle(CurrentsTheme.accent)
-
-            ShareLink(item: service.inviteMessage(forGroup: code, tripName: trip?.name ?? tripName)) {
-                Label("Invite friends", systemImage: "square.and.arrow.up").frame(maxWidth: .infinity)
+        // Invite: pick friends (primary), share link / add-by-code (secondary).
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text(trip?.name ?? tripName).font(.title3.bold())
+                Spacer()
+                if trip?.isHost == true {
+                    Text("Host").font(.caption2.bold())
+                        .padding(.horizontal, 6).padding(.vertical, 2)
+                        .background(CurrentsTheme.accent.opacity(0.2), in: Capsule())
+                }
             }
-            .buttonStyle(.borderedProminent).tint(CurrentsTheme.accent)
 
-            if trip?.isHost == true {
-                Text("You're the host").font(.caption2).foregroundStyle(.secondary)
+            let memberCodes = Set(members.map(\.id))
+            let invitable = friendProfiles.filter { !memberCodes.contains($0.id) }
+
+            Text("Invite friends").font(.headline)
+            if friendProfiles.isEmpty {
+                Text("Add friends in Community to invite them with one tap — or share the code below.")
+                    .font(.caption).foregroundStyle(.secondary)
+            } else if invitable.isEmpty {
+                Text("All your friends are already in this trip 🎣")
+                    .font(.caption).foregroundStyle(.secondary)
+            } else {
+                ForEach(invitable) { f in
+                    HStack(spacing: 10) {
+                        AnglerAvatar(image: f.avatar, size: 34)
+                        Text(f.name).font(.subheadline)
+                        Spacer()
+                        if invited.contains(f.id) {
+                            Label("Invited", systemImage: "checkmark.circle.fill")
+                                .font(.caption.bold()).foregroundStyle(.green)
+                        } else {
+                            Button {
+                                invited.insert(f.id)
+                                Task {
+                                    await service.inviteFriend(f.id, toGroup: code,
+                                                               tripName: trip?.name ?? tripName)
+                                }
+                            } label: {
+                                Text("Invite").font(.caption.bold())
+                                    .padding(.horizontal, 12).padding(.vertical, 6)
+                                    .background(CurrentsTheme.accent, in: Capsule())
+                                    .foregroundStyle(.white)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+            }
+
+            Divider().padding(.vertical, 2)
+
+            // Secondary: invite code + share link + add-by-code.
+            HStack {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Invite code").font(.caption2).foregroundStyle(.secondary)
+                    Text(code).font(.system(.title3, design: .monospaced).bold())
+                        .tracking(3).foregroundStyle(CurrentsTheme.accent)
+                }
+                Spacer()
+                ShareLink(item: service.inviteMessage(forGroup: code, tripName: trip?.name ?? tripName)) {
+                    Label("Share link", systemImage: "square.and.arrow.up").font(.caption.bold())
+                }
+            }
+            Button {
+                showAddByCode.toggle()
+            } label: {
+                Label("Invite by angler code", systemImage: "number").font(.caption)
+            }
+            .buttonStyle(.borderless)
+            if showAddByCode {
+                HStack {
+                    TextField("Friend's 6-char code", text: $joinCode)
+                        .textInputAutocapitalization(.characters).autocorrectionDisabled()
+                        .textFieldStyle(.roundedBorder)
+                    Button("Invite") {
+                        let c = joinCode.uppercased().trimmingCharacters(in: .whitespaces)
+                        joinCode = ""
+                        Task { await service.inviteFriend(c, toGroup: code, tripName: trip?.name ?? tripName) }
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(joinCode.trimmingCharacters(in: .whitespaces).count != 6)
+                }
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .glassCard()
 
         // Members
@@ -250,6 +321,15 @@ struct GroupTripView: View {
         trip = await service.groupTrip(code: code)
         members = await service.groupMembers(code: code)
         feed = await service.groupCatches(code: code)
+        await loadFriendProfiles()
+    }
+
+    private func loadFriendProfiles() async {
+        var result: [CommunityService.Profile] = []
+        for c in service.friends {
+            if let p = await service.fetchProfile(code: c) { result.append(p) }
+        }
+        friendProfiles = result
     }
 
     private func initials(_ name: String) -> some View {
