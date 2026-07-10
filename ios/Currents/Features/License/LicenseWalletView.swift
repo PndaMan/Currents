@@ -282,39 +282,4 @@ private struct PDFFullView: UIViewRepresentable {
     }
 }
 
-/// Pinch-to-zoom / pan image via a UIScrollView.
-private struct ZoomableImage: UIViewRepresentable {
-    let image: UIImage
-
-    func makeUIView(context: Context) -> UIScrollView {
-        let scroll = UIScrollView()
-        scroll.minimumZoomScale = 1
-        scroll.maximumZoomScale = 6
-        scroll.showsVerticalScrollIndicator = false
-        scroll.showsHorizontalScrollIndicator = false
-        scroll.delegate = context.coordinator
-        scroll.backgroundColor = .black
-
-        let iv = UIImageView(image: image)
-        iv.contentMode = .scaleAspectFit
-        iv.translatesAutoresizingMaskIntoConstraints = false
-        scroll.addSubview(iv)
-        NSLayoutConstraint.activate([
-            iv.leadingAnchor.constraint(equalTo: scroll.contentLayoutGuide.leadingAnchor),
-            iv.trailingAnchor.constraint(equalTo: scroll.contentLayoutGuide.trailingAnchor),
-            iv.topAnchor.constraint(equalTo: scroll.contentLayoutGuide.topAnchor),
-            iv.bottomAnchor.constraint(equalTo: scroll.contentLayoutGuide.bottomAnchor),
-            iv.widthAnchor.constraint(equalTo: scroll.frameLayoutGuide.widthAnchor),
-            iv.heightAnchor.constraint(equalTo: scroll.frameLayoutGuide.heightAnchor),
-        ])
-        context.coordinator.imageView = iv
-        return scroll
-    }
-    func updateUIView(_ uiView: UIScrollView, context: Context) {}
-    func makeCoordinator() -> Coordinator { Coordinator() }
-
-    final class Coordinator: NSObject, UIScrollViewDelegate {
-        var imageView: UIImageView?
-        func viewForZooming(in scrollView: UIScrollView) -> UIView? { imageView }
-    }
-}
+// Full-document image zoom reuses `ZoomableImage` from FullscreenPhotoViewer.
