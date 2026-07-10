@@ -114,7 +114,7 @@ private struct MyProfileHeader: View {
 
     var body: some View {
         HStack(spacing: 14) {
-            AnglerAvatar(image: loadAvatar(), size: 64)
+            AnglerAvatar(image: svc.myAvatar, size: 64)
             VStack(alignment: .leading, spacing: 3) {
                 Text(svc.myName).font(.headline)
                 if !svc.myBio.isEmpty {
@@ -127,11 +127,6 @@ private struct MyProfileHeader: View {
             Image(systemName: "square.and.pencil").foregroundStyle(.secondary)
         }
         .padding(.vertical, 4)
-    }
-
-    private func loadAvatar() -> UIImage? {
-        guard let p = UserDefaults.standard.string(forKey: "communityAvatarPath") else { return nil }
-        return UIImage(contentsOfFile: p)
     }
 }
 
@@ -184,7 +179,7 @@ private struct LeaderboardSection: View {
             if loading {
                 HStack { ProgressView(); Text("Loading…").foregroundStyle(.secondary) }
             } else if rows.isEmpty {
-                Text("No entries yet — log a catch to appear here. (Add friend code MARLIN to see a demo.)")
+                Text("No entries yet — log a catch to appear here.")
                     .font(.caption).foregroundStyle(.secondary)
             } else {
                 ForEach(Array(rows.enumerated()), id: \.element.id) { i, row in
@@ -402,7 +397,7 @@ struct ProfileEditView: View {
             }
             .task {
                 name = svc.myName; bio = svc.myBio; homeWater = svc.myHomeWater; region = svc.myRegion
-                if let p = UserDefaults.standard.string(forKey: "communityAvatarPath") { avatar = UIImage(contentsOfFile: p) }
+                avatar = svc.myAvatar
             }
             .onChange(of: avatarItem) { _, item in
                 Task {

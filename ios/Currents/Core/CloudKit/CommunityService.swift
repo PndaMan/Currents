@@ -138,13 +138,29 @@ final class CommunityService: ObservableObject {
         UserDefaults.standard.set(bio, forKey: "communityBio")
         UserDefaults.standard.set(homeWater, forKey: "communityHomeWater")
         UserDefaults.standard.set(region, forKey: "communityRegion")
-        if let avatar, let data = avatar.jpegData(compressionQuality: 0.8) {
-            let url = FileManager.default.temporaryDirectory.appendingPathComponent("avatar-\(friendCode).jpg")
-            try? data.write(to: url)
-            UserDefaults.standard.set(url.path, forKey: "communityAvatarPath")
-        }
+        if let avatar { saveAvatar(avatar) }
         await saveMyProfile(stats: stats)
     }
+
+    // MARK: - Avatar persistence
+
+    /// Avatar lives in Application Support under a fixed name. The previous
+    /// version wrote it to the temp directory (which iOS purges) and stored an
+    /// absolute path (which breaks when the app container id changes between
+    /// launches) — that's why the picture kept vanishing on update. Resolving a
+    /// stable path fresh each read fixes it.
+    private var avatarURL: URL {
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        try? FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
+        return base.appendingPathComponent("community-avatar.jpg")
+    }
+
+    func saveAvatar(_ image: UIImage) {
+        guard let data = image.jpegData(compressionQuality: 0.85) else { return }
+        try? data.write(to: avatarURL, options: .atomic)
+    }
+
+    var myAvatar: UIImage? { UIImage(contentsOfFile: avatarURL.path) }
 
     private func saveMyProfile(stats: MyStats?) async {
         let id = CKRecord.ID(recordName: "profile-\(friendCode)")
@@ -162,8 +178,8 @@ final class CommunityService: ObservableObject {
             record["bestLengthCm"] = stats.bestLengthCm as CKRecordValue
             record["favoriteSpecies"] = stats.favoriteSpecies as CKRecordValue
         }
-        if let path = UserDefaults.standard.string(forKey: "communityAvatarPath") {
-            record["avatar"] = CKAsset(fileURL: URL(fileURLWithPath: path))
+        if FileManager.default.fileExists(atPath: avatarURL.path) {
+            record["avatar"] = CKAsset(fileURL: avatarURL)
         }
         record["updatedAt"] = Date() as CKRecordValue
         _ = try? await db.save(record)
