@@ -195,6 +195,31 @@ final class NotificationManager: @unchecked Sendable {
         center.removePendingNotificationRequests(withIdentifiers: ["cold-streak"])
     }
 
+    // MARK: - Low Stock Reminders
+
+    /// Fire a reorder reminder when a consumable drops to its low-stock point.
+    /// Opt-out via the "lowStockAlerts" setting (on by default).
+    func scheduleLowStockAlert(item: OwnedGear) async {
+        let id = "lowstock-\(item.id)"
+        center.removePendingNotificationRequests(withIdentifiers: [id])
+        if UserDefaults.standard.object(forKey: "lowStockAlerts") != nil,
+           !UserDefaults.standard.bool(forKey: "lowStockAlerts") { return }
+        guard (try? await center.requestAuthorization(options: [.alert, .sound])) == true else { return }
+        let content = UNMutableNotificationContent()
+        let remaining = item.stock ?? 0
+        content.title = remaining <= 0 ? "Out of stock: \(item.displayName)" : "Running low: \(item.displayName)"
+        content.body = remaining <= 0
+            ? "None left — restock your \(item.category.rawValue.lowercased()) before your next trip."
+            : "\(remaining) left — time to restock your \(item.category.rawValue.lowercased())."
+        content.sound = .default
+        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 1, repeats: false)
+        try? await center.add(UNNotificationRequest(identifier: id, content: content, trigger: trigger))
+    }
+
+    func cancelLowStockAlert(itemId: String) {
+        center.removePendingNotificationRequests(withIdentifiers: ["lowstock-\(itemId)"])
+    }
+
     // MARK: - Licence Expiry Reminders
 
     /// Schedule expiry reminders for each licence at 1 month, 2 weeks, 1 week,

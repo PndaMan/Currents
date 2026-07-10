@@ -571,13 +571,6 @@ struct EditCatchSheet: View {
     @State private var allTrips: [Trip] = []
     @State private var ownedGear: [OwnedGear] = []
 
-    private let techniques = [
-        "Drop Shot", "Carolina Rig", "Texas Rig", "Jigging", "Trolling",
-        "Topwater", "Crankbait", "Spinnerbait", "Fly Fishing", "Live Bait",
-        "Bottom Fishing", "Cast & Retrieve", "Slow Roll", "Finesse",
-        "Power Fishing", "Sight Fishing", "Drift Fishing", "Vertical Jigging"
-    ]
-
     var body: some View {
         NavigationStack {
             Form {
@@ -691,14 +684,7 @@ struct EditCatchSheet: View {
                             TextField("Lure Color", text: $gearLureColor)
                         }
 
-                        let ownedTechniques = ownedGear.filter { $0.category == .technique }.map(\.name)
-                        let allTechniques = Array(Set(ownedTechniques + techniques)).sorted()
-                        Picker("Technique", selection: $gearTechnique) {
-                            Text("None").tag("")
-                            ForEach(allTechniques, id: \.self) { t in
-                                Text(t).tag(t)
-                            }
-                        }
+                        TechniquePicker(selection: $gearTechnique)
                     }
 
                     Picker("Loadout Preset", selection: $selectedGearId) {
@@ -901,10 +887,38 @@ struct EditCatchSheet: View {
             )
         }
 
-        // Individual gear with no preset selected is stored on a HIDDEN
-        // loadout (isAutoCreated) — it never shows up as a preset.
+        // Gear: start from any chosen preset but keep whatever the user
+        // actually filled in. If the effective gear differs from the preset,
+        // snapshot it onto a HIDDEN loadout so nothing is lost and the named
+        // preset is left untouched.
         let hasIndividualGear = !gearRod.isEmpty || !gearReel.isEmpty || !gearLure.isEmpty || !gearTechnique.isEmpty
-        if selectedGearId == nil && hasIndividualGear {
+        if let selected = selectedGearId,
+           let preset = allGear.first(where: { $0.id == selected }) {
+            let matchesPreset =
+                gearRod == (preset.rod ?? "") &&
+                gearReel == (preset.reel ?? "") &&
+                gearLure == (preset.lure ?? "") &&
+                gearLureColor == (preset.lureColor ?? "") &&
+                gearTechnique == (preset.technique ?? "")
+            if matchesPreset {
+                updated.gearLoadoutId = selected
+            } else {
+                var hidden = GearLoadout(
+                    name: preset.name,
+                    rod: gearRod.isEmpty ? nil : gearRod,
+                    reel: gearReel.isEmpty ? nil : gearReel,
+                    lineLb: preset.lineLb,
+                    leaderLb: preset.leaderLb,
+                    lure: gearLure.isEmpty ? nil : gearLure,
+                    lureColor: gearLureColor.isEmpty ? nil : gearLureColor,
+                    lureWeightG: preset.lureWeightG,
+                    technique: gearTechnique.isEmpty ? nil : gearTechnique,
+                    isAutoCreated: true
+                )
+                try? appState.gearRepository.save(&hidden)
+                updated.gearLoadoutId = hidden.id
+            }
+        } else if hasIndividualGear {
             var hidden = GearLoadout(
                 name: "Catch gear",
                 rod: gearRod.isEmpty ? nil : gearRod,
@@ -917,7 +931,7 @@ struct EditCatchSheet: View {
             try? appState.gearRepository.save(&hidden)
             updated.gearLoadoutId = hidden.id
         } else {
-            updated.gearLoadoutId = selectedGearId
+            updated.gearLoadoutId = nil
         }
 
         onSave(updated)

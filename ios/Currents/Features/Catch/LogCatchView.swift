@@ -520,13 +520,6 @@ struct LogCatchView: View {
     @State private var gearTechnique = ""
     @State private var showGearDetails = false
 
-    private let techniques = [
-        "Drop Shot", "Carolina Rig", "Texas Rig", "Jigging", "Trolling",
-        "Topwater", "Crankbait", "Spinnerbait", "Fly Fishing", "Live Bait",
-        "Bottom Fishing", "Cast & Retrieve", "Slow Roll", "Finesse",
-        "Power Fishing", "Sight Fishing", "Drift Fishing", "Vertical Jigging"
-    ]
-
     private var gearSection: some View {
         Section("Gear") {
             // Individual gear picks from owned items
@@ -539,15 +532,8 @@ struct LogCatchView: View {
                     TextField("Lure Color", text: $gearLureColor)
                 }
 
-                // Technique picker — owned techniques + presets
-                let ownedTechniques = ownedGear.filter { $0.category == .technique }.map(\.name)
-                let allTechniques = Array(Set(ownedTechniques + techniques)).sorted()
-                Picker("Technique", selection: $gearTechnique) {
-                    Text("None").tag("")
-                    ForEach(allTechniques, id: \.self) { t in
-                        Text(t).tag(t)
-                    }
-                }
+                // Technique — preset list plus a free-text custom option.
+                TechniquePicker(selection: $gearTechnique)
             }
 
             // Quick loadout preset
@@ -722,12 +708,39 @@ struct LogCatchView: View {
         // Any fish logged while a session is recording belongs to that session.
         let tripId = appState.tripTracker.activeTrip?.id ?? selectedTripId
 
-        // Use the selected preset if one was chosen. If individual gear was
-        // picked instead, store it on a HIDDEN loadout (isAutoCreated) so the
-        // catch keeps its gear without polluting the Presets tab.
+        // Gear the catch is saved with. Starting from any chosen preset, the
+        // user can still fill fields the preset didn't cover (or tweak ones it
+        // did). If the effective gear differs from the preset, snapshot it onto
+        // a HIDDEN loadout so the catch keeps exactly what was used — the named
+        // preset stays untouched, and the Presets tab isn't polluted.
         var gearId = selectedGearId
         let hasIndividualGear = !gearRod.isEmpty || !gearReel.isEmpty || !gearLure.isEmpty || !gearTechnique.isEmpty
-        if gearId == nil && hasIndividualGear {
+
+        if let selected = selectedGearId,
+           let preset = allGear.first(where: { $0.id == selected }) {
+            let matchesPreset =
+                gearRod == (preset.rod ?? "") &&
+                gearReel == (preset.reel ?? "") &&
+                gearLure == (preset.lure ?? "") &&
+                gearLureColor == (preset.lureColor ?? "") &&
+                gearTechnique == (preset.technique ?? "")
+            if !matchesPreset {
+                var hidden = GearLoadout(
+                    name: preset.name,
+                    rod: gearRod.isEmpty ? nil : gearRod,
+                    reel: gearReel.isEmpty ? nil : gearReel,
+                    lineLb: preset.lineLb,
+                    leaderLb: preset.leaderLb,
+                    lure: gearLure.isEmpty ? nil : gearLure,
+                    lureColor: gearLureColor.isEmpty ? nil : gearLureColor,
+                    lureWeightG: preset.lureWeightG,
+                    technique: gearTechnique.isEmpty ? nil : gearTechnique,
+                    isAutoCreated: true
+                )
+                try? appState.gearRepository.save(&hidden)
+                gearId = hidden.id
+            }
+        } else if gearId == nil && hasIndividualGear {
             var hidden = GearLoadout(
                 name: "Catch gear",
                 rod: gearRod.isEmpty ? nil : gearRod,

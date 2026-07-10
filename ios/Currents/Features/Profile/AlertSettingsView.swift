@@ -7,6 +7,7 @@ struct AlertSettingsView: View {
     @AppStorage("alertsEnabled") private var alertsEnabled = false
     @AppStorage("alertThreshold") private var alertThreshold = 75.0
     @AppStorage("primeWindowAlerts") private var primeWindowAlerts = false
+    @AppStorage("lowStockAlerts") private var lowStockAlerts = true
 
     @State private var permissionStatus: UNAuthorizationStatus = .notDetermined
     @State private var spots: [Spot] = []
@@ -46,10 +47,12 @@ struct AlertSettingsView: View {
                     .onChange(of: primeWindowAlerts) { _, _ in
                         Task { await reschedulePrimeWindows() }
                     }
+                Toggle("Low Tackle-Box Stock", isOn: $lowStockAlerts)
+                    .tint(CurrentsTheme.accent)
             } header: {
                 Text("Notifications")
             } footer: {
-                Text("Bite Alerts notify you when a spot is firing right now. Prime-Window Heads-Up looks ahead and pings you ~45 minutes before the best feeding window at your spots over the next day. All processing happens on-device.")
+                Text("Bite Alerts notify you when a spot is firing right now. Prime-Window Heads-Up looks ahead and pings you ~45 minutes before the best feeding window at your spots over the next day. Low Tackle-Box Stock reminds you to restock line, lures, bait and hooks when they run low. All processing happens on-device.")
             }
 
             // MARK: - Threshold Slider

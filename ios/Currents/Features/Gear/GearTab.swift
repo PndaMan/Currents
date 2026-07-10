@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct GearTab: View {
     @Environment(AppState.self) private var appState
@@ -197,12 +198,19 @@ struct GearTab: View {
 
                     VStack(spacing: 0) {
                         ForEach(items) { item in
-                            Button {
-                                editingOwnedGear = item
-                            } label: {
-                                gearItemRow(item)
+                            HStack(spacing: 8) {
+                                Button {
+                                    editingOwnedGear = item
+                                } label: {
+                                    gearItemRow(item)
+                                }
+                                .tint(.primary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+
+                                if item.category.isConsumable {
+                                    stockStepper(item)
+                                }
                             }
-                            .tint(.primary)
                             .contextMenu {
                                 Button {
                                     editingOwnedGear = item
@@ -211,6 +219,7 @@ struct GearTab: View {
                                 }
                                 Button(role: .destructive) {
                                     try? appState.ownedGearRepository.delete(item)
+                                    NotificationManager.shared.cancelLowStockAlert(itemId: item.id)
                                     Task { await refresh() }
                                 } label: {
                                     Label("Delete", systemImage: "trash")
@@ -246,6 +255,7 @@ struct GearTab: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(item.name)
                     .font(.subheadline.bold())
+                    .multilineTextAlignment(.leading)
                 HStack(spacing: 6) {
                     if let brand = item.brand {
                         Text(brand)
@@ -261,14 +271,64 @@ struct GearTab: View {
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                     }
+                    if item.isLowStock {
+                        Text(item.stock ?? 0 <= 0 ? "OUT" : "LOW")
+                            .font(.caption2.bold())
+                            .padding(.horizontal, 5).padding(.vertical, 1)
+                            .background(.orange.opacity(0.2), in: Capsule())
+                            .foregroundStyle(.orange)
+                    }
                 }
             }
-            Spacer()
-            Image(systemName: "chevron.right")
-                .font(.caption)
-                .foregroundStyle(.tertiary)
+            Spacer(minLength: 4)
         }
+        .contentShape(Rectangle())
         .padding(.vertical, 8)
+    }
+
+    // MARK: - Tackle-box stock stepper
+
+    private func stockStepper(_ item: OwnedGear) -> some View {
+        let count = item.stock ?? 0
+        return HStack(spacing: 12) {
+            Button {
+                changeStock(item, by: -1)
+            } label: {
+                Image(systemName: "minus.circle.fill").font(.title2)
+                    .foregroundStyle(count <= 0 ? Color.secondary.opacity(0.4) : CurrentsTheme.accent)
+            }
+            .buttonStyle(.plain)
+            .disabled(count <= 0)
+
+            Text("\(count)")
+                .font(.subheadline.bold()).monospacedDigit()
+                .frame(minWidth: 20)
+                .foregroundStyle(item.isLowStock ? .orange : .primary)
+
+            Button {
+                changeStock(item, by: 1)
+            } label: {
+                Image(systemName: "plus.circle.fill").font(.title2)
+                    .foregroundStyle(CurrentsTheme.accent)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.trailing, 4)
+    }
+
+    private func changeStock(_ item: OwnedGear, by delta: Int) {
+        var updated = item
+        updated.stock = max(0, (item.stock ?? 0) + delta)
+        try? appState.ownedGearRepository.save(&updated)
+        if let idx = ownedGear.firstIndex(where: { $0.id == item.id }) {
+            ownedGear[idx] = updated
+        }
+        UISelectionFeedbackGenerator().selectionChanged()
+        if updated.isLowStock {
+            Task { await NotificationManager.shared.scheduleLowStockAlert(item: updated) }
+        } else {
+            NotificationManager.shared.cancelLowStockAlert(itemId: updated.id)
+        }
     }
 
     // MARK: - Loadout Presets
@@ -418,7 +478,10 @@ struct AddOwnedGearSheet: View {
     @State private var brand = ""
     @State private var specs = ""
     @State private var barcode = ""
+    @State private var stock = 1
+    @State private var lowStockThreshold = 2
     @State private var showingScanner = false
+    @State private var lookupState: BarcodeLookupState = .idle
 
     var body: some View {
         NavigationStack {
@@ -435,6 +498,12 @@ struct AddOwnedGearSheet: View {
                     TextField("Brand (optional)", text: $brand)
                     TextField("Specs / Notes (optional)", text: $specs)
                 }
+                if category.isConsumable {
+                    Section("Stock") {
+                        Stepper("In stock: \(stock)", value: $stock, in: 0...999)
+                        Stepper("Remind me at: \(lowStockThreshold)", value: $lowStockThreshold, in: 0...99)
+                    }
+                }
                 if BarcodeScannerView.isSupported {
                     Section {
                         Button {
@@ -443,15 +512,15 @@ struct AddOwnedGearSheet: View {
                             Label(barcode.isEmpty ? "Scan Barcode" : "Barcode: \(barcode)",
                                   systemImage: "barcode.viewfinder")
                         }
+                        BarcodeLookupStatus(state: lookupState)
                     } footer: {
-                        Text("Scan a product barcode to save with this item — handy for re-ordering line, hooks and other consumables.")
+                        Text("Scan a product barcode to auto-fill the name and brand, and keep it on the item for re-ordering.")
                     }
                 }
             }
             .sheet(isPresented: $showingScanner) {
                 BarcodeScannerView { code in
-                    barcode = code
-                    if specs.isEmpty { specs = "Barcode \(code)" }
+                    Task { await handleScan(code) }
                 }
                 .ignoresSafeArea()
             }
@@ -469,15 +538,73 @@ struct AddOwnedGearSheet: View {
         }
     }
 
+    private func handleScan(_ code: String) async {
+        guard GearProductLookup.isValid(code) else {
+            lookupState = .invalid
+            return
+        }
+        barcode = GearProductLookup.normalized(code)
+        lookupState = .looking
+        do {
+            let product = try await GearProductLookup.lookup(code)
+            if name.isEmpty { name = product.title }
+            if brand.isEmpty, let b = product.brand { brand = b }
+            lookupState = .found(product.title)
+        } catch GearProductLookup.LookupError.notFound {
+            lookupState = .notFound
+        } catch {
+            lookupState = .offline
+        }
+    }
+
     private func save() {
+        let consumable = category.isConsumable
         var item = OwnedGear(
             category: category,
             name: name,
             brand: brand.isEmpty ? nil : brand,
-            specs: specs.isEmpty ? nil : specs
+            specs: specs.isEmpty ? nil : specs,
+            stock: consumable ? stock : nil,
+            lowStockThreshold: consumable ? lowStockThreshold : nil,
+            barcode: barcode.isEmpty ? nil : barcode
         )
         try? appState.ownedGearRepository.save(&item)
+        if item.isLowStock {
+            Task { await NotificationManager.shared.scheduleLowStockAlert(item: item) }
+        }
         dismiss()
+    }
+}
+
+// MARK: - Barcode lookup status
+
+enum BarcodeLookupState: Equatable {
+    case idle, looking, found(String), notFound, invalid, offline
+}
+
+struct BarcodeLookupStatus: View {
+    let state: BarcodeLookupState
+
+    var body: some View {
+        switch state {
+        case .idle:
+            EmptyView()
+        case .looking:
+            Label { Text("Looking up product…") } icon: { ProgressView() }
+                .font(.caption).foregroundStyle(.secondary)
+        case .found(let title):
+            Label("Found: \(title)", systemImage: "checkmark.circle.fill")
+                .font(.caption).foregroundStyle(.green)
+        case .notFound:
+            Label("Barcode saved — no match found, add the details yourself.", systemImage: "questionmark.circle")
+                .font(.caption).foregroundStyle(.secondary)
+        case .invalid:
+            Label("That doesn't look like a valid product barcode.", systemImage: "exclamationmark.triangle")
+                .font(.caption).foregroundStyle(.orange)
+        case .offline:
+            Label("Barcode saved — couldn't reach the product database (offline?).", systemImage: "wifi.slash")
+                .font(.caption).foregroundStyle(.secondary)
+        }
     }
 }
 
@@ -747,7 +874,7 @@ struct AddGearSheet: View {
                     }
                 }
                 Section("Technique") {
-                    loadoutGearPicker(category: .technique, selection: $technique, placeholder: "Technique")
+                    TechniquePicker(selection: $technique)
                 }
             }
             .navigationTitle("New Loadout")
@@ -844,6 +971,8 @@ struct EditOwnedGearSheet: View {
     @State private var name: String
     @State private var brand: String
     @State private var specs: String
+    @State private var stock: Int
+    @State private var lowStockThreshold: Int
 
     init(gear: OwnedGear) {
         self.gear = gear
@@ -851,6 +980,8 @@ struct EditOwnedGearSheet: View {
         _name = State(initialValue: gear.name)
         _brand = State(initialValue: gear.brand ?? "")
         _specs = State(initialValue: gear.specs ?? "")
+        _stock = State(initialValue: gear.stock ?? 0)
+        _lowStockThreshold = State(initialValue: gear.lowStockThreshold ?? 2)
     }
 
     var body: some View {
@@ -868,6 +999,19 @@ struct EditOwnedGearSheet: View {
                     TextField("Brand (optional)", text: $brand)
                     TextField("Specs / Notes (optional)", text: $specs)
                 }
+                if category.isConsumable {
+                    Section("Stock") {
+                        Stepper("In stock: \(stock)", value: $stock, in: 0...999)
+                        Stepper("Remind me at: \(lowStockThreshold)", value: $lowStockThreshold, in: 0...99)
+                    }
+                }
+                if let code = gear.barcode {
+                    Section("Barcode") {
+                        Label(code, systemImage: "barcode")
+                            .font(.subheadline.monospaced())
+                            .textSelection(.enabled)
+                    }
+                }
             }
             .navigationTitle("Edit Gear")
             .navigationBarTitleDisplayMode(.inline)
@@ -882,7 +1026,15 @@ struct EditOwnedGearSheet: View {
                         updated.name = name
                         updated.brand = brand.isEmpty ? nil : brand
                         updated.specs = specs.isEmpty ? nil : specs
+                        let consumable = category.isConsumable
+                        updated.stock = consumable ? stock : nil
+                        updated.lowStockThreshold = consumable ? lowStockThreshold : nil
                         try? appState.ownedGearRepository.save(&updated)
+                        if updated.isLowStock {
+                            Task { await NotificationManager.shared.scheduleLowStockAlert(item: updated) }
+                        } else {
+                            NotificationManager.shared.cancelLowStockAlert(itemId: updated.id)
+                        }
                         dismiss()
                     }
                     .disabled(name.isEmpty)
@@ -953,7 +1105,7 @@ struct EditLoadoutSheet: View {
                     }
                 }
                 Section("Technique") {
-                    loadoutGearPicker(category: .technique, selection: $technique, placeholder: "Technique")
+                    TechniquePicker(selection: $technique)
                 }
             }
             .navigationTitle("Edit Preset")
@@ -1006,6 +1158,39 @@ struct EditLoadoutSheet: View {
             if selection.wrappedValue == "__custom__" {
                 TextField("Custom \(placeholder.lowercased())", text: selection)
             }
+        }
+    }
+}
+
+// MARK: - Technique picker (preset list + custom)
+
+/// Techniques are a catch attribute, not inventory. Offers the shared preset
+/// list plus a free-text "Custom…" option, storing the plain technique string.
+struct TechniquePicker: View {
+    @Binding var selection: String
+    @State private var custom: Bool
+
+    init(selection: Binding<String>) {
+        _selection = selection
+        let v = selection.wrappedValue
+        _custom = State(initialValue: !v.isEmpty && !FishingTechniques.presets.contains(v))
+    }
+
+    var body: some View {
+        Picker("Technique", selection: Binding(
+            get: { custom ? "__custom__" : selection },
+            set: { newValue in
+                if newValue == "__custom__" { custom = true; selection = "" }
+                else { custom = false; selection = newValue }
+            }
+        )) {
+            Text("None").tag("")
+            ForEach(FishingTechniques.presets, id: \.self) { Text($0).tag($0) }
+            Text("Custom…").tag("__custom__")
+        }
+        if custom {
+            TextField("Custom technique", text: $selection)
+                .autocorrectionDisabled()
         }
     }
 }

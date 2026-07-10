@@ -369,6 +369,18 @@ final class AppDatabase: Sendable {
             }
         }
 
+        migrator.registerMigration("v19_gear_tacklebox") { db in
+            // Tackle-box stock tracking + product barcode on owned gear.
+            try db.alter(table: "ownedGear") { t in
+                t.add(column: "stock", .integer)
+                t.add(column: "lowStockThreshold", .integer)
+                t.add(column: "barcode", .text)
+            }
+            // Techniques are no longer inventory gear — they moved to the Log
+            // Catch menu. Drop any items filed under the old "Technique" type.
+            try db.execute(sql: "DELETE FROM ownedGear WHERE category = 'Technique'")
+        }
+
         return migrator
     }
 }
