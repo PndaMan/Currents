@@ -456,6 +456,10 @@ struct SessionDetailView: View {
                     stat("\(catches.count)", "Catches", "fish.fill")
                 }
 
+                if trip.allTrackPoints.count > 2 {
+                    TripScrubberCard(trip: trip, catches: catches)
+                }
+
                 if trip.isMultiDay { dayBreakdown }
 
                 if !suggestedSpots.isEmpty { suggestedSpotsCard }
@@ -590,6 +594,98 @@ struct SessionDetailView: View {
             Text(label).font(.caption2).foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity).glassCard()
+    }
+}
+
+// MARK: - Timeline scrubber
+
+/// Drag along the session timeline to replay it: the playhead moves along the
+/// route and surfaces the catch logged closest to that moment.
+struct TripScrubberCard: View {
+    let trip: Trip
+    let catches: [CatchDetail]
+    @State private var progress: Double = 1.0
+
+    private var track: [Trip.TrackPoint] { trip.allTrackPoints }
+
+    private var timeSpan: (start: Date, end: Date)? {
+        guard let first = track.first?.t, let last = track.last?.t, last > first else { return nil }
+        return (first, last)
+    }
+
+    private var currentTime: Date? {
+        guard let span = timeSpan else { return nil }
+        return span.start.addingTimeInterval(progress * span.end.timeIntervalSince(span.start))
+    }
+
+    /// Track point nearest the scrubbed time.
+    private var currentPoint: Trip.TrackPoint? {
+        guard let t = currentTime else { return track.last }
+        return track.min { abs($0.t.timeIntervalSince(t)) < abs($1.t.timeIntervalSince(t)) }
+    }
+
+    private var currentCoord: CLLocationCoordinate2D? {
+        currentPoint.map { CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon) }
+    }
+
+    /// Catch logged within 15 min of the scrubbed time (nearest wins).
+    private var nearbyCatch: CatchDetail? {
+        guard let t = currentTime else { return nil }
+        return catches
+            .filter { abs($0.catchRecord.caughtAt.timeIntervalSince(t)) < 900 }
+            .min { abs($0.catchRecord.caughtAt.timeIntervalSince(t)) < abs($1.catchRecord.caughtAt.timeIntervalSince(t)) }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Label("Replay", systemImage: "timeline.selection").font(.headline)
+                Spacer()
+                if let t = currentTime {
+                    Text(t.formatted(date: .omitted, time: .shortened))
+                        .font(.subheadline.bold().monospacedDigit()).foregroundStyle(CurrentsTheme.accent)
+                }
+            }
+
+            Map {
+                MapPolyline(coordinates: track.map { CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon) })
+                    .stroke(CurrentsTheme.accent.opacity(0.5), lineWidth: 3)
+                if let c = currentCoord {
+                    Annotation("", coordinate: c) {
+                        Circle().fill(CurrentsTheme.accent)
+                            .frame(width: 16, height: 16)
+                            .overlay(Circle().stroke(.white, lineWidth: 3))
+                            .shadow(radius: 3)
+                    }
+                }
+            }
+            .mapStyle(.hybrid)
+            .frame(height: 180)
+            .clipShape(RoundedRectangle(cornerRadius: 14))
+            .allowsHitTesting(false)
+
+            Slider(value: $progress, in: 0...1)
+                .tint(CurrentsTheme.accent)
+
+            if let c = nearbyCatch {
+                NavigationLink { CatchDetailView(detail: c) } label: {
+                    HStack(spacing: 10) {
+                        if let sp = c.species { SpeciesArtworkView(species: sp, caught: true, size: 30) }
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(c.species?.commonName ?? "Catch").font(.subheadline.bold())
+                            Text("Caught \(c.catchRecord.caughtAt.formatted(date: .omitted, time: .shortened))")
+                                .font(.caption2).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
+                    }
+                }.buttonStyle(.plain)
+            } else {
+                Text("No catch around this time").font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassCard()
     }
 }
 
