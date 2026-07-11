@@ -40,6 +40,7 @@
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>location</string>
+		<string>remote-notification</string>
 	</array>
 	<key>NSCameraUsageDescription</key>
 	<string>Take photos of your catches for logging and fish identification.</string>

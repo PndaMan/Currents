@@ -579,19 +579,35 @@ jobs:
           print('Profile iCloud containers:', containers)
           ent_path = 'Currents/App/Currents.entitlements'
           app = plistlib.load(open(ent_path, 'rb'))
+          changed = False
+
+          # iCloud: strip if the profile's App ID has no container assigned yet.
           if 'iCloud.com.aidanmcconnon.currents' in containers:
-              print('Profile carries the iCloud container - keeping full entitlements.')
+              print('Profile carries the iCloud container - keeping iCloud entitlements.')
           else:
               removed = [k for k in list(app) if 'icloud' in k or 'ubiquity' in k]
               for k in removed:
                   del app[k]
+              changed = changed or bool(removed)
+              print('WARNING: profile has NO iCloud container - archiving WITHOUT:', removed)
+              print('Restore: developer.apple.com > Identifiers > com.aidanmcconnon.currents')
+              print('  > iCloud > assign container iCloud.com.aidanmcconnon.currents.')
+
+          # Push: strip aps-environment if the profile doesn't grant Push, so the
+          # archive still succeeds before Push Notifications is enabled on the App
+          # ID. Once enabled, the minted profile carries it and it stays.
+          if 'aps-environment' in ents:
+              print('Profile carries Push capability - keeping aps-environment.')
+          elif 'aps-environment' in app:
+              del app['aps-environment']
+              changed = True
+              print('WARNING: profile has NO Push capability - archiving WITHOUT aps-environment.')
+              print('Enable: developer.apple.com > Identifiers > com.aidanmcconnon.currents')
+              print('  > tick Push Notifications > Save. Next master build enables push.')
+
+          if changed:
               with open(ent_path, 'wb') as f:
                   plistlib.dump(app, f)
-              print('WARNING: profile has NO iCloud container - archiving WITHOUT:', removed)
-              print('iCloud backup will be inactive in this build. To restore it:')
-              print('developer.apple.com > Identifiers > com.aidanmcconnon.currents >')
-              print('iCloud > assign container iCloud.com.aidanmcconnon.currents.')
-              print('The next master build will then include iCloud automatically.')
           PYSCRIPT
 
       - name: Resolve packages

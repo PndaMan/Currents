@@ -2,6 +2,7 @@ import SwiftUI
 
 @main
 struct CurrentsApp: App {
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var appState = AppState()
     @AppStorage("selectedTheme") private var selectedTheme = ThemeOption.ocean.rawValue
     @Environment(\.scenePhase) private var scenePhase
@@ -21,6 +22,9 @@ struct CurrentsApp: App {
             // launch, which crashes the unsigned simulator test build.
             if phase == .active, UserDefaults.standard.bool(forKey: "communityJoined") {
                 Task {
+                    // Ensure APNs registration + CloudKit push subscriptions are
+                    // in place, then reconcile the in-app lists.
+                    await CommunityService.shared.enablePush()
                     await CommunityService.shared.refreshTripInvites()
                     await CommunityService.shared.refreshFriendRequests()
                 }

@@ -67,9 +67,22 @@ Add friend code **`MARLIN`** — a built-in demo angler that's entirely local
 (profile, catches, leaderboard, shared spots). Great for checking the UI while
 you finish the Console setup.
 
-## Notifications
+## Push notifications (instant, even when the app is closed)
 
-Friend-request / trip-invite alerts are delivered as a **local notification the
-next time the recipient opens the app** (not instant push while it's closed).
-Instant background push would require adding the Push Notifications capability
-(`aps-environment`) to the App ID + APNs — a separate step.
+Friend requests, trip invites, and "request accepted" are delivered as **real
+APNs push** via CloudKit subscriptions — instantly, not "when you next open the
+app". The app registers the subscriptions automatically once you've joined.
+
+For it to work you must enable **Push Notifications** on the App ID (one-time):
+
+1. <https://developer.apple.com/account> → **Certificates, IDs & Profiles** →
+   **Identifiers** → `com.aidanmcconnon.currents`.
+2. Tick **Push Notifications** → **Save**.
+3. The CI re-mints provisioning profiles each run, so the next TestFlight build
+   picks up the capability. (Until it's enabled, CI's "align entitlements" step
+   simply drops the push entitlement — the build still uploads fine, push just
+   stays off.)
+
+The app's `aps-environment` entitlement is already set to `production`
+(TestFlight/App Store). CloudKit delivers the pushes; no APNs key handling is
+needed in the app.

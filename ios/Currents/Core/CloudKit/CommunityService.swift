@@ -2,6 +2,7 @@ import Foundation
 import CloudKit
 import CoreLocation
 import UIKit
+import UserNotifications
 
 /// Serverless multiplayer via CloudKit's PUBLIC database — no backend to run.
 ///
@@ -157,6 +158,7 @@ final class CommunityService: ObservableObject {
         UserDefaults.standard.set(true, forKey: "communityJoined")
         joined = true
         await saveMyProfile(stats: nil)
+        await enablePush()
     }
 
     func leave() {
@@ -833,18 +835,12 @@ final class CommunityService: ObservableObject {
 
     /// Poll for invites and fire a one-time local notification for any new ones.
     /// Returns the current pending set for the in-app list.
+    /// Refresh the in-app trip-invite list. Alerts themselves arrive as instant
+    /// push (CloudKit subscription) — no local "on open" notification.
     @discardableResult
     func refreshTripInvites() async -> [TripInvite] {
         guard joined else { return [] }
-        let invites = await pendingInvites()
-        var seen = Set(UserDefaults.standard.stringArray(forKey: "seenTripInvites") ?? [])
-        for inv in invites where !seen.contains(inv.id) {
-            await NotificationManager.shared.scheduleTripInviteAlert(fromName: inv.fromName, tripName: inv.tripName)
-            seen.insert(inv.id)
-        }
-        // Keep only ids that still have live invites, so re-invites re-notify.
-        UserDefaults.standard.set(Array(seen.intersection(invites.map(\.id))), forKey: "seenTripInvites")
-        return invites
+        return await pendingInvites()
     }
 
     // MARK: - Friend requests (mutual add + accept)
@@ -929,17 +925,81 @@ final class CommunityService: ObservableObject {
 
     /// Poll incoming requests (fire a one-time notification for new ones) and
     /// reconcile ones I sent that were accepted. Returns pending incoming.
+    /// Refresh the in-app friend-request list and reconcile ones I sent that
+    /// were accepted. Alerts arrive as instant push (CloudKit subscription).
     @discardableResult
     func refreshFriendRequests() async -> [FriendRequest] {
         guard joined else { return [] }
         await reconcileSentRequests()
-        let incoming = await pendingFriendRequests()
-        var seen = Set(UserDefaults.standard.stringArray(forKey: "seenFriendRequests") ?? [])
-        for req in incoming where !seen.contains(req.id) {
-            await NotificationManager.shared.scheduleFriendRequestAlert(fromName: req.fromName)
-            seen.insert(req.id)
+        return await pendingFriendRequests()
+    }
+
+    // MARK: - Push notifications (instant, via CloudKit subscriptions)
+
+    /// Register for APNs and create the CloudKit subscriptions that deliver
+    /// friend requests / trip invites / request-accepted as real push — instant,
+    /// even when the app is closed (not "when you next open the app").
+    func enablePush() async {
+        guard joined else { return }
+        let granted = (try? await UNUserNotificationCenter.current()
+            .requestAuthorization(options: [.alert, .sound, .badge])) ?? false
+        guard granted else { return }
+        UIApplication.shared.registerForRemoteNotifications()
+        await registerPushSubscriptions()
+    }
+
+    private func registerPushSubscriptions() async {
+        // Only rebuild subscriptions when the friend code changes (cheap guard).
+        if UserDefaults.standard.string(forKey: "pushSubsForCode") == friendCode { return }
+
+        func info(_ title: String, key: String, args: [String]) -> CKSubscription.NotificationInfo {
+            let n = CKSubscription.NotificationInfo()
+            n.title = title
+            n.alertLocalizationKey = key
+            n.alertLocalizationArgs = args
+            n.soundName = "default"
+            n.shouldBadge = true
+            return n
         }
-        UserDefaults.standard.set(Array(seen.intersection(incoming.map(\.id))), forKey: "seenFriendRequests")
-        return incoming
+
+        // Incoming friend requests.
+        let frSub = CKQuerySubscription(
+            recordType: friendReqType,
+            predicate: NSPredicate(format: "toCode == %@", friendCode),
+            subscriptionID: "friendreq-in-\(friendCode)",
+            options: [.firesOnRecordCreation])
+        frSub.notificationInfo = info("New friend request",
+                                      key: "%1$@ wants to be friends on Currents 🎣",
+                                      args: ["fromName"])
+
+        // Incoming trip invites.
+        let tiSub = CKQuerySubscription(
+            recordType: inviteType,
+            predicate: NSPredicate(format: "toCode == %@", friendCode),
+            subscriptionID: "tripinvite-in-\(friendCode)",
+            options: [.firesOnRecordCreation])
+        tiSub.notificationInfo = info("Trip invite",
+                                      key: "%1$@ invited you to “%2$@” on Currents",
+                                      args: ["fromName", "tripName"])
+
+        // A request I sent got accepted.
+        let acSub = CKQuerySubscription(
+            recordType: friendReqType,
+            predicate: NSPredicate(format: "fromCode == %@ AND status == %@", friendCode, "accepted"),
+            subscriptionID: "friendreq-accepted-\(friendCode)",
+            options: [.firesOnRecordCreation, .firesOnRecordUpdate])
+        let acInfo = CKSubscription.NotificationInfo()
+        acInfo.title = "Friend request accepted"
+        acInfo.alertBody = "You've got a new fishing friend on Currents 🎣"
+        acInfo.soundName = "default"
+        acInfo.shouldBadge = true
+        acSub.notificationInfo = acInfo
+
+        do {
+            _ = try await db.modifySubscriptions(saving: [frSub, tiSub, acSub], deleting: [])
+            UserDefaults.standard.set(friendCode, forKey: "pushSubsForCode")
+        } catch {
+            // Schema not deployed yet / offline — retried next foreground.
+        }
     }
 }

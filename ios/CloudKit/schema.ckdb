@@ -119,7 +119,7 @@ DEFINE SCHEMA
         fromCode    STRING QUERYABLE,
         fromName    STRING,
         toCode      STRING QUERYABLE,
-        status      STRING,
+        status      STRING QUERYABLE,
         createdAt   TIMESTAMP,
         "___createTime" TIMESTAMP,
         "___createdBy"  REFERENCE,
