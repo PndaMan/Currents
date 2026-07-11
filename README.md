@@ -21,7 +21,7 @@
 
 ## Overview
 
-Currents is a fully local, offline-first fishing app: log catches, analyse gear, track spots, forecast the bite, and identify species on-device. Nothing leaves your phone unless you choose to share it. No accounts, no tracking, no cloud round-trips.
+Currents is an on-device-first fishing app: log catches, analyse gear, track spots, forecast the bite, and identify species on-device. By default nothing leaves your phone — no account required, no tracking. Social networking is **entirely optional**: if you choose to join the Community, a limited set of data (leaderboard catches, your angler profile, friend requests, and spots you explicitly share) syncs through Apple's CloudKit so friends can see it. Don't join and the app stays fully local.
 
 The app is written in **Swift 5.10 / SwiftUI**, targeting **iOS 26** with the Liquid Glass design language, and persists everything through **GRDB.swift** on SQLite. Weather data is fetched from the free [Open-Meteo](https://open-meteo.com) API when online and cached aggressively for offline use. Fish species identification runs on-device via **CoreML**.
 
@@ -31,7 +31,7 @@ The app is written in **Swift 5.10 / SwiftUI**, targeting **iOS 26** with the Li
 - **Pin-drop locations** — pick a spot anywhere on the map, not just your current GPS fix.
 - **Photo capture** with inline species suggestion from the on-device classifier.
 - **Metadata that matters** — weight, length, water temperature, gear used, notes, forecast score at the moment of capture.
-- **Private by default** — nothing leaves the device. A per-catch privacy radius obfuscates shared coordinates.
+- **Private by default** — nothing leaves the device unless you opt into the Community. A per-catch privacy radius obfuscates any coordinates you do share.
 
 ### Bite forecast
 The `ForecastEngine` computes a 0–100 bite score from a weighted combination of factors that actually predict fish behavior:
@@ -164,7 +164,7 @@ Every push to `master` builds an unsigned `.ipa` via GitHub Actions ([.github/wo
 - [ ] On-device CoreML fish classifier shipped with the app
 - [ ] PMTiles bundled bathymetry regions
 - [ ] Optional self-hostable sync layer (PowerSync)
-- [ ] Social features (opt-in public catches with obfuscated locations)
+- [x] Optional Community — leaderboards, friends, shared spots (opt-in, obfuscated locations)
 
 ## Contributing
 

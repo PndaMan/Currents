@@ -3,7 +3,9 @@ import SwiftUI
 import CoreLocation
 
 /// Schedules local notifications when weather conditions produce high bite scores
-/// at the user's saved spots. No APNs — works fully offline and sideloaded.
+/// at the user's saved spots. These are on-device local notifications (no server).
+/// Community pushes (friend requests, trip invites) are delivered separately via
+/// CloudKit subscriptions once you opt in.
 final class NotificationManager: @unchecked Sendable {
     static let shared = NotificationManager()
 

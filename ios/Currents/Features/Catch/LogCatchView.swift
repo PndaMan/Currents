@@ -791,8 +791,9 @@ struct LogCatchView: View {
 
         // Publish a measured catch to the community leaderboard and, when this
         // trip is a shared group trip, to the group's live feed. No-op unless
-        // the angler has joined; carries species + size + broad region only,
-        // never coordinates.
+        // the angler has joined; carries species + size + broad region (and the
+        // photo). Coordinates are attached only if the angler opted into catch-
+        // location sharing, and are offset by their honey-hole radius.
         if catchRecord.weightKg != nil || catchRecord.lengthCm != nil {
             let name = species?.commonName ?? "Fish"
             let groupCode = tripId.flatMap { CommunityService.shared.groupCode(forTripId: $0) }

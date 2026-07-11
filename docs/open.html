@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Open in Currents</title>
+    <style>
+        :root { color-scheme: light dark; }
+        * { box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
+            background: linear-gradient(160deg, #0a2a43 0%, #0d3d5c 45%, #0a2a43 100%);
+            color: #f2f6f9; padding: 24px;
+        }
+        .card {
+            width: 100%; max-width: 400px; text-align: center;
+            background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12);
+            border-radius: 24px; padding: 34px 26px; backdrop-filter: blur(20px);
+            box-shadow: 0 20px 60px rgba(0,0,0,0.35);
+        }
+        .logo {
+            width: 76px; height: 76px; margin: 0 auto 18px; border-radius: 20px;
+            background: linear-gradient(150deg, #2fa4f5, #0a5aa0);
+            display: flex; align-items: center; justify-content: center; font-size: 40px;
+            box-shadow: 0 8px 24px rgba(47,164,245,0.4);
+        }
+        h1 { font-size: 1.4rem; margin: 0 0 6px; }
+        .sub { color: #a9c4d6; font-size: 0.95rem; margin: 0 0 22px; line-height: 1.5; }
+        .code {
+            font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 1.5rem;
+            letter-spacing: 4px; font-weight: 700; color: #7fd4ff;
+            background: rgba(0,0,0,0.25); border-radius: 12px; padding: 12px 0; margin: 0 0 22px;
+        }
+        .btn {
+            display: block; width: 100%; padding: 15px; border: none; border-radius: 14px;
+            font-size: 1.05rem; font-weight: 600; cursor: pointer; text-decoration: none;
+            background: #2fa4f5; color: #04263f; margin-bottom: 12px; transition: transform 0.1s;
+        }
+        .btn:active { transform: scale(0.98); }
+        .btn.secondary { background: rgba(255,255,255,0.1); color: #f2f6f9; }
+        .hint { color: #8aa7ba; font-size: 0.82rem; margin-top: 18px; line-height: 1.5; }
+        a.plain { color: #7fd4ff; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <div class="logo">🎣</div>
+        <h1 id="title">Open in Currents</h1>
+        <p class="sub" id="subtitle">Tap below to open this in the Currents app.</p>
+        <div class="code" id="code">------</div>
+        <a class="btn" id="openBtn" href="#">Open in Currents</a>
+        <a class="btn secondary" href="https://github.com/PndaMan/Currents">Get Currents</a>
+        <p class="hint" id="hint">
+            Don't have the app yet? Install Currents, then open Community › Friends
+            and enter the code above.
+        </p>
+    </div>
+
+    <script>
+        (function () {
+            var params = new URLSearchParams(window.location.search);
+            var friend = (params.get('f') || '').toUpperCase();
+            var trip = (params.get('t') || '').toUpperCase();
+            var tripName = params.get('n') || '';
+
+            var deepLink = '';
+            var code = '';
+            if (friend) {
+                code = friend;
+                deepLink = 'currents://friend/' + encodeURIComponent(friend);
+                document.getElementById('title').textContent = 'Add me on Currents';
+                document.getElementById('subtitle').textContent =
+                    'Open the Currents app to send a friend request.';
+                document.getElementById('hint').innerHTML =
+                    "Don't have the app yet? Install Currents, then open Community › Friends and enter this code.";
+            } else if (trip) {
+                code = trip;
+                deepLink = 'currents://trip/' + encodeURIComponent(trip);
+                var t = tripName ? ('“' + tripName + '”') : 'a fishing trip';
+                document.getElementById('title').textContent = 'Join ' + t;
+                document.getElementById('subtitle').textContent =
+                    'Open the Currents app to join this group trip.';
+                document.getElementById('hint').innerHTML =
+                    "Don't have the app yet? Install Currents, then open Community › Join a Trip and enter this code.";
+            }
+
+            if (code) {
+                document.getElementById('code').textContent = code;
+            } else {
+                document.getElementById('code').style.display = 'none';
+            }
+
+            var btn = document.getElementById('openBtn');
+            if (deepLink) {
+                btn.setAttribute('href', deepLink);
+                // Attempt to open the app automatically on load.
+                setTimeout(function () { window.location.href = deepLink; }, 350);
+            } else {
+                btn.style.display = 'none';
+            }
+        })();
+    </script>
+</body>
+</html>

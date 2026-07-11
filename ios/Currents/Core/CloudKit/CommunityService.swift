@@ -82,13 +82,51 @@ final class CommunityService: ObservableObject {
         set { UserDefaults.standard.set(newValue, forKey: "communityFriends") }
     }
 
-    /// Tappable deep link that opens the app on an "Add friend" confirmation.
-    func friendLink() -> URL { URL(string: "currents://friend/\(friendCode)")! }
+    /// Whether to attach an (obfuscated) location to catches I publish, so
+    /// friends see a map on my catches. Off by default — coordinates never leave
+    /// the device unless the angler explicitly turns this on.
+    var shareCatchLocations: Bool {
+        get { UserDefaults.standard.bool(forKey: "shareCatchLocations") }
+        set { UserDefaults.standard.set(newValue, forKey: "shareCatchLocations") }
+    }
+
+    /// The honey-hole radius (km) the angler set in Privacy settings; used to
+    /// offset any shared catch coordinate so exact spots stay private.
+    private var privacyRadiusKm: Double {
+        let v = UserDefaults.standard.double(forKey: "privacyRadiusKm")
+        return v > 0 ? v : 7
+    }
+
+    /// Deterministically offset a coordinate by up to the honey-hole radius, so
+    /// a shared catch shows the right general area without giving up the exact
+    /// spot. Deterministic per catch id so it doesn't jump around between syncs.
+    private func obfuscated(_ lat: Double, _ lon: Double, seed: String) -> (Double, Double) {
+        // Stable FNV-1a hash so the same catch always offsets the same way
+        // (Swift's String.hashValue is per-process seeded and would jump around).
+        var hash: UInt64 = 1469598103934665603
+        for byte in seed.utf8 { hash = (hash ^ UInt64(byte)) &* 1099511628211 }
+        let h = Int(hash % 100000)
+        let angle = Double(h % 360) * .pi / 180
+        // 30–100% of the radius, so points don't cluster on a ring.
+        let frac = 0.3 + Double((h / 360) % 71) / 100.0
+        let distKm = privacyRadiusKm * frac
+        let dLat = (distKm / 111.0) * cos(angle)
+        let dLon = (distKm / (111.0 * cos(lat * .pi / 180))) * sin(angle)
+        return (lat + dLat, lon + dLon)
+    }
+
+    /// Base URL of the web smart-link page (hosted on GitHub Pages from /docs).
+    /// A real https:// link that previews nicely in Messages and bounces into
+    /// the app via the currents:// scheme (see docs/open.html).
+    static let webBase = "https://pndaman.github.io/Currents/open.html"
+
+    /// Tappable https link that opens the app on an "Add friend" confirmation.
+    func friendLink() -> URL { URL(string: "\(Self.webBase)?f=\(friendCode)")! }
 
     func friendInviteMessage() -> String {
         """
         Add me on Currents 🎣
-        Tap to add me: currents://friend/\(friendCode)
+        \(friendLink().absoluteString)
         …or enter my angler code \(friendCode) in Community › Friends.
         """
     }
@@ -121,6 +159,11 @@ final class CommunityService: ObservableObject {
         let region: String
         let date: Date
         var localPhotoPath: String? = nil   // set for your own catches (local)
+        /// A friend published a photo with this catch (fetched on demand by id).
+        var hasRemotePhoto: Bool = false
+        /// Present only when the angler opted into sharing catch locations
+        /// (already offset by their honey-hole radius).
+        var coordinate: CLLocationCoordinate2D? = nil
     }
 
     struct SharedSpot: Identifiable {
@@ -141,7 +184,6 @@ final class CommunityService: ObservableObject {
         var nickname = ""
     }
 
-    enum Scope { case global, region, friends }
     enum Metric { case count, weight, length }
 
     // MARK: - Join / leave
@@ -269,9 +311,48 @@ final class CommunityService: ObservableObject {
         if let l = catchRecord.lengthCm { record["lengthCm"] = l as CKRecordValue }
         record["region"] = region as CKRecordValue
         record["caughtAt"] = catchRecord.caughtAt as CKRecordValue
+        attachPhoto(catchRecord.photoPath, to: record)
+        attachLocation(lat: catchRecord.latitude, lon: catchRecord.longitude,
+                       seed: catchRecord.id, to: record)
         // Tag the catch to a shared trip so the whole group sees it in real time.
         if let groupCode { record["groupCode"] = groupCode as CKRecordValue }
-        _ = try? await db.save(record)
+        if (try? await db.save(record)) != nil, joined {
+            // Remember we've sent it so the full-history sync doesn't re-upload it.
+            var published = Set(UserDefaults.standard.stringArray(forKey: "publishedCatchIds") ?? [])
+            published.insert(catchRecord.id)
+            UserDefaults.standard.set(Array(published), forKey: "publishedCatchIds")
+        }
+    }
+
+    /// Attach a catch photo as a CKAsset (and a `hasPhoto` flag so leaderboard
+    /// queries can tell there's a photo without downloading the asset).
+    private func attachPhoto(_ photoPath: String?, to record: CKRecord) {
+        guard let photoPath, let image = PhotoManager.load(photoPath),
+              let data = image.jpegData(compressionQuality: 0.7) else {
+            record["hasPhoto"] = 0 as CKRecordValue
+            return
+        }
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ck-\(UUID().uuidString).jpg")
+        do {
+            try data.write(to: tmp, options: .atomic)
+            record["photo"] = CKAsset(fileURL: tmp)
+            record["hasPhoto"] = 1 as CKRecordValue
+        } catch {
+            record["hasPhoto"] = 0 as CKRecordValue
+        }
+    }
+
+    /// Attach an obfuscated catch location, but only if the angler opted in.
+    private func attachLocation(lat: Double, lon: Double, seed: String, to record: CKRecord) {
+        guard shareCatchLocations, lat != 0 || lon != 0 else {
+            record["lat"] = nil
+            record["lon"] = nil
+            return
+        }
+        let (oLat, oLon) = obfuscated(lat, lon, seed: seed)
+        record["lat"] = oLat as CKRecordValue
+        record["lon"] = oLon as CKRecordValue
     }
 
     /// A leaderboard: the visible top rows PLUS your own standing (rank + row)
@@ -281,9 +362,11 @@ final class CommunityService: ObservableObject {
     /// `myRows` are the caller's own catches built from the LOCAL database, so
     /// you always see yourself and your full history even if the CloudKit query
     /// returns nothing (e.g. indexes not yet configured, or backfill pending).
-    func board(scope: Scope, metric: Metric, region: String, myRows: [LeaderRow] = [])
+    /// The leaderboard is scoped to friends (and yourself) only — there are no
+    /// global or regional boards.
+    func board(metric: Metric, myRows: [LeaderRow] = [])
         async -> (rows: [LeaderRow], mine: (rank: Int, row: LeaderRow)?) {
-        let ranked = await rankedRows(scope: scope, metric: metric, region: region, myRows: myRows)
+        let ranked = await rankedRows(metric: metric, myRows: myRows)
         let cap = metric == .count ? 50 : 20
         let top = Array(ranked.prefix(cap))
         var mine: (rank: Int, row: LeaderRow)?
@@ -293,24 +376,20 @@ final class CommunityService: ObservableObject {
         return (top, mine)
     }
 
-    /// The full ranked list for a board (no truncation).
-    private func rankedRows(scope: Scope, metric: Metric, region: String, myRows: [LeaderRow]) async -> [LeaderRow] {
+    /// The full ranked list for a board (no truncation), among friends + me.
+    private func rankedRows(metric: Metric, myRows: [LeaderRow]) async -> [LeaderRow] {
         var catches = await fetchAllLeaderCatches()
         // Local catches are authoritative for me: drop any remote copies of my
         // own catches and use the local ones so I always appear.
         catches.removeAll { $0.friendCode == friendCode }
         catches += myRows
 
-        switch scope {
-        case .global: break
-        case .region: catches = catches.filter { $0.region == region }
-        case .friends:
-            let codes = Set(friends + [friendCode])
-            catches = catches.filter { codes.contains($0.friendCode) }
-        }
+        // Friends-only: keep just my friends and me.
+        let codes = Set(friends + [friendCode])
+        catches = catches.filter { codes.contains($0.friendCode) }
 
-        // Fold in the demo angler so there's always something to look at.
-        catches += demoLeaderCatches(scope: scope, region: region)
+        // Fold in the demo angler (if added) so there's always something to see.
+        catches += demoLeaderCatches()
 
         switch metric {
         case .count:
@@ -342,9 +421,19 @@ final class CommunityService: ObservableObject {
     /// query needs no custom Sortable index — one less CloudKit setup step.
     private func fetchAllLeaderCatches(limit: Int = 400) async -> [LeaderRow] {
         let query = CKQuery(recordType: catchType, predicate: NSPredicate(value: true))
-        guard let results = try? await db.records(matching: query, resultsLimit: limit) else { return [] }
+        // Fetch everything EXCEPT the photo asset — the leaderboard only needs to
+        // know a photo exists (`hasPhoto`); the asset itself is downloaded on
+        // demand when a catch is opened, so lists stay fast.
+        let keys = ["anglerName", "friendCode", "species", "weightKg", "lengthCm",
+                    "region", "caughtAt", "groupCode", "hasPhoto", "lat", "lon"]
+        guard let results = try? await db.records(
+            matching: query, desiredKeys: keys, resultsLimit: limit) else { return [] }
         return results.matchResults.compactMap { _, res -> LeaderRow? in
             guard let r = try? res.get() else { return nil }
+            var coord: CLLocationCoordinate2D?
+            if let lat = r["lat"] as? Double, let lon = r["lon"] as? Double {
+                coord = CLLocationCoordinate2D(latitude: lat, longitude: lon)
+            }
             return LeaderRow(
                 id: r.recordID.recordName,
                 anglerName: r["anglerName"] as? String ?? "Angler",
@@ -354,23 +443,54 @@ final class CommunityService: ObservableObject {
                 lengthCm: r["lengthCm"] as? Double,
                 catchCount: nil,
                 region: r["region"] as? String ?? "",
-                date: r["caughtAt"] as? Date ?? .now
+                date: r["caughtAt"] as? Date ?? .now,
+                hasRemotePhoto: (r["hasPhoto"] as? Int ?? 0) == 1,
+                coordinate: coord
             )
         }
+    }
+
+    /// Download a single published catch's photo asset by its record id. Cached
+    /// in memory so re-opening a catch (or scrolling a friend's list) is instant.
+    private let photoCache = NSCache<NSString, UIImage>()
+    func catchPhoto(recordName: String) async -> UIImage? {
+        if let cached = photoCache.object(forKey: recordName as NSString) { return cached }
+        let id = CKRecord.ID(recordName: recordName)
+        guard let r = try? await db.record(for: id),
+              let asset = r["photo"] as? CKAsset, let url = asset.fileURL,
+              let data = try? Data(contentsOf: url), let image = UIImage(data: data) else { return nil }
+        photoCache.setObject(image, forKey: recordName as NSString)
+        return image
     }
 
     /// Publish every past catch so the leaderboards reflect the full history,
     /// not just catches logged after joining. Idempotent (deterministic record
     /// ids, force-overwrite) and throttled so it isn't re-run constantly.
-    func syncAllCatches(_ details: [(id: String, species: String, weightKg: Double?, lengthCm: Double?, caughtAt: Date)]) async {
+    func syncAllCatches(_ details: [(id: String, species: String, weightKg: Double?, lengthCm: Double?, caughtAt: Date, latitude: Double, longitude: Double, photoPath: String?)]) async {
         guard joined else { return }
         await claimFriendCode()   // no-op once claimed; retries if a prior claim failed offline
+        // Re-run when the location-sharing preference flips, not just on a timer,
+        // so turning it on/off updates existing catches promptly.
         let last = UserDefaults.standard.object(forKey: "lastCatchSync") as? Date ?? .distantPast
-        guard Date().timeIntervalSince(last) > 1800 else { return }
+        let lastLocPref = UserDefaults.standard.object(forKey: "lastCatchSyncLocPref") as? Bool
+        let prefChanged = lastLocPref != shareCatchLocations
+        guard prefChanged || Date().timeIntervalSince(last) > 1800 else { return }
+
+        // Only re-upload everything (photos + coords) when the location-sharing
+        // preference flips. Otherwise publish just catches we haven't sent yet,
+        // so routine syncs don't re-upload every photo each time.
+        var published = Set(UserDefaults.standard.stringArray(forKey: "publishedCatchIds") ?? [])
+        let toPublish = prefChanged ? details : details.filter { !published.contains($0.id) }
+        guard !toPublish.isEmpty else {
+            UserDefaults.standard.set(Date(), forKey: "lastCatchSync")
+            UserDefaults.standard.set(shareCatchLocations, forKey: "lastCatchSyncLocPref")
+            return
+        }
         UserDefaults.standard.set(Date(), forKey: "lastCatchSync")
+        UserDefaults.standard.set(shareCatchLocations, forKey: "lastCatchSyncLocPref")
 
         let region = myRegion
-        let records: [CKRecord] = details.map { d in
+        let records: [CKRecord] = toPublish.map { d in
             let id = CKRecord.ID(recordName: "catch-\(friendCode)-\(d.id)")
             let record = CKRecord(recordType: catchType, recordID: id)
             record["anglerName"] = myName as CKRecordValue
@@ -380,12 +500,16 @@ final class CommunityService: ObservableObject {
             if let l = d.lengthCm { record["lengthCm"] = l as CKRecordValue }
             record["region"] = region as CKRecordValue
             record["caughtAt"] = d.caughtAt as CKRecordValue
+            attachPhoto(d.photoPath, to: record)
+            attachLocation(lat: d.latitude, lon: d.longitude, seed: d.id, to: record)
             return record
         }
         // Batch (CloudKit caps ~400/op); force-overwrite so re-runs are safe.
         for chunk in stride(from: 0, to: records.count, by: 300).map({ Array(records[$0..<min($0 + 300, records.count)]) }) {
             _ = try? await db.modifyRecords(saving: chunk, deleting: [], savePolicy: .allKeys, atomically: false)
         }
+        published.formUnion(toPublish.map(\.id))
+        UserDefaults.standard.set(Array(published), forKey: "publishedCatchIds")
     }
 
     // MARK: - Friends
@@ -546,20 +670,25 @@ final class CommunityService: ObservableObject {
         )
     }
 
-    private func demoLeaderCatches(scope: Scope, region: String) -> [LeaderRow] {
+    private func demoLeaderCatches() -> [LeaderRow] {
         guard demoAdded else { return [] }
-        if scope == .region && region != myRegion { return [] }
         return demoCatchRows
     }
 
     /// The demo angler's individual catches (used for their profile + boards).
     var demoCatchRows: [LeaderRow] {
         Self.demoCatchSeeds.enumerated().map { i, s in
-            LeaderRow(
+            // Scatter demo catches around Theewaterskloof so the location-sharing
+            // map preview has something to show.
+            let coord = CLLocationCoordinate2D(
+                latitude: -34.055 + Double((i % 5)) * 0.006 - 0.012,
+                longitude: 19.290 + Double((i % 4)) * 0.007 - 0.010)
+            return LeaderRow(
                 id: "demo-\(i)", anglerName: "Sasha Rivers", friendCode: Self.demoCode,
                 species: s.species, weightKg: s.weightKg, lengthCm: s.lengthCm,
                 catchCount: nil, region: myRegion,
-                date: Date().addingTimeInterval(-Double(i) * 3.2 * 24 * 3600)
+                date: Date().addingTimeInterval(-Double(i) * 3.2 * 24 * 3600),
+                coordinate: coord
             )
         }
     }
@@ -665,15 +794,18 @@ final class CommunityService: ObservableObject {
         UserDefaults.standard.set(m, forKey: "tripGroupCodes")
     }
 
-    /// Tappable deep link that opens the app straight into the join flow.
-    func inviteLink(forGroup code: String) -> URL {
-        URL(string: "currents://trip/\(code)")!
+    /// Tappable https link that opens the app straight into the join flow.
+    func inviteLink(forGroup code: String, tripName: String = "") -> URL {
+        var comps = URLComponents(string: Self.webBase)!
+        comps.queryItems = [URLQueryItem(name: "t", value: code)]
+        if !tripName.isEmpty { comps.queryItems?.append(URLQueryItem(name: "n", value: tripName)) }
+        return comps.url!
     }
 
     func inviteMessage(forGroup code: String, tripName: String) -> String {
         """
         Join my fishing trip “\(tripName)” on Currents 🎣
-        Tap to join: currents://trip/\(code)
+        \(inviteLink(forGroup: code, tripName: tripName).absoluteString)
         …or open Currents › Community › Join a Trip and enter code \(code).
         """
     }

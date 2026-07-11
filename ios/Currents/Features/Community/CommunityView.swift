@@ -2,8 +2,8 @@ import SwiftUI
 import PhotosUI
 import MapKit
 
-/// Community hub: your angler profile, a friends/regional/global leaderboard,
-/// and a friend system with in-depth profiles and per-friend spot privacy.
+/// Community hub: your angler profile, a friends-only leaderboard, and a friend
+/// system with in-depth profiles and per-friend spot privacy.
 struct CommunityView: View {
     @Environment(AppState.self) private var appState
     @StateObject private var svc = CommunityService.shared
@@ -34,7 +34,10 @@ struct CommunityView: View {
              species: $0.species?.commonName ?? "Fish",
              weightKg: $0.catchRecord.weightKg,
              lengthCm: $0.catchRecord.lengthCm,
-             caughtAt: $0.catchRecord.caughtAt)
+             caughtAt: $0.catchRecord.caughtAt,
+             latitude: $0.catchRecord.latitude,
+             longitude: $0.catchRecord.longitude,
+             photoPath: $0.catchRecord.photoPath)
         }
         await svc.syncAllCatches(details)
     }
@@ -48,7 +51,7 @@ struct CommunityView: View {
                     Image(systemName: "person.3.sequence.fill")
                         .font(.system(size: 44)).foregroundStyle(CurrentsTheme.accent)
                     Text("Fish with friends").font(.title3.bold())
-                    Text("A friends, regional, and global leaderboard, in-depth angler profiles, and spots you can share privately — one friend at a time. Powered by iCloud; no account or password needed.")
+                    Text("A friends leaderboard, in-depth angler profiles, and spots you can share privately — one friend at a time. Powered by iCloud; no account or password needed.")
                         .font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
                 }
                 .frame(maxWidth: .infinity).padding(.vertical, 8)
@@ -61,7 +64,7 @@ struct CommunityView: View {
                     Label("Join the Community", systemImage: "person.3.fill").frame(maxWidth: .infinity)
                 }.buttonStyle(.borderedProminent).tint(CurrentsTheme.accent)
             } footer: {
-                Text("Your spots stay private. Only your best catches (species, size, broad region) appear on the leaderboard — never coordinates.")
+                Text("The Community is optional. Until you join, everything stays on your device. When you join, your best catches (species, size, broad region), your angler profile, and spots you explicitly share sync through Apple's CloudKit so friends can see them. Coordinates are never shared unless you turn on location sharing — and even then they're offset by your honey-hole radius.")
             }
         }
     }
@@ -76,7 +79,7 @@ struct CommunityView: View {
             }
             FriendRequestsSection()
             TripInvitesSection()
-            LeaderboardSection(region: region)
+            LeaderboardSection()
             Section("Group Trips") {
                 NavigationLink {
                     GroupTripView(tripId: nil, tripName: "Group Trip")
@@ -154,25 +157,18 @@ struct AnglerAvatar: View {
 // MARK: - Leaderboard
 
 private struct LeaderboardSection: View {
-    let region: String
     @Environment(AppState.self) private var appState
     @StateObject private var svc = CommunityService.shared
     @AppStorage("units") private var units = "metric"
     private var imperial: Bool { units == "imperial" }
 
-    @State private var scope: CommunityService.Scope = .friends
     @State private var metric: CommunityService.Metric = .count
     @State private var rows: [CommunityService.LeaderRow] = []
     @State private var myStanding: (rank: Int, row: CommunityService.LeaderRow)?
     @State private var loading = false
 
     var body: some View {
-        Section("Leaderboard") {
-            Picker("Scope", selection: $scope) {
-                Text("Friends").tag(CommunityService.Scope.friends)
-                Text("Region").tag(CommunityService.Scope.region)
-                Text("Global").tag(CommunityService.Scope.global)
-            }.pickerStyle(.segmented)
+        Section {
             Picker("By", selection: $metric) {
                 Text("Most Fish").tag(CommunityService.Metric.count)
                 Text("Heaviest").tag(CommunityService.Metric.weight)
@@ -182,7 +178,7 @@ private struct LeaderboardSection: View {
             if loading {
                 HStack { ProgressView(); Text("Loading…").foregroundStyle(.secondary) }
             } else if rows.isEmpty {
-                Text("No entries yet — log a catch to appear here.")
+                Text("No entries yet — add friends and log catches to fill the board.")
                     .font(.caption).foregroundStyle(.secondary)
             } else {
                 ForEach(Array(rows.enumerated()), id: \.element.id) { i, row in
@@ -195,9 +191,12 @@ private struct LeaderboardSection: View {
                     rowBody(mine.rank - 1, mine.row)
                 }
             }
+        } header: {
+            Text("Leaderboard")
+        } footer: {
+            Text("Among you and your friends only.")
         }
         .task { await reload() }
-        .onChange(of: scope) { _, _ in Task { await reload() } }
         .onChange(of: metric) { _, _ in Task { await reload() } }
     }
 
@@ -222,6 +221,9 @@ private struct LeaderboardSection: View {
                 .foregroundStyle(i < 3 ? .white : .secondary)
                 .frame(width: 26, height: 26)
                 .background(i < 3 ? CurrentsTheme.accent : Color.secondary.opacity(0.15), in: Circle())
+            if metric != .count {
+                CommunityCatchThumb(row: row, size: 38)
+            }
             VStack(alignment: .leading, spacing: 1) {
                 HStack(spacing: 6) {
                     Text(row.anglerName).font(.subheadline.bold())
@@ -275,7 +277,7 @@ private struct LeaderboardSection: View {
 
     private func reload() async {
         loading = true
-        let result = await svc.board(scope: scope, metric: metric, region: region, myRows: myLocalRows())
+        let result = await svc.board(metric: metric, myRows: myLocalRows())
         rows = result.rows
         myStanding = result.mine
         loading = false
@@ -663,12 +665,17 @@ struct FriendProfileView: View {
     }
 
     private func catchRow(_ c: CommunityService.LeaderRow) -> some View {
-        HStack {
-            Image(systemName: "fish.fill").foregroundStyle(CurrentsTheme.accent)
+        HStack(spacing: 12) {
+            CommunityCatchThumb(row: c, size: 46)
             VStack(alignment: .leading, spacing: 1) {
                 Text(c.species).font(.subheadline.bold())
-                Text(c.date.formatted(date: .abbreviated, time: .omitted))
-                    .font(.caption2).foregroundStyle(.secondary)
+                HStack(spacing: 4) {
+                    Text(c.date.formatted(date: .abbreviated, time: .omitted))
+                    if c.coordinate != nil {
+                        Image(systemName: "mappin.and.ellipse")
+                    }
+                }
+                .font(.caption2).foregroundStyle(.secondary)
             }
             Spacer()
             Text(c.weightKg.map { Units.weight(kg: $0, imperial: imperial) }
@@ -765,6 +772,18 @@ struct CommunityCatchDetailView: View {
                     tile(row.date.formatted(date: .abbreviated, time: .omitted), "Date", "calendar")
                 }
 
+                if let coord = row.coordinate {
+                    CommunityCatchMap(coordinate: coord)
+                        .frame(height: 170)
+                        .clipShape(RoundedRectangle(cornerRadius: 16))
+                        .overlay(alignment: .bottomLeading) {
+                            Label("Approximate area", systemImage: "location.circle")
+                                .font(.caption2).padding(6)
+                                .background(.ultraThinMaterial, in: Capsule())
+                                .padding(8)
+                        }
+                }
+
                 if !row.region.isEmpty {
                     Label(row.region, systemImage: "globe").font(.caption).foregroundStyle(.secondary)
                 }
@@ -774,7 +793,11 @@ struct CommunityCatchDetailView: View {
         .navigationTitle("Catch")
         .navigationBarTitleDisplayMode(.inline)
         .task {
-            if let path = row.localPhotoPath { photo = PhotoManager.load(path) }
+            if let path = row.localPhotoPath {
+                photo = PhotoManager.load(path)
+            } else if row.hasRemotePhoto {
+                photo = await CommunityService.shared.catchPhoto(recordName: row.id)
+            }
             let all = (try? appState.speciesRepository.fetchAll()) ?? []
             species = all.first { $0.commonName.localizedCaseInsensitiveCompare(row.species) == .orderedSame }
         }
@@ -789,6 +812,67 @@ struct CommunityCatchDetailView: View {
         .frame(maxWidth: .infinity)
         .padding(.vertical, 12)
         .background(CurrentsTheme.accent.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+    }
+}
+
+// MARK: - Community map + photo thumbnail helpers
+
+/// A non-interactive mini map centred on a (deliberately obfuscated) catch
+/// location, with a soft radius circle to signal it's an approximate area.
+private struct CommunityCatchMap: View {
+    let coordinate: CLLocationCoordinate2D
+    var body: some View {
+        Map(initialPosition: .region(MKCoordinateRegion(
+            center: coordinate,
+            span: MKCoordinateSpan(latitudeDelta: 0.08, longitudeDelta: 0.08)))) {
+            Annotation("", coordinate: coordinate) {
+                Image(systemName: "mappin.circle.fill")
+                    .font(.title2).foregroundStyle(CurrentsTheme.accent)
+                    .background(Circle().fill(.white))
+            }
+            MapCircle(center: coordinate, radius: 3500)
+                .foregroundStyle(CurrentsTheme.accent.opacity(0.12))
+                .stroke(CurrentsTheme.accent.opacity(0.5), lineWidth: 1)
+        }
+        .disabled(true)
+    }
+}
+
+/// A square thumbnail for a community catch: the angler's photo if they shared
+/// one, otherwise the species artwork. Loads remote photos lazily + cached.
+struct CommunityCatchThumb: View {
+    let row: CommunityService.LeaderRow
+    var size: CGFloat = 44
+    @Environment(AppState.self) private var appState
+    @State private var photo: UIImage?
+    @State private var species: Species?
+
+    var body: some View {
+        Group {
+            if let photo {
+                Image(uiImage: photo).resizable().scaledToFill()
+            } else if let species {
+                SpeciesArtworkView(species: species, caught: true, size: size * 0.8)
+            } else {
+                ZStack {
+                    CurrentsTheme.accent.opacity(0.12)
+                    Image(systemName: "fish.fill").foregroundStyle(CurrentsTheme.accent.opacity(0.6))
+                }
+            }
+        }
+        .frame(width: size, height: size)
+        .clipShape(RoundedRectangle(cornerRadius: 9))
+        .task {
+            if let path = row.localPhotoPath {
+                photo = PhotoManager.load(path)
+            } else if row.hasRemotePhoto {
+                photo = await CommunityService.shared.catchPhoto(recordName: row.id)
+            }
+            if photo == nil {
+                let all = (try? appState.speciesRepository.fetchAll()) ?? []
+                species = all.first { $0.commonName.localizedCaseInsensitiveCompare(row.species) == .orderedSame }
+            }
+        }
     }
 }
 

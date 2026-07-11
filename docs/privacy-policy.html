@@ -14,15 +14,26 @@
 </head>
 <body>
     <h1>Privacy Policy</h1>
-    <p class="updated">Last updated: May 21, 2026</p>
+    <p class="updated">Last updated: July 11, 2026</p>
 
     <p>Currents Fishing App ("Currents", "we", "our") is developed by Aidan McConnon. This policy explains how the app handles your data.</p>
 
     <h2>Summary</h2>
-    <p>Currents is an offline-first app. Your data stays on your device. We do not collect, transmit, or sell your personal information.</p>
+    <p>Currents is an on-device-first app. By default, your data stays on your device — no account is required and we do not track you. Currents includes an <strong>optional</strong> social networking feature (the "Community"). If, and only if, you choose to join it, a limited set of data syncs through Apple's CloudKit so that friends you connect with can see it. You can leave the Community at any time. We never sell your personal information.</p>
 
     <h2>Data Stored on Your Device</h2>
-    <p>All data you create in Currents — including catches, spots, gear, trips, and photos — is stored locally on your device in a SQLite database. This data never leaves your device unless you explicitly choose to back it up to iCloud.</p>
+    <p>All data you create in Currents — including catches, spots, gear, trips, and photos — is stored locally on your device in a SQLite database. This data never leaves your device unless you explicitly choose to back it up to iCloud, or opt into the Community (see below).</p>
+
+    <h2>Optional Community &amp; Social Networking</h2>
+    <p>Currents offers an opt-in Community feature with leaderboards, friends, and spot sharing. It is <strong>off by default</strong> — nothing described in this section happens unless you tap "Join the Community" in the app. If you join, the following data is stored in the <strong>public database of Apple's CloudKit</strong> (in the app's iCloud container) so that the feature can work across devices and friends:</p>
+    <ul>
+        <li><strong>Angler profile</strong> — the display name, home water, region, and optional bio and avatar you enter, plus summary stats (total catches, best weight/length).</li>
+        <li><strong>Leaderboard catches</strong> — species, size (weight/length), and a broad region for catches you log. <strong>Exact coordinates are never included</strong> unless you separately turn on catch-location sharing, which is off by default; even then the location is offset by your honey-hole privacy radius.</li>
+        <li><strong>Friend requests</strong> — the friend code, name, and status needed to connect two anglers.</li>
+        <li><strong>Shared spots and group trips</strong> — only spots you explicitly choose to share, and trips you create or are invited to.</li>
+        <li><strong>Catch photos</strong> — only if you choose to attach and share them to the Community.</li>
+    </ul>
+    <p>This data is stored in Apple's CloudKit and is governed by <a href="https://www.apple.com/legal/privacy/">Apple's Privacy Policy</a>. Community data is used only to provide the social features you opted into — it is never sold or used for advertising. You can stop sharing and leave the Community at any time.</p>
 
     <h2>Location Data</h2>
     <p>Currents requests access to your location to show your position on the map, provide local fishing forecasts, and tag catches with coordinates. Location data is stored only on your device and is never transmitted to any server. You can revoke location access at any time in iOS Settings.</p>
@@ -34,13 +45,13 @@
     <p>If you choose to use the iCloud backup feature, a copy of your database is stored in your personal iCloud Drive account. This is governed by Apple's iCloud terms and privacy policy. We do not have access to your iCloud data.</p>
 
     <h2>Analytics and Tracking</h2>
-    <p>Currents does not include any analytics SDKs, tracking pixels, advertising frameworks, or crash reporting tools. We collect zero telemetry.</p>
+    <p>Currents does not include any analytics SDKs, tracking pixels, advertising frameworks, or crash reporting tools. We collect zero telemetry, and we do not track you across apps or websites. The optional Community feature (above) stores only the data you choose to share, and is never used for advertising or profiling.</p>
 
     <h2>Third-Party Services</h2>
     <p>Currents may use Apple's WeatherKit to provide weather and forecast data. These requests are handled by Apple and are subject to <a href="https://www.apple.com/legal/privacy/">Apple's Privacy Policy</a>. No personally identifiable information is sent with these requests.</p>
 
     <h2>Children's Privacy</h2>
-    <p>Currents does not knowingly collect any personal information from children. Since no data is collected from any user, the app is safe for use by all ages.</p>
+    <p>Currents does not knowingly collect any personal information from children. The optional Community feature requires an iCloud account (subject to Apple's age requirements); with it left off, the app collects no data from any user.</p>
 
     <h2>Changes to This Policy</h2>
     <p>If this policy changes, the updated version will be posted at this URL with a new "Last updated" date.</p>

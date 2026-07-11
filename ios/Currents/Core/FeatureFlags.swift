@@ -9,7 +9,8 @@ enum FeatureFlags {
     /// Live fishing-session tracking (GPS track, catch limits, planner).
     static let liveTrips = true
 
-    /// Public/private spot sharing. The app is fully offline right now, so
-    /// spot privacy is meaningless — hide it everywhere until sharing exists.
+    /// Legacy per-spot public/private toggle. Spot sharing now goes through the
+    /// opt-in Community (share directly to a friend), so this old global flag
+    /// stays hidden.
     static let spotPrivacy = false
 }

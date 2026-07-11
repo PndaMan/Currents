@@ -611,6 +611,7 @@ struct UnitsSettingsView: View {
 
 struct PrivacySettingsView: View {
     @AppStorage("privacyRadiusKm") private var privacyRadius = 7.0
+    @AppStorage("shareCatchLocations") private var shareCatchLocations = false
 
     var body: some View {
         Form {
@@ -621,6 +622,22 @@ struct PrivacySettingsView: View {
                 }
             } footer: {
                 Text("When you share a catch publicly, the location is randomly offset by this distance to protect your spots.")
+            }
+
+            Section {
+                Toggle("Share catch locations", isOn: $shareCatchLocations)
+            } header: {
+                Text("Community")
+            } footer: {
+                Text("Off by default. When on, your Community catches show friends a map of the general area — always offset by your honey-hole radius above, never the exact spot. Turn it off and your shared catches carry no location at all.")
+            }
+
+            Section {
+                EmptyView()
+            } header: {
+                Text("Data & the Community")
+            } footer: {
+                Text("Currents is on-device by default — your catches, spots, and photos stay on your phone. If you opt into the Community, a limited set of data (leaderboard catches, your angler profile, friend requests, and spots you explicitly share) syncs through Apple's CloudKit so friends can see it. Catch coordinates are never shared unless you turn on location sharing, and even then they're offset by your honey-hole radius. You can leave the Community at any time.")
             }
         }
         .navigationTitle("Privacy")
@@ -641,10 +658,11 @@ struct AboutView: View {
             .listRowBackground(Color.clear)
 
             Section("Features") {
-                Label("Fully offline catch logging", systemImage: "wifi.slash")
+                Label("On-device catch logging", systemImage: "iphone")
                 Label("On-device fish identification", systemImage: "brain")
                 Label("Physics-based bite forecasting", systemImage: "cloud.sun")
                 Label("Honey-hole privacy", systemImage: "lock.shield")
+                Label("Optional community & leaderboards", systemImage: "person.2")
                 Label("Gear effectiveness tracking", systemImage: "chart.bar")
                 Label("Offline maps with bathymetry", systemImage: "map")
             }
