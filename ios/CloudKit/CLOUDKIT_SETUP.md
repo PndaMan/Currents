@@ -49,9 +49,11 @@ its **Indexes** and add a **Queryable** index on **`recordName`**. Finally
 | CatchGrant    | ownerCode, viewerCode |
 | CodeClaim     | claimedAt |
 
-Security roles (Console → Security Roles): `GroupInvite` and `FriendRequest`
-need **World = Read + Write** (the recipient accepts/deletes a record the
-sender created). All other types are **World = Read**, creator-write.
+Security roles (Console → Security Roles): CloudKit does **not** allow Write for
+the `_world` role. `GroupInvite` and `FriendRequest` therefore grant **Write to
+`_icloud`** (any signed-in iCloud user) so the recipient can accept/decline a
+record the sender created; everything is world-readable. All other types are
+creator-write, world-read.
 
 ## On the device
 
