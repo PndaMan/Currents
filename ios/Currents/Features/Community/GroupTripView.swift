@@ -540,7 +540,7 @@ struct GroupTripView: View {
             Button { showingLog = true } label: {
                 Label("Log a Catch", systemImage: "plus.circle.fill").frame(maxWidth: .infinity)
             }
-            .buttonStyle(isThisActive ? .bordered : .borderedProminent).tint(CurrentsTheme.accent)
+            .buttonStyle(.borderedProminent).tint(CurrentsTheme.accent)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .glassCard()
