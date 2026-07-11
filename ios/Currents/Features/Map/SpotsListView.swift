@@ -61,7 +61,9 @@ struct SpotsListView: View {
                 .presentationDragIndicator(.visible)
                 .presentationContentInteraction(.resizes)
         }
-        .sheet(isPresented: $showingAddSpot) {
+        .sheet(isPresented: $showingAddSpot, onDismiss: {
+            Task { await loadData() }
+        }) {
             AddSpotSheet()
                 .presentationDetents([.large])
                 .presentationBackground(.ultraThinMaterial)

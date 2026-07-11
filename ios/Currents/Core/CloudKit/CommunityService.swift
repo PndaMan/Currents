@@ -33,6 +33,13 @@ final class CommunityService: ObservableObject {
 
     @Published var joined = UserDefaults.standard.bool(forKey: "communityJoined")
 
+    /// Bumped whenever the local profile (name/bio/avatar) or friend list
+    /// changes, so SwiftUI views observing this service refresh immediately —
+    /// the underlying values live in UserDefaults/files and aren't observable
+    /// on their own.
+    @Published private(set) var revision = 0
+    func bumpRevision() { revision &+= 1 }
+
     // MARK: - Identity
 
     var friendCode: String {
@@ -79,7 +86,7 @@ final class CommunityService: ObservableObject {
 
     var friends: [String] {
         get { UserDefaults.standard.stringArray(forKey: "communityFriends") ?? [] }
-        set { UserDefaults.standard.set(newValue, forKey: "communityFriends") }
+        set { UserDefaults.standard.set(newValue, forKey: "communityFriends"); bumpRevision() }
     }
 
     /// Whether to attach an (obfuscated) location to catches I publish, so
@@ -270,6 +277,7 @@ final class CommunityService: ObservableObject {
         UserDefaults.standard.set(homeWater, forKey: "communityHomeWater")
         UserDefaults.standard.set(region, forKey: "communityRegion")
         if let avatar { saveAvatar(avatar) }
+        bumpRevision()
         await saveMyProfile(stats: stats)
     }
 
@@ -289,6 +297,7 @@ final class CommunityService: ObservableObject {
     func saveAvatar(_ image: UIImage) {
         guard let data = image.jpegData(compressionQuality: 0.85) else { return }
         try? data.write(to: avatarURL, options: .atomic)
+        bumpRevision()
     }
 
     var myAvatar: UIImage? { UIImage(contentsOfFile: avatarURL.path) }

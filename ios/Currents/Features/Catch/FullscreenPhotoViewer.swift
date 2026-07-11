@@ -47,6 +47,33 @@ struct FullscreenPhotoViewer: View {
     }
 }
 
+/// Fullscreen, pinch-zoomable viewer for a single already-loaded `UIImage`
+/// (e.g. a community catch photo that was downloaded from CloudKit rather than
+/// stored locally). Same zoom/pan behaviour as `FullscreenPhotoViewer`.
+struct FullscreenImageViewer: View {
+    let image: UIImage
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        ZStack(alignment: .topTrailing) {
+            Color.black.ignoresSafeArea()
+            ZoomableImage(image: image).ignoresSafeArea()
+            Button {
+                dismiss()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.body.bold())
+                    .foregroundStyle(.white)
+                    .frame(width: 36, height: 36)
+                    .background(.black.opacity(0.5), in: Circle())
+            }
+            .padding(.trailing, 16)
+            .padding(.top, 8)
+        }
+        .statusBarHidden()
+    }
+}
+
 /// A single image with pinch-to-zoom, double-tap zoom, and pan-when-zoomed,
 /// backed by a native `UIScrollView`. UIKit handles the pinch/pan/momentum and
 /// edge clamping, so panning a zoomed photo is buttery-smooth instead of the

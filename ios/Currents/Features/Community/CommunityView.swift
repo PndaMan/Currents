@@ -389,6 +389,7 @@ private struct FriendsSection: View {
             }
         }
         .task { await reload() }
+        .onChange(of: svc.revision) { _, _ in Task { await reload() } }
     }
 
     private func privacyNickname(_ f: CommunityService.Profile) -> String {
@@ -916,17 +917,28 @@ struct CommunityCatchDetailView: View {
     private var imperial: Bool { units == "imperial" }
     @State private var species: Species?
     @State private var photo: UIImage?
+    @State private var showingFullscreen = false
 
     var body: some View {
         ScrollView {
             VStack(spacing: 16) {
                 Group {
                     if let photo {
+                        // Fit the whole photo (no crop) and tap to view fullscreen
+                        // + zoom, like the My Catches detail page.
                         Image(uiImage: photo)
-                            .resizable().scaledToFill()
+                            .resizable().scaledToFit()
                             .frame(maxWidth: .infinity)
-                            .frame(height: 240)
+                            .frame(maxHeight: 360)
                             .clipShape(RoundedRectangle(cornerRadius: 16))
+                            .contentShape(RoundedRectangle(cornerRadius: 16))
+                            .onTapGesture { showingFullscreen = true }
+                            .overlay(alignment: .topTrailing) {
+                                Image(systemName: "arrow.up.left.and.arrow.down.right")
+                                    .font(.caption2.bold()).foregroundStyle(.white)
+                                    .padding(6).background(.black.opacity(0.4), in: Circle())
+                                    .padding(8)
+                            }
                     } else if let species {
                         SpeciesArtworkView(species: species, caught: true, size: 150)
                             .frame(height: 160)
@@ -972,6 +984,9 @@ struct CommunityCatchDetailView: View {
         }
         .navigationTitle("Catch")
         .navigationBarTitleDisplayMode(.inline)
+        .fullScreenCover(isPresented: $showingFullscreen) {
+            if let photo { FullscreenImageViewer(image: photo) }
+        }
         .task {
             if let path = row.localPhotoPath {
                 photo = PhotoManager.load(path)
