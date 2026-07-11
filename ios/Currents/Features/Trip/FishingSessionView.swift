@@ -257,7 +257,12 @@ struct ActiveSessionView: View {
             VStack(spacing: CurrentsTheme.paddingM) {
                 if let trip = tracker.activeTrip {
                     statsHeader(trip)
-                    if tracker.autoPaused {
+                    if tracker.manualPaused {
+                        Label("GPS tracking paused. Your position isn't recording — resume below.",
+                              systemImage: "pause.circle.fill")
+                            .font(.caption).foregroundStyle(.orange)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    } else if tracker.autoPaused {
                         Label("Auto-paused — you've stopped moving. Tracking resumes when you move.",
                               systemImage: "pause.circle.fill")
                             .font(.caption).foregroundStyle(.orange)
@@ -327,6 +332,16 @@ struct ActiveSessionView: View {
     @ViewBuilder private func sessionControls(_ trip: Trip) -> some View {
         VStack(spacing: 10) {
             if tracker.isDayActive {
+                Button {
+                    if tracker.manualPaused { tracker.resumeTracking() } else { tracker.pauseTracking() }
+                } label: {
+                    Label(tracker.manualPaused ? "Resume GPS Tracking" : "Pause GPS Tracking",
+                          systemImage: tracker.manualPaused ? "play.circle.fill" : "pause.circle.fill")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .tint(tracker.manualPaused ? CurrentsTheme.accent : .secondary)
+
                 Button { showingEndDayConfirm = true } label: {
                     Label("End Day \(trip.dayCount)", systemImage: "moon.zzz.fill").frame(maxWidth: .infinity)
                 }.buttonStyle(.bordered).tint(.orange)

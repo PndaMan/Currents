@@ -129,13 +129,7 @@ struct CommunityView: View {
                 }
             }
             LeaderboardSection()
-            Section("Group Trips") {
-                NavigationLink {
-                    GroupTripView(tripId: nil, tripName: "Group Trip")
-                } label: {
-                    Label("Start or Join a Trip", systemImage: "person.3.fill")
-                }
-            }
+            GroupTripsSection()
             FriendsSection()
             Section {
                 Button("Leave Community", role: .destructive) { svc.leave() }

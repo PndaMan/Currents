@@ -855,13 +855,60 @@ final class CommunityService: ObservableObject {
         let date: Date
     }
 
+    /// A group trip I'm part of, persisted locally so it shows up reliably (and
+    /// offline) for BOTH host and joiner — the same list drives both.
+    struct GroupRef: Codable, Identifiable, Equatable {
+        let code: String
+        var name: String
+        var hostName: String
+        var isHost: Bool
+        var joinedAt: Date
+        var id: String { code }
+    }
+
+    /// All group trips I host or have joined, newest first.
+    var myGroups: [GroupRef] {
+        get {
+            guard let data = UserDefaults.standard.data(forKey: "myGroupTrips"),
+                  let refs = try? JSONDecoder().decode([GroupRef].self, from: data) else { return [] }
+            return refs.sorted { $0.joinedAt > $1.joinedAt }
+        }
+        set {
+            if let data = try? JSONEncoder().encode(newValue) {
+                UserDefaults.standard.set(data, forKey: "myGroupTrips")
+            }
+            bumpRevision()
+        }
+    }
+
+    private func rememberGroup(_ ref: GroupRef) {
+        var groups = myGroups
+        if let i = groups.firstIndex(where: { $0.code == ref.code }) {
+            groups[i].name = ref.name
+            groups[i].hostName = ref.hostName
+        } else {
+            groups.append(ref)
+        }
+        myGroups = groups
+    }
+
+    private func forgetGroup(code: String) {
+        myGroups = myGroups.filter { $0.code != code }
+    }
+
     // Local trip.id → group code mapping so a trip stays linked to its group
     // across launches (no DB migration needed).
     func groupCode(forTripId id: String) -> String? {
         (UserDefaults.standard.dictionary(forKey: "tripGroupCodes") as? [String: String])?[id]
     }
 
-    private func setGroupCode(_ code: String?, forTripId id: String) {
+    /// Reverse lookup: the local trip linked to a group code (if any).
+    func tripId(forGroupCode code: String) -> String? {
+        (UserDefaults.standard.dictionary(forKey: "tripGroupCodes") as? [String: String])?
+            .first(where: { $0.value == code })?.key
+    }
+
+    func setGroupCode(_ code: String?, forTripId id: String) {
         var m = (UserDefaults.standard.dictionary(forKey: "tripGroupCodes") as? [String: String]) ?? [:]
         m[id] = code
         UserDefaults.standard.set(m, forKey: "tripGroupCodes")
@@ -905,6 +952,7 @@ final class CommunityService: ObservableObject {
         guard (try? await db.save(record)) != nil else { return nil }
         await addMembership(code: code)
         setGroupCode(code, forTripId: tripId)
+        rememberGroup(GroupRef(code: code, name: name, hostName: myName, isHost: true, joinedAt: Date()))
         return code
     }
 
@@ -917,6 +965,8 @@ final class CommunityService: ObservableObject {
         guard code.count == 6, let trip = await groupTrip(code: code) else { return nil }
         await addMembership(code: code)
         if let tripId { setGroupCode(code, forTripId: tripId) }
+        rememberGroup(GroupRef(code: code, name: trip.name, hostName: trip.hostName,
+                               isHost: trip.isHost, joinedAt: Date()))
         return trip
     }
 
@@ -945,12 +995,13 @@ final class CommunityService: ObservableObject {
     }
 
     func groupMembers(code: String) async -> [GroupMember] {
-        // TRUEPREDICATE + client filter so no per-field CloudKit index is needed
-        // (only the default recordName index) — same as the other queries.
-        let query = CKQuery(recordType: groupMemberType, predicate: NSPredicate(value: true))
+        // Server-side filter on the indexed `groupCode` so every member is found
+        // regardless of how many group members exist across the whole public DB.
+        let query = CKQuery(recordType: groupMemberType,
+                            predicate: NSPredicate(format: "groupCode == %@", code))
         guard let results = try? await db.records(matching: query, resultsLimit: 300) else { return [] }
         return results.matchResults.compactMap { _, res -> GroupMember? in
-            guard let r = try? res.get(), (r["groupCode"] as? String) == code else { return nil }
+            guard let r = try? res.get() else { return nil }
             return GroupMember(
                 id: r["memberCode"] as? String ?? "",
                 name: r["memberName"] as? String ?? "Angler",
@@ -959,12 +1010,14 @@ final class CommunityService: ObservableObject {
         }.sorted { $0.joinedAt < $1.joinedAt }
     }
 
-    /// Every catch shared into the group, newest first.
+    /// Every catch shared into the group, newest first. Server-side filter on the
+    /// indexed `groupCode` so the whole group's feed is reliable at any scale.
     func groupCatches(code: String) async -> [GroupCatch] {
-        let query = CKQuery(recordType: catchType, predicate: NSPredicate(value: true))
+        let query = CKQuery(recordType: catchType,
+                            predicate: NSPredicate(format: "groupCode == %@", code))
         guard let results = try? await db.records(matching: query, resultsLimit: 400) else { return [] }
         return results.matchResults.compactMap { _, res -> GroupCatch? in
-            guard let r = try? res.get(), (r["groupCode"] as? String) == code else { return nil }
+            guard let r = try? res.get() else { return nil }
             return GroupCatch(
                 id: r.recordID.recordName,
                 anglerName: r["anglerName"] as? String ?? "Angler",
@@ -980,7 +1033,32 @@ final class CommunityService: ObservableObject {
     func leaveGroupTrip(code: String, tripId: String?) async {
         let id = CKRecord.ID(recordName: "member-\(code)-\(friendCode)")
         _ = try? await db.deleteRecord(withID: id)
-        if let tripId { setGroupCode(nil, forTripId: tripId) }
+        let linked = tripId ?? self.tripId(forGroupCode: code)
+        if let linked { setGroupCode(nil, forTripId: linked) }
+        forgetGroup(code: code)
+    }
+
+    /// Publish a catch straight into a group's live feed even when it isn't tied
+    /// to a local tracked session — used by the "Log to trip" action so a
+    /// member's catch always reaches the group.
+    func publishGroupCatch(species: String, weightKg: Double?, lengthCm: Double?,
+                           catchId: String, groupCode: String) async {
+        await ensureJoined()
+        let id = CKRecord.ID(recordName: "catch-\(friendCode)-\(catchId)")
+        // Update the existing catch record (adding the group tag) if it's already
+        // been published to the leaderboard, so its photo/fields are preserved;
+        // otherwise create it fresh.
+        let record = (try? await db.record(for: id)) ?? CKRecord(recordType: catchType, recordID: id)
+        if record["groupCode"] as? String == groupCode { return } // already tagged
+        record["anglerName"] = myName as CKRecordValue
+        record["friendCode"] = friendCode as CKRecordValue
+        if record["species"] == nil { record["species"] = species as CKRecordValue }
+        if record["weightKg"] == nil, let weightKg { record["weightKg"] = weightKg as CKRecordValue }
+        if record["lengthCm"] == nil, let lengthCm { record["lengthCm"] = lengthCm as CKRecordValue }
+        if record["region"] == nil { record["region"] = myRegion as CKRecordValue }
+        if record["caughtAt"] == nil { record["caughtAt"] = Date() as CKRecordValue }
+        record["groupCode"] = groupCode as CKRecordValue
+        _ = try? await db.modifyRecords(saving: [record], deleting: [], savePolicy: .allKeys, atomically: false)
     }
 
     // MARK: - Trip invites (pick a friend → they accept in-app)

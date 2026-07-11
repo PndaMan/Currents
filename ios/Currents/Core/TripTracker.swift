@@ -21,10 +21,30 @@ final class TripTracker: NSObject, CLLocationManagerDelegate {
     /// True while auto-paused (stationary a while) — recording resumes on
     /// movement. Surfaced in the UI.
     private(set) var autoPaused = false
+    /// True while the angler has manually paused GPS tracking. Recording stops
+    /// and the location manager is halted until they resume.
+    private(set) var manualPaused = false
     private var pauseAnchor: CLLocation?
     private var stationaryStart: Date?
 
     var isTracking: Bool { activeTrip != nil }
+
+    /// Manually pause GPS recording for the active day (keeps the trip open).
+    func pauseTracking() {
+        guard isTracking, isDayActive, !manualPaused else { return }
+        manualPaused = true
+        manager.stopUpdatingLocation()
+        // Flush whatever we have so nothing is lost if the app is killed while paused.
+        persistTrack()
+    }
+
+    /// Resume GPS recording after a manual pause.
+    func resumeTracking() {
+        guard manualPaused else { return }
+        manualPaused = false
+        resetAutoPause()
+        beginUpdates()
+    }
 
     override init() {
         super.init()
@@ -140,6 +160,7 @@ final class TripTracker: NSObject, CLLocationManagerDelegate {
 
     private func resetAutoPause() {
         autoPaused = false
+        manualPaused = false
         pauseAnchor = nil
         stationaryStart = nil
         manager.desiredAccuracy = kCLLocationAccuracyBest
@@ -170,7 +191,7 @@ final class TripTracker: NSObject, CLLocationManagerDelegate {
         guard let loc = locations.last, loc.horizontalAccuracy >= 0, loc.horizontalAccuracy < 60 else { return }
         Task { @MainActor in
             self.currentLocation = loc
-            guard self.isTracking, self.isDayActive else { return }
+            guard self.isTracking, self.isDayActive, !self.manualPaused else { return }
 
             // Auto-pause: after being stationary a few minutes, stop recording
             // and drop to coarse accuracy (battery); resume on real movement.
