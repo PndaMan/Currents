@@ -105,7 +105,7 @@ struct GroupTripSetupView: View {
         .task { trips = (try? appState.tripRepository.fetchAll()) ?? [] }
     }
 
-    private struct IdString: Identifiable { let id: String }
+    private struct IdString: Identifiable, Hashable { let id: String }
 
     private func currentName(_ code: String) -> String {
         svc.myGroups.first(where: { $0.code == code })?.name ?? "Group Trip"
