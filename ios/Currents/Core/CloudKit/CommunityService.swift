@@ -1013,11 +1013,13 @@ final class CommunityService: ObservableObject {
     /// Trip invites addressed to me. (Client-side filter so no custom CloudKit
     /// index is required — same approach as the leaderboards.)
     func pendingInvites() async -> [TripInvite] {
-        let query = CKQuery(recordType: inviteType, predicate: NSPredicate(value: true))
-        query.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
+        // Server-side filter on the indexed `toCode` so invites addressed to me
+        // are found even as the public DB grows past a single query page.
+        let query = CKQuery(recordType: inviteType,
+                            predicate: NSPredicate(format: "toCode == %@", friendCode))
         guard let results = try? await db.records(matching: query, resultsLimit: 200) else { return [] }
         return results.matchResults.compactMap { _, res -> TripInvite? in
-            guard let r = try? res.get(), (r["toCode"] as? String) == friendCode else { return nil }
+            guard let r = try? res.get() else { return nil }
             return TripInvite(
                 id: r.recordID.recordName,
                 groupCode: r["groupCode"] as? String ?? "",
@@ -1026,7 +1028,7 @@ final class CommunityService: ObservableObject {
                 fromCode: r["fromCode"] as? String ?? "",
                 date: r["createdAt"] as? Date ?? .now
             )
-        }
+        }.sorted { $0.date > $1.date }
     }
 
     func acceptInvite(_ invite: TripInvite) async {
@@ -1082,13 +1084,15 @@ final class CommunityService: ObservableObject {
         return (try? await db.save(rec)) != nil
     }
 
-    /// Requests addressed to me and still pending.
+    /// Requests addressed to me and still pending. Queries server-side on the
+    /// indexed `toCode` field — a TRUEPREDICATE scan capped at 200 could miss my
+    /// request once the public DB has more than 200 requests across all users.
     func pendingFriendRequests() async -> [FriendRequest] {
-        let query = CKQuery(recordType: friendReqType, predicate: NSPredicate(value: true))
+        let query = CKQuery(recordType: friendReqType,
+                            predicate: NSPredicate(format: "toCode == %@", friendCode))
         guard let results = try? await db.records(matching: query, resultsLimit: 200) else { return [] }
         return results.matchResults.compactMap { _, res -> FriendRequest? in
             guard let r = try? res.get(),
-                  (r["toCode"] as? String) == friendCode,
                   (r["status"] as? String ?? "pending") == "pending" else { return nil }
             return FriendRequest(
                 id: r.recordID.recordName,
@@ -1117,11 +1121,11 @@ final class CommunityService: ObservableObject {
 
     /// Add friends who accepted a request I sent, then delete those records.
     private func reconcileSentRequests() async {
-        let query = CKQuery(recordType: friendReqType, predicate: NSPredicate(value: true))
+        let query = CKQuery(recordType: friendReqType,
+                            predicate: NSPredicate(format: "fromCode == %@", friendCode))
         guard let results = try? await db.records(matching: query, resultsLimit: 200) else { return }
         for (_, res) in results.matchResults {
             guard let r = try? res.get(),
-                  (r["fromCode"] as? String) == friendCode,
                   (r["status"] as? String) == "accepted" else { continue }
             if let toCode = r["toCode"] as? String, !friends.contains(toCode) {
                 friends.append(toCode)

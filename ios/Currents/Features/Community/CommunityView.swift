@@ -406,162 +406,71 @@ private struct FriendsSection: View {
     }
 }
 
-// MARK: - Trip invites (accept a friend's group-trip invite)
-
-private struct TripInvitesSection: View {
-    @StateObject private var svc = CommunityService.shared
-    @State private var invites: [CommunityService.TripInvite] = []
-    @State private var opened: OpenedGroup?
-
-    struct OpenedGroup: Identifiable { let id: String }
-
-    var body: some View {
-        Group {
-            if !invites.isEmpty {
-                Section("Trip Invites") {
-                    ForEach(invites) { inv in
-                        VStack(alignment: .leading, spacing: 8) {
-                            HStack(spacing: 10) {
-                                Image(systemName: "person.3.fill")
-                                    .foregroundStyle(CurrentsTheme.accent)
-                                    .frame(width: 34, height: 34)
-                                    .background(CurrentsTheme.accent.opacity(0.15), in: Circle())
-                                VStack(alignment: .leading, spacing: 1) {
-                                    Text(inv.tripName).font(.subheadline.bold())
-                                    Text("Invited by \(inv.fromName)").font(.caption).foregroundStyle(.secondary)
-                                }
-                            }
-                            HStack(spacing: 10) {
-                                Button {
-                                    Task { await svc.acceptInvite(inv); opened = OpenedGroup(id: inv.groupCode); await load() }
-                                } label: {
-                                    Label("Join Trip", systemImage: "checkmark").frame(maxWidth: .infinity)
-                                }
-                                .buttonStyle(.borderedProminent).tint(CurrentsTheme.accent)
-                                Button(role: .destructive) {
-                                    Task { await svc.declineInvite(inv); await load() }
-                                } label: {
-                                    Label("Decline", systemImage: "xmark").frame(maxWidth: .infinity)
-                                }
-                                .buttonStyle(.bordered)
-                            }
-                        }
-                        .padding(.vertical, 2)
-                    }
-                }
-            }
-        }
-        .task { await load() }
-        .sheet(item: $opened) { g in
-            NavigationStack {
-                GroupTripView(tripId: nil, tripName: "Group Trip", initialCode: g.id)
-                    .toolbar {
-                        ToolbarItem(placement: .confirmationAction) { Button("Done") { opened = nil } }
-                    }
-            }
-        }
-    }
-
-    private func load() async { invites = await svc.refreshTripInvites() }
-}
-
-// MARK: - Friend requests (accept / decline)
-
-private struct FriendRequestsSection: View {
-    @StateObject private var svc = CommunityService.shared
-    @State private var requests: [CommunityService.FriendRequest] = []
-    @State private var profiles: [String: CommunityService.Profile] = [:]
-
-    var body: some View {
-        Group {
-            if !requests.isEmpty {
-                Section("Friend Requests") {
-                    ForEach(requests) { req in
-                        VStack(alignment: .leading, spacing: 8) {
-                            NavigationLink { FriendProfileView(code: req.fromCode) } label: {
-                                HStack(spacing: 10) {
-                                    AnglerAvatar(image: profiles[req.fromCode]?.avatar, size: 36)
-                                    VStack(alignment: .leading, spacing: 1) {
-                                        Text(req.fromName).font(.subheadline.bold())
-                                        Text("wants to be friends").font(.caption).foregroundStyle(.secondary)
-                                    }
-                                }
-                            }
-                            HStack(spacing: 10) {
-                                Button {
-                                    Task { await svc.acceptFriendRequest(req); await load() }
-                                } label: {
-                                    Label("Accept", systemImage: "checkmark").frame(maxWidth: .infinity)
-                                }
-                                .buttonStyle(.borderedProminent).tint(CurrentsTheme.accent)
-                                Button(role: .destructive) {
-                                    Task { await svc.declineFriendRequest(req); await load() }
-                                } label: {
-                                    Label("Decline", systemImage: "xmark").frame(maxWidth: .infinity)
-                                }
-                                .buttonStyle(.bordered)
-                            }
-                        }
-                        .padding(.vertical, 2)
-                    }
-                }
-            }
-        }
-        .task { await load() }
-    }
-
-    private func load() async {
-        requests = await svc.refreshFriendRequests()
-        for req in requests where profiles[req.fromCode] == nil {
-            profiles[req.fromCode] = await svc.fetchProfile(code: req.fromCode)
-        }
-    }
-}
 
 // MARK: - Notification bell + inbox
 
-/// A themed bell with an unread badge for the Community toolbar.
+/// A themed bell with an unread badge. The bell is centred in a fixed frame and
+/// the badge sits in the top-trailing corner *inside* that frame, so nothing
+/// extends beyond the bounds and the toolbar's glass button never clips it.
 struct NotificationBell: View {
     let count: Int
     var body: some View {
-        Image(systemName: count > 0 ? "bell.badge.fill" : "bell")
-            .font(.body)
-            .symbolRenderingMode(count > 0 ? .palette : .monochrome)
-            .foregroundStyle(count > 0 ? AnyShapeStyle(CurrentsTheme.accent) : AnyShapeStyle(.secondary),
-                             AnyShapeStyle(CurrentsTheme.accent))
-            .overlay(alignment: .topTrailing) {
-                if count > 0 {
-                    Text("\(min(count, 99))")
-                        .font(.system(size: 11, weight: .heavy))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 5).padding(.vertical, 1)
-                        .background(Color.red, in: Capsule())
-                        .overlay(Capsule().stroke(Color(.systemBackground), lineWidth: 1.5))
-                        .offset(x: 10, y: -8)
-                        .fixedSize()
-                }
+        ZStack {
+            Image(systemName: "bell.fill")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(count > 0 ? CurrentsTheme.accent : .secondary)
+        }
+        .frame(width: 30, height: 30)
+        .overlay(alignment: .topTrailing) {
+            if count > 0 {
+                Text("\(min(count, 9))\(count > 9 ? "+" : "")")
+                    .font(.system(size: 10, weight: .heavy))
+                    .foregroundStyle(.white)
+                    .frame(minWidth: 15)
+                    .padding(.horizontal, 3).padding(.vertical, 1)
+                    .background(Color.red, in: Capsule())
+                    .fixedSize()
             }
+        }
     }
 }
 
 /// The notification inbox: pending friend requests and group-trip invites, each
-/// with join / reject actions. Reuses the existing request + invite sections.
+/// with accept / decline actions. Loads its own data once (single source of
+/// truth), so the count and the list never disagree and the empty state only
+/// appears after loading — not as a flash before the data arrives.
 struct NotificationInboxView: View {
     @Environment(\.dismiss) private var dismiss
-    @StateObject private var svc = CommunityService.shared
-    @State private var isEmpty = true
+    private var svc: CommunityService { .shared }
+
+    @State private var requests: [CommunityService.FriendRequest] = []
+    @State private var invites: [CommunityService.TripInvite] = []
+    @State private var profiles: [String: CommunityService.Profile] = [:]
+    @State private var loaded = false
+    @State private var openedTrip: String?
 
     var body: some View {
         NavigationStack {
             List {
-                FriendRequestsSection()
-                TripInvitesSection()
-                if isEmpty {
+                if !loaded {
+                    Section { HStack { ProgressView(); Text("Loading…").foregroundStyle(.secondary) } }
+                } else if requests.isEmpty && invites.isEmpty {
                     Section {
                         ContentUnavailableView(
                             "You're all caught up",
                             systemImage: "bell.slash",
                             description: Text("Friend requests and trip invites will show up here."))
+                    }
+                } else {
+                    if !requests.isEmpty {
+                        Section("Friend Requests") {
+                            ForEach(requests) { req in requestRow(req) }
+                        }
+                    }
+                    if !invites.isEmpty {
+                        Section("Trip Invites") {
+                            ForEach(invites) { inv in inviteRow(inv) }
+                        }
                     }
                 }
             }
@@ -570,12 +479,78 @@ struct NotificationInboxView: View {
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
             }
-            .task {
-                let reqs = await svc.refreshFriendRequests()
-                let invs = await svc.refreshTripInvites()
-                isEmpty = reqs.isEmpty && invs.isEmpty
+            .task { await load() }
+            .sheet(item: Binding(get: { openedTrip.map { IdString(id: $0) } },
+                                 set: { openedTrip = $0?.id })) { g in
+                NavigationStack {
+                    GroupTripView(tripId: nil, tripName: "Group Trip", initialCode: g.id)
+                        .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { openedTrip = nil } } }
+                }
             }
         }
+    }
+
+    private struct IdString: Identifiable { let id: String }
+
+    @ViewBuilder private func requestRow(_ req: CommunityService.FriendRequest) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            NavigationLink { FriendProfileView(code: req.fromCode) } label: {
+                HStack(spacing: 10) {
+                    AnglerAvatar(image: profiles[req.fromCode]?.avatar, size: 36)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(req.fromName).font(.subheadline.bold())
+                        Text("wants to be friends").font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+            }
+            HStack(spacing: 10) {
+                Button {
+                    Task { await svc.acceptFriendRequest(req); await load() }
+                } label: { Label("Accept", systemImage: "checkmark").frame(maxWidth: .infinity) }
+                    .buttonStyle(.borderedProminent).tint(CurrentsTheme.accent)
+                Button(role: .destructive) {
+                    Task { await svc.declineFriendRequest(req); await load() }
+                } label: { Label("Decline", systemImage: "xmark").frame(maxWidth: .infinity) }
+                    .buttonStyle(.bordered)
+            }
+        }
+        .padding(.vertical, 2)
+    }
+
+    @ViewBuilder private func inviteRow(_ inv: CommunityService.TripInvite) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 10) {
+                Image(systemName: "person.3.fill").foregroundStyle(CurrentsTheme.accent)
+                    .frame(width: 34, height: 34)
+                    .background(CurrentsTheme.accent.opacity(0.15), in: Circle())
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(inv.tripName).font(.subheadline.bold())
+                    Text("Invited by \(inv.fromName)").font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            HStack(spacing: 10) {
+                Button {
+                    Task { await svc.acceptInvite(inv); openedTrip = inv.groupCode; await load() }
+                } label: { Label("Join Trip", systemImage: "checkmark").frame(maxWidth: .infinity) }
+                    .buttonStyle(.borderedProminent).tint(CurrentsTheme.accent)
+                Button(role: .destructive) {
+                    Task { await svc.declineInvite(inv); await load() }
+                } label: { Label("Decline", systemImage: "xmark").frame(maxWidth: .infinity) }
+                    .buttonStyle(.bordered)
+            }
+        }
+        .padding(.vertical, 2)
+    }
+
+    private func load() async {
+        let reqs = await svc.refreshFriendRequests()
+        let invs = await svc.refreshTripInvites()
+        for req in reqs where profiles[req.fromCode] == nil {
+            profiles[req.fromCode] = await svc.fetchProfile(code: req.fromCode)
+        }
+        requests = reqs
+        invites = invs
+        loaded = true
     }
 }
 
@@ -1079,17 +1054,66 @@ struct CommunityCatchThumb: View {
 struct AddFriendConfirmView: View {
     let code: String
     @Environment(\.dismiss) private var dismiss
-    private var svc: CommunityService { .shared }
+    @StateObject private var svc = CommunityService.shared
 
     @State private var profile: CommunityService.Profile?
     @State private var loading = true
     @State private var added = false
+    @State private var joinName = ""
+    @State private var joining = false
     @AppStorage("units") private var units = "metric"
     private var imperial: Bool { units == "imperial" }
 
     private var isFriend: Bool { svc.friends.contains(code.uppercased()) }
 
     var body: some View {
+        Group {
+            if svc.joined { confirmBody } else { joinGate }
+        }
+        .navigationTitle(svc.joined ? "Add Friend" : "Join Community")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    // Prompt to set up a community profile BEFORE revealing the angler's profile.
+    private var joinGate: some View {
+        Form {
+            Section {
+                VStack(spacing: 10) {
+                    Image(systemName: "person.crop.circle.badge.plus")
+                        .font(.system(size: 44)).foregroundStyle(CurrentsTheme.accent)
+                    Text("Join to add \(code)").font(.title3.bold())
+                    Text("Someone shared their angler code with you. Set up your free Currents profile to send them a friend request — no account or password, just a name.")
+                        .font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                }
+                .frame(maxWidth: .infinity).padding(.vertical, 8)
+            }
+            Section("Your angler name") {
+                TextField("Name", text: $joinName)
+                    .textContentType(.givenName)
+            }
+            Section {
+                Button {
+                    joining = true
+                    Task {
+                        await svc.join(name: joinName, region: svc.myRegion)
+                        joining = false
+                        // svc.joined flips → confirmBody appears and its .task
+                        // loads the shared angler's profile.
+                    }
+                } label: {
+                    HStack {
+                        if joining { ProgressView().tint(.white) }
+                        Label("Join & Continue", systemImage: "arrow.right.circle.fill").frame(maxWidth: .infinity)
+                    }
+                }
+                .buttonStyle(.borderedProminent).tint(CurrentsTheme.accent)
+                .disabled(joinName.trimmingCharacters(in: .whitespaces).isEmpty || joining)
+            }
+        }
+        .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
+    }
+
+    private var confirmBody: some View {
         List {
             if loading {
                 Section { HStack { ProgressView(); Text("Looking up angler…").foregroundStyle(.secondary) } }
@@ -1143,14 +1167,13 @@ struct AddFriendConfirmView: View {
                 }
             }
         }
-        .navigationTitle("Add Friend")
-        .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
                 Button(isFriend || added ? "Done" : "Close") { dismiss() }
             }
         }
         .task {
+            guard svc.joined else { loading = false; return }
             profile = await svc.fetchProfile(code: code)
             loading = false
         }
