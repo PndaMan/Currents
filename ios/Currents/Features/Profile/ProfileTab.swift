@@ -41,168 +41,97 @@ struct ProfileTab: View {
                 }
 
                 // Browse & Analytics
-                Section("Explore") {
-                    NavigationLink {
-                        CommunityView()
-                    } label: {
+                // Your fishing — community, records, spots, sessions.
+                Section("Community") {
+                    NavigationLink { CommunityView() } label: {
                         Label("Community & Friends", systemImage: "person.3.fill")
                     }
-
-                    NavigationLink {
-                        AnalyticsView()
+                    DisclosureGroup {
+                        BadgesGridView(catches: catches).padding(.vertical, 8)
                     } label: {
+                        Label("Achievements & Badges", systemImage: "trophy")
+                    }
+                    NavigationLink { AnalyticsView() } label: {
                         Label("Analytics & Personal Bests", systemImage: "chart.xyaxis.line")
                     }
-
-                    NavigationLink {
-                        SpotsListView()
-                    } label: {
+                    NavigationLink { SpotsListView() } label: {
                         Label("My Spots", systemImage: "mappin.circle.fill")
                     }
-
                     if FeatureFlags.liveTrips {
-                        NavigationLink {
-                            SessionsView()
-                        } label: {
+                        NavigationLink { SessionsView() } label: {
                             Label("Fishing Sessions", systemImage: "figure.fishing")
                         }
                     }
+                }
 
-                    NavigationLink {
-                        SeasonalCalendarView()
-                    } label: {
-                        Label("Seasonal Calendar", systemImage: "calendar")
-                    }
-
-                    NavigationLink {
-                        SpeciesBrowserView()
-                    } label: {
+                // Field reference.
+                Section("Reference") {
+                    NavigationLink { SpeciesBrowserView() } label: {
                         Label("Species Guide", systemImage: "fish.fill")
                     }
-
-                    NavigationLink {
-                        GearTab()
-                    } label: {
+                    NavigationLink { SeasonalCalendarView() } label: {
+                        Label("Seasonal Calendar", systemImage: "calendar")
+                    }
+                    NavigationLink { GearTab() } label: {
                         Label("Gear & Tackle", systemImage: "wrench.and.screwdriver.fill")
                     }
-
-                    NavigationLink {
-                        KnotLibraryView()
-                    } label: {
+                    NavigationLink { KnotLibraryView() } label: {
                         Label("Knots & Rigs", systemImage: "link")
                     }
-
-                    NavigationLink {
-                        RegulationsView()
-                    } label: {
+                    NavigationLink { RegulationsView() } label: {
                         Label("Size & Bag Limits", systemImage: "ruler")
                     }
-
-                    NavigationLink {
-                        LicenseWalletView()
-                    } label: {
+                    NavigationLink { LicenseWalletView() } label: {
                         Label("Licences & Permits", systemImage: "doc.text.image")
                     }
                 }
 
-                // Settings
+                // Settings (Support/Ko-fi now lives inside About).
                 Section("Settings") {
-                    DisclosureGroup {
-                        BadgesGridView(catches: catches)
-                            .padding(.vertical, 8)
-                    } label: {
-                        Label("Achievements & Badges", systemImage: "trophy")
-                    }
-
-                    NavigationLink {
-                        AppearanceSettingsView()
-                    } label: {
+                    NavigationLink { AppearanceSettingsView() } label: {
                         Label("Appearance", systemImage: "paintbrush")
                     }
-
-                    NavigationLink {
-                        AppIconSelectorView()
-                    } label: {
+                    NavigationLink { AppIconSelectorView() } label: {
                         Label("App Icon", systemImage: "app.badge")
                     }
-
-                    NavigationLink {
-                        UnitsSettingsView()
-                    } label: {
+                    NavigationLink { UnitsSettingsView() } label: {
                         Label("Units", systemImage: "ruler")
                     }
-
-                    NavigationLink {
-                        AlertSettingsView()
-                    } label: {
-                        Label("Bite Alerts", systemImage: "bell.badge")
+                    NavigationLink { AlertSettingsView() } label: {
+                        Label("Notifications", systemImage: "bell.badge")
                     }
-
-                    NavigationLink {
-                        PrivacySettingsView()
-                    } label: {
+                    NavigationLink { PrivacySettingsView() } label: {
                         Label("Privacy", systemImage: "lock.shield")
                     }
-
-                    NavigationLink {
-                        AboutView()
-                    } label: {
-                        Label("About Currents", systemImage: "info.circle")
+                    NavigationLink { AboutView() } label: {
+                        Label("About & Support", systemImage: "info.circle")
                     }
                 }
 
-                // Support
+                // Everything storage-related folded into one screen: offline
+                // maps, backup & restore, and CSV import/export.
                 Section {
-                    Link(destination: URL(string: "https://ko-fi.com/aidanmcconnon")!) {
-                        HStack(spacing: 12) {
-                            Image(systemName: "heart.fill")
-                                .font(.title3)
-                                .foregroundStyle(CurrentsTheme.accent)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("Support Currents")
-                                    .font(.subheadline.bold())
-                                    .foregroundStyle(.primary)
-                                Text("Buy me a coffee on Ko-fi")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                            Spacer()
-                            Image(systemName: "arrow.up.right")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                } header: {
-                    Text("Support")
-                } footer: {
-                    Text("Currents is free and open-source. Tips help cover development costs.")
-                }
-
-                // Housekeeping — kept at the bottom to declutter the top.
-                Section("Maps & Storage") {
                     NavigationLink {
-                        OfflineMapsView()
+                        List {
+                            Section {
+                                NavigationLink { OfflineMapsView() } label: {
+                                    Label("Offline Maps", systemImage: "map")
+                                }
+                            }
+                            backupSection
+                            Section("Data") {
+                                Button { exportAllData() } label: {
+                                    Label("Export All Data (CSV)", systemImage: "square.and.arrow.up")
+                                }
+                                Button { showingCSVImport = true } label: {
+                                    Label("Import Data (CSV)", systemImage: "square.and.arrow.down")
+                                }
+                            }
+                        }
+                        .navigationTitle("Storage & Backups")
+                        .navigationBarTitleDisplayMode(.inline)
                     } label: {
-                        Label("Offline Maps", systemImage: "map")
-                    }
-                }
-
-                // Backup — automatic daily snapshot + iCloud when the
-                // entitlement/account allow it.
-                backupSection
-
-                // Data
-                Section("Data") {
-                    Button {
-                        exportAllData()
-                    } label: {
-                        Label("Export All Data (CSV)", systemImage: "square.and.arrow.up")
-                    }
-
-                    Button {
-                        showingCSVImport = true
-                    } label: {
-                        Label("Import Data (CSV)", systemImage: "square.and.arrow.down")
+                        Label("Storage & Backups", systemImage: "internaldrive")
                     }
                 }
             }
@@ -718,6 +647,22 @@ struct AboutView: View {
                 Label("Honey-hole privacy", systemImage: "lock.shield")
                 Label("Gear effectiveness tracking", systemImage: "chart.bar")
                 Label("Offline maps with bathymetry", systemImage: "map")
+            }
+
+            Section {
+                Link(destination: URL(string: "https://ko-fi.com/aidanmcconnon")!) {
+                    HStack(spacing: 12) {
+                        Image(systemName: "heart.fill").font(.title3).foregroundStyle(CurrentsTheme.accent)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Support Currents").font(.subheadline.bold()).foregroundStyle(.primary)
+                            Text("Buy me a coffee on Ko-fi").font(.caption).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Image(systemName: "arrow.up.right").font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+            } footer: {
+                Text("Currents is free and open-source. Tips help cover development costs.")
             }
         }
         .navigationTitle("About")
