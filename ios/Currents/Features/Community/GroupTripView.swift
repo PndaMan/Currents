@@ -1,4 +1,5 @@
 import SwiftUI
+import CoreLocation
 
 // MARK: - Community section: my group trips
 
@@ -400,23 +401,40 @@ struct GroupTripView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .glassCard()
 
-        // Members
+        // Group totals
+        groupTotalsCard
+
+        // Standings — anglers ranked by catches, with each one's stats.
         VStack(alignment: .leading, spacing: 10) {
-            Label("\(members.count) \(members.count == 1 ? "angler" : "anglers")", systemImage: "person.2.fill")
-                .font(.headline)
-            ForEach(members) { m in
+            Label("Standings", systemImage: "trophy.fill").font(.headline)
+            let stats = standings()
+            ForEach(Array(stats.enumerated()), id: \.element.code) { i, s in
                 HStack(spacing: 10) {
-                    initials(m.name)
-                    Text(m.name).font(.subheadline)
-                    if m.id == trip?.hostCode {
-                        Text("Host").font(.caption2.bold())
-                            .padding(.horizontal, 6).padding(.vertical, 2)
-                            .background(CurrentsTheme.accent.opacity(0.2), in: Capsule())
+                    Text("\(i + 1)").font(.subheadline.bold().monospacedDigit())
+                        .foregroundStyle(i < 3 ? .white : .secondary)
+                        .frame(width: 24, height: 24)
+                        .background(i < 3 ? CurrentsTheme.accent : Color.secondary.opacity(0.15), in: Circle())
+                    initials(s.name)
+                    VStack(alignment: .leading, spacing: 1) {
+                        HStack(spacing: 6) {
+                            Text(s.name).font(.subheadline.bold())
+                            if s.code == trip?.hostCode {
+                                Text("Host").font(.system(size: 9, weight: .bold))
+                                    .padding(.horizontal, 5).padding(.vertical, 1)
+                                    .background(CurrentsTheme.accent.opacity(0.2), in: Capsule())
+                            }
+                            if s.code == service.friendCode {
+                                Text("YOU").font(.system(size: 9, weight: .heavy))
+                                    .padding(.horizontal, 5).padding(.vertical, 1)
+                                    .background(CurrentsTheme.accent, in: Capsule())
+                                    .foregroundStyle(.white)
+                            }
+                        }
+                        Text(s.subtitle).font(.caption2).foregroundStyle(.secondary)
                     }
                     Spacer()
-                    if m.id == service.friendCode {
-                        Text("You").font(.caption).foregroundStyle(.secondary)
-                    }
+                    Text("\(s.count)").font(.headline.monospacedDigit()).foregroundStyle(CurrentsTheme.accent)
+                        + Text(s.count == 1 ? " fish" : " fish").font(.caption2).foregroundStyle(.secondary)
                 }
             }
         }
@@ -478,37 +496,141 @@ struct GroupTripView: View {
                 if tracker.manualPaused {
                     Label("GPS paused", systemImage: "pause.circle.fill").font(.caption).foregroundStyle(.orange)
                 } else {
-                    Label("Tracking live", systemImage: "dot.radiowaves.left.and.right").font(.caption).foregroundStyle(.green)
+                    Label("Fishing — tracking live", systemImage: "dot.radiowaves.left.and.right")
+                        .font(.caption.bold()).foregroundStyle(.green)
+                }
+                // Live session stats.
+                TimelineView(.periodic(from: .now, by: 1)) { _ in
+                    let start = tracker.activeTrip?.currentDayStart ?? tracker.activeTrip?.startDate ?? .now
+                    HStack(spacing: 10) {
+                        sessionStat(SessionFormat.duration(tracker.manualPaused ? 0 : Date.now.timeIntervalSince(start)), "Elapsed", "clock")
+                        sessionStat(SessionFormat.distance(trackDistance(tracker)), "Distance", "point.topleft.down.to.point.bottomright.curvepath")
+                        sessionStat("\(myCatchCount())", "Your fish", "fish.fill")
+                    }
                 }
                 HStack(spacing: 10) {
                     Button {
                         if tracker.manualPaused { tracker.resumeTracking() } else { tracker.pauseTracking() }
                     } label: {
-                        Label(tracker.manualPaused ? "Resume GPS" : "Pause GPS",
+                        Label(tracker.manualPaused ? "Resume" : "Pause",
                               systemImage: tracker.manualPaused ? "play.fill" : "pause.fill")
                             .frame(maxWidth: .infinity)
+                    }.buttonStyle(.bordered)
+                    Button(role: .destructive) {
+                        _ = appState.tripTracker.end()
+                    } label: {
+                        Label("End", systemImage: "stop.fill").frame(maxWidth: .infinity)
                     }.buttonStyle(.bordered)
                 }
             } else if tracker.isTracking {
                 Text("Another session is active. End it to track this trip, or just log catches below.")
                     .font(.caption).foregroundStyle(.secondary)
             } else if linkedId != nil {
+                Text("Start your session to record your GPS track and count your catches toward the group.")
+                    .font(.caption).foregroundStyle(.secondary)
                 Button {
                     if let linkedId, let lt = (try? appState.tripRepository.fetch(linkedId)) ?? nil {
                         _ = appState.tripTracker.startPlanned(lt)
                     }
                 } label: {
-                    Label("Start & track my session", systemImage: "play.circle.fill").frame(maxWidth: .infinity)
-                }.buttonStyle(.bordered).tint(CurrentsTheme.accent)
+                    Label("Start Fishing", systemImage: "play.circle.fill").frame(maxWidth: .infinity)
+                }.buttonStyle(.borderedProminent).tint(CurrentsTheme.accent)
             }
 
             Button { showingLog = true } label: {
                 Label("Log a Catch", systemImage: "plus.circle.fill").frame(maxWidth: .infinity)
             }
-            .buttonStyle(.borderedProminent).tint(CurrentsTheme.accent)
+            .buttonStyle(isThisActive ? .bordered : .borderedProminent).tint(CurrentsTheme.accent)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .glassCard()
+    }
+
+    // MARK: - Group stats
+
+    private var groupTotalsCard: some View {
+        let biggest = feed.compactMap { c -> (Double, String, String)? in
+            guard let w = c.weightKg else { return nil }
+            return (w, c.species, c.anglerName)
+        }.max(by: { $0.0 < $1.0 })
+        let speciesCount = Set(feed.map(\.species)).count
+        let activeAnglers = Set(feed.map(\.friendCode)).count
+        return VStack(alignment: .leading, spacing: 10) {
+            Label("Group totals", systemImage: "chart.bar.fill").font(.headline)
+            HStack(spacing: 10) {
+                sessionStat("\(feed.count)", "Catches", "fish.fill")
+                sessionStat("\(speciesCount)", "Species", "square.grid.2x2")
+                sessionStat("\(activeAnglers)/\(members.count)", "Scored", "person.2.fill")
+            }
+            if let biggest {
+                Label("Biggest: \(biggest.1) · \(Units.weight(kg: biggest.0)) by \(biggest.2)",
+                      systemImage: "trophy.fill")
+                    .font(.caption).foregroundStyle(CurrentsTheme.accent)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassCard()
+    }
+
+    private struct MemberStat {
+        let code: String
+        let name: String
+        var count: Int
+        var bestKg: Double?
+        var bestCm: Double?
+        var species: Set<String>
+        var subtitle: String {
+            var parts: [String] = ["\(species.count) \(species.count == 1 ? "species" : "species")"]
+            if let bestKg { parts.append("PB \(Units.weight(kg: bestKg))") }
+            else if let bestCm { parts.append("PB \(Units.length(cm: bestCm))") }
+            return parts.joined(separator: " · ")
+        }
+    }
+
+    /// Per-member standings from the group's catches (members with none included).
+    private func standings() -> [MemberStat] {
+        var byCode: [String: MemberStat] = [:]
+        for m in members {
+            byCode[m.id] = MemberStat(code: m.id, name: m.name, count: 0, bestKg: nil, bestCm: nil, species: [])
+        }
+        for c in feed {
+            var s = byCode[c.friendCode] ?? MemberStat(code: c.friendCode, name: c.anglerName, count: 0, bestKg: nil, bestCm: nil, species: [])
+            s.count += 1
+            s.species.insert(c.species)
+            if let w = c.weightKg { s.bestKg = max(s.bestKg ?? 0, w) }
+            if let l = c.lengthCm { s.bestCm = max(s.bestCm ?? 0, l) }
+            byCode[c.friendCode] = s
+        }
+        return byCode.values.sorted {
+            if $0.count != $1.count { return $0.count > $1.count }
+            return ($0.bestKg ?? 0) > ($1.bestKg ?? 0)
+        }
+    }
+
+    private func myCatchCount() -> Int {
+        feed.filter { $0.friendCode == service.friendCode }.count
+    }
+
+    private func trackDistance(_ tracker: TripTracker) -> Double {
+        let pts = tracker.track
+        guard pts.count > 1 else { return 0 }
+        var total = 0.0
+        for i in 1..<pts.count {
+            total += CLLocation(latitude: pts[i].lat, longitude: pts[i].lon)
+                .distance(from: CLLocation(latitude: pts[i-1].lat, longitude: pts[i-1].lon))
+        }
+        return total
+    }
+
+    private func sessionStat(_ value: String, _ label: String, _ icon: String) -> some View {
+        VStack(spacing: 4) {
+            Image(systemName: icon).font(.caption).foregroundStyle(CurrentsTheme.accent)
+            Text(value).font(.subheadline.bold().monospacedDigit()).lineLimit(1).minimumScaleFactor(0.6)
+            Text(label).font(.caption2).foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 8)
+        .background(CurrentsTheme.accent.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
     }
 
     // MARK: - Helpers
