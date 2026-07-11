@@ -41,7 +41,7 @@ its **Indexes** and add a **Queryable** index on **`recordName`**. Finally
 |---------------|--------|
 | AnglerProfile | displayName, friendCode, bio, homeWater, region, memberSince, totalCatches, speciesCount, bestWeightKg, bestLengthCm, favoriteSpecies, avatar (Asset), updatedAt |
 | LeaderCatch   | anglerName, friendCode, species, weightKg, lengthCm, region, caughtAt, groupCode, hasPhoto, photo (Asset), lat, lon |
-| SharedSpot    | ownerCode, toCode, name, type, notes, lat, lon |
+| SharedSpot    | ownerCode, toCode, name, type, notes, lat, lon, approx |
 | GroupTrip     | code, name, hostCode, hostName, createdAt |
 | GroupMember   | groupCode, memberCode, memberName, joinedAt |
 | GroupInvite   | groupCode, tripName, fromCode, fromName, toCode, createdAt |

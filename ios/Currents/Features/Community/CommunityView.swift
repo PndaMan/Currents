@@ -10,18 +10,48 @@ struct CommunityView: View {
 
     @State private var name = ""
     @State private var showingEdit = false
+    @State private var showingInbox = false
+    @State private var pendingRequests: [CommunityService.FriendRequest] = []
+    @State private var pendingInvites: [CommunityService.TripInvite] = []
 
     private var region: String { svc.myRegion }
+    private var notificationCount: Int { pendingRequests.count + pendingInvites.count }
 
     var body: some View {
         Group {
             if svc.joined { joinedBody } else { joinBody }
         }
         .navigationTitle("Community")
+        .toolbar {
+            if svc.joined {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { showingInbox = true } label: {
+                        NotificationBell(count: notificationCount)
+                    }
+                    .accessibilityLabel("Notifications")
+                }
+            }
+        }
         .sheet(isPresented: $showingEdit) {
             ProfileEditView(stats: computeStats())
         }
-        .task { await syncCatches() }
+        .sheet(isPresented: $showingInbox, onDismiss: { Task { await loadNotifications() } }) {
+            NotificationInboxView()
+        }
+        .task { await syncCatches(); await loadNotifications() }
+    }
+
+    private func loadNotifications() async {
+        guard svc.joined else { return }
+        pendingRequests = await svc.refreshFriendRequests()
+        pendingInvites = await svc.refreshTripInvites()
+    }
+
+    private var inboxSummary: String {
+        var parts: [String] = []
+        if !pendingRequests.isEmpty { parts.append("\(pendingRequests.count) friend \(pendingRequests.count == 1 ? "request" : "requests")") }
+        if !pendingInvites.isEmpty { parts.append("\(pendingInvites.count) trip \(pendingInvites.count == 1 ? "invite" : "invites")") }
+        return parts.joined(separator: " · ")
     }
 
     /// Publish the full local catch history so the leaderboards reflect
@@ -40,6 +70,9 @@ struct CommunityView: View {
              photoPath: $0.catchRecord.photoPath)
         }
         await svc.syncAllCatches(details)
+        // Keep catch-visibility grants in step with the global sharing setting
+        // and current friend list.
+        await svc.syncCatchGrants()
     }
 
     // MARK: Join gate
@@ -77,8 +110,24 @@ struct CommunityView: View {
                 Button { showingEdit = true } label: { MyProfileHeader(stats: computeStats()) }
                     .buttonStyle(.plain)
             }
-            FriendRequestsSection()
-            TripInvitesSection()
+            if notificationCount > 0 {
+                Section {
+                    Button { showingInbox = true } label: {
+                        HStack(spacing: 12) {
+                            NotificationBell(count: notificationCount)
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text("\(notificationCount) new \(notificationCount == 1 ? "notification" : "notifications")")
+                                    .font(.subheadline.bold()).foregroundStyle(.primary)
+                                Text(inboxSummary).font(.caption).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .listRowBackground(CurrentsTheme.accent.opacity(0.10))
+                }
+            }
             LeaderboardSection()
             Section("Group Trips") {
                 NavigationLink {
@@ -468,6 +517,67 @@ private struct FriendRequestsSection: View {
     }
 }
 
+// MARK: - Notification bell + inbox
+
+/// A themed bell with an unread badge for the Community toolbar.
+struct NotificationBell: View {
+    let count: Int
+    var body: some View {
+        Image(systemName: count > 0 ? "bell.badge.fill" : "bell")
+            .font(.body)
+            .symbolRenderingMode(count > 0 ? .palette : .monochrome)
+            .foregroundStyle(count > 0 ? AnyShapeStyle(CurrentsTheme.accent) : AnyShapeStyle(.secondary),
+                             AnyShapeStyle(CurrentsTheme.accent))
+            .overlay(alignment: .topTrailing) {
+                if count > 0 {
+                    Text("\(min(count, 99))")
+                        .font(.system(size: 11, weight: .heavy))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 5).padding(.vertical, 1)
+                        .background(Color.red, in: Capsule())
+                        .overlay(Capsule().stroke(Color(.systemBackground), lineWidth: 1.5))
+                        .offset(x: 10, y: -8)
+                        .fixedSize()
+                }
+            }
+    }
+}
+
+/// The notification inbox: pending friend requests and group-trip invites, each
+/// with join / reject actions. Reuses the existing request + invite sections.
+struct NotificationInboxView: View {
+    @Environment(\.dismiss) private var dismiss
+    @StateObject private var svc = CommunityService.shared
+    @State private var isEmpty = true
+
+    var body: some View {
+        NavigationStack {
+            List {
+                FriendRequestsSection()
+                TripInvitesSection()
+                if isEmpty {
+                    Section {
+                        ContentUnavailableView(
+                            "You're all caught up",
+                            systemImage: "bell.slash",
+                            description: Text("Friend requests and trip invites will show up here."))
+                    }
+                }
+            }
+            .navigationTitle("Notifications")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
+            }
+            .task {
+                let reqs = await svc.refreshFriendRequests()
+                let invs = await svc.refreshTripInvites()
+                isEmpty = reqs.isEmpty && invs.isEmpty
+            }
+        }
+    }
+}
+
 // MARK: - Profile editor
 
 struct ProfileEditView: View {
@@ -558,7 +668,7 @@ struct FriendProfileView: View {
     @State private var sharedSpots: [CommunityService.SharedSpot] = []
     @State private var catches: [CommunityService.LeaderRow] = []
     @State private var catchAccess = false
-    @State private var copiedSpots: Set<String> = []
+    @State private var selectedSpot: CommunityService.SharedSpot?
     @AppStorage("units") private var units = "metric"
     private var imperial: Bool { units == "imperial" }
 
@@ -624,26 +734,20 @@ struct FriendProfileView: View {
 
             Section {
                 TextField("Nickname (optional)", text: $privacy.nickname)
-                Toggle("Share my catches with them", isOn: $privacy.shareCatches)
-                Toggle("Share my spots with them", isOn: $privacy.shareSpots)
-                if privacy.shareSpots {
-                    Toggle("Include exact spot locations", isOn: $privacy.shareExactLocations)
-                }
             } header: {
-                Text("What you share with \(profile?.name ?? "this friend")")
+                Text("Nickname")
             } footer: {
-                Text("Spots are private by default. Turn this on to share your saved spots with just this friend — exact GPS stays off unless you allow it. Your catch history is friends-only, per friend.")
+                Text("What you share with friends (catches, spots, catch locations) is set once in Settings › Privacy and applies to all friends.")
             }
-            .onChange(of: privacy) { _, new in
-                svc.setPrivacy(new, for: code)
-                Task {
-                    let spots = (try? appState.spotRepository.fetchAll()) ?? []
-                    await svc.republishSharedSpots(spots: spots)
-                }
+            .onChange(of: privacy.nickname) { _, name in
+                svc.setNickname(name, for: code)
             }
         }
         .navigationTitle(profile?.name ?? "Angler")
         .navigationBarTitleDisplayMode(.inline)
+        .sheet(item: $selectedSpot) { s in
+            NavigationStack { SharedSpotDetailView(spot: s, friendName: profile?.name ?? "a friend") }
+        }
         .task {
             privacy = svc.privacy(for: code)
             profile = await svc.fetchProfile(code: code)
@@ -685,43 +789,119 @@ struct FriendProfileView: View {
     }
 
     @ViewBuilder private func sharedSpotRow(_ s: CommunityService.SharedSpot) -> some View {
-        HStack {
-            Image(systemName: "mappin.circle.fill").foregroundStyle(CurrentsTheme.accent)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(s.name).font(.subheadline.bold())
-                Text(s.coordinate == nil ? "\(s.type) · approximate area" : s.type)
-                    .font(.caption2).foregroundStyle(.secondary)
-                if !s.notes.isEmpty {
-                    Text(s.notes).font(.caption2).foregroundStyle(.tertiary).lineLimit(2)
+        Button { selectedSpot = s } label: {
+            HStack {
+                Image(systemName: s.isApproximate ? "mappin.circle" : "mappin.circle.fill")
+                    .foregroundStyle(CurrentsTheme.accent)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(s.name).font(.subheadline.bold()).foregroundStyle(.primary)
+                    Text(s.isApproximate ? "\(s.type) · approximate area" : s.type)
+                        .font(.caption2).foregroundStyle(.secondary)
+                    if !s.notes.isEmpty {
+                        Text(s.notes).font(.caption2).foregroundStyle(.tertiary).lineLimit(2)
+                    }
+                }
+                Spacer()
+                Image(systemName: "chevron.right").font(.caption2).foregroundStyle(.tertiary)
+            }
+        }
+        .buttonStyle(.plain)
+    }
+
+}
+
+// MARK: - Shared spot detail (map + copy)
+
+/// A friend's shared spot on a map. When the owner only shared an approximate
+/// area, the pin sits on an obfuscated point with a radius circle and a clear
+/// "approximate" label — the exact honey hole is never revealed.
+struct SharedSpotDetailView: View {
+    let spot: CommunityService.SharedSpot
+    let friendName: String
+    @Environment(AppState.self) private var appState
+    @Environment(\.dismiss) private var dismiss
+    @State private var copied = false
+
+    var body: some View {
+        List {
+            if let coord = spot.coordinate {
+                Section {
+                    ZStack(alignment: .bottomLeading) {
+                        Map(initialPosition: .region(MKCoordinateRegion(
+                            center: coord,
+                            span: MKCoordinateSpan(latitudeDelta: spot.isApproximate ? 0.12 : 0.02,
+                                                   longitudeDelta: spot.isApproximate ? 0.12 : 0.02)))) {
+                            Annotation(spot.name, coordinate: coord) {
+                                Image(systemName: "mappin.circle.fill")
+                                    .font(.title2).foregroundStyle(CurrentsTheme.accent)
+                                    .background(Circle().fill(.white))
+                            }
+                            if spot.isApproximate {
+                                MapCircle(center: coord, radius: 4500)
+                                    .foregroundStyle(CurrentsTheme.accent.opacity(0.12))
+                                    .stroke(CurrentsTheme.accent.opacity(0.5), lineWidth: 1)
+                            }
+                        }
+                        .frame(height: 240)
+                        if spot.isApproximate {
+                            Label("Approximate area", systemImage: "location.circle")
+                                .font(.caption2).padding(6)
+                                .background(.ultraThinMaterial, in: Capsule())
+                                .padding(10)
+                        }
+                    }
+                    .listRowInsets(EdgeInsets())
                 }
             }
-            Spacer()
-            if s.coordinate != nil {
-                if copiedSpots.contains(s.id) {
-                    Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
-                } else {
-                    Button {
-                        copySpot(s)
-                    } label: {
-                        Image(systemName: "square.and.arrow.down").foregroundStyle(CurrentsTheme.accent)
+
+            Section {
+                LabeledContent("Name", value: spot.name)
+                LabeledContent("Type", value: spot.type)
+                if spot.isApproximate {
+                    Label("Shared as an approximate area — \(friendName) kept the exact GPS private.",
+                          systemImage: "eye.slash")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                if !spot.notes.isEmpty {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Notes").font(.caption).foregroundStyle(.secondary)
+                        Text(spot.notes).font(.subheadline)
                     }
-                    .buttonStyle(.plain)
+                }
+            }
+
+            if spot.coordinate != nil {
+                Section {
+                    Button {
+                        copySpot()
+                    } label: {
+                        Label(copied ? "Saved to My Spots" : "Save to My Spots",
+                              systemImage: copied ? "checkmark.circle.fill" : "square.and.arrow.down")
+                    }
+                    .disabled(copied)
+                } footer: {
+                    if spot.isApproximate {
+                        Text("Saves the approximate area — you can fine-tune the pin afterwards.")
+                    }
                 }
             }
         }
+        .navigationTitle(spot.name)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
     }
 
-    private func copySpot(_ s: CommunityService.SharedSpot) {
-        guard let coord = s.coordinate else { return }
-        var spot = Spot(
-            name: s.name,
+    private func copySpot() {
+        guard let coord = spot.coordinate else { return }
+        var newSpot = Spot(
+            name: spot.isApproximate ? "\(spot.name) (approx)" : spot.name,
             latitude: coord.latitude,
             longitude: coord.longitude,
-            notes: s.notes.isEmpty ? "Shared by \(profile?.name ?? "a friend")" : s.notes,
-            spotType: Spot.SpotType(rawValue: s.type) ?? .general
+            notes: spot.notes.isEmpty ? "Shared by \(friendName)" : spot.notes,
+            spotType: Spot.SpotType(rawValue: spot.type) ?? .general
         )
-        try? appState.spotRepository.save(&spot)
-        copiedSpots.insert(s.id)
+        try? appState.spotRepository.save(&newSpot)
+        copied = true
     }
 }
 

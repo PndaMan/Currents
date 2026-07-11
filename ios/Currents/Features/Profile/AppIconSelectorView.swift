@@ -60,19 +60,24 @@ struct AppIconSelectorView: View {
     @ViewBuilder
     private func iconCell(for option: AppIconOption) -> some View {
         let isSelected = selectedAppIcon == option.id
+        let tint = (ThemeOption(rawValue: option.id) ?? .ocean).primary
         VStack(spacing: 8) {
             ZStack {
-                Image(option.logoAsset)
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
+                // Uniform, adaptive tile: transparent-feeling surface that follows
+                // light/dark, with the single-colour current mark tinted per theme.
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(Color(.secondarySystemBackground))
                     .frame(width: 72, height: 72)
-                    .background(.black)
-                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .overlay(
+                        CurrentsMark()
+                            .stroke(tint, style: StrokeStyle(lineWidth: 5, lineCap: .round, lineJoin: .round))
+                            .frame(width: 46, height: 46)
+                    )
                     .overlay(
                         RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .strokeBorder(isSelected ? CurrentsTheme.accent : Color.clear, lineWidth: 3)
+                            .strokeBorder(isSelected ? tint : Color.primary.opacity(0.08), lineWidth: isSelected ? 3 : 1)
                     )
-                    .shadow(color: isSelected ? CurrentsTheme.accent.opacity(0.4) : .clear, radius: 6, y: 2)
+                    .shadow(color: isSelected ? tint.opacity(0.35) : .clear, radius: 6, y: 2)
 
                 if isSelected {
                     VStack {
@@ -80,7 +85,7 @@ struct AppIconSelectorView: View {
                             Spacer()
                             Image(systemName: "checkmark.circle.fill")
                                 .font(.system(size: 20))
-                                .foregroundStyle(.white, CurrentsTheme.accent)
+                                .foregroundStyle(.white, tint)
                         }
                         Spacer()
                     }

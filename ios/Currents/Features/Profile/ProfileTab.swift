@@ -610,26 +610,44 @@ struct UnitsSettingsView: View {
 }
 
 struct PrivacySettingsView: View {
-    @AppStorage("privacyRadiusKm") private var privacyRadius = 7.0
+    @Environment(AppState.self) private var appState
+    @AppStorage("privacyRadiusKm") private var privacyRadius = 0.0
     @AppStorage("shareCatchLocations") private var shareCatchLocations = false
+    @AppStorage("shareCatchesWithFriends") private var shareCatches = true
+    @AppStorage("shareSpotsWithFriends") private var shareSpots = false
+    @AppStorage("shareSpotExactLocations") private var shareSpotExact = false
+
+    private var svc: CommunityService { .shared }
 
     var body: some View {
         Form {
             Section {
-                VStack(alignment: .leading) {
-                    Text("Honey Hole Obfuscation: \(Int(privacyRadius)) km")
-                    Slider(value: $privacyRadius, in: 1...20, step: 1)
+                Toggle("Share my catches with friends", isOn: $shareCatches)
+                Toggle("Share my spots with friends", isOn: $shareSpots)
+                if shareSpots {
+                    Toggle("Include exact spot locations", isOn: $shareSpotExact)
                 }
-            } footer: {
-                Text("When you share a catch publicly, the location is randomly offset by this distance to protect your spots.")
-            }
-
-            Section {
                 Toggle("Share catch locations", isOn: $shareCatchLocations)
             } header: {
-                Text("Community")
+                Text("What friends can see")
             } footer: {
-                Text("Off by default. When on, your Community catches show friends a map of the general area — always offset by your honey-hole radius above, never the exact spot. Turn it off and your shared catches carry no location at all.")
+                Text("These apply to all your friends. Catch bests always appear on the friends leaderboard; everything here is off unless you turn it on (catches default on). Spots stay private unless shared, and exact GPS stays off unless you allow it.")
+            }
+            .onChange(of: shareCatches) { _, _ in reapplySharing() }
+            .onChange(of: shareSpots) { _, _ in reapplySharing() }
+            .onChange(of: shareSpotExact) { _, _ in reapplySharing() }
+
+            Section {
+                VStack(alignment: .leading) {
+                    Text(privacyRadius == 0
+                         ? "Honey-Hole Obfuscation: off (exact)"
+                         : "Honey-Hole Obfuscation: \(Int(privacyRadius)) km")
+                    Slider(value: $privacyRadius, in: 0...20, step: 1)
+                }
+            } header: {
+                Text("Catch location privacy")
+            } footer: {
+                Text("Controls how far your shared catch locations are randomly offset. At 0 km the exact location is shared; increase it to fuzz where you were fishing. Only takes effect when “Share catch locations” is on. (Shared spots always get at least ~4 km of fuzz when you don't share exact GPS.)")
             }
 
             Section {
@@ -637,10 +655,19 @@ struct PrivacySettingsView: View {
             } header: {
                 Text("Data & the Community")
             } footer: {
-                Text("Currents is on-device by default — your catches, spots, and photos stay on your phone. If you opt into the Community, a limited set of data (leaderboard catches, your angler profile, friend requests, and spots you explicitly share) syncs through Apple's CloudKit so friends can see it. Catch coordinates are never shared unless you turn on location sharing, and even then they're offset by your honey-hole radius. You can leave the Community at any time.")
+                Text("Currents is on-device by default — your catches, spots, and photos stay on your phone. If you opt into the Community, a limited set of data (leaderboard catches, your angler profile, friend requests, and spots you explicitly share) syncs through Apple's CloudKit so friends can see it. You can leave the Community at any time.")
             }
         }
         .navigationTitle("Privacy")
+    }
+
+    /// Re-apply the global sharing preferences to CloudKit (grants + shared spots).
+    private func reapplySharing() {
+        Task {
+            await svc.syncCatchGrants()
+            let spots = (try? appState.spotRepository.fetchAll()) ?? []
+            await svc.republishSharedSpots(spots: spots)
+        }
     }
 }
 

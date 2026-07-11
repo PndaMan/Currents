@@ -325,9 +325,19 @@ struct GroupTripView: View {
     }
 
     private func loadFriendProfiles() async {
+        // Always surface every friend so you can invite them directly — even if
+        // their public profile can't be fetched right now (offline / not yet in
+        // CloudKit), fall back to a minimal profile keyed by their code.
         var result: [CommunityService.Profile] = []
         for c in service.friends {
-            if let p = await service.fetchProfile(code: c) { result.append(p) }
+            if let p = await service.fetchProfile(code: c) {
+                result.append(p)
+            } else {
+                result.append(CommunityService.Profile(
+                    id: c, name: "Angler \(c)", bio: "", region: "", homeWater: "",
+                    avatar: nil, memberSince: .now, totalCatches: 0, speciesCount: 0,
+                    bestWeightKg: 0, bestLengthCm: 0, favoriteSpecies: ""))
+            }
         }
         friendProfiles = result
     }

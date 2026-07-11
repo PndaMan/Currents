@@ -57,6 +57,7 @@ DEFINE SCHEMA
         notes       STRING,
         lat         DOUBLE,
         lon         DOUBLE,
+        approx      INT64,
         "___createTime" TIMESTAMP,
         "___createdBy"  REFERENCE,
         "___etag"       STRING,

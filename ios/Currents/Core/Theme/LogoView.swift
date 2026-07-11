@@ -1,21 +1,25 @@
 import SwiftUI
 
-/// The Currents wordmark + symbol. Each theme has its own logo asset.
+/// The Currents wordmark + symbol.
+///
+/// Drawn as a single-colour vector (no baked-in background), so it's
+/// transparent, tints to the active theme, sits cleanly on any light/dark
+/// surface, and renders at a consistent size everywhere.
 struct LogoView: View {
     enum Style {
-        case symbol            // just the symbol glyph
-        case horizontal        // symbol + wordmark on one line
-        case stacked           // symbol above wordmark
+        case symbol            // just the current mark
+        case horizontal        // mark + wordmark on one line
+        case stacked           // mark above wordmark
     }
 
     var style: Style = .horizontal
     var size: CGFloat = 32
     var showsTagline: Bool = false
 
-    /// Override which theme's logo to display. `nil` reads from UserDefaults.
+    /// Override which theme tints the logo. `nil` reads from UserDefaults.
     var themeOverride: String? = nil
 
-    // MARK: - Resolved theme
+    // MARK: - Resolved theme / tint
 
     private var resolvedTheme: ThemeOption {
         if let override = themeOverride, let opt = ThemeOption(rawValue: override) {
@@ -24,15 +28,7 @@ struct LogoView: View {
         return ThemeOption.current
     }
 
-    /// Map each theme to its logo image asset name.
-    private var logoAssetName: String {
-        switch resolvedTheme {
-        case .ocean:                    return "Logo"
-        case .forest, .teal:            return "LogoGreen"
-        case .amethyst, .rose:          return "LogoPurple"
-        case .gold, .sunset, .ember:    return "LogoGold"
-        }
-    }
+    private var tint: Color { resolvedTheme.primary }
 
     // MARK: - Body
 
@@ -50,7 +46,7 @@ struct LogoView: View {
                 symbolView
                 wordmark
                 if showsTagline {
-                    Text("Fish smarter. Log everything. Offline-first.")
+                    Text("Fish smarter. Log everything.")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
@@ -58,30 +54,43 @@ struct LogoView: View {
         }
     }
 
-    // MARK: - Symbol
+    // MARK: - Symbol (vector current mark)
 
     private var symbolView: some View {
-        Image(logoAssetName)
-            .resizable()
-            .renderingMode(.original)
-            .aspectRatio(contentMode: .fit)
+        CurrentsMark()
+            .stroke(tint, style: StrokeStyle(lineWidth: size * 0.11, lineCap: .round, lineJoin: .round))
             .frame(width: size, height: size)
     }
 
-    // MARK: - Wordmark
+    // MARK: - Wordmark (single colour)
 
     private var wordmark: some View {
-        let grad = resolvedTheme.gradient
-        return Text("Currents")
+        Text("Currents")
             .font(.system(size: size * 0.62, weight: .semibold, design: .rounded))
             .tracking(-0.5)
-            .foregroundStyle(
-                LinearGradient(
-                    colors: [grad.0, grad.1],
-                    startPoint: .leading,
-                    endPoint: .trailing
-                )
-            )
+            .foregroundStyle(tint)
+    }
+}
+
+/// A minimal "current" glyph — three flowing streamlines — that reads as moving
+/// water. Stroked in a single colour on a transparent background.
+struct CurrentsMark: Shape {
+    func path(in rect: CGRect) -> Path {
+        var p = Path()
+        let w = rect.width, h = rect.height
+        let amp = h * 0.11
+        let xL = w * 0.10, xR = w * 0.90
+        let xM = (xL + xR) / 2
+        for y in [h * 0.32, h * 0.52, h * 0.72] {
+            p.move(to: CGPoint(x: xL, y: y))
+            p.addCurve(to: CGPoint(x: xM, y: y),
+                       control1: CGPoint(x: xL + (xM - xL) * 0.35, y: y - amp * 1.7),
+                       control2: CGPoint(x: xM - (xM - xL) * 0.35, y: y + amp * 1.7))
+            p.addCurve(to: CGPoint(x: xR, y: y),
+                       control1: CGPoint(x: xM + (xR - xM) * 0.35, y: y - amp * 1.7),
+                       control2: CGPoint(x: xR - (xR - xM) * 0.35, y: y + amp * 1.7))
+        }
+        return p
     }
 }
 

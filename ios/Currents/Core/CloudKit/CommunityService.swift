@@ -90,17 +90,55 @@ final class CommunityService: ObservableObject {
         set { UserDefaults.standard.set(newValue, forKey: "shareCatchLocations") }
     }
 
+    /// Global social-sharing preferences (previously per-friend, now managed
+    /// centrally in Settings › Privacy). `bool(forKey:)` defaults to false, so
+    /// preferences that should default ON are read through `boolDefaultTrue`.
+    private func boolDefaultTrue(_ key: String) -> Bool {
+        UserDefaults.standard.object(forKey: key) == nil ? true : UserDefaults.standard.bool(forKey: key)
+    }
+
+    /// Let friends see my individual catch history (leaderboard bests are always
+    /// visible; the full per-catch list is friends-only and gated by this). On by default.
+    var shareCatchesWithFriends: Bool {
+        get { boolDefaultTrue("shareCatchesWithFriends") }
+        set { UserDefaults.standard.set(newValue, forKey: "shareCatchesWithFriends") }
+    }
+
+    /// Share my saved spots with my friends. Off by default (spot-protective).
+    var shareSpotsWithFriends: Bool {
+        get { UserDefaults.standard.bool(forKey: "shareSpotsWithFriends") }
+        set { UserDefaults.standard.set(newValue, forKey: "shareSpotsWithFriends") }
+    }
+
+    /// Include exact GPS in shared spots (otherwise they're shared as an
+    /// approximate area). Off by default.
+    var shareSpotExactLocations: Bool {
+        get { UserDefaults.standard.bool(forKey: "shareSpotExactLocations") }
+        set { UserDefaults.standard.set(newValue, forKey: "shareSpotExactLocations") }
+    }
+
+    /// Re-apply the global catch-sharing preference to every friend as grant
+    /// records (so they can/can't see my catch history). Call after the toggle
+    /// flips or a new friend is added.
+    func syncCatchGrants() async {
+        guard joined else { return }
+        for code in friends where code.uppercased() != Self.demoCode {
+            await updateCatchGrant(for: code, share: shareCatchesWithFriends)
+        }
+    }
+
     /// The honey-hole radius (km) the angler set in Privacy settings; used to
-    /// offset any shared catch coordinate so exact spots stay private.
+    /// offset shared catch coordinates. 0 = off (share exact).
     private var privacyRadiusKm: Double {
-        let v = UserDefaults.standard.double(forKey: "privacyRadiusKm")
-        return v > 0 ? v : 7
+        max(0, UserDefaults.standard.double(forKey: "privacyRadiusKm"))
     }
 
     /// Deterministically offset a coordinate by up to the honey-hole radius, so
     /// a shared catch shows the right general area without giving up the exact
     /// spot. Deterministic per catch id so it doesn't jump around between syncs.
-    private func obfuscated(_ lat: Double, _ lon: Double, seed: String) -> (Double, Double) {
+    private func obfuscated(_ lat: Double, _ lon: Double, seed: String, radiusKm: Double? = nil) -> (Double, Double) {
+        let radius = radiusKm ?? privacyRadiusKm
+        guard radius > 0 else { return (lat, lon) }
         // Stable FNV-1a hash so the same catch always offsets the same way
         // (Swift's String.hashValue is per-process seeded and would jump around).
         var hash: UInt64 = 1469598103934665603
@@ -109,11 +147,15 @@ final class CommunityService: ObservableObject {
         let angle = Double(h % 360) * .pi / 180
         // 30–100% of the radius, so points don't cluster on a ring.
         let frac = 0.3 + Double((h / 360) % 71) / 100.0
-        let distKm = privacyRadiusKm * frac
+        let distKm = radius * frac
         let dLat = (distKm / 111.0) * cos(angle)
         let dLon = (distKm / (111.0 * cos(lat * .pi / 180))) * sin(angle)
         return (lat + dLat, lon + dLon)
     }
+
+    /// Minimum fuzz applied to an "approximate" shared spot, so it's genuinely
+    /// vague even when the angler's honey-hole radius (for catches) is 0.
+    private var spotApproxRadiusKm: Double { max(privacyRadiusKm, 4) }
 
     /// Base URL of the web smart-link page (hosted on GitHub Pages from /docs).
     /// A real https:// link that previews nicely in Messages and bounces into
@@ -172,8 +214,12 @@ final class CommunityService: ObservableObject {
         let name: String
         let type: String
         let notes: String
-        /// Nil when the owner shared the spot without exact coordinates.
+        /// The coordinate to display. When `isApproximate` is true this is an
+        /// obfuscated point (offset by the owner's honey-hole radius), not the
+        /// real spot. Nil only for legacy records shared without any location.
         let coordinate: CLLocationCoordinate2D?
+        /// True when the owner shared only an approximate area, not exact GPS.
+        var isApproximate: Bool = false
     }
 
     /// What YOU share with a specific friend. Spot-protective defaults.
@@ -539,18 +585,28 @@ final class CommunityService: ObservableObject {
 
     // MARK: - Per-friend privacy
 
+    /// Per-friend privacy. Sharing is now controlled globally (Settings ›
+    /// Privacy); only the nickname stays per-friend. The share* fields are
+    /// filled from the global preferences so existing publish logic keeps working.
     func privacy(for code: String) -> FriendPrivacy {
-        guard let data = UserDefaults.standard.data(forKey: "friendPrivacy-\(code)"),
-              let p = try? JSONDecoder().decode(FriendPrivacy.self, from: data) else { return FriendPrivacy() }
+        var p = FriendPrivacy()
+        if let data = UserDefaults.standard.data(forKey: "friendPrivacy-\(code)"),
+           let stored = try? JSONDecoder().decode(FriendPrivacy.self, from: data) {
+            p.nickname = stored.nickname
+        }
+        p.shareCatches = shareCatchesWithFriends
+        p.shareSpots = shareSpotsWithFriends
+        p.shareExactLocations = shareSpotExactLocations
         return p
     }
 
-    func setPrivacy(_ p: FriendPrivacy, for code: String) {
+    /// Persist only the per-friend nickname (sharing is global now).
+    func setNickname(_ nickname: String, for code: String) {
+        var p = FriendPrivacy()
+        p.nickname = nickname
         if let data = try? JSONEncoder().encode(p) {
             UserDefaults.standard.set(data, forKey: "friendPrivacy-\(code)")
         }
-        Task { await updateCatchGrant(for: code, share: p.shareCatches) }
-        // (The profile screen re-runs republishSharedSpots with the live spots.)
     }
 
     // MARK: - Catch-sharing permission (shareCatches)
@@ -613,9 +669,15 @@ final class CommunityService: ObservableObject {
                 if p.shareExactLocations {
                     record["lat"] = spot.latitude as CKRecordValue
                     record["lon"] = spot.longitude as CKRecordValue
+                    record["approx"] = 0 as CKRecordValue
                 } else {
-                    record["lat"] = nil
-                    record["lon"] = nil
+                    // Share an obfuscated area instead of nothing, so the friend
+                    // still sees roughly where it is — never the exact honey hole.
+                    let (oLat, oLon) = obfuscated(spot.latitude, spot.longitude, seed: spot.id,
+                                                  radiusKm: spotApproxRadiusKm)
+                    record["lat"] = oLat as CKRecordValue
+                    record["lon"] = oLon as CKRecordValue
+                    record["approx"] = 1 as CKRecordValue
                 }
                 _ = try? await db.save(record)
             }
@@ -643,7 +705,8 @@ final class CommunityService: ObservableObject {
                 name: r["name"] as? String ?? "Spot",
                 type: r["type"] as? String ?? "General",
                 notes: r["notes"] as? String ?? "",
-                coordinate: coord
+                coordinate: coord,
+                isApproximate: (r["approx"] as? Int ?? 0) == 1
             )
         }
     }
@@ -706,7 +769,8 @@ final class CommunityService: ObservableObject {
                        coordinate: CLLocationCoordinate2D(latitude: -34.0655, longitude: 19.3011)),
             SharedSpot(id: "demo-spot-3", ownerCode: Self.demoCode, name: "Carp Bay",
                        type: "Bank", notes: "Shared as an approximate area — exact spot kept private.",
-                       coordinate: nil),
+                       coordinate: CLLocationCoordinate2D(latitude: -34.038, longitude: 19.315),
+                       isApproximate: true),
         ]
     }
 
@@ -1028,6 +1092,8 @@ final class CommunityService: ObservableObject {
 
     func acceptFriendRequest(_ req: FriendRequest) async {
         if !friends.contains(req.fromCode) { friends.append(req.fromCode) }
+        // Apply my global sharing prefs to the new friend.
+        await updateCatchGrant(for: req.fromCode, share: shareCatchesWithFriends)
         // Mark accepted so the sender's app adds me back and cleans up.
         let id = CKRecord.ID(recordName: "friendreq-\(req.fromCode)-\(friendCode)")
         if let rec = try? await db.record(for: id) {
@@ -1050,6 +1116,7 @@ final class CommunityService: ObservableObject {
                   (r["status"] as? String) == "accepted" else { continue }
             if let toCode = r["toCode"] as? String, !friends.contains(toCode) {
                 friends.append(toCode)
+                await updateCatchGrant(for: toCode, share: shareCatchesWithFriends)
             }
             _ = try? await db.deleteRecord(withID: r.recordID)
         }
