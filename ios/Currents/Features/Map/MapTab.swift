@@ -23,9 +23,9 @@ struct MapTab: View {
     @State private var selectedSpot: Spot?
     @State private var showingLiveTrip = false
     @State private var showingNewTrip = false
-    // The offline (cached-tile) map is the default main map; persisted so a
-    // style choice sticks across launches.
-    @AppStorage("mapStyleOption") private var mapStyleRaw = MapStyleOption.offline.rawValue
+    // The standard Apple map is the default view; persisted so a style choice
+    // (incl. the offline cached-tile map) sticks across launches.
+    @AppStorage("mapStyleOption") private var mapStyleRaw = MapStyleOption.standard.rawValue
     @AppStorage("showCatchPins") private var showCatchPins = false
     @State private var flyToCoordinate: CLLocationCoordinate2D?
     @State private var showingSpeciesBrowser = false
