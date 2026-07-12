@@ -117,24 +117,6 @@ struct CommunityView: View {
                 Button { showingEdit = true } label: { MyProfileHeader(stats: stats) }
                     .buttonStyle(.plain)
             }
-            if notificationCount > 0 {
-                Section {
-                    Button { showingInbox = true } label: {
-                        HStack(spacing: 12) {
-                            NotificationBell(count: notificationCount)
-                            VStack(alignment: .leading, spacing: 1) {
-                                Text("\(notificationCount) new \(notificationCount == 1 ? "notification" : "notifications")")
-                                    .font(.subheadline.bold()).foregroundStyle(.primary)
-                                Text(inboxSummary).font(.caption).foregroundStyle(.secondary)
-                            }
-                            Spacer()
-                            Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
-                        }
-                    }
-                    .buttonStyle(.plain)
-                    .listRowBackground(CurrentsTheme.accent.opacity(0.10))
-                }
-            }
             LeaderboardSection()
             GroupTripsSection()
             FriendsSection()
@@ -226,6 +208,40 @@ struct CodeField: View {
                 let up = String(v.uppercased().unicodeScalars.filter { CharacterSet.alphanumerics.contains($0) }.prefix(6))
                 if up != text { text = up }
             }
+    }
+}
+
+/// A friend / trip code shown as monospaced accent text. Tap or long-press to
+/// copy it to the clipboard, with a brief "Copied" confirmation.
+struct CopyableCode: View {
+    let code: String
+    var font: Font = .body.monospaced().bold()
+    @State private var copied = false
+
+    var body: some View {
+        Button {
+            UIPasteboard.general.string = code
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+            withAnimation { copied = true }
+            Task {
+                try? await Task.sleep(nanoseconds: 1_500_000_000)
+                withAnimation { copied = false }
+            }
+        } label: {
+            HStack(spacing: 5) {
+                Text(copied ? "Copied!" : code).font(font)
+                    .foregroundStyle(copied ? .green : CurrentsTheme.accent)
+                Image(systemName: copied ? "checkmark" : "doc.on.doc")
+                    .font(.caption2).foregroundStyle(copied ? .green : .secondary)
+            }
+        }
+        .buttonStyle(.plain)
+        .contextMenu {
+            Button {
+                UIPasteboard.general.string = code
+            } label: { Label("Copy code", systemImage: "doc.on.doc") }
+        }
+        .accessibilityLabel("Copy code \(code)")
     }
 }
 
@@ -398,7 +414,7 @@ private struct FriendsSection: View {
             HStack {
                 Text("Your code")
                 Spacer()
-                Text(svc.friendCode).font(.body.monospaced().bold()).foregroundStyle(CurrentsTheme.accent)
+                CopyableCode(code: svc.friendCode)
                 ShareLink(item: svc.friendInviteMessage()) {
                     Image(systemName: "square.and.arrow.up")
                 }

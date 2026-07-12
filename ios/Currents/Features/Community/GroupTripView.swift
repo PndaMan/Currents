@@ -507,8 +507,7 @@ struct GroupTripView: View {
             HStack {
                 VStack(alignment: .leading, spacing: 1) {
                     Text("Invite code").font(.caption2).foregroundStyle(.secondary)
-                    Text(code).font(.system(.title3, design: .monospaced).bold())
-                        .tracking(3).foregroundStyle(CurrentsTheme.accent)
+                    CopyableCode(code: code, font: .system(.title3, design: .monospaced).bold())
                 }
                 Spacer()
                 ShareLink(item: service.inviteMessage(forGroup: code, tripName: trip?.name ?? tripName)) {

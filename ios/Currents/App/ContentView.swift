@@ -18,7 +18,7 @@ struct ContentView: View {
             case .catches: "Catches"
             case .collection: "Collection"
             case .forecast: "Forecast"
-            case .profile: "Profile"
+            case .profile: "More"
             }
         }
 
@@ -26,9 +26,9 @@ struct ContentView: View {
             switch self {
             case .map: "map.fill"
             case .catches: "fish.fill"
-            case .collection: "square.grid.2x2.fill"
+            case .collection: "books.vertical.fill"
             case .forecast: "cloud.sun.fill"
-            case .profile: "person.fill"
+            case .profile: "square.grid.2x2.fill"
             }
         }
     }
