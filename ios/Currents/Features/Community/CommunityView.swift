@@ -699,6 +699,7 @@ struct FriendProfileView: View {
 
     @State private var profile: CommunityService.Profile?
     @State private var privacy = CommunityService.FriendPrivacy()
+    @State private var override = CommunityService.FriendPrivacyOverride()
     @State private var sharedSpots: [CommunityService.SharedSpot] = []
     @State private var catches: [CommunityService.LeaderRow] = []
     @State private var catchAccess = false
@@ -770,11 +771,32 @@ struct FriendProfileView: View {
                 TextField("Nickname (optional)", text: $privacy.nickname)
             } header: {
                 Text("Nickname")
-            } footer: {
-                Text("What you share with friends (catches, spots, catch locations) is set once in Settings › Privacy and applies to all friends.")
             }
             .onChange(of: privacy.nickname) { _, name in
                 svc.setNickname(name, for: code)
+            }
+
+            if svc.isFriend(code) {
+                Section {
+                    overrideRow("See my catch history",
+                                globalOn: svc.shareCatchesWithFriends,
+                                value: $override.shareCatches)
+                    overrideRow("Share my spots",
+                                globalOn: svc.shareSpotsWithFriends,
+                                value: $override.shareSpots)
+                    overrideRow("Share my exact spot locations",
+                                globalOn: svc.shareSpotExactLocations,
+                                value: $override.shareExactLocations)
+                } header: {
+                    Text("What you share with \(profile?.name ?? "this friend")")
+                } footer: {
+                    Text("“Default” follows your global Privacy settings. Override any of these to share more (or less) with just this friend — e.g. share your exact spots with a trusted friend while everyone else sees an approximate area. Your honey-hole radius stays global.")
+                }
+                .onChange(of: override) { _, o in
+                    svc.setOverride(o, for: code)
+                    let spots = (try? appState.spotRepository.fetchAll()) ?? []
+                    Task { await svc.applyPrivacy(for: code, spots: spots) }
+                }
             }
         }
         .navigationTitle(profile?.name ?? "Angler")
@@ -784,11 +806,29 @@ struct FriendProfileView: View {
         }
         .task {
             privacy = svc.privacy(for: code)
+            override = svc.override(for: code)
             profile = await svc.fetchProfile(code: code)
             sharedSpots = await svc.sharedSpots(fromFriend: code)
             catchAccess = await svc.hasCatchAccess(to: code)
             if catchAccess { catches = await svc.anglerCatches(code: code) }
         }
+    }
+
+    /// A tri-state per-friend override: Default (follow global) / Share / Hide.
+    private func overrideRow(_ title: String, globalOn: Bool, value: Binding<Bool?>) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title).font(.subheadline)
+            Picker("", selection: Binding(
+                get: { value.wrappedValue == nil ? 0 : (value.wrappedValue! ? 1 : 2) },
+                set: { value.wrappedValue = $0 == 0 ? nil : ($0 == 1) }
+            )) {
+                Text("Default (\(globalOn ? "On" : "Off"))").tag(0)
+                Text("Share").tag(1)
+                Text("Hide").tag(2)
+            }
+            .pickerStyle(.segmented)
+        }
+        .padding(.vertical, 2)
     }
 
     private func statTile(_ value: String, _ label: String, _ icon: String) -> some View {

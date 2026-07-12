@@ -130,7 +130,7 @@ final class CommunityService: ObservableObject {
     func syncCatchGrants() async {
         guard joined else { return }
         for code in friends where code.uppercased() != Self.demoCode {
-            await updateCatchGrant(for: code, share: shareCatchesWithFriends)
+            await updateCatchGrant(for: code, share: privacy(for: code).shareCatches)
         }
     }
 
@@ -229,11 +229,25 @@ final class CommunityService: ObservableObject {
         var isApproximate: Bool = false
     }
 
-    /// What YOU share with a specific friend. Spot-protective defaults.
+    /// The EFFECTIVE (resolved) sharing for a specific friend — what the publish
+    /// logic reads. Produced by `privacy(for:)` from the global settings plus any
+    /// per-friend overrides.
     struct FriendPrivacy: Codable, Equatable {
         var shareCatches = true
         var shareSpots = false
         var shareExactLocations = false
+        var nickname = ""
+    }
+
+    /// Per-friend OVERRIDES. Each share flag is a tri-state: `nil` follows the
+    /// global Privacy setting; `true`/`false` overrides it just for this friend
+    /// (e.g. share your exact spots with a trusted friend while everyone else
+    /// only sees an approximate area). The honey-hole obfuscation radius is
+    /// deliberately NOT overridable — it stays a single global setting.
+    struct FriendPrivacyOverride: Codable, Equatable {
+        var shareCatches: Bool?
+        var shareSpots: Bool?
+        var shareExactLocations: Bool?
         var nickname = ""
     }
 
@@ -610,28 +624,52 @@ final class CommunityService: ObservableObject {
 
     // MARK: - Per-friend privacy
 
-    /// Per-friend privacy. Sharing is now controlled globally (Settings ›
-    /// Privacy); only the nickname stays per-friend. The share* fields are
-    /// filled from the global preferences so existing publish logic keeps working.
-    func privacy(for code: String) -> FriendPrivacy {
-        var p = FriendPrivacy()
-        if let data = UserDefaults.standard.data(forKey: "friendPrivacy-\(code)"),
-           let stored = try? JSONDecoder().decode(FriendPrivacy.self, from: data) {
-            p.nickname = stored.nickname
+    /// The stored per-friend overrides (nil flags = follow global).
+    func override(for code: String) -> FriendPrivacyOverride {
+        if let data = UserDefaults.standard.data(forKey: "friendPrivacyV2-\(code)"),
+           let o = try? JSONDecoder().decode(FriendPrivacyOverride.self, from: data) {
+            return o
         }
-        p.shareCatches = shareCatchesWithFriends
-        p.shareSpots = shareSpotsWithFriends
-        p.shareExactLocations = shareSpotExactLocations
+        // Back-compat: pull a nickname saved under the old key, if any.
+        var o = FriendPrivacyOverride()
+        if let data = UserDefaults.standard.data(forKey: "friendPrivacy-\(code)"),
+           let old = try? JSONDecoder().decode(FriendPrivacy.self, from: data) {
+            o.nickname = old.nickname
+        }
+        return o
+    }
+
+    /// Effective per-friend sharing: each setting is the friend's override if
+    /// set, otherwise the global Privacy setting.
+    func privacy(for code: String) -> FriendPrivacy {
+        let o = override(for: code)
+        var p = FriendPrivacy()
+        p.shareCatches = o.shareCatches ?? shareCatchesWithFriends
+        p.shareSpots = o.shareSpots ?? shareSpotsWithFriends
+        p.shareExactLocations = o.shareExactLocations ?? shareSpotExactLocations
+        p.nickname = o.nickname
         return p
     }
 
-    /// Persist only the per-friend nickname (sharing is global now).
-    func setNickname(_ nickname: String, for code: String) {
-        var p = FriendPrivacy()
-        p.nickname = nickname
-        if let data = try? JSONEncoder().encode(p) {
-            UserDefaults.standard.set(data, forKey: "friendPrivacy-\(code)")
+    func setOverride(_ o: FriendPrivacyOverride, for code: String) {
+        if let data = try? JSONEncoder().encode(o) {
+            UserDefaults.standard.set(data, forKey: "friendPrivacyV2-\(code)")
         }
+        bumpRevision()
+    }
+
+    /// Re-apply this friend's effective sharing after their overrides change, so
+    /// grants + shared spots reflect the new choice immediately.
+    func applyPrivacy(for code: String, spots: [Spot]) async {
+        guard joined else { return }
+        await updateCatchGrant(for: code, share: privacy(for: code).shareCatches)
+        await republishSharedSpots(spots: spots)
+    }
+
+    func setNickname(_ nickname: String, for code: String) {
+        var o = override(for: code)
+        o.nickname = nickname
+        setOverride(o, for: code)
     }
 
     // MARK: - Catch-sharing permission (shareCatches)
@@ -1270,8 +1308,8 @@ final class CommunityService: ObservableObject {
 
     func acceptFriendRequest(_ req: FriendRequest) async {
         if !friends.contains(req.fromCode) { friends.append(req.fromCode) }
-        // Apply my global sharing prefs to the new friend.
-        await updateCatchGrant(for: req.fromCode, share: shareCatchesWithFriends)
+        // Apply my sharing prefs (global, or this friend's override) to them.
+        await updateCatchGrant(for: req.fromCode, share: privacy(for: req.fromCode).shareCatches)
         // Mark accepted so the sender's app adds me back and cleans up.
         let id = CKRecord.ID(recordName: "friendreq-\(req.fromCode)-\(friendCode)")
         if let rec = try? await db.record(for: id) {
@@ -1294,7 +1332,7 @@ final class CommunityService: ObservableObject {
                   (r["status"] as? String) == "accepted" else { continue }
             if let toCode = r["toCode"] as? String, !friends.contains(toCode) {
                 friends.append(toCode)
-                await updateCatchGrant(for: toCode, share: shareCatchesWithFriends)
+                await updateCatchGrant(for: toCode, share: privacy(for: toCode).shareCatches)
             }
             _ = try? await db.deleteRecord(withID: r.recordID)
         }
