@@ -846,6 +846,13 @@ final class CommunityService: ObservableObject {
     private let groupTripType = "GroupTrip"
     private let groupMemberType = "GroupMember"
 
+    // Last-seen group feed/members, so reopening a trip shows content instantly
+    // instead of a blank page while the network refresh runs.
+    private var groupCatchCache: [String: [GroupCatch]] = [:]
+    private var groupMemberCache: [String: [GroupMember]] = [:]
+    func cachedGroupCatches(_ code: String) -> [GroupCatch] { groupCatchCache[code] ?? [] }
+    func cachedGroupMembers(_ code: String) -> [GroupMember] { groupMemberCache[code] ?? [] }
+
     struct GroupTrip: Identifiable, Equatable {
         let id: String          // 6-char join code
         let name: String
@@ -853,6 +860,10 @@ final class CommunityService: ObservableObject {
         let hostName: String
         let createdAt: Date
         var isHost: Bool = false
+        /// Set when the host ends the trip for everyone. Members' own GPS
+        /// sessions are unaffected — only the shared trip is closed.
+        var endedAt: Date?
+        var isEnded: Bool { endedAt != nil }
     }
 
     struct GroupMember: Identifiable {
@@ -879,6 +890,10 @@ final class CommunityService: ObservableObject {
         var hostName: String
         var isHost: Bool
         var joinedAt: Date
+        /// Cached "trip ended" marker so the group list can show finished trips
+        /// (they stay as history until you leave the group). Optional so old
+        /// stored refs decode fine.
+        var endedAt: Date? = nil
         var id: String { code }
     }
 
@@ -1000,14 +1015,40 @@ final class CommunityService: ObservableObject {
         let id = CKRecord.ID(recordName: "grouptrip-\(code)")
         guard let r = try? await db.record(for: id) else { return nil }
         let hostCode = r["hostCode"] as? String ?? ""
+        let endedAt = r["endedAt"] as? Date
+        // Keep the locally-cached ref in step so the group list shows "Ended"
+        // for every member, not just whoever tapped End.
+        if let endedAt { markGroupEnded(code: code, at: endedAt) }
         return GroupTrip(
             id: r["code"] as? String ?? code,
             name: r["name"] as? String ?? "Group Trip",
             hostCode: hostCode,
             hostName: r["hostName"] as? String ?? "Host",
             createdAt: r["createdAt"] as? Date ?? .now,
-            isHost: hostCode == friendCode
+            isHost: hostCode == friendCode,
+            endedAt: endedAt
         )
+    }
+
+    /// Host-only: end the shared trip for everyone. Marks the group record ended
+    /// so members see it as finished on their next poll. Does NOT stop anyone's
+    /// personal GPS session — each angler ends their own. No-op for non-hosts.
+    func endGroupTrip(code: String) async {
+        let id = CKRecord.ID(recordName: "grouptrip-\(code)")
+        guard let r = try? await db.record(for: id),
+              (r["hostCode"] as? String) == friendCode else { return }
+        r["endedAt"] = Date() as CKRecordValue
+        _ = try? await db.save(r)
+        markGroupEnded(code: code, at: Date())
+    }
+
+    /// Update the locally-cached group ref so the list shows it as ended.
+    private func markGroupEnded(code: String, at date: Date) {
+        var groups = myGroups
+        if let i = groups.firstIndex(where: { $0.code == code }), groups[i].endedAt == nil {
+            groups[i].endedAt = date
+            myGroups = groups
+        }
     }
 
     func groupMembers(code: String) async -> [GroupMember] {
@@ -1015,8 +1056,10 @@ final class CommunityService: ObservableObject {
         // regardless of how many group members exist across the whole public DB.
         let query = CKQuery(recordType: groupMemberType,
                             predicate: NSPredicate(format: "groupCode == %@", code))
-        guard let results = try? await db.records(matching: query, resultsLimit: 300) else { return [] }
-        return results.matchResults.compactMap { _, res -> GroupMember? in
+        guard let results = try? await db.records(matching: query, resultsLimit: 300) else {
+            return groupMemberCache[code] ?? []
+        }
+        let members = results.matchResults.compactMap { _, res -> GroupMember? in
             guard let r = try? res.get() else { return nil }
             return GroupMember(
                 id: r["memberCode"] as? String ?? "",
@@ -1024,6 +1067,8 @@ final class CommunityService: ObservableObject {
                 joinedAt: r["joinedAt"] as? Date ?? .now
             )
         }.sorted { $0.joinedAt < $1.joinedAt }
+        groupMemberCache[code] = members
+        return members
     }
 
     /// Every catch shared into the group, newest first. Server-side filter on the
@@ -1031,8 +1076,10 @@ final class CommunityService: ObservableObject {
     func groupCatches(code: String) async -> [GroupCatch] {
         let query = CKQuery(recordType: catchType,
                             predicate: NSPredicate(format: "groupCode == %@", code))
-        guard let results = try? await db.records(matching: query, resultsLimit: 400) else { return [] }
-        return results.matchResults.compactMap { _, res -> GroupCatch? in
+        guard let results = try? await db.records(matching: query, resultsLimit: 400) else {
+            return groupCatchCache[code] ?? []
+        }
+        let catches = results.matchResults.compactMap { _, res -> GroupCatch? in
             guard let r = try? res.get() else { return nil }
             return GroupCatch(
                 id: r.recordID.recordName,
@@ -1044,11 +1091,22 @@ final class CommunityService: ObservableObject {
                 date: r["caughtAt"] as? Date ?? .now
             )
         }.sorted { $0.date > $1.date }
+        groupCatchCache[code] = catches
+        return catches
     }
 
     func leaveGroupTrip(code: String, tripId: String?) async {
+        let wasHost = myGroups.first(where: { $0.code == code })?.isHost ?? false
         let id = CKRecord.ID(recordName: "member-\(code)-\(friendCode)")
         _ = try? await db.deleteRecord(withID: id)
+        // When the HOST leaves, the trip no longer exists — delete the group
+        // record so members detect it's gone and any pending invites to it drop
+        // (invitees clean those up in pendingInvites()).
+        if wasHost {
+            _ = try? await db.deleteRecord(withID: CKRecord.ID(recordName: "grouptrip-\(code)"))
+        }
+        groupCatchCache[code] = nil
+        groupMemberCache[code] = nil
         let linked = tripId ?? self.tripId(forGroupCode: code)
         if let linked { setGroupCode(nil, forTripId: linked) }
         forgetGroup(code: code)
@@ -1112,9 +1170,9 @@ final class CommunityService: ObservableObject {
         let query = CKQuery(recordType: inviteType,
                             predicate: NSPredicate(format: "toCode == %@", friendCode))
         guard let results = try? await db.records(matching: query, resultsLimit: 200) else { return [] }
-        return results.matchResults.compactMap { _, res -> TripInvite? in
+        let raw = results.matchResults.compactMap { _, res -> (TripInvite, CKRecord.ID)? in
             guard let r = try? res.get() else { return nil }
-            return TripInvite(
+            let inv = TripInvite(
                 id: r.recordID.recordName,
                 groupCode: r["groupCode"] as? String ?? "",
                 tripName: r["tripName"] as? String ?? "Group Trip",
@@ -1122,7 +1180,20 @@ final class CommunityService: ObservableObject {
                 fromCode: r["fromCode"] as? String ?? "",
                 date: r["createdAt"] as? Date ?? .now
             )
-        }.sorted { $0.date > $1.date }
+            return (inv, r.recordID)
+        }
+        // Drop invites whose group no longer exists (host left) or has already
+        // ended, cleaning up the stale invite record so it never shows again.
+        var live: [TripInvite] = []
+        for (inv, recID) in raw {
+            let group = await groupTrip(code: inv.groupCode)
+            if let group, !group.isEnded {
+                live.append(inv)
+            } else {
+                _ = try? await db.deleteRecord(withID: recID)
+            }
+        }
+        return live.sorted { $0.date > $1.date }
     }
 
     func acceptInvite(_ invite: TripInvite) async {

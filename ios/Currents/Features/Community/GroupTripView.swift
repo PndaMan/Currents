@@ -8,6 +8,7 @@ import UIKit
 /// show up reliably for BOTH host and joiner), plus an entry to start or join.
 struct GroupTripsSection: View {
     @StateObject private var svc = CommunityService.shared
+    @Environment(AppState.self) private var appState
 
     var body: some View {
         Section("Group Trips") {
@@ -22,7 +23,14 @@ struct GroupTripsSection: View {
                             .frame(width: 34, height: 34)
                             .background(CurrentsTheme.accent.opacity(0.15), in: Circle())
                         VStack(alignment: .leading, spacing: 1) {
-                            Text(g.name).font(.subheadline.bold())
+                            HStack(spacing: 6) {
+                                Text(g.name).font(.subheadline.bold())
+                                if g.endedAt != nil {
+                                    Text("Ended").font(.system(size: 9, weight: .bold))
+                                        .padding(.horizontal, 5).padding(.vertical, 1)
+                                        .background(Color.secondary.opacity(0.2), in: Capsule())
+                                }
+                            }
                             Text(g.isHost ? "You're hosting · \(g.code)" : "Hosted by \(g.hostName) · \(g.code)")
                                 .font(.caption2).foregroundStyle(.secondary)
                         }
@@ -30,7 +38,7 @@ struct GroupTripsSection: View {
                 }
                 .swipeActions {
                     Button("Remove", role: .destructive) {
-                        Task { await svc.leaveGroupTrip(code: g.code, tripId: nil) }
+                        Task { await leaveGroupAndCleanup(code: g.code, tripId: nil, appState: appState) }
                     }
                 }
             }
@@ -41,6 +49,23 @@ struct GroupTripsSection: View {
                     .foregroundStyle(CurrentsTheme.accent)
             }
         }
+    }
+}
+
+/// Leave a group trip and, if the local session it was linked to never got past
+/// the planned stage (never started, so nothing was tracked or logged), delete
+/// that planned session too — leaving a group you only planned shouldn't leave
+/// an orphaned plan behind.
+@MainActor
+func leaveGroupAndCleanup(code: String, tripId: String?, appState: AppState) async {
+    let svc = CommunityService.shared
+    // Resolve the linked trip BEFORE leaving (leaving forgets the mapping).
+    let linked = tripId ?? svc.tripId(forGroupCode: code)
+    await svc.leaveGroupTrip(code: code, tripId: linked)
+    if let linked,
+       let trip = (try? appState.tripRepository.fetch(linked)) ?? nil,
+       trip.isPlanned {
+        try? appState.tripRepository.delete(trip)
     }
 }
 
@@ -59,6 +84,7 @@ struct GroupTripSetupView: View {
     @State private var busy = false
     @State private var openedCode: String?
     @State private var showingPlanner = false
+    @State private var editingPlan: Trip?
 
     // Trips you can turn into a group: planned or currently-active (not
     // finished) that don't already have a group. A trip with a group is opened
@@ -88,28 +114,39 @@ struct GroupTripSetupView: View {
             if !startableTrips.isEmpty {
                 Section {
                     ForEach(startableTrips) { t in
-                        Button { Task { await startTrip(from: t) } } label: {
-                            HStack(spacing: 10) {
-                                Image(systemName: t.plannedDate != nil ? "calendar.badge.clock" : "figure.fishing")
-                                    .foregroundStyle(CurrentsTheme.accent)
-                                VStack(alignment: .leading, spacing: 1) {
-                                    Text(t.name).font(.subheadline.bold()).foregroundStyle(.primary)
-                                    Text(t.plannedDate != nil ? "Planned" : "Active session")
-                                        .font(.caption2).foregroundStyle(.secondary)
+                        HStack(spacing: 10) {
+                            // Tap a planned trip (anywhere but Share) to edit its
+                            // name, date and checklist; active sessions can't be
+                            // edited, so tapping them shares instead.
+                            Button {
+                                if t.isPlanned { editingPlan = t } else { Task { await startTrip(from: t) } }
+                            } label: {
+                                HStack(spacing: 10) {
+                                    Image(systemName: t.plannedDate != nil ? "calendar.badge.clock" : "figure.fishing")
+                                        .foregroundStyle(CurrentsTheme.accent)
+                                    VStack(alignment: .leading, spacing: 1) {
+                                        Text(t.name).font(.subheadline.bold()).foregroundStyle(.primary)
+                                        Text(t.plannedDate != nil ? "Planned · tap to edit" : "Active session")
+                                            .font(.caption2).foregroundStyle(.secondary)
+                                    }
+                                    Spacer(minLength: 0)
                                 }
-                                Spacer()
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            Button { Task { await startTrip(from: t) } } label: {
                                 Label("Share", systemImage: "person.2.badge.plus")
                                     .labelStyle(.titleAndIcon)
-                                    .font(.caption.bold()).foregroundStyle(CurrentsTheme.accent)
+                                    .font(.caption.bold())
                             }
+                            .buttonStyle(.borderedProminent).tint(CurrentsTheme.accent)
+                            .disabled(busy)
                         }
-                        .buttonStyle(.plain)
-                        .disabled(busy)
                     }
                 } header: {
                     Text("Share an existing trip")
                 } footer: {
-                    Text("Turn a trip you've already planned or started into a group trip. Trips that already have a group are in your Group Trips list.")
+                    Text("Turn a trip you've already planned or started into a group trip. Tap a planned trip to edit its checklist first. Trips that already have a group are in your Group Trips list.")
                 }
             }
 
@@ -130,6 +167,11 @@ struct GroupTripSetupView: View {
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $showingPlanner) {
             PlanSessionSheet(onSaved: { id in Task { await startTrip(fromId: id) } })
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
+        }
+        .sheet(item: $editingPlan, onDismiss: { trips = (try? appState.tripRepository.fetchAll()) ?? [] }) { t in
+            PlanSessionSheet(editingTrip: t)
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
         }
@@ -192,6 +234,8 @@ struct GroupTripView: View {
 
     @State private var code: String?
     @Environment(AppState.self) private var appState
+    @StateObject private var svc = CommunityService.shared
+    @State private var joinName = ""
     @State private var trip: CommunityService.GroupTrip?
     @State private var members: [CommunityService.GroupMember] = []
     @State private var feed: [CommunityService.GroupCatch] = []
@@ -217,7 +261,9 @@ struct GroupTripView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: CurrentsTheme.paddingM) {
-                if confirming, let code {
+                if !svc.joined {
+                    joinGate
+                } else if confirming, let code {
                     confirmJoin(code)
                 } else if let code {
                     activeGroup(code)
@@ -239,6 +285,12 @@ struct GroupTripView: View {
         }
         .task {
             if code == nil, let tripId { code = service.groupCode(forTripId: tripId) }
+            // Show last-seen members + catches instantly, then refresh in the
+            // background — reopening a trip no longer flashes a blank page.
+            if let c = code {
+                members = service.cachedGroupMembers(c)
+                feed = service.cachedGroupCatches(c)
+            }
             if autoJoin, let c = code {
                 trip = await service.groupTrip(code: c)
                 members = await service.groupMembers(code: c)
@@ -263,6 +315,50 @@ struct GroupTripView: View {
             try? await Task.sleep(nanoseconds: 15_000_000_000)
             if code != nil, !confirming { await refresh() }
         }
+    }
+
+    // MARK: - Join gate (opened a trip link without a community profile yet)
+
+    /// When someone taps a trip link before setting up Community, walk them
+    /// through the same one-field onboarding (just a name) before they join —
+    /// so their catches carry a name and they show up in the standings.
+    private var joinGate: some View {
+        VStack(spacing: CurrentsTheme.paddingM) {
+            Image(systemName: "person.crop.circle.badge.plus")
+                .font(.system(size: 44)).foregroundStyle(CurrentsTheme.accent)
+                .padding(.top, 12)
+            Text("Join to fish together").font(.title2.bold())
+            Text("You've been invited to “\(trip?.name ?? tripName)”. Set up your free Currents profile — no account or password, just a name — to join the trip.")
+                .font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Your angler name").font(.headline)
+                TextField("Name", text: $joinName).textContentType(.givenName)
+                    .textFieldStyle(.roundedBorder)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            Button {
+                Task {
+                    busy = true
+                    await svc.join(name: joinName, region: svc.myRegion)
+                    // Now proceed into the group's join confirmation.
+                    if let c = code {
+                        trip = await service.groupTrip(code: c)
+                        confirming = trip != nil
+                    }
+                    busy = false
+                }
+            } label: {
+                HStack {
+                    if busy { ProgressView().tint(.white) }
+                    Label("Join & Continue", systemImage: "arrow.right.circle.fill").frame(maxWidth: .infinity)
+                }
+            }
+            .buttonStyle(.borderedProminent).tint(CurrentsTheme.accent)
+            .disabled(joinName.trimmingCharacters(in: .whitespaces).isEmpty || busy)
+        }
+        .glassCard()
     }
 
     // MARK: - Setup (no group yet — e.g. from a live session with no group)
@@ -449,33 +545,39 @@ struct GroupTripView: View {
             Label("Standings", systemImage: "trophy.fill").font(.headline)
             let stats = standings()
             ForEach(Array(stats.enumerated()), id: \.element.code) { i, s in
-                HStack(spacing: 10) {
-                    Text("\(i + 1)").font(.subheadline.bold().monospacedDigit())
-                        .foregroundStyle(i < 3 ? .white : .secondary)
-                        .frame(width: 24, height: 24)
-                        .background(i < 3 ? CurrentsTheme.accent : Color.secondary.opacity(0.15), in: Circle())
-                    AnglerAvatar(image: memberAvatars[s.code], size: 30)
-                    VStack(alignment: .leading, spacing: 1) {
-                        HStack(spacing: 6) {
-                            Text(s.name).font(.subheadline.bold())
-                            if s.code == trip?.hostCode {
-                                Text("Host").font(.system(size: 9, weight: .bold))
-                                    .padding(.horizontal, 5).padding(.vertical, 1)
-                                    .background(CurrentsTheme.accent.opacity(0.2), in: Capsule())
+                NavigationLink {
+                    FriendProfileView(code: s.code)
+                } label: {
+                    HStack(spacing: 10) {
+                        Text("\(i + 1)").font(.subheadline.bold().monospacedDigit())
+                            .foregroundStyle(i < 3 ? .white : .secondary)
+                            .frame(width: 24, height: 24)
+                            .background(i < 3 ? CurrentsTheme.accent : Color.secondary.opacity(0.15), in: Circle())
+                        AnglerAvatar(image: memberAvatars[s.code], size: 30)
+                        VStack(alignment: .leading, spacing: 1) {
+                            HStack(spacing: 6) {
+                                Text(s.name).font(.subheadline.bold()).foregroundStyle(.primary)
+                                if s.code == trip?.hostCode {
+                                    Text("Host").font(.system(size: 9, weight: .bold))
+                                        .padding(.horizontal, 5).padding(.vertical, 1)
+                                        .background(CurrentsTheme.accent.opacity(0.2), in: Capsule())
+                                }
+                                if s.code == service.friendCode {
+                                    Text("YOU").font(.system(size: 9, weight: .heavy))
+                                        .padding(.horizontal, 5).padding(.vertical, 1)
+                                        .background(CurrentsTheme.accent, in: Capsule())
+                                        .foregroundStyle(.white)
+                                }
                             }
-                            if s.code == service.friendCode {
-                                Text("YOU").font(.system(size: 9, weight: .heavy))
-                                    .padding(.horizontal, 5).padding(.vertical, 1)
-                                    .background(CurrentsTheme.accent, in: Capsule())
-                                    .foregroundStyle(.white)
-                            }
+                            Text(s.subtitle).font(.caption2).foregroundStyle(.secondary)
                         }
-                        Text(s.subtitle).font(.caption2).foregroundStyle(.secondary)
+                        Spacer()
+                        Text("\(s.count)").font(.headline.monospacedDigit()).foregroundStyle(CurrentsTheme.accent)
+                            + Text(s.count == 1 ? " fish" : " fish").font(.caption2).foregroundStyle(.secondary)
+                        Image(systemName: "chevron.right").font(.caption2).foregroundStyle(.tertiary)
                     }
-                    Spacer()
-                    Text("\(s.count)").font(.headline.monospacedDigit()).foregroundStyle(CurrentsTheme.accent)
-                        + Text(s.count == 1 ? " fish" : " fish").font(.caption2).foregroundStyle(.secondary)
                 }
+                .buttonStyle(.plain)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -515,14 +617,25 @@ struct GroupTripView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .glassCard()
 
+        // Host-only: end the whole trip for everyone (doesn't touch anyone's
+        // personal GPS session). Members can only end their own session.
+        if trip?.isHost == true, !(trip?.isEnded ?? false) {
+            Button(role: .destructive) {
+                Task { await service.endGroupTrip(code: code); await refresh() }
+            } label: {
+                Label("End trip for everyone", systemImage: "flag.slash").frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+        }
+
         Button(role: .destructive) {
             Task {
-                await service.leaveGroupTrip(code: code, tripId: tripId)
+                await leaveGroupAndCleanup(code: code, tripId: tripId, appState: appState)
                 self.code = nil
                 trip = nil; members = []; feed = []
             }
         } label: {
-            Label("Leave group", systemImage: "person.fill.xmark").frame(maxWidth: .infinity)
+            Label(trip?.isEnded == true ? "Remove from my trips" : "Leave group", systemImage: "person.fill.xmark").frame(maxWidth: .infinity)
         }
         .buttonStyle(.bordered)
     }
@@ -534,10 +647,24 @@ struct GroupTripView: View {
         let linkedId = service.tripId(forGroupCode: code)
         let isThisActive = tracker.isTracking && tracker.activeTrip?.id == linkedId && linkedId != nil
 
+        let ended = trip?.isEnded ?? false
+
         VStack(alignment: .leading, spacing: 10) {
             Label("Your session", systemImage: "figure.fishing").font(.headline)
 
-            if isThisActive {
+            if ended {
+                // Host ended the shared trip. Standings + catches stay visible as
+                // history; you can still wrap up your own session if it's running.
+                Label("This trip has ended", systemImage: "flag.checkered")
+                    .font(.subheadline.bold()).foregroundStyle(.secondary)
+                if isThisActive {
+                    Button(role: .destructive) {
+                        _ = appState.tripTracker.end()
+                    } label: {
+                        Label("End my session", systemImage: "stop.circle").frame(maxWidth: .infinity)
+                    }.buttonStyle(.bordered)
+                }
+            } else if isThisActive, tracker.isDayActive {
                 if tracker.manualPaused {
                     Label("GPS paused", systemImage: "pause.circle.fill").font(.caption).foregroundStyle(.orange)
                 } else {
@@ -568,12 +695,31 @@ struct GroupTripView: View {
                               systemImage: tracker.manualPaused ? "play.fill" : "pause.fill")
                             .frame(maxWidth: .infinity)
                     }.buttonStyle(.bordered)
-                    Button(role: .destructive) {
-                        _ = appState.tripTracker.end()
+                    Menu {
+                        Button {
+                            tracker.endDay()
+                        } label: { Label("End for the day", systemImage: "moon.zzz.fill") }
+                        Button(role: .destructive) {
+                            _ = appState.tripTracker.end()
+                        } label: { Label("End my session", systemImage: "stop.circle") }
                     } label: {
-                        Label("End", systemImage: "stop.fill").frame(maxWidth: .infinity)
+                        Label("Finish", systemImage: "flag.checkered").frame(maxWidth: .infinity)
                     }.buttonStyle(.bordered)
                 }
+            } else if isThisActive {
+                // Day ended but the trip is still open — pick back up tomorrow
+                // or finish the whole trip. No logging between days.
+                Label("Day ended — trip still open", systemImage: "pause.circle").font(.caption).foregroundStyle(.secondary)
+                Button {
+                    tracker.startNextDay()
+                } label: {
+                    Label("Start next day", systemImage: "sun.max.fill").frame(maxWidth: .infinity)
+                }.buttonStyle(.borderedProminent).tint(CurrentsTheme.accent)
+                Button(role: .destructive) {
+                    _ = appState.tripTracker.end()
+                } label: {
+                    Label("End trip", systemImage: "stop.circle").frame(maxWidth: .infinity)
+                }.buttonStyle(.bordered)
             } else if tracker.isTracking {
                 Text("Another session is active. End it and start this trip's session to log catches here.")
                     .font(.caption).foregroundStyle(.secondary)

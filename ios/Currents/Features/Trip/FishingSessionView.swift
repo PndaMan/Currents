@@ -125,9 +125,9 @@ struct SessionsView: View {
             if !planned.isEmpty {
                 Section("Planned") {
                     ForEach(planned) { trip in
-                        PlannedRow(trip: trip, canStart: !tracker.isTracking) {
+                        PlannedRow(trip: trip, canStart: !tracker.isTracking, onStart: {
                             _ = tracker.startPlanned(trip); reload()
-                        }
+                        }, onEdit: { editingPlanned = trip })
                         .contextMenu { rowMenu(trip) }
                     }
                 }
@@ -190,17 +190,26 @@ struct PlannedRow: View {
     let trip: Trip
     let canStart: Bool
     let onStart: () -> Void
+    let onEdit: () -> Void
     var body: some View {
         HStack(spacing: 12) {
-            Image(systemName: "calendar.badge.clock").foregroundStyle(CurrentsTheme.accent)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(trip.name).font(.subheadline.bold())
-                if let d = trip.plannedDate {
-                    Text(d.formatted(date: .abbreviated, time: .shortened))
-                        .font(.caption).foregroundStyle(.secondary)
+            // Tapping anywhere but Start opens the planner to edit name, date,
+            // checklist and forecast.
+            Button(action: onEdit) {
+                HStack(spacing: 12) {
+                    Image(systemName: "calendar.badge.clock").foregroundStyle(CurrentsTheme.accent)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(trip.name).font(.subheadline.bold()).foregroundStyle(.primary)
+                        if let d = trip.plannedDate {
+                            Text(d.formatted(date: .abbreviated, time: .shortened))
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                    Spacer(minLength: 0)
                 }
+                .contentShape(Rectangle())
             }
-            Spacer()
+            .buttonStyle(.plain)
             Button("Start", action: onStart)
                 .buttonStyle(.borderedProminent).tint(CurrentsTheme.accent)
                 .disabled(!canStart)
