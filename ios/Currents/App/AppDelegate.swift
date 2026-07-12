@@ -53,11 +53,21 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         }
     }
 
-    /// Refresh community lists when the user taps a notification.
+    /// Route to the relevant screen (and refresh community lists) when the user
+    /// taps a notification. Local notifications carry a `deepLink` in userInfo;
+    /// CloudKit community pushes (friend request / trip invite) route to
+    /// Community.
     func userNotificationCenter(_ center: UNUserNotificationCenter,
                                 didReceive response: UNNotificationResponse,
                                 withCompletionHandler completionHandler: @escaping () -> Void) {
+        let userInfo = response.notification.request.content.userInfo
         Task { @MainActor in
+            if let link = userInfo["deepLink"] as? String, let url = URL(string: link) {
+                AppState.shared?.pendingDeepLink = url
+            } else if userInfo["ck"] != nil || userInfo["aps"] != nil {
+                // A CloudKit community push (friend request / trip invite).
+                AppState.shared?.pendingDeepLink = URL(string: "currents://community")
+            }
             await CommunityService.shared.refreshTripInvites()
             await CommunityService.shared.refreshFriendRequests()
             completionHandler()

@@ -13,6 +13,24 @@ final class AppState {
     /// Catches tab and CatchesTab presents the log sheet, then resets it.
     var siriRequestedLogCatch = false
 
+    // MARK: - Deep-link routing (Live Activity taps + notification taps)
+
+    /// A destination inside the "More" tab's navigation stack, pushed
+    /// programmatically when a notification points there.
+    enum MoreDestination: String, Identifiable, Hashable {
+        case community, gear, licenses, sessions
+        var id: String { rawValue }
+    }
+
+    /// A deep link (currents://…) received from a notification tap — ContentView
+    /// observes this and routes, then clears it.
+    var pendingDeepLink: URL?
+    /// Set when a link should open the live fishing session so a catch can be
+    /// logged straight away — MapTab watches this and presents the session.
+    var openLiveSession = false
+    /// Push a screen inside the More tab (Community / Gear / Licences / Sessions).
+    var moreDestination: MoreDestination?
+
     let db: AppDatabase
     let locationManager = LocationManager()
     let fishModelDownloader = FishModelDownloader()

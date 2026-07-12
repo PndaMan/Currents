@@ -25,6 +25,8 @@ struct ProfileTab: View {
     @AppStorage("autoBackupEnabled") private var autoBackupEnabled = true
     @State private var snapshots: [FileBackup.Snapshot] = []
     @State private var restoreSnapshot: FileBackup.Snapshot?
+    /// Programmatic destination pushed by a notification/Live Activity tap.
+    @State private var moreDest: AppState.MoreDestination?
 
     var body: some View {
         NavigationStack {
@@ -135,7 +137,18 @@ struct ProfileTab: View {
                     }
                 }
             }
-            .navigationTitle("Profile")
+            .navigationTitle("More")
+            .navigationDestination(item: $moreDest) { dest in
+                switch dest {
+                case .community: CommunityView()
+                case .gear: GearTab()
+                case .licenses: LicenseWalletView()
+                case .sessions: SessionsView()
+                }
+            }
+            .onChange(of: appState.moreDestination) { _, dest in
+                if let dest { moreDest = dest; appState.moreDestination = nil }
+            }
             .task {
                 catches = (try? appState.catchRepository.fetchAll(limit: 10000)) ?? []
                 totalCatches = catches.count

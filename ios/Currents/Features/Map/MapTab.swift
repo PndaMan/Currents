@@ -487,6 +487,21 @@ struct MapTab: View {
                 .presentationDetents([.large, .medium])
                 .presentationDragIndicator(.visible)
             }
+            .onChange(of: appState.openLiveSession) { _, open in
+                // A Live Activity / notification tap asked to open the live
+                // session so a catch can be logged straight away.
+                guard open else { return }
+                appState.openLiveSession = false
+                if appState.tripTracker.isTracking { showingLiveTrip = true }
+            }
+            .task {
+                // Cold-launch case: the flag may already be set before onChange
+                // starts observing.
+                if appState.openLiveSession {
+                    appState.openLiveSession = false
+                    if appState.tripTracker.isTracking { showingLiveTrip = true }
+                }
+            }
             .task {
                 await loadData()
                 if let loc = appState.locationManager.currentLocation {

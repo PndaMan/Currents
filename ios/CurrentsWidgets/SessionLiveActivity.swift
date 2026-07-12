@@ -8,10 +8,11 @@ import ActivityKit
 struct SessionLiveActivity: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: SessionActivityAttributes.self) { context in
-            // Lock Screen / banner
+            // Lock Screen / banner — tapping opens the live session to log a catch.
             LockScreenView(context: context)
                 .activityBackgroundTint(Color.black.opacity(0.5))
                 .activitySystemActionForegroundColor(.white)
+                .widgetURL(URL(string: "currents://session"))
         } dynamicIsland: { context in
             DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {

@@ -70,6 +70,14 @@ struct ContentView: View {
             await CommunityService.shared.refreshFriendRequests()
         }
         .onOpenURL { url in handleDeepLink(url) }
+        .onChange(of: appState.pendingDeepLink) { _, url in
+            if let url { handleDeepLink(url); appState.pendingDeepLink = nil }
+        }
+        .task {
+            // Cold launch from a notification tap: the link may already be set
+            // before onChange starts observing.
+            if let url = appState.pendingDeepLink { handleDeepLink(url); appState.pendingDeepLink = nil }
+        }
         .sheet(item: $joinGroupCode) { join in
             NavigationStack {
                 GroupTripView(tripId: nil, tripName: "Group Trip", initialCode: join.id)
@@ -104,12 +112,49 @@ struct ContentView: View {
         }
     }
 
-    /// Handle invite links:
+    /// Handle deep links from notifications, the Live Activity, widgets and
+    /// invite links:
+    ///   currents://session       → open the live session (log a catch)
+    ///   currents://sessions      → the Sessions list (start a planned trip)
+    ///   currents://community     → Community (friend requests / trip invites)
+    ///   currents://gear          → Gear (low-stock reorder)
+    ///   currents://licenses      → Licence wallet (expiry)
+    ///   currents://map           → the Explore map (bite alerts)
     ///   currents://trip/<CODE>   → Join Trip confirmation
     ///   currents://friend/<CODE> → Add Friend confirmation
     private func handleDeepLink(_ url: URL) {
         guard url.scheme == "currents" else { return }
-        let host = url.host
+        let host = url.host ?? ""
+
+        // Simple screen routes (no code needed).
+        switch host {
+        case "session":
+            selectedTab = .map
+            appState.openLiveSession = true
+            return
+        case "sessions":
+            selectedTab = .profile
+            appState.moreDestination = .sessions
+            return
+        case "community":
+            selectedTab = .profile
+            appState.moreDestination = .community
+            return
+        case "gear":
+            selectedTab = .profile
+            appState.moreDestination = .gear
+            return
+        case "licenses":
+            selectedTab = .profile
+            appState.moreDestination = .licenses
+            return
+        case "map":
+            selectedTab = .map
+            return
+        default:
+            break
+        }
+
         var code = url.lastPathComponent
         if code.isEmpty || code == "join" || code == host,
            let q = URLComponents(url: url, resolvingAgainstBaseURL: false)?

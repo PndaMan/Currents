@@ -78,6 +78,7 @@ final class NotificationManager: @unchecked Sendable {
             content.title = "Great bite at \(spot.name)!"
             content.body = "Score: \(result.score)/100 \u{2014} Conditions are excellent right now"
             content.sound = .default
+            content.userInfo = ["deepLink": "currents://map"]
 
             // Fire 30 seconds from now (immediate alert after background check)
             let trigger = UNTimeIntervalNotificationTrigger(
@@ -152,6 +153,7 @@ final class NotificationManager: @unchecked Sendable {
             let timeStr = best.window.start.formatted(date: .omitted, time: .shortened)
             content.body = "\(best.window.kind.rawValue) — score \(best.score)/100 around \(timeStr). Get ready!"
             content.sound = .default
+            content.userInfo = ["deepLink": "currents://map"]
 
             let comps = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: fireDate)
             let trigger = UNCalendarNotificationTrigger(dateMatching: comps, repeats: false)
@@ -182,6 +184,7 @@ final class NotificationManager: @unchecked Sendable {
         content.title = "Session soon: \(trip.name)"
         content.body = "Your planned session starts at \(planned.formatted(date: .omitted, time: .shortened)). Open Currents to start tracking."
         content.sound = .default
+        content.userInfo = ["deepLink": "currents://sessions"]
 
         let comps = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: fire)
         let trigger = UNCalendarNotificationTrigger(dateMatching: comps, repeats: false)
@@ -202,6 +205,7 @@ final class NotificationManager: @unchecked Sendable {
         content.title = "Slow bite?"
         content.body = "No catches in a while — try switching lure, changing depth, or moving spots."
         content.sound = .default
+        content.userInfo = ["deepLink": "currents://session"]
         let trigger = UNTimeIntervalNotificationTrigger(timeInterval: Double(minutes) * 60, repeats: false)
         try? await center.add(UNNotificationRequest(identifier: "cold-streak", content: content, trigger: trigger))
     }
@@ -227,6 +231,7 @@ final class NotificationManager: @unchecked Sendable {
             ? "None left — restock your \(item.category.rawValue.lowercased()) before your next trip."
             : "\(remaining) left — time to restock your \(item.category.rawValue.lowercased())."
         content.sound = .default
+        content.userInfo = ["deepLink": "currents://gear"]
         let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 1, repeats: false)
         try? await center.add(UNNotificationRequest(identifier: id, content: content, trigger: trigger))
     }
@@ -245,6 +250,7 @@ final class NotificationManager: @unchecked Sendable {
         content.title = "Trip invite from \(fromName)"
         content.body = "Join “\(tripName)” on Currents — open the app to accept."
         content.sound = .default
+        content.userInfo = ["deepLink": "currents://community"]
         let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 1, repeats: false)
         try? await center.add(UNNotificationRequest(
             identifier: "tripinvite-\(UUID().uuidString)", content: content, trigger: trigger))
@@ -257,6 +263,7 @@ final class NotificationManager: @unchecked Sendable {
         content.title = "New friend request"
         content.body = "\(fromName) wants to connect on Currents — open the app to accept."
         content.sound = .default
+        content.userInfo = ["deepLink": "currents://community"]
         let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 1, repeats: false)
         try? await center.add(UNNotificationRequest(
             identifier: "friendreq-\(UUID().uuidString)", content: content, trigger: trigger))
@@ -296,6 +303,7 @@ final class NotificationManager: @unchecked Sendable {
                 content.title = "Fishing licence reminder"
                 content.body = "\(license.title) \(offset.label)."
                 content.sound = .default
+                content.userInfo = ["deepLink": "currents://licenses"]
 
                 let trigger = UNCalendarNotificationTrigger(
                     dateMatching: calendar.dateComponents([.year, .month, .day, .hour], from: stamped),
