@@ -1,5 +1,6 @@
 import SwiftUI
 import CoreLocation
+import UIKit
 
 // MARK: - Community section: my group trips
 
@@ -25,6 +26,11 @@ struct GroupTripsSection: View {
                             Text(g.isHost ? "You're hosting · \(g.code)" : "Hosted by \(g.hostName) · \(g.code)")
                                 .font(.caption2).foregroundStyle(.secondary)
                         }
+                    }
+                }
+                .swipeActions {
+                    Button("Remove", role: .destructive) {
+                        Task { await svc.leaveGroupTrip(code: g.code, tripId: nil) }
                     }
                 }
             }
@@ -83,6 +89,7 @@ struct GroupTripSetupView: View {
                         }
                     }
                     .buttonStyle(.plain)
+                    .disabled(busy)
                 }
             } header: {
                 Text("Start a shared trip")
@@ -124,7 +131,14 @@ struct GroupTripSetupView: View {
     }
 
     private func startTrip(from trip: Trip) async {
+        guard !busy else { return }
         busy = true; defer { busy = false }
+        // If this local trip already has a group, open it instead of making a
+        // second one (avoids duplicate groups from a double-tap or re-entry).
+        if let existing = svc.groupCode(forTripId: trip.id) {
+            openedCode = existing
+            return
+        }
         if let code = await svc.createGroupTrip(name: trip.name, tripId: trip.id) {
             openedCode = code
         }
@@ -137,6 +151,7 @@ struct GroupTripSetupView: View {
     }
 
     private func joinTrip() async {
+        guard !busy else { return }
         busy = true; defer { busy = false }
         let code = joinCode.uppercased().trimmingCharacters(in: .whitespaces)
         guard let trip = await svc.joinGroupTrip(code: code) else { return }
@@ -164,6 +179,7 @@ struct GroupTripView: View {
     @State private var trip: CommunityService.GroupTrip?
     @State private var members: [CommunityService.GroupMember] = []
     @State private var feed: [CommunityService.GroupCatch] = []
+    @State private var memberAvatars: [String: UIImage] = [:]
     @State private var joinCode = ""
     @State private var busy = false
     @State private var confirming = false
@@ -329,6 +345,11 @@ struct GroupTripView: View {
         // Header + your session controls.
         yourSessionCard(code)
 
+        // Your gear checklist for this trip (editable any time).
+        if let linkedId = service.tripId(forGroupCode: code) {
+            TripChecklistCard(tripId: linkedId)
+        }
+
         // Invite: pick friends (primary), share link / add-by-code (secondary).
         VStack(alignment: .leading, spacing: 12) {
             let memberCodes = Set(members.map(\.id))
@@ -417,7 +438,7 @@ struct GroupTripView: View {
                         .foregroundStyle(i < 3 ? .white : .secondary)
                         .frame(width: 24, height: 24)
                         .background(i < 3 ? CurrentsTheme.accent : Color.secondary.opacity(0.15), in: Circle())
-                    initials(s.name)
+                    AnglerAvatar(image: memberAvatars[s.code], size: 30)
                     VStack(alignment: .leading, spacing: 1) {
                         HStack(spacing: 6) {
                             Text(s.name).font(.subheadline.bold())
@@ -452,15 +473,20 @@ struct GroupTripView: View {
                     .font(.subheadline).foregroundStyle(.secondary)
             } else {
                 ForEach(feed) { c in
-                    HStack {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(c.species).font(.subheadline.bold())
-                            Text("\(c.anglerName) · \(c.date.formatted(date: .omitted, time: .shortened))")
-                                .font(.caption).foregroundStyle(.secondary)
+                    NavigationLink { CommunityCatchDetailView(row: leaderRow(from: c)) } label: {
+                        HStack(spacing: 10) {
+                            CommunityCatchThumb(row: leaderRow(from: c), size: 40)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(c.species).font(.subheadline.bold()).foregroundStyle(.primary)
+                                Text("\(c.anglerName) · \(c.date.formatted(date: .omitted, time: .shortened))")
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Text(sizeLabel(c)).font(.subheadline.bold()).foregroundStyle(CurrentsTheme.accent)
+                            Image(systemName: "chevron.right").font(.caption2).foregroundStyle(.tertiary)
                         }
-                        Spacer()
-                        Text(sizeLabel(c)).font(.subheadline.bold()).foregroundStyle(CurrentsTheme.accent)
                     }
+                    .buttonStyle(.plain)
                     .padding(.vertical, 2)
                 }
             }
@@ -511,6 +537,13 @@ struct GroupTripView: View {
                         sessionStat("\(myCatchCount())", "Your fish", "fish.fill")
                     }
                 }
+                // Logging is only available WHILE fishing, so catches can't be
+                // added before the trip starts or after it ends — and they're
+                // always tagged to the group.
+                Button { showingLog = true } label: {
+                    Label("Log a Catch", systemImage: "plus.circle.fill").frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent).tint(CurrentsTheme.accent)
                 HStack(spacing: 10) {
                     Button {
                         if tracker.manualPaused { tracker.resumeTracking() } else { tracker.pauseTracking() }
@@ -526,16 +559,16 @@ struct GroupTripView: View {
                     }.buttonStyle(.bordered)
                 }
             } else if tracker.isTracking {
-                Text("Another session is active. End it to track this trip, or just log catches below.")
+                Text("Another session is active. End it and start this trip's session to log catches here.")
                     .font(.caption).foregroundStyle(.secondary)
             } else if let linkedId, let lt = (try? appState.tripRepository.fetch(linkedId)) ?? nil {
                 if lt.isCompleted {
-                    // Ending a session is final — no restarting it.
+                    // Ending a session is final — no restarting it, no logging.
                     Label("Your session has ended. You can still see the group's catches.",
                           systemImage: "flag.checkered")
                         .font(.caption).foregroundStyle(.secondary)
                 } else {
-                    Text("Start your session to record your GPS track and count your catches toward the group.")
+                    Text("Start your session to record your GPS track and log catches toward the group.")
                         .font(.caption).foregroundStyle(.secondary)
                     Button {
                         _ = appState.tripTracker.startPlanned(lt)
@@ -544,11 +577,6 @@ struct GroupTripView: View {
                     }.buttonStyle(.borderedProminent).tint(CurrentsTheme.accent)
                 }
             }
-
-            Button { showingLog = true } label: {
-                Label("Log a Catch", systemImage: "plus.circle.fill").frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderedProminent).tint(CurrentsTheme.accent)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .glassCard()
@@ -630,6 +658,15 @@ struct GroupTripView: View {
         return total
     }
 
+    /// Build a LeaderRow from a group catch so it opens in the full catch detail
+    /// (photo, map, stats) and reuses the community thumbnail.
+    private func leaderRow(from c: CommunityService.GroupCatch) -> CommunityService.LeaderRow {
+        CommunityService.LeaderRow(
+            id: c.id, anglerName: c.anglerName, friendCode: c.friendCode,
+            species: c.species, weightKg: c.weightKg, lengthCm: c.lengthCm,
+            catchCount: nil, region: "", date: c.date, hasRemotePhoto: true)
+    }
+
     private func sessionStat(_ value: String, _ label: String, _ icon: String) -> some View {
         VStack(spacing: 4) {
             Image(systemName: icon).font(.caption).foregroundStyle(CurrentsTheme.accent)
@@ -672,6 +709,19 @@ struct GroupTripView: View {
         members = await service.groupMembers(code: code)
         feed = await service.groupCatches(code: code)
         await loadFriendProfiles()
+        await loadMemberAvatars()
+    }
+
+    /// Fetch each member's profile picture once (cached), so standings + the
+    /// member list show real avatars instead of initials.
+    private func loadMemberAvatars() async {
+        for m in members where memberAvatars[m.id] == nil {
+            if m.id == service.friendCode {
+                if let a = service.myAvatar { memberAvatars[m.id] = a }
+            } else if let p = await service.fetchProfile(code: m.id), let a = p.avatar {
+                memberAvatars[m.id] = a
+            }
+        }
     }
 
     private func loadFriendProfiles() async {

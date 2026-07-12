@@ -35,6 +35,7 @@ struct PlanSessionSheet: View {
     @State private var checklist: [Trip.ChecklistItem] = PlanSessionSheet.defaultChecklist
     @State private var newItem = ""
     @State private var loaded = false
+    @State private var isSaving = false
 
     static let defaultChecklist: [Trip.ChecklistItem] = [
         "Rod & reel", "Tackle box / lures", "Bait", "Licence / permit",
@@ -159,7 +160,8 @@ struct PlanSessionSheet: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(editingTrip == nil ? "Save Plan" : "Save") { savePlan() }.bold().disabled(name.isEmpty)
+                    Button(editingTrip == nil ? "Save Plan" : "Save") { savePlan() }
+                        .bold().disabled(name.isEmpty || isSaving)
                 }
             }
             .sheet(isPresented: $showingPinPicker) {
@@ -247,6 +249,8 @@ struct PlanSessionSheet: View {
     }
 
     private func savePlan() {
+        guard !isSaving else { return }
+        isSaving = true
         let coord = coordinate
         // Optionally persist a dropped pin as a reusable spot.
         var savedSpotId: String? = locationMode == .spot ? spotId : nil

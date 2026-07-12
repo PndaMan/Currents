@@ -35,6 +35,7 @@ struct LogCatchView: View {
     @State private var selectedGearId: String?
     @State private var notes: String = ""
     @State private var caughtAt = Date.now
+    @State private var isSaving = false   // guards against double-tap → duplicate catches
 
     // Location
     @State private var locationMode: LocationMode = .current
@@ -83,6 +84,7 @@ struct LogCatchView: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") { Task { await saveCatch() } }
                         .bold()
+                        .disabled(isSaving)
                 }
             }
             .task {
@@ -675,6 +677,11 @@ struct LogCatchView: View {
     }
 
     private func saveCatch() async {
+        // Re-entrancy guard: a rapid double-tap creates two Tasks; the second
+        // sees isSaving == true (set synchronously before any await) and bails,
+        // so we never save the same catch twice.
+        guard !isSaving else { return }
+        isSaving = true
         let (lat, lon) = resolveLocation()
         let coord = CLLocationCoordinate2D(latitude: lat, longitude: lon)
         let catchId = UUID().uuidString

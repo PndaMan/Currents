@@ -398,10 +398,12 @@ struct MapTab: View {
             // big empty band above the search field.
             .toolbar(.hidden, for: .navigationBar)
             .safeAreaInset(edge: .top, spacing: 0) {
-                searchBar
-            }
-            .overlay(alignment: .top) {
-                searchResultsList
+                // Search field + its results stacked together, so the results
+                // list appears BELOW the bar instead of covering it.
+                VStack(spacing: 0) {
+                    searchBar
+                    searchResultsList
+                }
             }
             .sheet(item: $selectedSpot, onDismiss: {
                 Task { await loadData() }

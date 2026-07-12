@@ -58,17 +58,29 @@ final class TripTracker: NSObject, CLLocationManagerDelegate {
     /// Wire up persistence and resume any session left running (app relaunch).
     func configure(repository: TripRepository) {
         self.repository = repository
-        if activeTrip == nil, let active = (try? repository.fetchActive())?.first {
-            activeTrip = active
-            track = active.decodedTrack
+        let active = (try? repository.fetchActive()) ?? []
+        if activeTrip == nil, let current = active.first {
+            activeTrip = current
+            track = current.decodedTrack
             // A day is active only if the trip has an open current day.
-            isDayActive = active.currentDayStart != nil
+            isDayActive = current.currentDayStart != nil
             if isDayActive { beginUpdates() }
+        }
+        // Close orphaned duplicate active sessions (from the old double-start
+        // bug): keep the one we're tracking, end the rest so they don't linger.
+        if let keepId = activeTrip?.id {
+            for var stale in active where stale.id != keepId {
+                stale.endDate = .now
+                stale.currentDayStart = nil
+                try? repository.save(&stale)
+            }
         }
     }
 
     @discardableResult
     func start(name: String, spotId: String?) -> Trip {
+        // Never run two sessions at once — return the one already active.
+        if let existing = activeTrip { return existing }
         var trip = Trip(name: name, startDate: .now, spotId: spotId, currentDayStart: .now)
         try? repository?.save(&trip)
         activeTrip = trip
@@ -82,6 +94,7 @@ final class TripTracker: NSObject, CLLocationManagerDelegate {
     /// Begin a previously-planned session (clears its planned fields).
     @discardableResult
     func startPlanned(_ trip: Trip) -> Trip {
+        if let existing = activeTrip { return existing }
         var t = trip
         t.plannedDate = nil
         t.plannedLatitude = nil

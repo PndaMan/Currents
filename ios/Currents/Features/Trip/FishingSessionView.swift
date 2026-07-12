@@ -1,6 +1,70 @@
 import SwiftUI
 import MapKit
 
+/// Editable gear checklist for a saved/active trip. Loads the trip's checklist,
+/// lets you tick / add / remove items, and persists every change back to the
+/// trip — so it's editable from the session, the group trip, or the planner.
+struct TripChecklistCard: View {
+    let tripId: String
+    @Environment(AppState.self) private var appState
+    @State private var items: [Trip.ChecklistItem] = []
+    @State private var newItem = ""
+    @State private var loaded = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            let done = items.filter(\.checked).count
+            Label("Checklist \(items.isEmpty ? "" : "· \(done)/\(items.count)")", systemImage: "checklist")
+                .font(.headline)
+            ForEach($items) { $item in
+                Button {
+                    item.checked.toggle(); save()
+                } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: item.checked ? "checkmark.circle.fill" : "circle")
+                            .foregroundStyle(item.checked ? .green : .secondary)
+                        Text(item.name).strikethrough(item.checked, color: .secondary)
+                            .foregroundStyle(item.checked ? .secondary : .primary)
+                        Spacer()
+                        Button {
+                            items.removeAll { $0.id == item.id }; save()
+                        } label: { Image(systemName: "xmark.circle").foregroundStyle(.tertiary) }
+                            .buttonStyle(.plain)
+                    }
+                }
+                .buttonStyle(.plain)
+            }
+            HStack(spacing: 8) {
+                Image(systemName: "plus.circle.fill").foregroundStyle(CurrentsTheme.accent)
+                TextField("Add an item", text: $newItem).onSubmit(add)
+                if !newItem.trimmingCharacters(in: .whitespaces).isEmpty {
+                    Button("Add", action: add).font(.caption.bold())
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassCard()
+        .task {
+            if !loaded {
+                items = ((try? appState.tripRepository.fetch(tripId)) ?? nil)?.decodedChecklist ?? []
+                loaded = true
+            }
+        }
+    }
+
+    private func add() {
+        let n = newItem.trimmingCharacters(in: .whitespaces)
+        guard !n.isEmpty else { return }
+        items.append(Trip.ChecklistItem(name: n)); newItem = ""; save()
+    }
+
+    private func save() {
+        guard var trip = (try? appState.tripRepository.fetch(tripId)) ?? nil else { return }
+        trip.checklist = Trip.encodeChecklist(items)
+        try? appState.tripRepository.save(&trip)
+    }
+}
+
 // MARK: - Sessions home (list + start + plan)
 
 struct SessionsView: View {
@@ -302,6 +366,8 @@ struct ActiveSessionView: View {
                             }
                         }.frame(maxWidth: .infinity, alignment: .leading)
                     }
+
+                    TripChecklistCard(tripId: trip.id)
 
                     sessionControls(trip)
                 } else {
