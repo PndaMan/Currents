@@ -4,8 +4,9 @@ import CoreLocation
 /// Plan an upcoming session: name it, pick a date/time, and see a multi-day
 /// bite-score outlook with the best times to fish each day + a gear checklist.
 /// Saved as a planned session that reminds you to start near the time. The
-/// session uses your current location when you start it, so no location is
-/// chosen here — the outlook is computed for where you are now.
+/// session itself uses your current location when you start it; the outlook is
+/// computed for your current location by default, or for a pin you drop purely
+/// to preview the forecast somewhere else.
 struct PlanSessionSheet: View {
     @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss
@@ -24,6 +25,11 @@ struct PlanSessionSheet: View {
     @State private var name = SessionFormat.defaultName()
     @State private var date = defaultPlanDate()
     @State private var dayCount = 3
+    /// A pin dropped ONLY to preview the bite forecast somewhere other than
+    /// your current location. It never changes where the session records — that
+    /// always uses your live GPS location when you start.
+    @State private var forecastPin: CLLocationCoordinate2D?
+    @State private var showingPinPicker = false
     @State private var outlook: [DayOutlook] = []
     @State private var checklist: [Trip.ChecklistItem] = PlanSessionSheet.defaultChecklist
     @State private var newItem = ""
@@ -59,15 +65,33 @@ struct PlanSessionSheet: View {
                 } header: {
                     Text("Session")
                 } footer: {
-                    Text("The session uses your current location when you start it — the bite outlook below is for where you are now.")
+                    Text("The session records your current location when you start it. The bite outlook below is just a preview — it doesn't change where the session tracks.")
                 }
 
                 Section {
+                    Button {
+                        showingPinPicker = true
+                    } label: {
+                        HStack {
+                            Label("Forecast location", systemImage: "mappin.and.ellipse")
+                                .foregroundStyle(.primary)
+                            Spacer()
+                            Text(forecastPin == nil ? "My location" : "Dropped pin")
+                                .foregroundStyle(.secondary)
+                            Image(systemName: "chevron.right")
+                                .font(.caption).foregroundStyle(.tertiary)
+                        }
+                    }
+                    if forecastPin != nil {
+                        Button(role: .destructive) { forecastPin = nil } label: {
+                            Label("Use my current location", systemImage: "location.fill")
+                        }
+                    }
                     Stepper("Show \(dayCount) \(dayCount == 1 ? "day" : "days")", value: $dayCount, in: 1...14)
                 } header: {
                     Text("Best times to fish")
                 } footer: {
-                    Text("Bite outlook is based on solunar feeding windows, tides, sun and moon for this location — no internet needed. Log-day weather refines the live bite score on the Forecast tab.")
+                    Text("Drop a pin to preview the bite forecast anywhere you're thinking of fishing — it only changes the outlook below, not the session. Based on solunar feeding windows, tides, sun and moon for that spot; no internet needed.")
                 }
 
                 ForEach(outlook) { day in
@@ -125,17 +149,24 @@ struct PlanSessionSheet: View {
                         .bold().disabled(name.isEmpty || isSaving)
                 }
             }
+            .sheet(isPresented: $showingPinPicker) {
+                LocationPickerSheet(coordinate: $forecastPin)
+            }
             .task {
                 if !loaded { loadEditingTrip(); loaded = true }
                 recompute()
             }
             .onChange(of: date) { _, _ in recompute() }
             .onChange(of: dayCount) { _, _ in recompute() }
+            .onChange(of: forecastPin?.latitude) { _, _ in recompute() }
         }
     }
 
+    /// Where the bite outlook is computed: the dropped forecast pin if set,
+    /// otherwise your current location.
     private var coordinate: CLLocationCoordinate2D {
-        appState.locationManager.currentLocation?.coordinate
+        forecastPin
+            ?? appState.locationManager.currentLocation?.coordinate
             ?? CLLocationCoordinate2D(latitude: -33.9, longitude: 18.4)
     }
 
@@ -183,6 +214,9 @@ struct PlanSessionSheet: View {
         date = t.plannedDate ?? t.startDate
         let items = t.decodedChecklist
         if !items.isEmpty { checklist = items }
+        // Restore a previously-chosen forecast pin (session location is always
+        // live GPS, so this coordinate is only ever the outlook preview).
+        forecastPin = t.plannedCoordinate
     }
 
     private func savePlan() {
@@ -196,8 +230,10 @@ struct PlanSessionSheet: View {
         trip.startDate = date
         trip.plannedDate = date
         trip.spotId = nil
-        trip.plannedLatitude = nil
-        trip.plannedLongitude = nil
+        // Persist the forecast pin only as a preview hint. `startPlanned` clears
+        // these and tracks live GPS, so it never affects the session location.
+        trip.plannedLatitude = forecastPin?.latitude
+        trip.plannedLongitude = forecastPin?.longitude
         trip.checklist = Trip.encodeChecklist(checklist)
         try? appState.tripRepository.save(&trip)
         Task { await NotificationManager.shared.schedulePlannedSessionAlert(trip: trip) }

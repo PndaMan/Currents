@@ -33,6 +33,16 @@ final class SpeciesRepository: ObservableObject {
         }
     }
 
+    /// Case-insensitive exact match on the common name — a single indexed row
+    /// fetch instead of loading the whole 1500+ species table to `.first { }`.
+    func fetchByCommonName(_ name: String) throws -> Species? {
+        try db.db.read { db in
+            try Species
+                .filter(Column("commonName").collating(.nocase) == name)
+                .fetchOne(db)
+        }
+    }
+
     func fetchByHabitat(_ habitat: Species.Habitat) throws -> [Species] {
         try db.db.read { db in
             try Species

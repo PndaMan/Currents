@@ -1010,8 +1010,7 @@ struct CommunityCatchDetailView: View {
             } else if row.hasRemotePhoto {
                 photo = await CommunityService.shared.catchPhoto(recordName: row.id)
             }
-            let all = (try? appState.speciesRepository.fetchAll()) ?? []
-            species = all.first { $0.commonName.localizedCaseInsensitiveCompare(row.species) == .orderedSame }
+            species = (try? appState.speciesRepository.fetchByCommonName(row.species)) ?? nil
         }
     }
 
@@ -1056,6 +1055,7 @@ struct CommunityCatchThumb: View {
     let row: CommunityService.LeaderRow
     var size: CGFloat = 44
     @Environment(AppState.self) private var appState
+    @Environment(\.displayScale) private var displayScale
     @State private var photo: UIImage?
     @State private var species: Species?
 
@@ -1076,13 +1076,14 @@ struct CommunityCatchThumb: View {
         .clipShape(RoundedRectangle(cornerRadius: 9))
         .task {
             if let path = row.localPhotoPath {
-                photo = PhotoManager.load(path)
+                let px = size * displayScale
+                let scale = displayScale
+                photo = await Task.detached { PhotoManager.thumbnail(path, maxPixel: px, scale: scale) }.value
             } else if row.hasRemotePhoto {
                 photo = await CommunityService.shared.catchPhoto(recordName: row.id)
             }
             if photo == nil {
-                let all = (try? appState.speciesRepository.fetchAll()) ?? []
-                species = all.first { $0.commonName.localizedCaseInsensitiveCompare(row.species) == .orderedSame }
+                species = (try? appState.speciesRepository.fetchByCommonName(row.species)) ?? nil
             }
         }
     }

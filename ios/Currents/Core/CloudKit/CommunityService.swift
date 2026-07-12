@@ -567,6 +567,22 @@ final class CommunityService: ObservableObject {
         UserDefaults.standard.set(Array(published), forKey: "publishedCatchIds")
     }
 
+    /// Remove a catch from the shared leaderboard + any group feed when it's
+    /// deleted locally, so friends and group standings stop showing it. Safe to
+    /// call even if the catch was never published. The record name is shared by
+    /// the leaderboard and group feed, so a single delete covers both.
+    func removeCatch(id catchId: String) async {
+        guard joined else { return }
+        let recordID = CKRecord.ID(recordName: "catch-\(friendCode)-\(catchId)")
+        _ = try? await db.deleteRecord(withID: recordID)
+        // Forget it locally so a same-id re-log would re-publish, and refresh
+        // any open community/leaderboard view.
+        var published = Set(UserDefaults.standard.stringArray(forKey: "publishedCatchIds") ?? [])
+        published.remove(catchId)
+        UserDefaults.standard.set(Array(published), forKey: "publishedCatchIds")
+        bumpRevision()
+    }
+
     // MARK: - Friends
 
     func addFriend(code raw: String) async -> Profile? {

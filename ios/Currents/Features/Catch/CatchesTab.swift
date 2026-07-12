@@ -121,11 +121,15 @@ struct CatchesTab: View {
                         }
                         .onDelete { offsets in
                             let toDelete = offsets.map { filteredCatches[$0] }
+                            let ids = toDelete.map { $0.catchRecord.id }
                             for detail in toDelete {
                                 PhotoManager.deleteAll(detail.catchRecord.allPhotoPaths)
                                 try? appState.catchRepository.delete(detail.catchRecord)
                             }
-                            Task { await loadCatches() }
+                            Task {
+                                for id in ids { await CommunityService.shared.removeCatch(id: id) }
+                                await loadCatches()
+                            }
                         }
 
                         if filteredCatches.isEmpty {
@@ -364,13 +368,11 @@ struct CatchRow: View {
 
     @ViewBuilder
     private var thumbnail: some View {
-        if let photoPath = detail.catchRecord.allPhotoPaths.first,
-           let image = PhotoManager.load(photoPath) {
-            Image(uiImage: image)
-                .resizable()
-                .scaledToFill()
-                .frame(width: 68, height: 68)
-                .clipShape(RoundedRectangle(cornerRadius: 12))
+        if let photoPath = detail.catchRecord.allPhotoPaths.first {
+            PhotoThumbnail(path: photoPath, size: 68) {
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(CurrentsTheme.accent.opacity(0.10))
+            }
         } else if let species = detail.species {
             // No photo — fall back to the species artwork, not a generic symbol.
             ZStack {

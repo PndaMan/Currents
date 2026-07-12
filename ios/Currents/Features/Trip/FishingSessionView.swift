@@ -871,9 +871,10 @@ struct TripOverviewHighlights: View {
         HStack(spacing: 12) {
             ZStack {
                 Circle().fill(CurrentsTheme.accent.opacity(0.12)).frame(width: 62, height: 62)
-                if let photo = detail.catchRecord.allPhotoPaths.first, let img = PhotoManager.load(photo) {
-                    Image(uiImage: img).resizable().scaledToFill()
-                        .frame(width: 62, height: 62).clipShape(Circle())
+                if let photo = detail.catchRecord.allPhotoPaths.first {
+                    PhotoThumbnail(path: photo, size: 62, cornerRadius: 31) {
+                        Circle().fill(CurrentsTheme.accent.opacity(0.12))
+                    }
                 } else if let species = detail.species {
                     SpeciesArtworkView(species: species, caught: true, size: 54)
                 } else {

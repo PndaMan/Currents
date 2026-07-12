@@ -521,8 +521,11 @@ struct CatchDetailView: View {
     }
 
     private func deleteCatch() {
+        let id = detail.catchRecord.id
         PhotoManager.deleteAll(detail.catchRecord.allPhotoPaths)
         try? appState.catchRepository.delete(detail.catchRecord)
+        // Pull it from the shared leaderboard + any group feed too.
+        Task { await CommunityService.shared.removeCatch(id: id) }
         dismiss()
     }
 }
