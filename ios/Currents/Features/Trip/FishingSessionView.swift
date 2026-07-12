@@ -10,35 +10,59 @@ struct TripChecklistCard: View {
     @State private var items: [Trip.ChecklistItem] = []
     @State private var newItem = ""
     @State private var loaded = false
+    /// When the whole checklist is ticked it collapses out of the way; tapping
+    /// the header re-opens it (e.g. to un-tick or add something).
+    @State private var expandedWhenDone = false
+
+    private var done: Int { items.filter(\.checked).count }
+    private var allPacked: Bool { !items.isEmpty && done == items.count }
+    private var showList: Bool { !allPacked || expandedWhenDone }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            let done = items.filter(\.checked).count
-            Label("Checklist \(items.isEmpty ? "" : "· \(done)/\(items.count)")", systemImage: "checklist")
-                .font(.headline)
-            ForEach($items) { $item in
-                Button {
-                    item.checked.toggle(); save()
-                } label: {
-                    HStack(spacing: 10) {
-                        Image(systemName: item.checked ? "checkmark.circle.fill" : "circle")
-                            .foregroundStyle(item.checked ? .green : .secondary)
-                        Text(item.name).strikethrough(item.checked, color: .secondary)
-                            .foregroundStyle(item.checked ? .secondary : .primary)
-                        Spacer()
-                        Button {
-                            items.removeAll { $0.id == item.id }; save()
-                        } label: { Image(systemName: "xmark.circle").foregroundStyle(.tertiary) }
-                            .buttonStyle(.plain)
+            Button {
+                if allPacked { withAnimation(.easeInOut(duration: 0.2)) { expandedWhenDone.toggle() } }
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: allPacked ? "checkmark.circle.fill" : "checklist")
+                        .foregroundStyle(allPacked ? .green : .primary)
+                    Text(allPacked ? "All gear packed" : "Checklist\(items.isEmpty ? "" : " · \(done)/\(items.count)")")
+                        .font(.headline).foregroundStyle(.primary)
+                    Spacer()
+                    if allPacked {
+                        Image(systemName: expandedWhenDone ? "chevron.up" : "chevron.down")
+                            .font(.caption).foregroundStyle(.secondary)
                     }
                 }
-                .buttonStyle(.plain)
             }
-            HStack(spacing: 8) {
-                Image(systemName: "plus.circle.fill").foregroundStyle(CurrentsTheme.accent)
-                TextField("Add an item", text: $newItem).onSubmit(add)
-                if !newItem.trimmingCharacters(in: .whitespaces).isEmpty {
-                    Button("Add", action: add).font(.caption.bold())
+            .buttonStyle(.plain)
+
+            if showList {
+                ForEach($items) { $item in
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.2)) { item.checked.toggle() }
+                        save()
+                    } label: {
+                        HStack(spacing: 10) {
+                            Image(systemName: item.checked ? "checkmark.circle.fill" : "circle")
+                                .foregroundStyle(item.checked ? .green : .secondary)
+                            Text(item.name).strikethrough(item.checked, color: .secondary)
+                                .foregroundStyle(item.checked ? .secondary : .primary)
+                            Spacer()
+                            Button {
+                                items.removeAll { $0.id == item.id }; save()
+                            } label: { Image(systemName: "xmark.circle").foregroundStyle(.tertiary) }
+                                .buttonStyle(.plain)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                }
+                HStack(spacing: 8) {
+                    Image(systemName: "plus.circle.fill").foregroundStyle(CurrentsTheme.accent)
+                    TextField("Add an item", text: $newItem).onSubmit(add)
+                    if !newItem.trimmingCharacters(in: .whitespaces).isEmpty {
+                        Button("Add", action: add).font(.caption.bold())
+                    }
                 }
             }
         }
