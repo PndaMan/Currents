@@ -29,6 +29,19 @@ final class NotificationManager: @unchecked Sendable {
         await center.notificationSettings().authorizationStatus
     }
 
+    /// Fire a local test notification a few seconds out so the user can confirm
+    /// notifications actually reach this device (used by the diagnostics screen).
+    func sendTestNotification() async {
+        guard await requestPermission() else { return }
+        let content = UNMutableNotificationContent()
+        content.title = "Currents"
+        content.body = "Test notification — if you see this, notifications are working on this device. 🎣"
+        content.sound = .default
+        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 3, repeats: false)
+        try? await center.add(UNNotificationRequest(
+            identifier: "test-\(UUID().uuidString)", content: content, trigger: trigger))
+    }
+
     // MARK: - Spot Alerts
 
     /// Evaluate each spot's current forecast and schedule a local notification

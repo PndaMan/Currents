@@ -13,6 +13,19 @@ struct AlertSettingsView: View {
     @State private var spots: [Spot] = []
     @State private var spotScores: [String: Int] = [:]
     @State private var isLoadingScores = false
+    @State private var busyPush = false
+    @State private var pushTick = 0   // forces the diagnostics rows to re-read
+
+    private var svc: CommunityService { .shared }
+
+    private var permissionLabel: String {
+        switch permissionStatus {
+        case .authorized, .provisional, .ephemeral: return "Allowed"
+        case .denied: return "Denied — enable in iOS Settings"
+        case .notDetermined: return "Not set"
+        @unknown default: return "Unknown"
+        }
+    }
 
     var body: some View {
         Form {
@@ -53,6 +66,52 @@ struct AlertSettingsView: View {
                 Text("Notifications")
             } footer: {
                 Text("Bite Alerts notify you when a spot is firing right now. Prime-Window Heads-Up looks ahead and pings you ~45 minutes before the best feeding window at your spots over the next day. Low Tackle-Box Stock reminds you to restock line, lures, bait and hooks when they run low. All processing happens on-device.")
+            }
+
+            // MARK: - Push diagnostics
+            Section {
+                LabeledContent("Permission") {
+                    Text(permissionLabel).foregroundStyle(permissionStatus == .authorized ? .green : .orange)
+                }
+                Button {
+                    Task { await NotificationManager.shared.sendTestNotification() }
+                } label: {
+                    Label("Send test notification", systemImage: "bell.badge.fill")
+                }
+                if svc.joined {
+                    LabeledContent("Push delivery (APNs)") {
+                        Text(svc.apnsRegistered ? "Registered" : "Not registered")
+                            .foregroundStyle(svc.apnsRegistered ? .green : .orange)
+                    }
+                    LabeledContent("Community alerts") {
+                        Text(svc.pushSubscriptionsCreated ? "On" : "Off")
+                            .foregroundStyle(svc.pushSubscriptionsCreated ? .green : .orange)
+                    }
+                    Button {
+                        busyPush = true
+                        Task {
+                            await svc.forcePushReenable()
+                            busyPush = false
+                            pushTick += 1
+                        }
+                    } label: {
+                        HStack {
+                            if busyPush { ProgressView() }
+                            Label("Re-enable community notifications", systemImage: "arrow.clockwise")
+                        }
+                    }
+                    .disabled(busyPush)
+                    if let e = svc.pushSubsError {
+                        Text("Subscription error: \(e)").font(.caption).foregroundStyle(.orange)
+                    }
+                    if !svc.apnsRegistered, let e = svc.apnsRegisterError {
+                        Text("APNs error: \(e)").font(.caption).foregroundStyle(.orange)
+                    }
+                }
+            } header: {
+                Text("Push diagnostics")
+            } footer: {
+                Text("“Send test notification” fires a local alert in a few seconds — if it appears, notifications work on this device. Community push (friend requests, trip invites) also needs Push delivery = Registered and Community alerts = On. If APNs shows Not registered, the build lacks the push entitlement (enable Push Notifications on the App ID and ship a new build). If Community alerts stays Off, the CloudKit schema/indexes aren't deployed to this environment yet.")
             }
 
             // MARK: - Threshold Slider

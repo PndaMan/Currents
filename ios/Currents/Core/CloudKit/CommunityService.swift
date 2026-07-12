@@ -1233,14 +1233,39 @@ final class CommunityService: ObservableObject {
         guard joined else { return }
         let granted = (try? await UNUserNotificationCenter.current()
             .requestAuthorization(options: [.alert, .sound, .badge])) ?? false
+        UserDefaults.standard.set(granted, forKey: "notifAuthorized")
         guard granted else { return }
         UIApplication.shared.registerForRemoteNotifications()
         await registerPushSubscriptions()
     }
 
-    private func registerPushSubscriptions() async {
+    /// Whether APNs registration succeeded on this build (proves the aps-
+    /// environment entitlement is present). Set by the app delegate.
+    var apnsRegistered: Bool { UserDefaults.standard.bool(forKey: "apnsRegistered") }
+    var apnsRegisterError: String? { UserDefaults.standard.string(forKey: "apnsRegisterError") }
+    var pushSubscriptionsCreated: Bool {
+        UserDefaults.standard.string(forKey: "pushSubsForCode") == friendCode
+    }
+
+    /// Force a full re-registration (clears the guard) — used by the in-app
+    /// "Re-enable notifications" action after granting permission or deploying
+    /// the CloudKit schema.
+    func forcePushReenable() async {
+        UserDefaults.standard.removeObject(forKey: "pushSubsForCode")
+        await enablePush()
+    }
+
+    /// Whether the CKQuerySubscriptions could be created (a quick probe that also
+    /// tells us if the schema/indexes are deployed to this environment).
+    func verifyPushSubscriptions() async -> Bool {
+        await registerPushSubscriptions(force: true)
+        return pushSubscriptionsCreated
+    }
+
+    @discardableResult
+    private func registerPushSubscriptions(force: Bool = false) async -> Bool {
         // Only rebuild subscriptions when the friend code changes (cheap guard).
-        if UserDefaults.standard.string(forKey: "pushSubsForCode") == friendCode { return }
+        if !force, UserDefaults.standard.string(forKey: "pushSubsForCode") == friendCode { return true }
 
         func info(_ title: String, key: String, args: [String]) -> CKSubscription.NotificationInfo {
             let n = CKSubscription.NotificationInfo()
@@ -1288,8 +1313,14 @@ final class CommunityService: ObservableObject {
         do {
             _ = try await db.modifySubscriptions(saving: [frSub, tiSub, acSub], deleting: [])
             UserDefaults.standard.set(friendCode, forKey: "pushSubsForCode")
+            UserDefaults.standard.removeObject(forKey: "pushSubsError")
+            return true
         } catch {
             // Schema not deployed yet / offline — retried next foreground.
+            UserDefaults.standard.set(error.localizedDescription, forKey: "pushSubsError")
+            return false
         }
     }
+
+    var pushSubsError: String? { UserDefaults.standard.string(forKey: "pushSubsError") }
 }

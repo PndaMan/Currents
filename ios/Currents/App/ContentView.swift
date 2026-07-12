@@ -59,6 +59,16 @@ struct ContentView: View {
             }
         }
         .task { checkPlannedSession() }
+        .task {
+            // On cold launch (scenePhase .onChange doesn't fire for the initial
+            // state), make sure APNs + CloudKit push subscriptions get set up for
+            // an already-joined angler. Guarded by the flag so we don't touch
+            // CloudKit at launch in the unsigned test build.
+            guard UserDefaults.standard.bool(forKey: "communityJoined") else { return }
+            await CommunityService.shared.enablePush()
+            await CommunityService.shared.refreshTripInvites()
+            await CommunityService.shared.refreshFriendRequests()
+        }
         .onOpenURL { url in handleDeepLink(url) }
         .sheet(item: $joinGroupCode) { join in
             NavigationStack {
