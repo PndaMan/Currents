@@ -1,11 +1,11 @@
 import SwiftUI
 import CoreLocation
-import MapKit
 
-/// Plan an upcoming session: name it, choose a location (current, a saved spot,
-/// or a dropped pin, optionally saving it as a spot), pick a date/time, and see
-/// a multi-day bite-score outlook with the best times to fish each day + a gear
-/// checklist. Saved as a planned session that reminds you to start near the time.
+/// Plan an upcoming session: name it, pick a date/time, and see a multi-day
+/// bite-score outlook with the best times to fish each day + a gear checklist.
+/// Saved as a planned session that reminds you to start near the time. The
+/// session uses your current location when you start it, so no location is
+/// chosen here — the outlook is computed for where you are now.
 struct PlanSessionSheet: View {
     @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss
@@ -22,13 +22,6 @@ struct PlanSessionSheet: View {
     }
 
     @State private var name = SessionFormat.defaultName()
-    @State private var spots: [Spot] = []
-    @State private var locationMode: PlanLocationMode = .current
-    @State private var spotId: String?
-    @State private var pinCoordinate: CLLocationCoordinate2D?
-    @State private var showingPinPicker = false
-    @State private var savePinAsSpot = false
-    @State private var pinSpotName = ""
     @State private var date = defaultPlanDate()
     @State private var dayCount = 3
     @State private var outlook: [DayOutlook] = []
@@ -42,8 +35,6 @@ struct PlanSessionSheet: View {
         "Landing net", "Pliers & line cutter", "Sun protection & hat",
         "Water & snacks", "First-aid kit", "Phone charged / power bank",
     ].map { Trip.ChecklistItem(name: $0) }
-
-    enum PlanLocationMode: String, CaseIterable { case current = "Current", spot = "Saved Spot", pin = "Drop Pin" }
 
     /// A day's bite outlook: peak bite score + the best fishing windows.
     struct DayOutlook: Identifiable {
@@ -62,43 +53,13 @@ struct PlanSessionSheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Session") {
+                Section {
                     TextField("Name", text: $name)
                     DatePicker("Date & time", selection: $date, displayedComponents: [.date, .hourAndMinute])
-                }
-
-                Section("Location") {
-                    Picker("Location", selection: $locationMode) {
-                        ForEach(PlanLocationMode.allCases, id: \.self) { Text($0.rawValue).tag($0) }
-                    }
-                    .pickerStyle(.segmented)
-
-                    switch locationMode {
-                    case .current:
-                        Label("Uses your current location", systemImage: "location.fill")
-                            .font(.caption).foregroundStyle(.secondary)
-                    case .spot:
-                        Picker("Spot", selection: $spotId) {
-                            Text("Choose…").tag(nil as String?)
-                            ForEach(spots) { Text($0.name).tag($0.id as String?) }
-                        }
-                    case .pin:
-                        Button {
-                            showingPinPicker = true
-                        } label: {
-                            if let c = pinCoordinate {
-                                Label(String(format: "Pin: %.4f, %.4f", c.latitude, c.longitude), systemImage: "mappin.circle.fill")
-                            } else {
-                                Label("Drop a pin on the map", systemImage: "mappin.and.ellipse")
-                            }
-                        }
-                        if pinCoordinate != nil {
-                            Toggle("Save this pin as a spot", isOn: $savePinAsSpot)
-                            if savePinAsSpot {
-                                TextField("Spot name", text: $pinSpotName)
-                            }
-                        }
-                    }
+                } header: {
+                    Text("Session")
+                } footer: {
+                    Text("The session uses your current location when you start it — the bite outlook below is for where you are now.")
                 }
 
                 Section {
@@ -164,34 +125,17 @@ struct PlanSessionSheet: View {
                         .bold().disabled(name.isEmpty || isSaving)
                 }
             }
-            .sheet(isPresented: $showingPinPicker) {
-                LocationPickerSheet(coordinate: $pinCoordinate)
-            }
             .task {
-                spots = (try? appState.spotRepository.fetchAll()) ?? []
                 if !loaded { loadEditingTrip(); loaded = true }
                 recompute()
             }
-            .onChange(of: spotId) { _, _ in recompute() }
-            .onChange(of: pinCoordinate?.latitude) { _, _ in recompute() }
-            .onChange(of: locationMode) { _, _ in recompute() }
             .onChange(of: date) { _, _ in recompute() }
             .onChange(of: dayCount) { _, _ in recompute() }
         }
     }
 
     private var coordinate: CLLocationCoordinate2D {
-        switch locationMode {
-        case .spot:
-            if let spotId, let s = spots.first(where: { $0.id == spotId }) {
-                return CLLocationCoordinate2D(latitude: s.latitude, longitude: s.longitude)
-            }
-        case .pin:
-            if let pinCoordinate { return pinCoordinate }
-        case .current:
-            break
-        }
-        return appState.locationManager.currentLocation?.coordinate
+        appState.locationManager.currentLocation?.coordinate
             ?? CLLocationCoordinate2D(latitude: -33.9, longitude: 18.4)
     }
 
@@ -239,40 +183,21 @@ struct PlanSessionSheet: View {
         date = t.plannedDate ?? t.startDate
         let items = t.decodedChecklist
         if !items.isEmpty { checklist = items }
-        if let spotId = t.spotId, spots.contains(where: { $0.id == spotId }) {
-            locationMode = .spot; self.spotId = spotId
-        } else if let coord = t.plannedCoordinate {
-            locationMode = .pin; pinCoordinate = coord
-        } else {
-            locationMode = .current
-        }
     }
 
     private func savePlan() {
         guard !isSaving else { return }
         isSaving = true
-        let coord = coordinate
-        // Optionally persist a dropped pin as a reusable spot.
-        var savedSpotId: String? = locationMode == .spot ? spotId : nil
-        if locationMode == .pin, savePinAsSpot, let pin = pinCoordinate {
-            let spotName = pinSpotName.trimmingCharacters(in: .whitespaces)
-            var spot = Spot(
-                name: spotName.isEmpty ? name : spotName,
-                latitude: pin.latitude, longitude: pin.longitude,
-                notes: "Created while planning “\(name)”",
-                spotType: .general
-            )
-            try? appState.spotRepository.save(&spot)
-            savedSpotId = spot.id
-        }
         // Edit in place when we opened an existing trip, else create a new one.
+        // The session uses your current location when you start it, so no
+        // location is stored on the plan itself.
         var trip = editingTrip ?? Trip(name: name, startDate: date, plannedDate: date)
         trip.name = name
         trip.startDate = date
         trip.plannedDate = date
-        trip.spotId = savedSpotId
-        trip.plannedLatitude = locationMode == .current ? nil : coord.latitude
-        trip.plannedLongitude = locationMode == .current ? nil : coord.longitude
+        trip.spotId = nil
+        trip.plannedLatitude = nil
+        trip.plannedLongitude = nil
         trip.checklist = Trip.encodeChecklist(checklist)
         try? appState.tripRepository.save(&trip)
         Task { await NotificationManager.shared.schedulePlannedSessionAlert(trip: trip) }

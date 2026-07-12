@@ -13,6 +13,9 @@ struct CommunityView: View {
     @State private var showingInbox = false
     @State private var pendingRequests: [CommunityService.FriendRequest] = []
     @State private var pendingInvites: [CommunityService.TripInvite] = []
+    /// Cached angler stats so a full catch-table scan doesn't run on every
+    /// SwiftUI body re-render — refreshed on appear and when catches change.
+    @State private var cachedStats: CommunityService.MyStats?
 
     private var region: String { svc.myRegion }
     private var notificationCount: Int { pendingRequests.count + pendingInvites.count }
@@ -33,13 +36,17 @@ struct CommunityView: View {
             }
         }
         .sheet(isPresented: $showingEdit) {
-            ProfileEditView(stats: computeStats())
+            ProfileEditView(stats: stats)
         }
         .sheet(isPresented: $showingInbox, onDismiss: { Task { await loadNotifications() } }) {
             NotificationInboxView()
         }
-        .task { await syncCatches(); await loadNotifications() }
+        .task { refreshStats(); await syncCatches(); await loadNotifications() }
+        .onChange(of: svc.revision) { _, _ in refreshStats() }
     }
+
+    private func refreshStats() { cachedStats = computeStats() }
+    private var stats: CommunityService.MyStats { cachedStats ?? computeStats() }
 
     private func loadNotifications() async {
         guard svc.joined else { return }
@@ -92,7 +99,7 @@ struct CommunityView: View {
             Section("Your angler name") { TextField("Name", text: $name) }
             Section {
                 Button {
-                    Task { await svc.join(name: name, region: region); await svc.updateProfile(name: svc.myName, bio: svc.myBio, homeWater: svc.myHomeWater, region: region, avatar: nil, stats: computeStats()) }
+                    Task { await svc.join(name: name, region: region); await svc.updateProfile(name: svc.myName, bio: svc.myBio, homeWater: svc.myHomeWater, region: region, avatar: nil, stats: stats) }
                 } label: {
                     Label("Join the Community", systemImage: "person.3.fill").frame(maxWidth: .infinity)
                 }.buttonStyle(.borderedProminent).tint(CurrentsTheme.accent)
@@ -107,7 +114,7 @@ struct CommunityView: View {
     private var joinedBody: some View {
         List {
             Section {
-                Button { showingEdit = true } label: { MyProfileHeader(stats: computeStats()) }
+                Button { showingEdit = true } label: { MyProfileHeader(stats: stats) }
                     .buttonStyle(.plain)
             }
             if notificationCount > 0 {

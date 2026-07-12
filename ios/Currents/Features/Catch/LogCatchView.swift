@@ -796,20 +796,16 @@ struct LogCatchView: View {
             catchRepository: appState.catchRepository
         )
 
-        // Publish a measured catch to the community leaderboard and, when this
-        // trip is a shared group trip, to the group's live feed. No-op unless
-        // the angler has joined; carries species + size + broad region (and the
-        // photo). Coordinates are attached only if the angler opted into catch-
-        // location sharing, and are offset by their honey-hole radius.
+        // Publish a measured catch to the community leaderboard / group feed in
+        // the BACKGROUND — never block the save + dismiss on a CloudKit round
+        // trip (that's what made saving a catch feel slow). No-op unless joined.
         if catchRecord.weightKg != nil || catchRecord.lengthCm != nil {
             let name = species?.commonName ?? "Fish"
+            let region = CommunityService.shared.myRegion
             let groupCode = tripId.flatMap { CommunityService.shared.groupCode(forTripId: $0) }
-            await CommunityService.shared.publish(
-                catchRecord: catchRecord,
-                speciesName: name,
-                region: CommunityService.shared.myRegion,
-                groupCode: groupCode
-            )
+            let rec = catchRecord
+            Task { await CommunityService.shared.publish(
+                catchRecord: rec, speciesName: name, region: region, groupCode: groupCode) }
         }
 
         dismiss()

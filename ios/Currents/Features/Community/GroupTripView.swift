@@ -60,8 +60,12 @@ struct GroupTripSetupView: View {
     @State private var openedCode: String?
     @State private var showingPlanner = false
 
-    // Trips you can turn into a group: planned or currently-active (not finished).
-    private var startableTrips: [Trip] { trips.filter { $0.endDate == nil } }
+    // Trips you can turn into a group: planned or currently-active (not
+    // finished) that don't already have a group. A trip with a group is opened
+    // from the group trips list, not shared again.
+    private var startableTrips: [Trip] {
+        trips.filter { $0.endDate == nil && svc.groupCode(forTripId: $0.id) == nil }
+    }
 
     var body: some View {
         Form {
@@ -69,32 +73,44 @@ struct GroupTripSetupView: View {
                 Button {
                     showingPlanner = true
                 } label: {
-                    Label("Plan a new trip", systemImage: "calendar.badge.plus").frame(maxWidth: .infinity)
+                    Label("Plan a new trip", systemImage: "calendar.badge.plus")
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent).tint(CurrentsTheme.accent)
                 .disabled(busy)
-
-                ForEach(startableTrips) { t in
-                    Button { Task { await startTrip(from: t) } } label: {
-                        HStack(spacing: 10) {
-                            Image(systemName: t.plannedDate != nil ? "calendar.badge.clock" : "figure.fishing")
-                                .foregroundStyle(CurrentsTheme.accent)
-                            VStack(alignment: .leading, spacing: 1) {
-                                Text(t.name).font(.subheadline.bold()).foregroundStyle(.primary)
-                                Text(t.plannedDate != nil ? "Planned" : "Active session")
-                                    .font(.caption2).foregroundStyle(.secondary)
-                            }
-                            Spacer()
-                            Text("Share").font(.caption.bold()).foregroundStyle(CurrentsTheme.accent)
-                        }
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(busy)
-                }
             } header: {
-                Text("Start a shared trip")
+                Text("Start a new shared trip")
             } footer: {
-                Text("Plan a new trip (name, spot, date, gear checklist) or base it on one you've already planned. Then invite friends — they see the same trip, members and every catch, live. Starting it begins a normal GPS-tracked session.")
+                Text("Plan a trip (name, date, gear checklist), then invite friends — they see the same trip, members and every catch, live. Starting it begins a normal GPS-tracked session at your current location.")
+            }
+
+            if !startableTrips.isEmpty {
+                Section {
+                    ForEach(startableTrips) { t in
+                        Button { Task { await startTrip(from: t) } } label: {
+                            HStack(spacing: 10) {
+                                Image(systemName: t.plannedDate != nil ? "calendar.badge.clock" : "figure.fishing")
+                                    .foregroundStyle(CurrentsTheme.accent)
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text(t.name).font(.subheadline.bold()).foregroundStyle(.primary)
+                                    Text(t.plannedDate != nil ? "Planned" : "Active session")
+                                        .font(.caption2).foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Label("Share", systemImage: "person.2.badge.plus")
+                                    .labelStyle(.titleAndIcon)
+                                    .font(.caption.bold()).foregroundStyle(CurrentsTheme.accent)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(busy)
+                    }
+                } header: {
+                    Text("Share an existing trip")
+                } footer: {
+                    Text("Turn a trip you've already planned or started into a group trip. Trips that already have a group are in your Group Trips list.")
+                }
             }
 
             Section {
