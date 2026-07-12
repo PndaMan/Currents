@@ -197,6 +197,57 @@ struct AnglerAvatar: View {
     }
 }
 
+// MARK: - Reusable: code field + accept/decline
+
+/// A clean, centred, monospaced input for 6-character friend / trip codes —
+/// auto-uppercases and caps at 6 characters.
+struct CodeField: View {
+    @Binding var text: String
+    var placeholder = "CODE"
+    var body: some View {
+        TextField(placeholder, text: $text)
+            .textInputAutocapitalization(.characters)
+            .autocorrectionDisabled()
+            .font(.system(.title3, design: .monospaced).weight(.bold))
+            .tracking(6)
+            .multilineTextAlignment(.center)
+            .padding(.vertical, 12)
+            .frame(maxWidth: .infinity)
+            .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 12))
+            .overlay(RoundedRectangle(cornerRadius: 12).stroke(CurrentsTheme.accent.opacity(0.35), lineWidth: 1))
+            .onChange(of: text) { _, v in
+                let up = String(v.uppercased().unicodeScalars.filter { CharacterSet.alphanumerics.contains($0) }.prefix(6))
+                if up != text { text = up }
+            }
+    }
+}
+
+/// Green "Accept" + red "Decline" — high contrast in any theme (the accent
+/// colour can be orange/low-contrast, so these use semantic colours).
+struct AcceptDeclineButtons: View {
+    var acceptTitle = "Accept"
+    var declineTitle = "Decline"
+    var acceptIcon = "checkmark"
+    let onAccept: () -> Void
+    let onDecline: () -> Void
+    var body: some View {
+        HStack(spacing: 10) {
+            Button(action: onAccept) {
+                Label(acceptTitle, systemImage: acceptIcon).font(.subheadline.bold())
+                    .frame(maxWidth: .infinity).padding(.vertical, 9)
+                    .background(Color.green, in: Capsule()).foregroundStyle(.white)
+            }
+            .buttonStyle(.plain)
+            Button(action: onDecline) {
+                Label(declineTitle, systemImage: "xmark").font(.subheadline.bold())
+                    .frame(maxWidth: .infinity).padding(.vertical, 9)
+                    .background(Color.red.opacity(0.16), in: Capsule()).foregroundStyle(.red)
+            }
+            .buttonStyle(.plain)
+        }
+    }
+}
+
 // MARK: - Leaderboard
 
 private struct LeaderboardSection: View {
@@ -345,10 +396,9 @@ private struct FriendsSection: View {
                     Image(systemName: "square.and.arrow.up")
                 }
             }
-            HStack {
-                TextField("Add friend by 6-char code", text: $addCode)
-                    .textInputAutocapitalization(.characters).autocorrectionDisabled()
-                Button("Request") {
+            VStack(spacing: 10) {
+                CodeField(text: $addCode, placeholder: "FRIEND CODE")
+                Button {
                     let code = addCode
                     addCode = ""
                     Task {
@@ -356,9 +406,13 @@ private struct FriendsSection: View {
                         requestSent = ok
                         await reload()
                     }
+                } label: {
+                    Label("Send Request", systemImage: "person.badge.plus").frame(maxWidth: .infinity)
                 }
+                .buttonStyle(.borderedProminent).tint(CurrentsTheme.accent)
                 .disabled(addCode.trimmingCharacters(in: .whitespaces).count != 6)
             }
+            .padding(.vertical, 4)
             if requestSent {
                 Label("Friend request sent — they'll get it in Community.", systemImage: "paperplane.fill")
                     .font(.caption).foregroundStyle(.green)
@@ -497,16 +551,9 @@ struct NotificationInboxView: View {
                     }
                 }
             }
-            HStack(spacing: 10) {
-                Button {
-                    Task { await svc.acceptFriendRequest(req); await load() }
-                } label: { Label("Accept", systemImage: "checkmark").frame(maxWidth: .infinity) }
-                    .buttonStyle(.borderedProminent).tint(CurrentsTheme.accent)
-                Button(role: .destructive) {
-                    Task { await svc.declineFriendRequest(req); await load() }
-                } label: { Label("Decline", systemImage: "xmark").frame(maxWidth: .infinity) }
-                    .buttonStyle(.bordered)
-            }
+            AcceptDeclineButtons(
+                onAccept: { Task { await svc.acceptFriendRequest(req); await load() } },
+                onDecline: { Task { await svc.declineFriendRequest(req); await load() } })
         }
         .padding(.vertical, 2)
     }
@@ -522,16 +569,10 @@ struct NotificationInboxView: View {
                     Text("Invited by \(inv.fromName)").font(.caption).foregroundStyle(.secondary)
                 }
             }
-            HStack(spacing: 10) {
-                Button {
-                    Task { await svc.acceptInvite(inv); openedTrip = inv.groupCode; await load() }
-                } label: { Label("Join Trip", systemImage: "checkmark").frame(maxWidth: .infinity) }
-                    .buttonStyle(.borderedProminent).tint(CurrentsTheme.accent)
-                Button(role: .destructive) {
-                    Task { await svc.declineInvite(inv); await load() }
-                } label: { Label("Decline", systemImage: "xmark").frame(maxWidth: .infinity) }
-                    .buttonStyle(.bordered)
-            }
+            AcceptDeclineButtons(
+                acceptTitle: "Join Trip",
+                onAccept: { Task { await svc.acceptInvite(inv); openedTrip = inv.groupCode; await load() } },
+                onDecline: { Task { await svc.declineInvite(inv); await load() } })
         }
         .padding(.vertical, 2)
     }

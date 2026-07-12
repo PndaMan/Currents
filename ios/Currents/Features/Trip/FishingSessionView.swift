@@ -11,6 +11,7 @@ struct SessionsView: View {
     @State private var showingNew = false
     @State private var showingPlanner = false
     @State private var editingTrip: Trip?
+    @State private var editingPlanned: Trip?
     @State private var tripToDelete: Trip?
 
     private var tracker: TripTracker { appState.tripTracker }
@@ -60,6 +61,7 @@ struct SessionsView: View {
         .navigationTitle("Sessions")
         .sheet(isPresented: $showingNew, onDismiss: reload) { NewSessionSheet() }
         .sheet(isPresented: $showingPlanner, onDismiss: reload) { PlanSessionSheet() }
+        .sheet(item: $editingPlanned, onDismiss: reload) { PlanSessionSheet(editingTrip: $0) }
         .sheet(item: $editingTrip, onDismiss: reload) { EditSessionSheet(trip: $0) }
         .confirmationDialog(
             "Delete this session?",
@@ -77,7 +79,11 @@ struct SessionsView: View {
     }
 
     @ViewBuilder private func rowMenu(_ trip: Trip) -> some View {
-        Button { editingTrip = trip } label: { Label("Edit", systemImage: "pencil") }
+        // Planned sessions open the full planner (checklist, location, outlook);
+        // completed ones use the lightweight editor.
+        Button {
+            if trip.isPlanned { editingPlanned = trip } else { editingTrip = trip }
+        } label: { Label("Edit", systemImage: "pencil") }
         Button(role: .destructive) { tripToDelete = trip } label: { Label("Delete", systemImage: "trash") }
     }
 
@@ -280,17 +286,11 @@ struct ActiveSessionView: View {
                     CatchLimitBar(catches: catches)
 
                     Button { showingLog = true } label: {
-                        Label("Log a Catch", systemImage: "plus.circle.fill").frame(maxWidth: .infinity)
+                        Label("Log a Catch", systemImage: "plus.circle.fill")
+                            .font(.headline)
+                            .frame(maxWidth: .infinity).padding(.vertical, 4)
                     }
                     .buttonStyle(.borderedProminent).tint(CurrentsTheme.accent)
-
-                    NavigationLink {
-                        GroupTripView(tripId: trip.id, tripName: trip.name)
-                    } label: {
-                        Label(groupLinked(trip) ? "Group Trip" : "Invite Friends",
-                              systemImage: "person.3.fill").frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.bordered).tint(CurrentsTheme.accent)
 
                     if !catches.isEmpty {
                         VStack(alignment: .leading, spacing: 8) {
@@ -312,7 +312,23 @@ struct ActiveSessionView: View {
         }
         .navigationTitle(tracker.activeTrip?.name ?? "Session")
         .navigationBarTitleDisplayMode(.inline)
-        .fullScreenCover(isPresented: $showingLog, onDismiss: reload) { LogCatchView() }
+        .toolbar {
+            if let trip = tracker.activeTrip {
+                ToolbarItem(placement: .topBarTrailing) {
+                    NavigationLink {
+                        GroupTripView(tripId: trip.id, tripName: trip.name)
+                    } label: {
+                        Image(systemName: groupLinked(trip) ? "person.3.fill" : "person.badge.plus")
+                    }
+                    .accessibilityLabel(groupLinked(trip) ? "Group Trip" : "Invite Friends")
+                }
+            }
+        }
+        .sheet(isPresented: $showingLog, onDismiss: reload) {
+            LogCatchView()
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
+        }
         .alert("End this day?", isPresented: $showingEndDayConfirm) {
             Button("End Day", role: .destructive) { tracker.endDay() }
             Button("Keep Going", role: .cancel) {}
@@ -326,36 +342,53 @@ struct ActiveSessionView: View {
         .task { reload(); await refreshBite() }
     }
 
-    /// Multi-day controls: while a day is recording you can end just the day
-    /// (keeping the trip) or end the whole trip; between days you can start the
-    /// next day.
+    /// Compact session controls. One clear primary above (Log a Catch); here a
+    /// small icon row for the rest — Pause/Resume, and a single Finish menu that
+    /// offers End Day / End Trip — so the screen isn't a stack of look-alike
+    /// buttons. Between days, a prominent Start-Day button takes over.
     @ViewBuilder private func sessionControls(_ trip: Trip) -> some View {
-        VStack(spacing: 10) {
-            if tracker.isDayActive {
-                Button {
+        if tracker.isDayActive {
+            HStack(spacing: 10) {
+                controlButton(tracker.manualPaused ? "Resume" : "Pause",
+                              icon: tracker.manualPaused ? "play.fill" : "pause.fill",
+                              tint: tracker.manualPaused ? CurrentsTheme.accent : .secondary) {
                     if tracker.manualPaused { tracker.resumeTracking() } else { tracker.pauseTracking() }
-                } label: {
-                    Label(tracker.manualPaused ? "Resume GPS Tracking" : "Pause GPS Tracking",
-                          systemImage: tracker.manualPaused ? "play.circle.fill" : "pause.circle.fill")
-                        .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.bordered)
-                .tint(tracker.manualPaused ? CurrentsTheme.accent : .secondary)
-
-                Button { showingEndDayConfirm = true } label: {
-                    Label("End Day \(trip.dayCount)", systemImage: "moon.zzz.fill").frame(maxWidth: .infinity)
-                }.buttonStyle(.bordered).tint(.orange)
-            } else {
-                Label("Trip paused between days", systemImage: "pause.circle")
-                    .font(.caption).foregroundStyle(.secondary)
+                Menu {
+                    if trip.isMultiDay || tracker.isDayActive {
+                        Button { showingEndDayConfirm = true } label: {
+                            Label("End Day \(trip.dayCount)", systemImage: "moon.zzz.fill")
+                        }
+                    }
+                    Button(role: .destructive) { showingEndConfirm = true } label: {
+                        Label("End Trip", systemImage: "stop.circle")
+                    }
+                } label: {
+                    controlLabel("Finish", icon: "flag.checkered", tint: .red)
+                }
+            }
+        } else {
+            Label("Trip paused between days", systemImage: "pause.circle")
+                .font(.caption).foregroundStyle(.secondary)
+            HStack(spacing: 10) {
                 Button { tracker.startNextDay(); Task { await refreshBite() } } label: {
                     Label("Start Day \(trip.decodedDays.count + 1)", systemImage: "sun.max.fill").frame(maxWidth: .infinity)
                 }.buttonStyle(.borderedProminent).tint(CurrentsTheme.accent)
+                controlButton("End Trip", icon: "stop.circle", tint: .red) { showingEndConfirm = true }
             }
-            Button(role: .destructive) { showingEndConfirm = true } label: {
-                Label("End Trip", systemImage: "stop.circle").frame(maxWidth: .infinity)
-            }.buttonStyle(.bordered)
         }
+    }
+
+    private func controlButton(_ title: String, icon: String, tint: Color, action: @escaping () -> Void) -> some View {
+        Button(action: action) { controlLabel(title, icon: icon, tint: tint) }
+    }
+
+    private func controlLabel(_ title: String, icon: String, tint: Color) -> some View {
+        Label(title, systemImage: icon)
+            .font(.subheadline.bold())
+            .frame(maxWidth: .infinity).padding(.vertical, 8)
+            .foregroundStyle(tint)
+            .background(tint.opacity(0.14), in: RoundedRectangle(cornerRadius: 12))
     }
 
     private func statsHeader(_ trip: Trip) -> some View {

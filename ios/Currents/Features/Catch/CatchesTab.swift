@@ -172,10 +172,12 @@ struct CatchesTab: View {
                     }
                 }
             }
-            .fullScreenCover(isPresented: $showingLogCatch, onDismiss: {
+            .sheet(isPresented: $showingLogCatch, onDismiss: {
                 Task { await loadCatches() }
             }) {
                 LogCatchView()
+                    .presentationDetents([.large])
+                    .presentationDragIndicator(.visible)
             }
             .onChange(of: appState.siriRequestedLogCatch) { _, requested in
                 if requested {

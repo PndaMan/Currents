@@ -381,6 +381,14 @@ final class AppDatabase: Sendable {
             try db.execute(sql: "DELETE FROM ownedGear WHERE category = 'Technique'")
         }
 
+        migrator.registerMigration("v20_trip_checklist") { db in
+            // Persist the planning gear checklist on the trip so it survives and
+            // stays editable (JSON [ChecklistItem]).
+            try db.alter(table: "trip") { t in
+                t.add(column: "checklist", .text)
+            }
+        }
+
         return migrator
     }
 }

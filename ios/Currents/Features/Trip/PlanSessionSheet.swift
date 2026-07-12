@@ -10,6 +10,17 @@ struct PlanSessionSheet: View {
     @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss
 
+    /// When set, the sheet edits this existing (planned) trip instead of
+    /// creating a new one. Its returned id is reported via `onSaved`.
+    let editingTrip: Trip?
+    /// Called with the saved trip's id (useful for linking a group trip).
+    var onSaved: ((String) -> Void)?
+
+    init(editingTrip: Trip? = nil, onSaved: ((String) -> Void)? = nil) {
+        self.editingTrip = editingTrip
+        self.onSaved = onSaved
+    }
+
     @State private var name = SessionFormat.defaultName()
     @State private var spots: [Spot] = []
     @State private var locationMode: PlanLocationMode = .current
@@ -21,7 +32,15 @@ struct PlanSessionSheet: View {
     @State private var date = defaultPlanDate()
     @State private var dayCount = 3
     @State private var outlook: [DayOutlook] = []
-    @State private var checklist: [ChecklistItem] = ChecklistItem.defaults
+    @State private var checklist: [Trip.ChecklistItem] = PlanSessionSheet.defaultChecklist
+    @State private var newItem = ""
+    @State private var loaded = false
+
+    static let defaultChecklist: [Trip.ChecklistItem] = [
+        "Rod & reel", "Tackle box / lures", "Bait", "Licence / permit",
+        "Landing net", "Pliers & line cutter", "Sun protection & hat",
+        "Water & snacks", "First-aid kit", "Phone charged / power bank",
+    ].map { Trip.ChecklistItem(name: $0) }
 
     enum PlanLocationMode: String, CaseIterable { case current = "Current", spot = "Saved Spot", pin = "Drop Pin" }
 
@@ -118,16 +137,29 @@ struct PlanSessionSheet: View {
                     }
                 }
 
-                Section("Gear checklist") {
+                Section {
                     ForEach($checklist) { $item in Toggle(item.name, isOn: $item.checked) }
+                        .onDelete { checklist.remove(atOffsets: $0) }
+                    HStack {
+                        Image(systemName: "plus.circle.fill").foregroundStyle(CurrentsTheme.accent)
+                        TextField("Add an item", text: $newItem)
+                            .onSubmit(addChecklistItem)
+                        if !newItem.trimmingCharacters(in: .whitespaces).isEmpty {
+                            Button("Add", action: addChecklistItem).font(.caption.bold())
+                        }
+                    }
+                } header: {
+                    Text("Gear checklist")
+                } footer: {
+                    Text("Ticked items are saved with the session — reopen it any time and your checklist is right where you left it.")
                 }
             }
-            .navigationTitle("Plan a Session")
+            .navigationTitle(editingTrip == nil ? "Plan a Session" : "Edit Session")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Save Plan") { savePlan() }.bold().disabled(name.isEmpty)
+                    Button(editingTrip == nil ? "Save Plan" : "Save") { savePlan() }.bold().disabled(name.isEmpty)
                 }
             }
             .sheet(isPresented: $showingPinPicker) {
@@ -135,6 +167,7 @@ struct PlanSessionSheet: View {
             }
             .task {
                 spots = (try? appState.spotRepository.fetchAll()) ?? []
+                if !loaded { loadEditingTrip(); loaded = true }
                 recompute()
             }
             .onChange(of: spotId) { _, _ in recompute() }
@@ -190,6 +223,29 @@ struct PlanSessionSheet: View {
         "\(start.formatted(date: .omitted, time: .shortened))–\(end.formatted(date: .omitted, time: .shortened))"
     }
 
+    private func addChecklistItem() {
+        let n = newItem.trimmingCharacters(in: .whitespaces)
+        guard !n.isEmpty else { return }
+        checklist.append(Trip.ChecklistItem(name: n))
+        newItem = ""
+    }
+
+    /// Populate the sheet from an existing planned trip when editing.
+    private func loadEditingTrip() {
+        guard let t = editingTrip else { return }
+        name = t.name
+        date = t.plannedDate ?? t.startDate
+        let items = t.decodedChecklist
+        if !items.isEmpty { checklist = items }
+        if let spotId = t.spotId, spots.contains(where: { $0.id == spotId }) {
+            locationMode = .spot; self.spotId = spotId
+        } else if let coord = t.plannedCoordinate {
+            locationMode = .pin; pinCoordinate = coord
+        } else {
+            locationMode = .current
+        }
+    }
+
     private func savePlan() {
         let coord = coordinate
         // Optionally persist a dropped pin as a reusable spot.
@@ -205,16 +261,18 @@ struct PlanSessionSheet: View {
             try? appState.spotRepository.save(&spot)
             savedSpotId = spot.id
         }
-        var trip = Trip(
-            name: name,
-            startDate: date,
-            spotId: savedSpotId,
-            plannedDate: date,
-            plannedLatitude: locationMode == .current ? nil : coord.latitude,
-            plannedLongitude: locationMode == .current ? nil : coord.longitude
-        )
+        // Edit in place when we opened an existing trip, else create a new one.
+        var trip = editingTrip ?? Trip(name: name, startDate: date, plannedDate: date)
+        trip.name = name
+        trip.startDate = date
+        trip.plannedDate = date
+        trip.spotId = savedSpotId
+        trip.plannedLatitude = locationMode == .current ? nil : coord.latitude
+        trip.plannedLongitude = locationMode == .current ? nil : coord.longitude
+        trip.checklist = Trip.encodeChecklist(checklist)
         try? appState.tripRepository.save(&trip)
         Task { await NotificationManager.shared.schedulePlannedSessionAlert(trip: trip) }
+        onSaved?(trip.id)
         dismiss()
     }
 
@@ -231,19 +289,5 @@ struct PlanSessionSheet: View {
         let cal = Calendar.current
         let tomorrow = cal.date(byAdding: .day, value: 1, to: .now) ?? .now
         return cal.date(bySettingHour: 6, minute: 0, second: 0, of: tomorrow) ?? tomorrow
-    }
-
-    struct ChecklistItem: Identifiable {
-        let id = UUID()
-        var name: String
-        var checked: Bool = false
-
-        static let defaults: [ChecklistItem] = [
-            .init(name: "Rod & reel"), .init(name: "Tackle box / lures"),
-            .init(name: "Bait"), .init(name: "Licence / permit"),
-            .init(name: "Landing net"), .init(name: "Pliers & line cutter"),
-            .init(name: "Sun protection & hat"), .init(name: "Water & snacks"),
-            .init(name: "First-aid kit"), .init(name: "Phone charged / power bank"),
-        ]
     }
 }

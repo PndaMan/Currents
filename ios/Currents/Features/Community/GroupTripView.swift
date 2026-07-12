@@ -49,48 +49,54 @@ struct GroupTripSetupView: View {
     private var svc: CommunityService { .shared }
 
     @State private var trips: [Trip] = []
-    @State private var baseTripId: String?          // nil = create a new trip
-    @State private var newName = "Group Trip"
     @State private var joinCode = ""
     @State private var busy = false
     @State private var openedCode: String?
+    @State private var showingPlanner = false
+
+    // Trips you can turn into a group: planned or currently-active (not finished).
+    private var startableTrips: [Trip] { trips.filter { $0.endDate == nil } }
 
     var body: some View {
         Form {
             Section {
-                Picker("Base on", selection: $baseTripId) {
-                    Text("New trip").tag(nil as String?)
-                    ForEach(trips) { t in
-                        Text(tripLabel(t)).tag(t.id as String?)
-                    }
-                }
-                if baseTripId == nil {
-                    TextField("Trip name", text: $newName)
-                }
                 Button {
-                    Task { await startTrip() }
+                    showingPlanner = true
                 } label: {
-                    HStack {
-                        if busy { ProgressView() }
-                        Label("Start & Invite", systemImage: "person.3.fill").frame(maxWidth: .infinity)
-                    }
+                    Label("Plan a new trip", systemImage: "calendar.badge.plus").frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent).tint(CurrentsTheme.accent)
-                .disabled(busy || (baseTripId == nil && newName.trimmingCharacters(in: .whitespaces).isEmpty))
+                .disabled(busy)
+
+                ForEach(startableTrips) { t in
+                    Button { Task { await startTrip(from: t) } } label: {
+                        HStack(spacing: 10) {
+                            Image(systemName: t.plannedDate != nil ? "calendar.badge.clock" : "figure.fishing")
+                                .foregroundStyle(CurrentsTheme.accent)
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(t.name).font(.subheadline.bold()).foregroundStyle(.primary)
+                                Text(t.plannedDate != nil ? "Planned" : "Active session")
+                                    .font(.caption2).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Text("Share").font(.caption.bold()).foregroundStyle(CurrentsTheme.accent)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                }
             } header: {
                 Text("Start a shared trip")
             } footer: {
-                Text("Pick one of your trips (incl. planned ones) or start a fresh one. Then invite friends — they'll see the same trip, members, and every catch as it's logged.")
+                Text("Plan a new trip (name, spot, date, gear checklist) or base it on one you've already planned. Then invite friends — they see the same trip, members and every catch, live. Starting it begins a normal GPS-tracked session.")
             }
 
             Section {
-                HStack {
-                    TextField("6-letter code", text: $joinCode)
-                        .textInputAutocapitalization(.characters).autocorrectionDisabled()
-                    Button("Join") { Task { await joinTrip() } }
-                        .buttonStyle(.bordered)
-                        .disabled(busy || joinCode.trimmingCharacters(in: .whitespaces).count != 6)
+                CodeField(text: $joinCode, placeholder: "TRIP CODE")
+                Button { Task { await joinTrip() } } label: {
+                    Label("Join Trip", systemImage: "person.fill.badge.plus").frame(maxWidth: .infinity)
                 }
+                .buttonStyle(.borderedProminent).tint(CurrentsTheme.accent)
+                .disabled(busy || joinCode.trimmingCharacters(in: .whitespaces).count != 6)
             } header: {
                 Text("Join a friend's trip")
             } footer: {
@@ -99,6 +105,11 @@ struct GroupTripSetupView: View {
         }
         .navigationTitle("Group Trip")
         .navigationBarTitleDisplayMode(.inline)
+        .sheet(isPresented: $showingPlanner) {
+            PlanSessionSheet(onSaved: { id in Task { await startTrip(fromId: id) } })
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
+        }
         .navigationDestination(item: Binding(get: { openedCode.map { IdString(id: $0) } },
                                              set: { openedCode = $0?.id })) { c in
             GroupTripView(tripId: svc.tripId(forGroupCode: c.id), tripName: currentName(c.id), initialCode: c.id)
@@ -112,26 +123,17 @@ struct GroupTripSetupView: View {
         svc.myGroups.first(where: { $0.code == code })?.name ?? "Group Trip"
     }
 
-    private func tripLabel(_ t: Trip) -> String {
-        if t.plannedDate != nil { return "\(t.name) (planned)" }
-        if t.endDate == nil { return "\(t.name) (active)" }
-        return t.name
-    }
-
-    private func startTrip() async {
+    private func startTrip(from trip: Trip) async {
         busy = true; defer { busy = false }
-        let tripId: String
-        let name: String
-        if let baseTripId, let t = trips.first(where: { $0.id == baseTripId }) {
-            tripId = t.id; name = t.name
-        } else {
-            var t = Trip(name: newName.trimmingCharacters(in: .whitespaces), startDate: .now)
-            try? appState.tripRepository.save(&t)
-            tripId = t.id; name = t.name
-        }
-        if let code = await svc.createGroupTrip(name: name, tripId: tripId) {
+        if let code = await svc.createGroupTrip(name: trip.name, tripId: trip.id) {
             openedCode = code
         }
+    }
+
+    private func startTrip(fromId id: String) async {
+        trips = (try? appState.tripRepository.fetchAll()) ?? []
+        guard let t = trips.first(where: { $0.id == id }) else { return }
+        await startTrip(from: t)
     }
 
     private func joinTrip() async {
@@ -196,9 +198,13 @@ struct GroupTripView: View {
         .navigationTitle(trip?.name ?? tripName)
         .navigationBarTitleDisplayMode(.inline)
         .refreshable { await refresh() }
-        .fullScreenCover(isPresented: $showingLog, onDismiss: {
+        .sheet(isPresented: $showingLog, onDismiss: {
             Task { await publishLatestToGroup(); await refresh() }
-        }) { LogCatchView() }
+        }) {
+            LogCatchView()
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
+        }
         .task {
             if code == nil, let tripId { code = service.groupCode(forTripId: tripId) }
             if autoJoin, let c = code {
@@ -256,26 +262,23 @@ struct GroupTripView: View {
             .buttonStyle(.borderedProminent).tint(CurrentsTheme.accent)
             .disabled(busy)
 
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 10) {
                 Text("Join a friend's trip").font(.headline)
-                HStack {
-                    TextField("6-letter code", text: $joinCode)
-                        .textInputAutocapitalization(.characters)
-                        .autocorrectionDisabled()
-                        .textFieldStyle(.roundedBorder)
-                    Button("Join") {
-                        Task {
-                            busy = true
-                            if let t = await service.joinGroupTrip(code: joinCode, tripId: tripId) {
-                                code = t.id
-                                await refresh()
-                            }
-                            busy = false
+                CodeField(text: $joinCode, placeholder: "TRIP CODE")
+                Button {
+                    Task {
+                        busy = true
+                        if let t = await service.joinGroupTrip(code: joinCode, tripId: tripId) {
+                            code = t.id
+                            await refresh()
                         }
+                        busy = false
                     }
-                    .buttonStyle(.bordered)
-                    .disabled(joinCode.trimmingCharacters(in: .whitespaces).count != 6 || busy)
+                } label: {
+                    Label("Join Trip", systemImage: "person.fill.badge.plus").frame(maxWidth: .infinity)
                 }
+                .buttonStyle(.borderedProminent).tint(CurrentsTheme.accent)
+                .disabled(joinCode.trimmingCharacters(in: .whitespaces).count != 6 || busy)
             }
             .glassCard()
         }
@@ -384,16 +387,16 @@ struct GroupTripView: View {
             }
             .buttonStyle(.borderless)
             if showAddByCode {
-                HStack {
-                    TextField("Friend's 6-char code", text: $joinCode)
-                        .textInputAutocapitalization(.characters).autocorrectionDisabled()
-                        .textFieldStyle(.roundedBorder)
-                    Button("Invite") {
+                VStack(spacing: 8) {
+                    CodeField(text: $joinCode, placeholder: "ANGLER CODE")
+                    Button {
                         let c = joinCode.uppercased().trimmingCharacters(in: .whitespaces)
                         joinCode = ""
                         Task { await service.inviteFriend(c, toGroup: code, tripName: trip?.name ?? tripName) }
+                    } label: {
+                        Label("Send Invite", systemImage: "paperplane.fill").frame(maxWidth: .infinity)
                     }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(.bordered).tint(CurrentsTheme.accent)
                     .disabled(joinCode.trimmingCharacters(in: .whitespaces).count != 6)
                 }
             }
@@ -525,16 +528,21 @@ struct GroupTripView: View {
             } else if tracker.isTracking {
                 Text("Another session is active. End it to track this trip, or just log catches below.")
                     .font(.caption).foregroundStyle(.secondary)
-            } else if linkedId != nil {
-                Text("Start your session to record your GPS track and count your catches toward the group.")
-                    .font(.caption).foregroundStyle(.secondary)
-                Button {
-                    if let linkedId, let lt = (try? appState.tripRepository.fetch(linkedId)) ?? nil {
+            } else if let linkedId, let lt = (try? appState.tripRepository.fetch(linkedId)) ?? nil {
+                if lt.isCompleted {
+                    // Ending a session is final — no restarting it.
+                    Label("Your session has ended. You can still see the group's catches.",
+                          systemImage: "flag.checkered")
+                        .font(.caption).foregroundStyle(.secondary)
+                } else {
+                    Text("Start your session to record your GPS track and count your catches toward the group.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Button {
                         _ = appState.tripTracker.startPlanned(lt)
-                    }
-                } label: {
-                    Label("Start Fishing", systemImage: "play.circle.fill").frame(maxWidth: .infinity)
-                }.buttonStyle(.borderedProminent).tint(CurrentsTheme.accent)
+                    } label: {
+                        Label("Start Fishing", systemImage: "play.circle.fill").frame(maxWidth: .infinity)
+                    }.buttonStyle(.borderedProminent).tint(CurrentsTheme.accent)
+                }
             }
 
             Button { showingLog = true } label: {

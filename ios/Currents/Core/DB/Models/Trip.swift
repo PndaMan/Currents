@@ -20,6 +20,9 @@ struct Trip: Codable, Identifiable, Sendable {
     // marks when the in-progress day began (its track is in `trackPoints`).
     var days: String?
     var currentDayStart: Date?
+    /// JSON-encoded gear checklist ([ChecklistItem]) set when planning, so it
+    /// persists and stays editable.
+    var checklist: String?
     var createdAt: Date
 
     init(
@@ -36,7 +39,8 @@ struct Trip: Codable, Identifiable, Sendable {
         plannedLatitude: Double? = nil,
         plannedLongitude: Double? = nil,
         days: String? = nil,
-        currentDayStart: Date? = nil
+        currentDayStart: Date? = nil,
+        checklist: String? = nil
     ) {
         self.id = id
         self.name = name
@@ -52,7 +56,26 @@ struct Trip: Codable, Identifiable, Sendable {
         self.plannedLongitude = plannedLongitude
         self.days = days
         self.currentDayStart = currentDayStart
+        self.checklist = checklist
         self.createdAt = .now
+    }
+
+    // MARK: - Planning checklist
+
+    struct ChecklistItem: Codable, Identifiable, Hashable, Sendable {
+        var id = UUID()
+        var name: String
+        var checked: Bool = false
+    }
+
+    var decodedChecklist: [ChecklistItem] {
+        guard let checklist, let data = checklist.data(using: .utf8) else { return [] }
+        return (try? JSONDecoder().decode([ChecklistItem].self, from: data)) ?? []
+    }
+
+    static func encodeChecklist(_ items: [ChecklistItem]) -> String? {
+        guard let data = try? JSONEncoder().encode(items) else { return nil }
+        return String(data: data, encoding: .utf8)
     }
 
     /// A scheduled-but-not-started session.
