@@ -228,12 +228,8 @@ struct CopyableCode: View {
                 withAnimation { copied = false }
             }
         } label: {
-            HStack(spacing: 5) {
-                Text(copied ? "Copied!" : code).font(font)
-                    .foregroundStyle(copied ? .green : CurrentsTheme.accent)
-                Image(systemName: copied ? "checkmark" : "doc.on.doc")
-                    .font(.caption2).foregroundStyle(copied ? .green : .secondary)
-            }
+            Text(copied ? "Copied!" : code).font(font)
+                .foregroundStyle(copied ? .green : CurrentsTheme.accent)
         }
         .buttonStyle(.plain)
         .contextMenu {
