@@ -808,6 +808,7 @@ struct LogCatchView: View {
                 catchRecord: rec, speciesName: name, region: region, groupCode: groupCode) }
         }
 
+        ToastCenter.shared.show("Catch logged 🎣")
         dismiss()
     }
 

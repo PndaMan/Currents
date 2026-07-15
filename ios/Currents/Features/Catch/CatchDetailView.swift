@@ -539,6 +539,7 @@ struct CatchDetailView: View {
         try? appState.catchRepository.delete(detail.catchRecord)
         // Pull it from the shared leaderboard + any group feed too.
         Task { await CommunityService.shared.removeCatch(id: id) }
+        ToastCenter.shared.show("Catch deleted", style: .info)
         dismiss()
     }
 }

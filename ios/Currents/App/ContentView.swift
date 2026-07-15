@@ -69,6 +69,7 @@ struct ContentView: View {
             await CommunityService.shared.refreshTripInvites()
             await CommunityService.shared.refreshFriendRequests()
         }
+        .toastHost()
         .onOpenURL { url in handleDeepLink(url) }
         .onChange(of: appState.pendingDeepLink) { _, url in
             if let url { handleDeepLink(url); appState.pendingDeepLink = nil }
