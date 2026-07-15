@@ -70,6 +70,7 @@ struct ContentView: View {
             await CommunityService.shared.refreshTripInvites()
             await CommunityService.shared.refreshFriendRequests()
         }
+        .sensoryFeedback(.selection, trigger: selectedTab)
         .toastHost()
         .fullScreenCover(isPresented: Binding(get: { !hasOnboarded && !ScreenshotSupport.isActive },
                                               set: { if $0 == false { hasOnboarded = true } })) {
