@@ -94,8 +94,10 @@ final class AppState {
         Task { await RegulationsService.shared.syncIfDue() }
 
         // Skip the location prompt in screenshot mode so no system dialog ever
-        // covers a capture (the map uses a fixed camera instead).
-        if !ScreenshotSupport.isActive {
+        // covers a capture (the map uses a fixed camera instead), and on the
+        // very first launch — onboarding asks with context, then this handles
+        // every launch after.
+        if !ScreenshotSupport.isActive, UserDefaults.standard.bool(forKey: "hasOnboarded") {
             locationManager.requestPermission()
         }
         mapManager.refreshDownloadedRegions()

@@ -809,6 +809,10 @@ struct LogCatchView: View {
         }
 
         ToastCenter.shared.show("Catch logged 🎣")
+        // Nudge for a review at a positive milestone (rate-limited by Apple).
+        let logged = UserDefaults.standard.integer(forKey: "totalCatchesLogged") + 1
+        UserDefaults.standard.set(logged, forKey: "totalCatchesLogged")
+        ReviewPrompt.maybeAsk(afterCatchCount: logged)
         dismiss()
     }
 

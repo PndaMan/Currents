@@ -36,6 +36,7 @@ struct ContentView: View {
     @State private var planPrompt: Trip?
     @State private var joinGroupCode: JoinCode?
     @State private var pendingFriend: JoinCode?
+    @AppStorage("hasOnboarded") private var hasOnboarded = false
 
     struct JoinCode: Identifiable { let id: String }
 
@@ -70,6 +71,10 @@ struct ContentView: View {
             await CommunityService.shared.refreshFriendRequests()
         }
         .toastHost()
+        .fullScreenCover(isPresented: Binding(get: { !hasOnboarded && !ScreenshotSupport.isActive },
+                                              set: { if $0 == false { hasOnboarded = true } })) {
+            OnboardingView()
+        }
         .onOpenURL { url in handleDeepLink(url) }
         .onChange(of: appState.pendingDeepLink) { _, url in
             if let url { handleDeepLink(url); appState.pendingDeepLink = nil }
