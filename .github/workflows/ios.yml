@@ -10,6 +10,14 @@ on:
 permissions:
   contents: read
 
+# Serialize runs so overlapping deploys can't revoke each other's signing
+# certificate. The TestFlight step revokes old distribution certs and mints a
+# new one each run; two concurrent runs would race and one upload would fail
+# validation with "Certificate Revoked". The newest push supersedes older runs.
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-and-test:
     runs-on: macos-15
