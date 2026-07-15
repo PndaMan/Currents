@@ -596,6 +596,7 @@ struct PrivacySettingsView: View {
     @AppStorage("shareCatchesWithFriends") private var shareCatches = true
     @AppStorage("shareSpotsWithFriends") private var shareSpots = false
     @AppStorage("shareSpotExactLocations") private var shareSpotExact = false
+    @AppStorage("cloudSyncEnabled") private var cloudSyncEnabled = false
 
     private var svc: CommunityService { .shared }
 
@@ -631,11 +632,24 @@ struct PrivacySettingsView: View {
             }
 
             Section {
+                Toggle("Sync across my devices", isOn: $cloudSyncEnabled)
+            } header: {
+                Text("iCloud sync")
+            } footer: {
+                Text("Keep your catches and spots in sync across your iPhone and iPad using your own private iCloud account. This uses Apple's iCloud — the developer never sees your data — and is separate from the Community. Off by default.")
+            }
+            .sensoryFeedback(.selection, trigger: cloudSyncEnabled)
+            .onChange(of: cloudSyncEnabled) { _, on in
+                CloudSyncEngine.shared.setEnabled(on)
+                ToastCenter.shared.show(on ? "iCloud sync on" : "iCloud sync off", style: .info)
+            }
+
+            Section {
                 EmptyView()
             } header: {
                 Text("Data & the Community")
             } footer: {
-                Text("Currents is on-device by default — your catches, spots, and photos stay on your phone. If you opt into the Community, a limited set of data (leaderboard catches, your angler profile, friend requests, and spots you explicitly share) syncs through Apple's CloudKit so friends can see it. You can leave the Community at any time.")
+                Text("Currents is on-device by default — your catches, spots, and photos stay on your phone. Optional iCloud sync (above) keeps them across your own devices via your private iCloud, which the developer can't access. If you opt into the Community, a limited set of data (leaderboard catches, your angler profile, friend requests, and spots you explicitly share) syncs through Apple's CloudKit so friends can see it. You can leave the Community at any time.")
             }
         }
         .navigationTitle("Privacy")

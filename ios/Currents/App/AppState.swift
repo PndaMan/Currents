@@ -105,6 +105,10 @@ final class AppState {
         // Resume any live fishing session left running.
         tripTracker.configure(repository: tripRepository)
 
+        // Optional multi-device sync via the user's private iCloud (off unless
+        // they opted in). Starts syncing catches + spots across their devices.
+        CloudSyncEngine.shared.configure(db: db)
+
         // Apple Watch companion link.
         PhoneConnectivity.shared.activate()
 

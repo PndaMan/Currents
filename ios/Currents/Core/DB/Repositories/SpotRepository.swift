@@ -13,12 +13,14 @@ final class SpotRepository: ObservableObject {
         try db.db.write { db in
             try spot.save(db)
         }
+        CloudSyncEngine.shared.spotChanged(spot.id)
     }
 
     func delete(_ spot: Spot) throws {
         try db.db.write { db in
             _ = try spot.delete(db)
         }
+        CloudSyncEngine.shared.spotDeleted(spot.id)
     }
 
     func fetchAll() throws -> [Spot] {

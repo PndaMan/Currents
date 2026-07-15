@@ -16,12 +16,14 @@ final class CatchRepository: ObservableObject {
         try db.db.write { db in
             try catchRecord.save(db)
         }
+        CloudSyncEngine.shared.catchChanged(catchRecord.id)
     }
 
     func delete(_ catchRecord: Catch) throws {
         try db.db.write { db in
             _ = try catchRecord.delete(db)
         }
+        CloudSyncEngine.shared.catchDeleted(catchRecord.id)
     }
 
     /// Catches not yet uploaded to iNaturalist, oldest first so the backlog
