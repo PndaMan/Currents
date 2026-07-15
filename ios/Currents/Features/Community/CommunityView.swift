@@ -305,8 +305,9 @@ private struct LeaderboardSection: View {
                     .padding(.vertical, 12)
                     .listRowBackground(Color.clear)
             } else if rows.isEmpty {
-                Text("No entries yet — add friends and log catches to fill the board.")
-                    .font(.caption).foregroundStyle(.secondary)
+                ContentUnavailableView("No entries yet", systemImage: "trophy",
+                    description: Text("Add friends and log catches to fill the board."))
+                    .listRowBackground(Color.clear)
             } else {
                 ForEach(Array(rows.enumerated()), id: \.element.id) { i, row in
                     leaderRow(i, row)
@@ -451,8 +452,9 @@ private struct FriendsSection: View {
                     .font(.caption).foregroundStyle(.green)
             }
             if friends.isEmpty {
-                Text("Send a friend request by code to compare catches and share spots privately.")
-                    .font(.caption).foregroundStyle(.secondary)
+                ContentUnavailableView("No friends yet", systemImage: "person.2",
+                    description: Text("Send a friend request by code to compare catches and share spots privately."))
+                    .listRowBackground(Color.clear)
             }
             ForEach(friends) { f in
                 NavigationLink { FriendProfileView(code: f.id) } label: {
@@ -766,7 +768,8 @@ struct FriendProfileView: View {
                           systemImage: "lock.fill")
                         .font(.caption).foregroundStyle(.secondary)
                 } else if catches.isEmpty {
-                    Text("No catches shared yet.").font(.caption).foregroundStyle(.secondary)
+                    ContentUnavailableView("No catches shared", systemImage: "fish",
+                        description: Text("This angler hasn't shared any catches yet."))
                 } else {
                     ForEach(catches) { c in
                         NavigationLink { CommunityCatchDetailView(row: c) } label: { catchRow(c) }

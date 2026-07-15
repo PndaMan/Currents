@@ -425,7 +425,8 @@ struct OfflineMapsView: View {
 
             Section("Saved regions") {
                 if mapRegions.isEmpty {
-                    Text("No offline regions saved").foregroundStyle(.secondary)
+                    ContentUnavailableView("No offline regions", systemImage: "square.and.arrow.down",
+                        description: Text("Save a snapshot above to use the map without signal."))
                 } else {
                     ForEach(mapRegions) { region in
                         HStack {

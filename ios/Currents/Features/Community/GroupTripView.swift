@@ -587,8 +587,8 @@ struct GroupTripView: View {
         VStack(alignment: .leading, spacing: 10) {
             Label("Group catches", systemImage: "fish.fill").font(.headline)
             if feed.isEmpty {
-                Text("No catches yet — first fish on the board!")
-                    .font(.subheadline).foregroundStyle(.secondary)
+                ContentUnavailableView("No catches yet", systemImage: "fish",
+                    description: Text("Be the first to put a fish on the board!"))
             } else {
                 ForEach(feed) { c in
                     NavigationLink { CommunityCatchDetailView(row: leaderRow(from: c)) } label: {

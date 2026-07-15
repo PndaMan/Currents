@@ -148,12 +148,8 @@ struct AlertSettingsView: View {
             // MARK: - Spot Scores
             Section {
                 if spots.isEmpty {
-                    HStack {
-                        Image(systemName: "mappin.slash")
-                            .foregroundStyle(.secondary)
-                        Text("No saved spots yet")
-                            .foregroundStyle(.secondary)
-                    }
+                    ContentUnavailableView("No saved spots", systemImage: "mappin.slash",
+                        description: Text("Save a spot to get bite-score alerts for it."))
                 } else if isLoadingScores {
                     HStack(spacing: 8) {
                         ProgressView()

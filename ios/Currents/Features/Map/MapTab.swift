@@ -1297,6 +1297,7 @@ struct SpotDetailSheet: View {
         .alert("Delete Spot?", isPresented: $showingDeleteConfirm) {
             Button("Delete", role: .destructive) {
                 try? appState.spotRepository.delete(spot)
+                ToastCenter.shared.show("Spot deleted", style: .info)
                 dismiss()
             }
             Button("Cancel", role: .cancel) {}
@@ -1307,6 +1308,7 @@ struct SpotDetailSheet: View {
             EditSpotSheet(spot: spot) { updated in
                 var record = updated
                 try? appState.spotRepository.save(&record)
+                ToastCenter.shared.show("Spot updated")
                 // Refresh in place — closing the whole spot sheet after an
                 // edit made it feel like the app threw the user out.
                 spot = record
@@ -1461,6 +1463,7 @@ struct AddSpotSheet: View {
             spotType: spotType
         )
         try? appState.spotRepository.save(&spot)
+        ToastCenter.shared.show("Spot saved")
         dismiss()
     }
 }

@@ -404,7 +404,8 @@ struct ActiveSessionView: View {
 
                     sessionControls(trip)
                 } else {
-                    ContentUnavailableView("No Active Session", systemImage: "figure.fishing")
+                    ContentUnavailableView("No Active Session", systemImage: "figure.fishing",
+                        description: Text("Start a session from the map to track your GPS route and log catches."))
                 }
             }
             .padding()

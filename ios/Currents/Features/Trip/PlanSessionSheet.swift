@@ -237,6 +237,7 @@ struct PlanSessionSheet: View {
         trip.checklist = Trip.encodeChecklist(checklist)
         try? appState.tripRepository.save(&trip)
         Task { await NotificationManager.shared.schedulePlannedSessionAlert(trip: trip) }
+        ToastCenter.shared.show(editingTrip == nil ? "Session planned" : "Session updated")
         onSaved?(trip.id)
         dismiss()
     }
