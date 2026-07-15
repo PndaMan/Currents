@@ -132,9 +132,12 @@ struct LocationInspectorSheet: View {
                 .font(.headline)
 
             if probableSpots.isEmpty {
-                Text("No mapped dams or lakes near this tap — try closer to water.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                ContentUnavailableView(
+                    "No Water Nearby",
+                    systemImage: "water.waves.slash",
+                    description: Text("No mapped dams or lakes near this tap — try closer to water.")
+                )
+                .frame(maxWidth: .infinity)
             } else {
                 ForEach(probableSpots) { p in
                     Button {
@@ -226,6 +229,7 @@ struct LocationInspectorSheet: View {
     private var actionBar: some View {
         HStack(spacing: 12) {
             Button {
+                Haptics.tap()
                 showingSaveAsSpot = true
             } label: {
                 Label("Save as Spot", systemImage: "mappin.and.ellipse")

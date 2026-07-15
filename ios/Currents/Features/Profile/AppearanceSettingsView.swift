@@ -23,6 +23,7 @@ struct AppearanceSettingsView: View {
             }
         }
         .navigationTitle("Appearance")
+        .sensoryFeedback(.selection, trigger: selectedTheme)
     }
 
     private func themeCircle(_ theme: ThemeOption) -> some View {

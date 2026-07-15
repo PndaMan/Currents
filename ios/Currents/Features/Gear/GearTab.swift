@@ -220,6 +220,8 @@ struct GearTab: View {
                                 Button(role: .destructive) {
                                     try? appState.ownedGearRepository.delete(item)
                                     NotificationManager.shared.cancelLowStockAlert(itemId: item.id)
+                                    Haptics.warning()
+                                    ToastCenter.shared.show("Gear deleted", style: .info, haptic: false)
                                     Task { await refresh() }
                                 } label: {
                                     Label("Delete", systemImage: "trash")
@@ -359,6 +361,8 @@ struct GearTab: View {
                     }
                     Button(role: .destructive) {
                         try? appState.gearRepository.delete(loadout)
+                        Haptics.warning()
+                        ToastCenter.shared.show("Preset deleted", style: .info, haptic: false)
                         Task { await refresh() }
                     } label: {
                         Label("Delete", systemImage: "trash")
@@ -823,6 +827,7 @@ struct GearCatalogRow: View {
             }()
         )
         try? appState.ownedGearRepository.save(&gear)
+        ToastCenter.shared.show("Added to My Gear")
         withAnimation { onAdded?() }
     }
 
@@ -931,6 +936,7 @@ struct AddGearSheet: View {
             technique: cleanTechnique.isEmpty ? nil : cleanTechnique
         )
         try? appState.gearRepository.save(&loadout)
+        ToastCenter.shared.show("Preset saved")
         dismiss()
     }
 }
@@ -1036,6 +1042,7 @@ struct EditOwnedGearSheet: View {
                         } else {
                             NotificationManager.shared.cancelLowStockAlert(itemId: updated.id)
                         }
+                        ToastCenter.shared.show("Gear updated")
                         dismiss()
                     }
                     .disabled(name.isEmpty)
@@ -1132,6 +1139,7 @@ struct EditLoadoutSheet: View {
                         updated.lureWeightG = Double(lureWeightG)
                         updated.technique = cleanTechnique.isEmpty ? nil : cleanTechnique
                         try? appState.gearRepository.save(&updated)
+                        ToastCenter.shared.show("Preset updated")
                         dismiss()
                     }
                     .disabled(name.isEmpty)

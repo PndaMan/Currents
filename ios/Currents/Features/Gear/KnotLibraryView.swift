@@ -39,31 +39,38 @@ struct KnotLibraryView: View {
                 NavigationLink {
                     KnotDetailView(knot: knot)
                 } label: {
-                    HStack(spacing: 12) {
-                        if let img = KnotImageStore.image(knot.imageName) {
-                            Image(uiImage: img)
-                                .resizable().scaledToFill()
-                                .frame(width: 52, height: 52)
-                                .clipShape(RoundedRectangle(cornerRadius: 8))
-                        } else {
-                            Image(systemName: knot.category.icon)
-                                .frame(width: 52, height: 52)
-                                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
-                                .foregroundStyle(CurrentsTheme.accent)
-                        }
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(knot.name).font(.subheadline.bold())
-                            Text(knot.useCase)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(2)
-                        }
-                    }
+                    knotRowLabel(knot)
                 }
+                .simultaneousGesture(TapGesture().onEnded { Haptics.tap() })
             }
         }
         .navigationTitle("Knots & Rigs")
         .searchable(text: $search, prompt: "Search knots")
+        .sensoryFeedback(.selection, trigger: category)
+    }
+
+    @ViewBuilder
+    private func knotRowLabel(_ knot: KnotEntry) -> some View {
+        HStack(spacing: 12) {
+            if let img = KnotImageStore.image(knot.imageName) {
+                Image(uiImage: img)
+                    .resizable().scaledToFill()
+                    .frame(width: 52, height: 52)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+            } else {
+                Image(systemName: knot.category.icon)
+                    .frame(width: 52, height: 52)
+                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
+                    .foregroundStyle(CurrentsTheme.accent)
+            }
+            VStack(alignment: .leading, spacing: 3) {
+                Text(knot.name).font(.subheadline.bold())
+                Text(knot.useCase)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+        }
     }
 }
 

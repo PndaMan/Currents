@@ -159,6 +159,8 @@ struct PlanSessionSheet: View {
             .onChange(of: date) { _, _ in recompute() }
             .onChange(of: dayCount) { _, _ in recompute() }
             .onChange(of: forecastPin?.latitude) { _, _ in recompute() }
+            .sensoryFeedback(.selection, trigger: dayCount)
+            .sensoryFeedback(.selection, trigger: checklist.map(\.checked))
         }
     }
 

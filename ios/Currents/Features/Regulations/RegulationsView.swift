@@ -29,7 +29,7 @@ struct RegulationsView: View {
             ForEach(grouped, id: \.region) { group in
                 Section(group.region) {
                     ForEach(group.regs) { reg in
-                        Button { selected = reg } label: { RegulationRow(reg: reg) }
+                        Button { Haptics.tap(); selected = reg } label: { RegulationRow(reg: reg) }
                             .buttonStyle(.plain)
                     }
                 }

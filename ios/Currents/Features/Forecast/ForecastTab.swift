@@ -116,6 +116,7 @@ struct ForecastTab: View {
                     .disabled(isLoadingWeather)
                 }
             }
+            .sensoryFeedback(.selection, trigger: selectedDay)
             .task {
                 allSpecies = (try? appState.speciesRepository.fetchAll()) ?? []
                 await fetchWeatherAndCompute()

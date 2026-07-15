@@ -68,6 +68,7 @@ struct AppIconSelectorView: View {
             .padding(.vertical)
         }
         .navigationTitle("App Icon")
+        .sensoryFeedback(.selection, trigger: selectedAppIcon)
     }
 
     @ViewBuilder
@@ -126,6 +127,10 @@ struct AppIconSelectorView: View {
         UIApplication.shared.setAlternateIconName(iconName) { error in
             if let error {
                 print("[Currents] Failed to set app icon: \(error.localizedDescription)")
+                Task { @MainActor in ToastCenter.shared.show("Couldn't change app icon", style: .error) }
+            } else {
+                // Selection feedback already fired on tap; keep the toast silent.
+                Task { @MainActor in ToastCenter.shared.show("App icon changed", haptic: false) }
             }
         }
     }

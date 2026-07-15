@@ -150,6 +150,7 @@ struct CatchesTab: View {
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
                     Button {
+                        Haptics.tap()
                         showingLogCatch = true
                     } label: {
                         Image(systemName: "plus")
@@ -207,6 +208,8 @@ struct CatchesTab: View {
             .refreshable {
                 await loadCatches()
             }
+            .sensoryFeedback(.selection, trigger: filter)
+            .sensoryFeedback(.selection, trigger: sortOrder)
         }
     }
 

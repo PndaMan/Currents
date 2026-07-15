@@ -171,6 +171,9 @@ struct SeasonalCalendarView: View {
             .padding()
         }
         .navigationTitle("Seasonal Calendar")
+        .sensoryFeedback(.selection, trigger: selectedMonth)
+        .sensoryFeedback(.selection, trigger: sortOrder)
+        .sensoryFeedback(.selection, trigger: habitatFilter)
         .task {
             if species.isEmpty {
                 species = (try? appState.speciesRepository.fetchAll()) ?? []
@@ -308,6 +311,7 @@ struct SeasonalCalendarView: View {
             speciesRow(sp, dimmed: dimmed)
         }
         .buttonStyle(.plain)
+        .simultaneousGesture(TapGesture().onEnded { Haptics.tap() })
     }
 
     // MARK: - Species Row

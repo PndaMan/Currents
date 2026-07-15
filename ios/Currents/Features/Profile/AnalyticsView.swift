@@ -54,6 +54,7 @@ struct AnalyticsView: View {
             .padding()
         }
         .navigationTitle("Analytics")
+        .sensoryFeedback(.selection, trigger: selectedSection)
         .task { await loadData() }
     }
 

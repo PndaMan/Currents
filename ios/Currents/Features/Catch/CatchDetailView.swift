@@ -261,6 +261,7 @@ struct CatchDetailView: View {
         }
         .alert("Delete Catch?", isPresented: $showingDeleteConfirm) {
             Button("Delete", role: .destructive) {
+                Haptics.warning()
                 deleteCatch()
             }
             Button("Cancel", role: .cancel) {}
@@ -297,6 +298,7 @@ struct CatchDetailView: View {
                 trip = try? appState.tripRepository.fetch(tripId)
             }
         }
+        .sensoryFeedback(.selection, trigger: isFavorite)
     }
 
     private func toggleFavorite() {
@@ -800,6 +802,7 @@ struct EditCatchSheet: View {
                     }
                 }
             }
+            .sensoryFeedback(.selection, trigger: released)
         }
     }
 

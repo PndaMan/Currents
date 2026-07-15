@@ -75,6 +75,9 @@ struct FishCollectionView: View {
             }
             .navigationTitle("Collection")
             .searchable(text: $searchText, prompt: "Search species")
+            .sensoryFeedback(.selection, trigger: sort)
+            .sensoryFeedback(.selection, trigger: rarityFilter)
+            .sensoryFeedback(.selection, trigger: showCaughtOnly)
             // No .refreshable here — the pull gesture fought with cell taps and
             // sheet swipe-downs, causing phantom "refreshes". Data reloads when
             // the detail sheet closes instead.
@@ -208,6 +211,7 @@ struct FishCollectionView: View {
         LazyVGrid(columns: columns, spacing: 12) {
             ForEach(filtered) { sp in
                 Button {
+                    Haptics.tap()
                     selected = sp
                 } label: {
                     CollectionCell(species: sp, caught: caughtIds.contains(sp.id))

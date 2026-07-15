@@ -97,6 +97,7 @@ struct WaterbodyDetailSheet: View {
                     // Actions
                     HStack(spacing: 12) {
                         Button {
+                            Haptics.tap()
                             showingAddSpot = true
                         } label: {
                             Label("Save as Spot", systemImage: "mappin.and.ellipse")

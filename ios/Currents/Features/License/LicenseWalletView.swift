@@ -57,6 +57,8 @@ struct LicenseWalletView: View {
         for index in offsets {
             try? appState.licenseRepository.delete(licenses[index])
         }
+        Haptics.warning()
+        ToastCenter.shared.show("Licence deleted", style: .info, haptic: false)
         reload()
     }
 }
@@ -168,6 +170,8 @@ struct LicenseDetailView: View {
         .alert("Delete Licence?", isPresented: $showingDeleteConfirm) {
             Button("Delete", role: .destructive) {
                 try? appState.licenseRepository.delete(license)
+                Haptics.warning()
+                ToastCenter.shared.show("Licence deleted", style: .info, haptic: false)
                 onChange()
                 dismiss()
             }

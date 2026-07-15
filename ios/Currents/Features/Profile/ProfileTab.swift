@@ -172,7 +172,7 @@ struct ProfileTab: View {
                 Text(importMessage ?? "")
             }
             .alert("Restore from iCloud?", isPresented: $showingRestoreConfirm) {
-                Button("Restore", role: .destructive) { restoreFromCloud() }
+                Button("Restore", role: .destructive) { Haptics.warning(); restoreFromCloud() }
                 Button("Cancel", role: .cancel) {}
             } message: {
                 Text("This will replace all local data with the iCloud backup. This cannot be undone.")
@@ -185,6 +185,7 @@ struct ProfileTab: View {
                 )
             ) {
                 Button("Restore", role: .destructive) {
+                    Haptics.warning()
                     if let snap = restoreSnapshot {
                         restoreFromSnapshot(snap)
                     }
@@ -203,6 +204,7 @@ struct ProfileTab: View {
             Toggle(isOn: $autoBackupEnabled) {
                 Label("Automatic Daily Backup", systemImage: "clock.arrow.circlepath")
             }
+            .sensoryFeedback(.selection, trigger: autoBackupEnabled)
 
             Button {
                 backUpNow()
@@ -402,6 +404,7 @@ struct OfflineMapsView: View {
                 )) {
                     Label("Auto-cache maps nearby", systemImage: "square.and.arrow.down.on.square")
                 }
+                .sensoryFeedback(.selection, trigger: appState.mapManager.autoCacheEnabled)
 
                 HStack {
                     Label("Cached tiles", systemImage: "internaldrive")
@@ -410,9 +413,11 @@ struct OfflineMapsView: View {
                 }
 
                 Button(role: .destructive) {
+                    Haptics.warning()
                     appState.mapManager.clearTileCache()
                     tileCacheSize = ByteCountFormatter.string(
                         fromByteCount: appState.mapManager.tileCacheSizeBytes, countStyle: .file)
+                    ToastCenter.shared.show("Tile cache cleared", style: .info, haptic: false)
                 } label: {
                     Label("Clear Tile Cache", systemImage: "trash")
                 }
@@ -529,6 +534,7 @@ struct SaveRegionSheet: View {
                                 spanDegrees: 0.15
                             )
                             onSave()
+                            ToastCenter.shared.show("Map region saved")
                             dismiss()
                         }
                     }
@@ -577,6 +583,9 @@ struct UnitsSettingsView: View {
             }
         }
         .navigationTitle("Units")
+        .sensoryFeedback(.selection, trigger: units)
+        .sensoryFeedback(.selection, trigger: use24HourTime)
+        .sensoryFeedback(.selection, trigger: dateOrder)
     }
 }
 
@@ -630,6 +639,10 @@ struct PrivacySettingsView: View {
             }
         }
         .navigationTitle("Privacy")
+        .sensoryFeedback(.selection, trigger: shareCatches)
+        .sensoryFeedback(.selection, trigger: shareSpots)
+        .sensoryFeedback(.selection, trigger: shareSpotExact)
+        .sensoryFeedback(.selection, trigger: shareCatchLocations)
     }
 
     /// Re-apply the global sharing preferences to CloudKit (grants + shared spots).

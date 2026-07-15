@@ -104,7 +104,11 @@ struct CommunityView: View {
             Section("Your angler name") { TextField("Name", text: $name) }
             Section {
                 Button {
-                    Task { await svc.join(name: name, region: region); await svc.updateProfile(name: svc.myName, bio: svc.myBio, homeWater: svc.myHomeWater, region: region, avatar: nil, stats: stats) }
+                    Task {
+                        await svc.join(name: name, region: region)
+                        await svc.updateProfile(name: svc.myName, bio: svc.myBio, homeWater: svc.myHomeWater, region: region, avatar: nil, stats: stats)
+                        ToastCenter.shared.show("Welcome to the Community", style: .success)
+                    }
                 } label: {
                     Label("Join the Community", systemImage: "person.3.fill").frame(maxWidth: .infinity)
                 }.buttonStyle(.borderedProminent).tint(CurrentsTheme.accent)
@@ -129,7 +133,11 @@ struct CommunityView: View {
             GroupTripsSection()
             FriendsSection()
             Section {
-                Button("Leave Community", role: .destructive) { svc.leave() }
+                Button("Leave Community", role: .destructive) {
+                    Haptics.warning()
+                    svc.leave()
+                    ToastCenter.shared.show("Left the Community", style: .info, haptic: false)
+                }
             }
         }
     }
@@ -326,6 +334,7 @@ private struct LeaderboardSection: View {
         }
         .task { await reload() }
         .onChange(of: metric) { _, _ in Task { await reload() } }
+        .sensoryFeedback(.selection, trigger: metric)
     }
 
     /// Rows are only tappable for friends (and yourself) — individual catches
@@ -469,7 +478,12 @@ private struct FriendsSection: View {
                     }
                 }
                 .swipeActions {
-                    Button("Remove", role: .destructive) { svc.removeFriend(f.id); Task { await reload() } }
+                    Button("Remove", role: .destructive) {
+                        Haptics.warning()
+                        svc.removeFriend(f.id)
+                        ToastCenter.shared.show("Friend removed", style: .info, haptic: false)
+                        Task { await reload() }
+                    }
                 }
             }
         }
@@ -589,8 +603,8 @@ struct NotificationInboxView: View {
                 }
             }
             AcceptDeclineButtons(
-                onAccept: { Task { await svc.acceptFriendRequest(req); ToastCenter.shared.show("You're now friends 🎣"); await load() } },
-                onDecline: { Task { await svc.declineFriendRequest(req); await load() } })
+                onAccept: { Task { await svc.acceptFriendRequest(req); ToastCenter.shared.show("You're now friends 🎣", style: .success); await load() } },
+                onDecline: { Task { Haptics.warning(); await svc.declineFriendRequest(req); ToastCenter.shared.show("Request declined", style: .info, haptic: false); await load() } })
         }
         .padding(.vertical, 2)
     }
@@ -608,8 +622,8 @@ struct NotificationInboxView: View {
             }
             AcceptDeclineButtons(
                 acceptTitle: "Join Trip",
-                onAccept: { Task { await svc.acceptInvite(inv); ToastCenter.shared.show("Joined the trip"); openedTrip = inv.groupCode; await load() } },
-                onDecline: { Task { await svc.declineInvite(inv); await load() } })
+                onAccept: { Task { await svc.acceptInvite(inv); ToastCenter.shared.show("Joined the trip", style: .success); openedTrip = inv.groupCode; await load() } },
+                onDecline: { Task { Haptics.warning(); await svc.declineInvite(inv); ToastCenter.shared.show("Invite declined", style: .info, haptic: false); await load() } })
         }
         .padding(.vertical, 2)
     }
@@ -699,7 +713,7 @@ struct ProfileEditView: View {
             // Refresh shared spots to reflect any privacy changes.
             let spots = (try? appState.spotRepository.fetchAll()) ?? []
             await svc.republishSharedSpots(spots: spots)
-            ToastCenter.shared.show("Profile updated")
+            ToastCenter.shared.show("Profile updated", style: .success)
             dismiss()
         }
     }
@@ -813,6 +827,7 @@ struct FriendProfileView: View {
                 }
                 .onChange(of: override) { _, o in
                     svc.setOverride(o, for: code)
+                    ToastCenter.shared.show("Sharing updated", style: .info, haptic: false)
                     let spots = (try? appState.spotRepository.fetchAll()) ?? []
                     Task { await svc.applyPrivacy(for: code, spots: spots) }
                 }
@@ -820,6 +835,7 @@ struct FriendProfileView: View {
         }
         .navigationTitle(profile?.name ?? "Angler")
         .navigationBarTitleDisplayMode(.inline)
+        .sensoryFeedback(.selection, trigger: override)
         .sheet(item: $selectedSpot) { s in
             NavigationStack { SharedSpotDetailView(spot: s, friendName: profile?.name ?? "a friend") }
         }
@@ -1223,6 +1239,7 @@ struct AddFriendConfirmView: View {
                     joining = true
                     Task {
                         await svc.join(name: joinName, region: svc.myRegion)
+                        Haptics.success()
                         joining = false
                         // svc.joined flips → confirmBody appears and its .task
                         // loads the shared angler's profile.
@@ -1275,7 +1292,11 @@ struct AddFriendConfirmView: View {
                             .foregroundStyle(.green)
                     } else {
                         Button {
-                            Task { _ = await svc.sendFriendRequest(to: code); added = true }
+                            Task {
+                                _ = await svc.sendFriendRequest(to: code)
+                                added = true
+                                ToastCenter.shared.show("Friend request sent", style: .success)
+                            }
                         } label: {
                             Label("Send Friend Request", systemImage: "person.badge.plus").frame(maxWidth: .infinity)
                         }

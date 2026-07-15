@@ -394,6 +394,16 @@ struct MapTab: View {
                 }
             }
             .mapScope(mapScope)
+            // Discrete map-style / overlay / pin toggles get a light selection
+            // tick. Bound to the stored values so only real changes fire (never
+            // pan/zoom). Camera + search changes are deliberately excluded.
+            .sensoryFeedback(.selection, trigger: mapStyleRaw)
+            .sensoryFeedback(.selection, trigger: layerNautical)
+            .sensoryFeedback(.selection, trigger: layerRadar)
+            .sensoryFeedback(.selection, trigger: layerWind)
+            .sensoryFeedback(.selection, trigger: layerCurrent)
+            .sensoryFeedback(.selection, trigger: showWaterbodies)
+            .sensoryFeedback(.selection, trigger: showCatchPins)
             // No navigation bar on the map — its invisible bar was reserving a
             // big empty band above the search field.
             .toolbar(.hidden, for: .navigationBar)

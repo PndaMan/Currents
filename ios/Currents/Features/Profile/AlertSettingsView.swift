@@ -36,6 +36,7 @@ struct AlertSettingsView: View {
 
                 if alertsEnabled && permissionStatus != .authorized {
                     Button {
+                        Haptics.tap()
                         Task {
                             let granted = await NotificationManager.shared.requestPermission()
                             permissionStatus = granted ? .authorized : .denied
@@ -74,6 +75,7 @@ struct AlertSettingsView: View {
                     Text(permissionLabel).foregroundStyle(permissionStatus == .authorized ? .green : .orange)
                 }
                 Button {
+                    Haptics.tap()
                     Task { await NotificationManager.shared.sendTestNotification() }
                 } label: {
                     Label("Send test notification", systemImage: "bell.badge.fill")
@@ -88,6 +90,7 @@ struct AlertSettingsView: View {
                             .foregroundStyle(svc.pushSubscriptionsCreated ? .green : .orange)
                     }
                     Button {
+                        Haptics.tap()
                         busyPush = true
                         Task {
                             await svc.forcePushReenable()
@@ -171,6 +174,9 @@ struct AlertSettingsView: View {
             }
         }
         .navigationTitle("Bite Alerts")
+        .sensoryFeedback(.selection, trigger: alertsEnabled)
+        .sensoryFeedback(.selection, trigger: primeWindowAlerts)
+        .sensoryFeedback(.selection, trigger: lowStockAlerts)
         .task {
             permissionStatus = await NotificationManager.shared.checkPermissionStatus()
             spots = (try? appState.spotRepository.fetchAll()) ?? []

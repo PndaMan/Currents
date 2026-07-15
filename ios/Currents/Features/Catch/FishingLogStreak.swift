@@ -241,6 +241,7 @@ struct BadgesGridView: View {
                 .presentationDetents([.medium])
                 .presentationDragIndicator(.visible)
         }
+        .sensoryFeedback(.selection, trigger: selected?.id)
     }
 
     private func badgeCell(_ badge: BadgeDefinition) -> some View {
@@ -326,6 +327,7 @@ struct AchievementsCard: View {
             }
             .presentationDragIndicator(.visible)
         }
+        .sensoryFeedback(.selection, trigger: selected?.id)
     }
 
     private func bubble(_ badge: BadgeDefinition) -> some View {

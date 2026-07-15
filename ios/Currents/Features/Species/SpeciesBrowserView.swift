@@ -50,6 +50,7 @@ struct SpeciesBrowserView: View {
                                 SpeciesGuideCard(species: sp, caught: caughtIds.contains(sp.id))
                             }
                             .buttonStyle(.plain)
+                            .simultaneousGesture(TapGesture().onEnded { Haptics.tap() })
                         }
                     }
                 } else {
@@ -59,6 +60,7 @@ struct SpeciesBrowserView: View {
                                 SpeciesGuideRow(species: sp, caught: caughtIds.contains(sp.id))
                             }
                             .buttonStyle(.plain)
+                            .simultaneousGesture(TapGesture().onEnded { Haptics.tap() })
                         }
                     }
                 }
@@ -69,6 +71,8 @@ struct SpeciesBrowserView: View {
         .background(Color(.systemGroupedBackground).ignoresSafeArea())
         .searchable(text: $searchText, prompt: "Search species, family…")
         .navigationTitle("Species Guide")
+        .sensoryFeedback(.selection, trigger: layout)
+        .sensoryFeedback(.selection, trigger: selectedHabitat)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button {

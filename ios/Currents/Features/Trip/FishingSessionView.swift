@@ -127,6 +127,7 @@ struct SessionsView: View {
                     ForEach(planned) { trip in
                         PlannedRow(trip: trip, canStart: !tracker.isTracking, onStart: {
                             _ = tracker.startPlanned(trip); reload()
+                            ToastCenter.shared.show("Session started")
                         }, onEdit: { editingPlanned = trip })
                         .contextMenu { rowMenu(trip) }
                     }
@@ -157,7 +158,9 @@ struct SessionsView: View {
             presenting: tripToDelete
         ) { trip in
             Button("Delete", role: .destructive) {
+                Haptics.warning()
                 try? appState.tripRepository.delete(trip); tripToDelete = nil; reload()
+                ToastCenter.shared.show("Session deleted", style: .info, haptic: false)
             }
             Button("Cancel", role: .cancel) { tripToDelete = nil }
         } message: { _ in
@@ -261,6 +264,7 @@ struct EditSessionSheet: View {
         var t = trip
         try? appState.tripRepository.save(&t)
         if t.isPlanned { Task { await NotificationManager.shared.schedulePlannedSessionAlert(trip: t) } }
+        ToastCenter.shared.show("Session updated")
         dismiss()
     }
 }
@@ -333,6 +337,7 @@ struct NewSessionSheet: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Start") {
                         _ = appState.tripTracker.start(name: name.isEmpty ? SessionFormat.defaultName() : name, spotId: spotId)
+                        ToastCenter.shared.show("Session started")
                         dismiss()
                     }.bold()
                 }
@@ -382,7 +387,7 @@ struct ActiveSessionView: View {
                     }
                     CatchLimitBar(catches: catches)
 
-                    Button { showingLog = true } label: {
+                    Button { Haptics.tap(); showingLog = true } label: {
                         Label("Log a Catch", systemImage: "plus.circle.fill")
                             .font(.headline)
                             .frame(maxWidth: .infinity).padding(.vertical, 4)
@@ -430,13 +435,13 @@ struct ActiveSessionView: View {
                 .presentationDragIndicator(.visible)
         }
         .alert("End this day?", isPresented: $showingEndDayConfirm) {
-            Button("End Day", role: .destructive) { tracker.endDay() }
+            Button("End Day", role: .destructive) { Haptics.success(); tracker.endDay() }
             Button("Keep Going", role: .cancel) {}
         } message: {
             Text("Saves today's stats and pauses tracking. The trip stays open — start the next day whenever you're back out.")
         }
         .alert("End the whole trip?", isPresented: $showingEndConfirm) {
-            Button("End Trip", role: .destructive) { tracker.end(); dismiss() }
+            Button("End Trip", role: .destructive) { Haptics.warning(); tracker.end(); dismiss() }
             Button("Keep Going", role: .cancel) {}
         }
         .task { reload(); await refreshBite() }
@@ -452,6 +457,7 @@ struct ActiveSessionView: View {
                 controlButton(tracker.manualPaused ? "Resume" : "Pause",
                               icon: tracker.manualPaused ? "play.fill" : "pause.fill",
                               tint: tracker.manualPaused ? CurrentsTheme.accent : .secondary) {
+                    Haptics.tap()
                     if tracker.manualPaused { tracker.resumeTracking() } else { tracker.pauseTracking() }
                 }
                 Menu {
@@ -471,7 +477,7 @@ struct ActiveSessionView: View {
             Label("Trip paused between days", systemImage: "pause.circle")
                 .font(.caption).foregroundStyle(.secondary)
             HStack(spacing: 10) {
-                Button { tracker.startNextDay(); Task { await refreshBite() } } label: {
+                Button { Haptics.success(); tracker.startNextDay(); Task { await refreshBite() } } label: {
                     Label("Start Day \(trip.decodedDays.count + 1)", systemImage: "sun.max.fill").frame(maxWidth: .infinity)
                 }.buttonStyle(.borderedProminent).tint(CurrentsTheme.accent)
                 controlButton("End Trip", icon: "stop.circle", tint: .red) { showingEndConfirm = true }
@@ -687,7 +693,10 @@ struct SessionDetailView: View {
         }
         .alert("Delete Session?", isPresented: $showingDeleteConfirm) {
             Button("Delete", role: .destructive) {
-                try? appState.tripRepository.delete(trip); dismiss()
+                Haptics.warning()
+                try? appState.tripRepository.delete(trip)
+                ToastCenter.shared.show("Session deleted", style: .info, haptic: false)
+                dismiss()
             }
             Button("Cancel", role: .cancel) {}
         }

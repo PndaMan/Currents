@@ -46,6 +46,7 @@ struct SpotsListView: View {
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button {
+                    Haptics.tap()
                     showingAddSpot = true
                 } label: {
                     Image(systemName: "plus")

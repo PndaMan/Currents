@@ -135,6 +135,9 @@ struct LogCatchView: View {
             } message: {
                 Text("Save this pin as a new fishing spot")
             }
+            // Declarative feedback for the discrete toggle + segmented control.
+            .sensoryFeedback(.selection, trigger: released)
+            .sensoryFeedback(.selection, trigger: locationMode)
         }
     }
 
@@ -663,6 +666,7 @@ struct LogCatchView: View {
         selectedSpotId = spot.id
         locationMode = .spot
         newSpotName = ""
+        ToastCenter.shared.show("Spot saved")
     }
 
     /// Codable matching CatchDetailView's WeatherSnapshot keys so the stored

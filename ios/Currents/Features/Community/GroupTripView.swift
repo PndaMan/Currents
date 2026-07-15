@@ -67,6 +67,8 @@ func leaveGroupAndCleanup(code: String, tripId: String?, appState: AppState) asy
        trip.isPlanned {
         try? appState.tripRepository.delete(trip)
     }
+    Haptics.warning()
+    ToastCenter.shared.show("Left the trip", style: .info, haptic: false)
 }
 
 // MARK: - Setup: start (pick a trip) or join by code
@@ -198,6 +200,7 @@ struct GroupTripSetupView: View {
             return
         }
         if let code = await svc.createGroupTrip(name: trip.name, tripId: trip.id) {
+            ToastCenter.shared.show("Group trip created", style: .success)
             openedCode = code
         }
     }
@@ -213,6 +216,7 @@ struct GroupTripSetupView: View {
         busy = true; defer { busy = false }
         let code = joinCode.uppercased().trimmingCharacters(in: .whitespaces)
         guard let trip = await svc.joinGroupTrip(code: code) else { return }
+        ToastCenter.shared.show("Joined the trip", style: .success)
         // Give the joiner a local trip so their catches sync + they can track.
         if svc.tripId(forGroupCode: code) == nil {
             var t = Trip(name: trip.name, startDate: .now)
@@ -343,6 +347,7 @@ struct GroupTripView: View {
                 Task {
                     busy = true
                     await svc.join(name: joinName, region: svc.myRegion)
+                    Haptics.success()
                     // Now proceed into the group's join confirmation.
                     if let c = code {
                         trip = await service.groupTrip(code: c)
@@ -377,6 +382,7 @@ struct GroupTripView: View {
                 Task {
                     busy = true
                     if let new = await service.createGroupTrip(name: tripName, tripId: tripId ?? UUID().uuidString) {
+                        ToastCenter.shared.show("Group trip created", style: .success)
                         code = new
                         await refresh()
                     }
@@ -398,6 +404,7 @@ struct GroupTripView: View {
                     Task {
                         busy = true
                         if let t = await service.joinGroupTrip(code: joinCode, tripId: tripId) {
+                            ToastCenter.shared.show("Joined the trip", style: .success)
                             code = t.id
                             await refresh()
                         }
@@ -435,6 +442,7 @@ struct GroupTripView: View {
                 Task {
                     busy = true
                     _ = await service.joinGroupTrip(code: code)
+                    ToastCenter.shared.show("Joined the trip", style: .success)
                     ensureLinkedTrip(code: code, name: trip?.name ?? "Group Trip")
                     confirming = false
                     busy = false
@@ -470,11 +478,11 @@ struct GroupTripView: View {
 
             Text("Invite friends").font(.headline)
             if friendProfiles.isEmpty {
-                Text("Add friends in Community to invite them with one tap — or share the code below.")
-                    .font(.caption).foregroundStyle(.secondary)
+                ContentUnavailableView("No friends yet", systemImage: "person.2",
+                    description: Text("Add friends in Community to invite them with one tap — or share the code below."))
             } else if invitable.isEmpty {
-                Text("All your friends are already in this trip 🎣")
-                    .font(.caption).foregroundStyle(.secondary)
+                ContentUnavailableView("Everyone's in", systemImage: "checkmark.circle",
+                    description: Text("All your friends are already in this trip."))
             } else {
                 ForEach(invitable) { f in
                     HStack(spacing: 10) {
@@ -490,6 +498,7 @@ struct GroupTripView: View {
                                 Task {
                                     await service.inviteFriend(f.id, toGroup: code,
                                                                tripName: trip?.name ?? tripName)
+                                    ToastCenter.shared.show("Invite sent to \(f.name)", style: .success)
                                 }
                             } label: {
                                 Text("Invite").font(.caption.bold())
@@ -525,7 +534,10 @@ struct GroupTripView: View {
                     Button {
                         let c = joinCode.uppercased().trimmingCharacters(in: .whitespaces)
                         joinCode = ""
-                        Task { await service.inviteFriend(c, toGroup: code, tripName: trip?.name ?? tripName) }
+                        Task {
+                            await service.inviteFriend(c, toGroup: code, tripName: trip?.name ?? tripName)
+                            ToastCenter.shared.show("Invite sent", style: .success)
+                        }
                     } label: {
                         Label("Send Invite", systemImage: "paperplane.fill").frame(maxWidth: .infinity)
                     }
@@ -621,7 +633,8 @@ struct GroupTripView: View {
         // personal GPS session). Members can only end their own session.
         if trip?.isHost == true, !(trip?.isEnded ?? false) {
             Button(role: .destructive) {
-                Task { await service.endGroupTrip(code: code); await refresh() }
+                Haptics.warning()
+                Task { await service.endGroupTrip(code: code); ToastCenter.shared.show("Trip ended", style: .info, haptic: false); await refresh() }
             } label: {
                 Label("End trip for everyone", systemImage: "flag.slash").frame(maxWidth: .infinity)
             }
@@ -659,6 +672,7 @@ struct GroupTripView: View {
                     .font(.subheadline.bold()).foregroundStyle(.secondary)
                 if isThisActive {
                     Button(role: .destructive) {
+                        Haptics.warning()
                         _ = appState.tripTracker.end()
                     } label: {
                         Label("End my session", systemImage: "stop.circle").frame(maxWidth: .infinity)
@@ -683,12 +697,13 @@ struct GroupTripView: View {
                 // Logging is only available WHILE fishing, so catches can't be
                 // added before the trip starts or after it ends — and they're
                 // always tagged to the group.
-                Button { showingLog = true } label: {
+                Button { Haptics.tap(); showingLog = true } label: {
                     Label("Log a Catch", systemImage: "plus.circle.fill").frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent).tint(CurrentsTheme.accent)
                 HStack(spacing: 10) {
                     Button {
+                        Haptics.selection()
                         if tracker.manualPaused { tracker.resumeTracking() } else { tracker.pauseTracking() }
                     } label: {
                         Label(tracker.manualPaused ? "Resume" : "Pause",
@@ -697,9 +712,11 @@ struct GroupTripView: View {
                     }.buttonStyle(.bordered)
                     Menu {
                         Button {
+                            Haptics.warning()
                             tracker.endDay()
                         } label: { Label("End for the day", systemImage: "moon.zzz.fill") }
                         Button(role: .destructive) {
+                            Haptics.warning()
                             _ = appState.tripTracker.end()
                         } label: { Label("End my session", systemImage: "stop.circle") }
                     } label: {
@@ -711,11 +728,13 @@ struct GroupTripView: View {
                 // or finish the whole trip. No logging between days.
                 Label("Day ended — trip still open", systemImage: "pause.circle").font(.caption).foregroundStyle(.secondary)
                 Button {
+                    Haptics.success()
                     tracker.startNextDay()
                 } label: {
                     Label("Start next day", systemImage: "sun.max.fill").frame(maxWidth: .infinity)
                 }.buttonStyle(.borderedProminent).tint(CurrentsTheme.accent)
                 Button(role: .destructive) {
+                    Haptics.warning()
                     _ = appState.tripTracker.end()
                 } label: {
                     Label("End trip", systemImage: "stop.circle").frame(maxWidth: .infinity)
@@ -733,6 +752,7 @@ struct GroupTripView: View {
                     Text("Start your session to record your GPS track and log catches toward the group.")
                         .font(.caption).foregroundStyle(.secondary)
                     Button {
+                        Haptics.success()
                         _ = appState.tripTracker.startPlanned(lt)
                     } label: {
                         Label("Start Fishing", systemImage: "play.circle.fill").frame(maxWidth: .infinity)
