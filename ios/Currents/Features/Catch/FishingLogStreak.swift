@@ -269,6 +269,83 @@ struct BadgesGridView: View {
     }
 }
 
+/// Compact achievements card for a profile: your top earned badges (by rarity)
+/// as tappable bubbles, plus a "Show all" that opens the full grid. Each bubble
+/// opens the same explanatory modal.
+struct AchievementsCard: View {
+    let catches: [CatchDetail]
+    var topCount = 5
+    @State private var selected: BadgeDefinition?
+    @State private var showingAll = false
+
+    private var streakWeeks: Int { BadgeDefinition.streakWeeks(from: catches) }
+    private var allBadges: [BadgeDefinition] {
+        BadgeDefinition.compute(from: catches, streakWeeks: streakWeeks)
+    }
+    private var earned: [BadgeDefinition] {
+        allBadges.filter(\.earned).sorted { $0.rarity.rawValue > $1.rarity.rawValue }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Label("Achievements", systemImage: "trophy.fill").font(.headline)
+                Spacer()
+                Text("\(earned.count)/\(allBadges.count)")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+
+            if earned.isEmpty {
+                Text("No badges yet — log catches, explore new spots and species to start earning them.")
+                    .font(.caption).foregroundStyle(.secondary)
+            } else {
+                HStack(spacing: 12) {
+                    ForEach(earned.prefix(topCount)) { badge in
+                        Button { selected = badge } label: { bubble(badge) }
+                            .buttonStyle(.plain)
+                    }
+                    Spacer(minLength: 0)
+                }
+            }
+
+            Button { showingAll = true } label: {
+                Label("Show all achievements", systemImage: "chevron.right")
+                    .font(.caption.bold())
+            }
+            .buttonStyle(.borderless)
+        }
+        .sheet(item: $selected) { badge in
+            BadgeDetailView(badge: badge)
+                .presentationDetents([.medium]).presentationDragIndicator(.visible)
+        }
+        .sheet(isPresented: $showingAll) {
+            NavigationStack {
+                ScrollView { BadgesGridView(catches: catches).padding() }
+                    .navigationTitle("Achievements")
+                    .navigationBarTitleDisplayMode(.inline)
+            }
+            .presentationDragIndicator(.visible)
+        }
+    }
+
+    private func bubble(_ badge: BadgeDefinition) -> some View {
+        VStack(spacing: 4) {
+            ZStack {
+                Circle().fill(badge.rarity.color.opacity(0.18)).frame(width: 46, height: 46)
+                Circle().stroke(badge.rarity.color.opacity(0.8), lineWidth: 2).frame(width: 46, height: 46)
+                Image(systemName: badge.icon)
+                    .font(.system(size: 18))
+                    .foregroundStyle(badge.rarity.color)
+                    .symbolRenderingMode(.hierarchical)
+            }
+            Text(badge.title)
+                .font(.system(size: 8, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .lineLimit(1).frame(width: 48)
+        }
+    }
+}
+
 /// A friendly modal explaining a badge: its icon, rarity, how it's earned, and
 /// whether you've unlocked it yet.
 struct BadgeDetailView: View {

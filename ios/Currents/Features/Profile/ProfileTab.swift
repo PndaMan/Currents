@@ -8,9 +8,6 @@ struct ProfileTab: View {
     @State private var totalSpots = 0
     @State private var catches: [CatchDetail] = []
     @State private var speciesCounts: [(speciesId: Int64, commonName: String, count: Int)] = []
-    @State private var previousBadgeCount = 0
-    @State private var newBadgeTitle: String?
-    @State private var showBadgeToast = false
     @State private var exportURL: URL?
     @State private var isBackingUp = false
     @State private var isRestoring = false
@@ -47,11 +44,6 @@ struct ProfileTab: View {
                 Section("Community") {
                     NavigationLink { CommunityView() } label: {
                         Label("Community & Friends", systemImage: "person.3.fill")
-                    }
-                    DisclosureGroup {
-                        BadgesGridView(catches: catches).padding(.vertical, 8)
-                    } label: {
-                        Label("Achievements & Badges", systemImage: "trophy")
                     }
                     NavigationLink { AnalyticsView() } label: {
                         Label("Analytics & Personal Bests", systemImage: "chart.xyaxis.line")
@@ -163,52 +155,9 @@ struct ProfileTab: View {
                 }
                 dbSize = await FileBackup.shared.databaseSize
                 snapshots = await FileBackup.shared.snapshots()
-
-                // Track badge count for new-badge notification
-                let streakWeeks = BadgeDefinition.streakWeeks(from: catches)
-                let allBadges = BadgeDefinition.compute(from: catches, streakWeeks: streakWeeks)
-                let earnedCount = allBadges.filter(\.earned).count
-                if previousBadgeCount > 0 && earnedCount > previousBadgeCount {
-                    // A new badge was earned
-                    if let newest = allBadges.filter(\.earned).last {
-                        newBadgeTitle = newest.title
-                        showBadgeToast = true
-                        Task {
-                            try? await Task.sleep(for: .seconds(3))
-                            withAnimation { showBadgeToast = false }
-                        }
-                    }
-                }
-                previousBadgeCount = earnedCount
             }
             .sheet(item: $exportURL) { url in
                 ShareSheet(url: url)
-            }
-            .overlay(alignment: .top) {
-                if showBadgeToast, let title = newBadgeTitle {
-                    HStack(spacing: 10) {
-                        Image(systemName: "trophy.fill")
-                            .font(.title3)
-                            .foregroundStyle(CurrentsTheme.accent)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Badge Earned!")
-                                .font(.caption.bold())
-                            Text(title)
-                                .font(.subheadline.bold())
-                        }
-                    }
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 12)
-                    .background(.ultraThinMaterial)
-                    .clipShape(RoundedRectangle(cornerRadius: 16))
-                    .shadow(color: .black.opacity(0.2), radius: 10, y: 4)
-                    .padding(.top, 60)
-                    .transition(.move(edge: .top).combined(with: .opacity))
-                    .animation(.spring(duration: 0.4), value: showBadgeToast)
-                    .onTapGesture {
-                        withAnimation { showBadgeToast = false }
-                    }
-                }
             }
             .fileImporter(
                 isPresented: $showingCSVImport,

@@ -16,6 +16,8 @@ struct CommunityView: View {
     /// Cached angler stats so a full catch-table scan doesn't run on every
     /// SwiftUI body re-render — refreshed on appear and when catches change.
     @State private var cachedStats: CommunityService.MyStats?
+    /// Local catches, used to compute achievements shown on the profile.
+    @State private var myCatches: [CatchDetail] = []
 
     private var region: String { svc.myRegion }
     private var notificationCount: Int { pendingRequests.count + pendingInvites.count }
@@ -45,7 +47,10 @@ struct CommunityView: View {
         .onChange(of: svc.revision) { _, _ in refreshStats() }
     }
 
-    private func refreshStats() { cachedStats = computeStats() }
+    private func refreshStats() {
+        myCatches = (try? appState.catchRepository.fetchAll(limit: 100000)) ?? []
+        cachedStats = computeStatsFrom(myCatches)
+    }
     private var stats: CommunityService.MyStats { cachedStats ?? computeStats() }
 
     private func loadNotifications() async {
@@ -117,6 +122,9 @@ struct CommunityView: View {
                 Button { showingEdit = true } label: { MyProfileHeader(stats: stats) }
                     .buttonStyle(.plain)
             }
+            Section {
+                AchievementsCard(catches: myCatches)
+            }
             LeaderboardSection()
             GroupTripsSection()
             FriendsSection()
@@ -129,7 +137,10 @@ struct CommunityView: View {
     // MARK: Stats from local data
 
     private func computeStats() -> CommunityService.MyStats {
-        let catches = (try? appState.catchRepository.fetchAll(limit: 100000)) ?? []
+        computeStatsFrom((try? appState.catchRepository.fetchAll(limit: 100000)) ?? [])
+    }
+
+    private func computeStatsFrom(_ catches: [CatchDetail]) -> CommunityService.MyStats {
         let species = Dictionary(grouping: catches, by: { $0.species?.commonName ?? "" })
         let fav = species.filter { !$0.key.isEmpty }.max { $0.value.count < $1.value.count }?.key ?? ""
         return .init(

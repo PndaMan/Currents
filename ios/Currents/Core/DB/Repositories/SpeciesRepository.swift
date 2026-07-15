@@ -43,6 +43,16 @@ final class SpeciesRepository: ObservableObject {
         }
     }
 
+    /// Case-insensitive exact match on the scientific name (used to link a
+    /// fishing regulation to its species artwork + guide page).
+    func fetchByScientificName(_ name: String) throws -> Species? {
+        try db.db.read { db in
+            try Species
+                .filter(Column("scientificName").collating(.nocase) == name)
+                .fetchOne(db)
+        }
+    }
+
     func fetchByHabitat(_ habitat: Species.Habitat) throws -> [Species] {
         try db.db.read { db in
             try Species
