@@ -1096,6 +1096,8 @@ struct SpotDetailSheet: View {
                     .clipShape(RoundedRectangle(cornerRadius: 16))
                     .allowsHitTesting(false)
 
+                    DriveToButton(coordinate: spotCoord, name: spot.name)
+
                     HStack {
                         VStack(alignment: .leading) {
                             Text(spot.name)

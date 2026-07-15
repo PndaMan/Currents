@@ -940,6 +940,14 @@ struct SharedSpotDetailView: View {
                 }
             }
 
+            if let coord = spot.coordinate {
+                Section {
+                    DriveToButton(coordinate: coord, name: spot.name)
+                        .listRowInsets(EdgeInsets())
+                        .listRowBackground(Color.clear)
+                }
+            }
+
             if spot.coordinate != nil {
                 Section {
                     Button {
@@ -1043,6 +1051,7 @@ struct CommunityCatchDetailView: View {
                                 .background(.ultraThinMaterial, in: Capsule())
                                 .padding(8)
                         }
+                    DriveToButton(coordinate: coord, name: row.species)
                 }
 
                 if !row.region.isEmpty {

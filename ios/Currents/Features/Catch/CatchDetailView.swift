@@ -478,7 +478,20 @@ struct CatchDetailView: View {
         .padding(10)
     }
 
-    private var locationCard: some View {
+    @ViewBuilder private var locationCard: some View {
+        let lat = detail.catchRecord.latitude
+        let lon = detail.catchRecord.longitude
+        if lat != 0 || lon != 0 {
+            VStack(spacing: 10) {
+                catchMap
+                DriveToButton(
+                    coordinate: CLLocationCoordinate2D(latitude: lat, longitude: lon),
+                    name: detail.spot?.name ?? detail.species?.commonName ?? "Catch")
+            }
+        }
+    }
+
+    private var catchMap: some View {
         Map(initialPosition: .camera(.init(
             centerCoordinate: CLLocationCoordinate2D(
                 latitude: detail.catchRecord.latitude,
