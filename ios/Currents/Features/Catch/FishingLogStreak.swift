@@ -28,11 +28,48 @@ enum BadgeRarity: Int, CaseIterable {
     }
 }
 
-struct BadgeDefinition {
+struct BadgeDefinition: Identifiable {
     let icon: String
     let title: String
     let rarity: BadgeRarity
     let earned: Bool
+
+    var id: String { title }
+
+    /// A friendly one-liner explaining how the badge is earned, shown in the
+    /// tap-to-open detail modal.
+    var explanation: String {
+        switch title {
+        case "First Catch":     return "Log your very first catch in Currents."
+        case "Snap Happy":      return "Add a photo to 3 of your catches."
+        case "Marked It":       return "Save your first fishing spot on the map."
+        case "Good Sport":      return "Release 3 catches back to the water."
+        case "10 Club":         return "Log 10 catches."
+        case "5 Species":       return "Catch 5 different species."
+        case "Explorer":        return "Fish at 3 different saved spots."
+        case "Photographer":    return "Add photos to 10 of your catches."
+        case "Hot Streak":      return "Log a catch in 2 back-to-back weeks."
+        case "Conservationist": return "Release 10 catches."
+        case "50 Catches":      return "Log 50 catches."
+        case "Night Owl":       return "Log a catch late at night (10pm–5am)."
+        case "Dawn Patrol":     return "Log a catch at first light (5–7am)."
+        case "Heavy Hitter":    return "Land a fish weighing 5 kg (11 lb) or more."
+        case "Long One":        return "Land a fish 50 cm (20 in) or longer."
+        case "Diversified":     return "Catch 10 different species."
+        case "On Fire":         return "Keep a weekly fishing streak alive for 4 weeks."
+        case "Century":         return "Log 100 catches."
+        case "Nomad":           return "Fish at 10 different saved spots."
+        case "Perfect Read":    return "Land a catch when the bite score was 90 or higher."
+        case "Year-Round":      return "Log catches in 10 different months of the year."
+        case "Monster":         return "Land a fish weighing 15 kg (33 lb) or more."
+        case "Portfolio":       return "Add photos to 50 of your catches."
+        case "500 Club":        return "Log 500 catches."
+        case "Species Master":  return "Catch 25 different species."
+        case "Unstoppable":     return "Keep a weekly fishing streak alive for 12 weeks."
+        case "Trophy Hunter":   return "Land a fish weighing 30 kg (66 lb) or more."
+        default:                return "Keep fishing to unlock this badge."
+        }
+    }
 
     static func compute(from catches: [CatchDetail], streakWeeks: Int) -> [BadgeDefinition] {
         let total = catches.count
@@ -155,6 +192,7 @@ struct FishingStreakView: View {
 
 struct BadgesGridView: View {
     let catches: [CatchDetail]
+    @State private var selected: BadgeDefinition?
 
     private var streakWeeks: Int {
         BadgeDefinition.streakWeeks(from: catches)
@@ -177,7 +215,8 @@ struct BadgesGridView: View {
             if !earnedBadges.isEmpty {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 75))], spacing: 10) {
                     ForEach(earnedBadges, id: \.title) { badge in
-                        badgeCell(badge)
+                        Button { selected = badge } label: { badgeCell(badge) }
+                            .buttonStyle(.plain)
                     }
                 }
             }
@@ -190,12 +229,18 @@ struct BadgesGridView: View {
 
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 75))], spacing: 10) {
                     ForEach(Array(lockedBadges.prefix(8)), id: \.title) { badge in
-                        badgeCell(badge)
+                        Button { selected = badge } label: { badgeCell(badge) }
+                            .buttonStyle(.plain)
                     }
                 }
             }
         }
         .padding(.bottom, 6)
+        .sheet(item: $selected) { badge in
+            BadgeDetailView(badge: badge)
+                .presentationDetents([.medium])
+                .presentationDragIndicator(.visible)
+        }
     }
 
     private func badgeCell(_ badge: BadgeDefinition) -> some View {
@@ -221,5 +266,77 @@ struct BadgesGridView: View {
                 .lineLimit(2)
         }
         .opacity(badge.earned ? 1.0 : 0.6)
+    }
+}
+
+/// A friendly modal explaining a badge: its icon, rarity, how it's earned, and
+/// whether you've unlocked it yet.
+struct BadgeDetailView: View {
+    let badge: BadgeDefinition
+    @Environment(\.dismiss) private var dismiss
+
+    private var tint: Color { badge.rarity.color }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Hero medallion on a soft rarity-tinted wash.
+            ZStack {
+                RadialGradient(colors: [tint.opacity(badge.earned ? 0.35 : 0.12), .clear],
+                               center: .center, startRadius: 4, endRadius: 170)
+                ZStack {
+                    Circle()
+                        .fill(tint.opacity(badge.earned ? 0.18 : 0.08))
+                        .frame(width: 116, height: 116)
+                    Circle()
+                        .stroke(tint.opacity(badge.earned ? 0.9 : 0.3), lineWidth: 3)
+                        .frame(width: 116, height: 116)
+                    Image(systemName: badge.icon)
+                        .font(.system(size: 46))
+                        .foregroundStyle(badge.earned ? tint : Color.secondary.opacity(0.45))
+                        .symbolRenderingMode(.hierarchical)
+                    if !badge.earned {
+                        Image(systemName: "lock.fill")
+                            .font(.caption).foregroundStyle(.secondary)
+                            .padding(6).background(.ultraThinMaterial, in: Circle())
+                            .offset(x: 40, y: 40)
+                    }
+                }
+                .shadow(color: badge.earned ? tint.opacity(0.4) : .clear, radius: 12)
+            }
+            .frame(height: 180)
+
+            VStack(spacing: 10) {
+                Text(badge.title).font(.title2.bold())
+
+                Text(badge.rarity.label.uppercased())
+                    .font(.caption2.weight(.heavy))
+                    .tracking(1.2)
+                    .foregroundStyle(tint)
+                    .padding(.horizontal, 12).padding(.vertical, 5)
+                    .background(tint.opacity(0.15), in: Capsule())
+
+                Text(badge.explanation)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 28)
+                    .padding(.top, 2)
+
+                Label(badge.earned ? "Unlocked" : "Not earned yet",
+                      systemImage: badge.earned ? "checkmark.seal.fill" : "hourglass")
+                    .font(.subheadline.bold())
+                    .foregroundStyle(badge.earned ? .green : .secondary)
+                    .padding(.top, 4)
+            }
+            .padding(.top, 4)
+
+            Spacer(minLength: 0)
+
+            Button { dismiss() } label: {
+                Text("Done").frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent).tint(CurrentsTheme.accent)
+            .padding(.horizontal, 24).padding(.bottom, 20)
+        }
     }
 }
