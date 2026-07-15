@@ -134,6 +134,12 @@ struct ContentView: View {
 
         // Simple screen routes (no code needed).
         switch host {
+        case "log":
+            // Quick-log from the widget / shortcut: jump to Catches and present
+            // the log sheet (CatchesTab watches this flag).
+            selectedTab = .catches
+            appState.siriRequestedLogCatch = true
+            return
         case "session":
             selectedTab = .map
             appState.openLiveSession = true

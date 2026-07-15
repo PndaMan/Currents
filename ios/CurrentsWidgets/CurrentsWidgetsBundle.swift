@@ -6,6 +6,7 @@ struct CurrentsWidgetsBundle: WidgetBundle {
     var body: some Widget {
         BiteScoreWidget()
         NextSessionWidget()
+        QuickLogWidget()
         SessionLiveActivity()
     }
 }
