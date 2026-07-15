@@ -309,12 +309,14 @@ struct ProfileTab: View {
                 let exporter = DataExporter(appState: appState)
                 let count = try exporter.importCatches(from: url)
                 importMessage = "Successfully imported \(count) catches."
+                ToastCenter.shared.show("Imported \(count) catches")
                 // Refresh stats
                 catches = (try? appState.catchRepository.fetchAll(limit: 10000)) ?? []
                 totalCatches = catches.count
                 speciesCounts = (try? appState.catchRepository.speciesCounts()) ?? []
             } catch {
                 importMessage = "Import failed: \(error.localizedDescription)"
+                ToastCenter.shared.show("Import failed", style: .error)
             }
             showingImportAlert = true
 
@@ -339,8 +341,10 @@ struct ProfileTab: View {
                 lastBackupDate = .now
                 snapshots = await FileBackup.shared.snapshots()
                 backupMessage = "Backup complete"
+                ToastCenter.shared.show("Backup complete")
             } catch {
                 backupMessage = "Error: \(error.localizedDescription)"
+                ToastCenter.shared.show("Backup failed", style: .error)
             }
             isBackingUp = false
         }
@@ -353,8 +357,10 @@ struct ProfileTab: View {
             do {
                 try await FileBackup.shared.importBackup(from: snapshot.url, to: appState.db)
                 backupMessage = "Restore complete — restart app to see changes"
+                ToastCenter.shared.show("Restored — restart to see changes")
             } catch {
                 backupMessage = "Error: \(error.localizedDescription)"
+                ToastCenter.shared.show("Restore failed", style: .error)
             }
             isRestoring = false
             restoreSnapshot = nil
@@ -368,8 +374,10 @@ struct ProfileTab: View {
             do {
                 try await CloudBackup.shared.restore(db: appState.db)
                 backupMessage = "Restore complete — restart app to see changes"
+                ToastCenter.shared.show("Restored — restart to see changes")
             } catch {
                 backupMessage = "Error: \(error.localizedDescription)"
+                ToastCenter.shared.show("Restore failed", style: .error)
             }
             isRestoring = false
         }

@@ -438,6 +438,8 @@ private struct FriendsSection: View {
                     Task {
                         let ok = await svc.sendFriendRequest(to: code)
                         requestSent = ok
+                        ToastCenter.shared.show(ok ? "Friend request sent" : "Couldn't find that code",
+                                                style: ok ? .success : .error)
                         await reload()
                     }
                 } label: {
@@ -587,7 +589,7 @@ struct NotificationInboxView: View {
                 }
             }
             AcceptDeclineButtons(
-                onAccept: { Task { await svc.acceptFriendRequest(req); await load() } },
+                onAccept: { Task { await svc.acceptFriendRequest(req); ToastCenter.shared.show("You're now friends 🎣"); await load() } },
                 onDecline: { Task { await svc.declineFriendRequest(req); await load() } })
         }
         .padding(.vertical, 2)
@@ -606,7 +608,7 @@ struct NotificationInboxView: View {
             }
             AcceptDeclineButtons(
                 acceptTitle: "Join Trip",
-                onAccept: { Task { await svc.acceptInvite(inv); openedTrip = inv.groupCode; await load() } },
+                onAccept: { Task { await svc.acceptInvite(inv); ToastCenter.shared.show("Joined the trip"); openedTrip = inv.groupCode; await load() } },
                 onDecline: { Task { await svc.declineInvite(inv); await load() } })
         }
         .padding(.vertical, 2)
@@ -697,6 +699,7 @@ struct ProfileEditView: View {
             // Refresh shared spots to reflect any privacy changes.
             let spots = (try? appState.spotRepository.fetchAll()) ?? []
             await svc.republishSharedSpots(spots: spots)
+            ToastCenter.shared.show("Profile updated")
             dismiss()
         }
     }

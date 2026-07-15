@@ -572,6 +572,7 @@ struct AddOwnedGearSheet: View {
         if item.isLowStock {
             Task { await NotificationManager.shared.scheduleLowStockAlert(item: item) }
         }
+        ToastCenter.shared.show("Gear saved")
         dismiss()
     }
 }

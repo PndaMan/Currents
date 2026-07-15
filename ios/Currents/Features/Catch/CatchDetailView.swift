@@ -952,6 +952,7 @@ struct EditCatchSheet: View {
         }
 
         onSave(updated)
+        ToastCenter.shared.show("Catch updated")
         dismiss()
     }
 }

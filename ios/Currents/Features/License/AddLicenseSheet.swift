@@ -191,6 +191,7 @@ struct AddLicenseSheet: View {
         try? appState.licenseRepository.save(&license)
         let all = (try? appState.licenseRepository.fetchAll()) ?? []
         Task { await NotificationManager.shared.scheduleLicenseExpiryAlerts(licenses: all) }
+        ToastCenter.shared.show(editing == nil ? "Licence added" : "Licence updated")
         dismiss()
     }
 }
