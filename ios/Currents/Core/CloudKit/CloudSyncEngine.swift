@@ -119,7 +119,7 @@ final class CloudSyncEngine: NSObject, CKSyncEngineDelegate, @unchecked Sendable
         let name = recordID.recordName
         if name.hasPrefix("\(catchType)-") {
             let id = String(name.dropFirst(catchType.count + 1))
-            guard let c = try? dbQueue.read({ try Catch.fetchOne($0, key: id) }), let c else { return nil }
+            guard let c = try? dbQueue.read({ try Catch.fetchOne($0, key: id) }) else { return nil }
             let rec = CKRecord(recordType: catchType, recordID: recordID)
             rec["payload"] = (try? JSONEncoder().encode(c)) as CKRecordValue?
             if let path = c.allPhotoPaths.first,
@@ -127,7 +127,7 @@ final class CloudSyncEngine: NSObject, CKSyncEngineDelegate, @unchecked Sendable
             return rec
         } else if name.hasPrefix("\(spotType)-") {
             let id = String(name.dropFirst(spotType.count + 1))
-            guard let s = try? dbQueue.read({ try Spot.fetchOne($0, key: id) }), let s else { return nil }
+            guard let s = try? dbQueue.read({ try Spot.fetchOne($0, key: id) }) else { return nil }
             let rec = CKRecord(recordType: spotType, recordID: recordID)
             rec["payload"] = (try? JSONEncoder().encode(s)) as CKRecordValue?
             return rec
