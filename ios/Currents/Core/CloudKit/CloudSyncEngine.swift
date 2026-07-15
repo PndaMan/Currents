@@ -17,7 +17,10 @@ import UIKit
 final class CloudSyncEngine: NSObject, CKSyncEngineDelegate, @unchecked Sendable {
     static let shared = CloudSyncEngine()
 
-    private let container = CKContainer(identifier: "iCloud.com.aidanmcconnon.currents")
+    // Lazy so a build without the iCloud entitlement (the unsigned CI test
+    // build) never instantiates the container at launch — it's only touched
+    // once sync is actually enabled.
+    private lazy var container = CKContainer(identifier: "iCloud.com.aidanmcconnon.currents")
     private let zoneID = CKRecordZone.ID(zoneName: "CurrentsData", ownerName: CKCurrentUserDefaultName)
     private let catchType = "SyncCatch"
     private let spotType = "SyncSpot"
