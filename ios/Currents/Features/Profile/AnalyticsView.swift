@@ -63,6 +63,11 @@ struct AnalyticsView: View {
     private var overviewSection: some View {
         overviewStatsRow
 
+        let insights = InsightsEngine.compute(from: allCatches)
+        if !insights.isEmpty {
+            insightsCard(insights)
+        }
+
         if !monthlyCounts.isEmpty {
             monthlyTrendChart
         }
@@ -86,6 +91,28 @@ struct AnalyticsView: View {
         if !personalBests.isEmpty {
             personalBestsSection
         }
+    }
+
+    private func insightsCard(_ insights: [Insight]) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label("Your patterns", systemImage: "lightbulb.fill")
+                .font(.headline).foregroundStyle(CurrentsTheme.accent)
+            ForEach(insights.prefix(6)) { insight in
+                HStack(alignment: .top, spacing: 10) {
+                    Image(systemName: insight.icon)
+                        .font(.subheadline)
+                        .foregroundStyle(CurrentsTheme.accent)
+                        .frame(width: 22)
+                    Text(insight.text)
+                        .font(.subheadline)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 0)
+                }
+            }
+        }
+        .padding()
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(CurrentsTheme.accent.opacity(0.08), in: RoundedRectangle(cornerRadius: 16))
     }
 
     private var overviewStatsRow: some View {
