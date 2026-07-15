@@ -275,7 +275,8 @@ struct GroupTripView: View {
         }
         .navigationTitle(trip?.name ?? tripName)
         .navigationBarTitleDisplayMode(.inline)
-        .refreshable { await refresh() }
+        // No pull-to-refresh: it would swallow the sheet's pull-down-to-collapse
+        // gesture. The feed auto-polls every 15s and has a manual Refresh button.
         .sheet(isPresented: $showingLog, onDismiss: {
             Task { await publishLatestToGroup(); await refresh() }
         }) {
