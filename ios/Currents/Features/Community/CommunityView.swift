@@ -299,8 +299,11 @@ private struct LeaderboardSection: View {
                 Text("Longest").tag(CommunityService.Metric.length)
             }.pickerStyle(.segmented)
 
-            if loading {
-                HStack { ProgressView(); Text("Loading…").foregroundStyle(.secondary) }
+            if loading && rows.isEmpty {
+                FishLoader(message: "Reeling in the leaderboard…")
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                    .listRowBackground(Color.clear)
             } else if rows.isEmpty {
                 Text("No entries yet — add friends and log catches to fill the board.")
                     .font(.caption).foregroundStyle(.secondary)
@@ -750,7 +753,10 @@ struct FriendProfileView: View {
                 }
                 .listRowBackground(Color.clear)
             } else {
-                Section { HStack { ProgressView(); Text("Loading profile…").foregroundStyle(.secondary) } }
+                Section {
+                    FishLoader(message: "Loading profile…")
+                        .padding(.vertical, 8).listRowBackground(Color.clear)
+                }
             }
 
             // Their catches — friends-only, and only if they've shared them.
