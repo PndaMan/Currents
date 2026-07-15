@@ -18,7 +18,7 @@ struct DriveToButton: View {
 
     var body: some View {
         Menu {
-            Button { open(wazeURL) } label: { Label("Waze", systemImage: "car.fill") }
+            Button { openWaze() } label: { Label("Waze", systemImage: "car.fill") }
             Button { openAppleMaps() } label: { Label("Apple Maps", systemImage: "map.fill") }
             Button { open(googleMapsURL) } label: { Label("Google Maps", systemImage: "mappin.and.ellipse") }
         } label: {
@@ -38,15 +38,31 @@ struct DriveToButton: View {
         }
     }
 
-    private var wazeURL: URL? {
-        URL(string: "https://waze.com/ul?ll=\(coordinate.latitude),\(coordinate.longitude)&navigate=yes")
-    }
     private var googleMapsURL: URL? {
         URL(string: "https://www.google.com/maps/dir/?api=1&destination=\(coordinate.latitude),\(coordinate.longitude)&travelmode=driving")
     }
 
+    /// Open Waze at the destination. The `waze://` app scheme opens the app
+    /// directly (a comma in `ll` is fine there); if Waze isn't installed we fall
+    /// back to the web link with the comma percent-encoded — an unencoded comma
+    /// is what made the web page show "something went wrong".
+    private func openWaze() {
+        Haptics.tap()
+        let lat = coordinate.latitude, lon = coordinate.longitude
+        let app = URL(string: "waze://?ll=\(lat),\(lon)&navigate=yes")
+        let web = URL(string: "https://waze.com/ul?ll=\(lat)%2C\(lon)&navigate=yes")
+        if let app {
+            UIApplication.shared.open(app, options: [:]) { opened in
+                if !opened, let web { UIApplication.shared.open(web) }
+            }
+        } else if let web {
+            UIApplication.shared.open(web)
+        }
+    }
+
     private func open(_ url: URL?) {
         guard let url else { return }
+        Haptics.tap()
         openURL(url)
     }
 
