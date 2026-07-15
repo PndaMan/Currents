@@ -141,7 +141,7 @@ struct SpeciesGuideCard: View {
         // border once the species has actually been caught.
         VStack(alignment: .leading, spacing: 0) {
             ZStack(alignment: .topTrailing) {
-                SpeciesArtworkView(species: species, caught: true, size: 96)
+                SpeciesArtworkView(species: species, caught: true, size: 96, fillWidth: true)
                     .frame(maxWidth: .infinity)
                     .frame(height: 110)
                     .background(.secondary.opacity(0.06))

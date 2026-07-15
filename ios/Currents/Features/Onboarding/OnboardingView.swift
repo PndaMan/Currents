@@ -44,7 +44,7 @@ struct OnboardingView: View {
             VStack(spacing: 0) {
                 TabView(selection: $page) {
                     ForEach(Array(pages.enumerated()), id: \.element.id) { i, p in
-                        pageView(p).tag(i)
+                        pageView(p, index: i).tag(i)
                     }
                 }
                 .tabViewStyle(.page(indexDisplayMode: .never))
@@ -77,15 +77,24 @@ struct OnboardingView: View {
         }
     }
 
-    private func pageView(_ p: Page) -> some View {
+    private func pageView(_ p: Page, index: Int) -> some View {
         VStack(spacing: 22) {
             Spacer()
             ZStack {
                 Circle().fill(CurrentsTheme.accent.opacity(0.15)).frame(width: 160, height: 160)
-                Image(systemName: p.icon)
-                    .font(.system(size: 68))
-                    .foregroundStyle(CurrentsTheme.accent)
-                    .symbolRenderingMode(.hierarchical)
+                if index == 0 {
+                    // Lead with the actual app logo — the theme-tinted current
+                    // mark — so the very first screen is unmistakably Currents.
+                    CurrentsMark()
+                        .stroke(CurrentsTheme.accent,
+                                style: StrokeStyle(lineWidth: 9, lineCap: .round, lineJoin: .round))
+                        .frame(width: 92, height: 92)
+                } else {
+                    Image(systemName: p.icon)
+                        .font(.system(size: 68))
+                        .foregroundStyle(CurrentsTheme.accent)
+                        .symbolRenderingMode(.hierarchical)
+                }
             }
             Text(p.title)
                 .font(.largeTitle.bold())

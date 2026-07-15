@@ -48,7 +48,7 @@ struct ForecastTab: View {
                     if let forecast, let solunar {
                         scoreCard(forecast, solunar: solunar)
                     } else {
-                        ProgressView()
+                        FishLoader(message: "Reading the bite…")
                             .frame(height: 120)
                     }
 

@@ -235,7 +235,7 @@ private struct CollectionCell: View {
 
     var body: some View {
         VStack(spacing: 6) {
-            SpeciesArtworkView(species: species, caught: caught, size: 68)
+            SpeciesArtworkView(species: species, caught: caught, size: 72, fillWidth: true)
                 .frame(maxWidth: .infinity)
                 .frame(height: 76)
 

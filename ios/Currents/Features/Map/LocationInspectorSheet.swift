@@ -227,21 +227,27 @@ struct LocationInspectorSheet: View {
     // MARK: - Actions
 
     private var actionBar: some View {
-        HStack(spacing: 12) {
-            Button {
-                Haptics.tap()
-                showingSaveAsSpot = true
-            } label: {
-                Label("Save as Spot", systemImage: "mappin.and.ellipse")
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderedProminent)
+        VStack(spacing: 12) {
+            // Primary action: navigate to the exact tapped coordinate. This is
+            // the one thing you can do with *any* point on the map, saved or not.
+            DriveToButton(coordinate: coordinate, name: placeName ?? "Dropped Pin")
 
-            ShareLink(item: mapsURL) {
-                Label("Share", systemImage: "square.and.arrow.up")
-                    .frame(maxWidth: .infinity)
+            HStack(spacing: 12) {
+                Button {
+                    Haptics.tap()
+                    showingSaveAsSpot = true
+                } label: {
+                    Label("Save as Spot", systemImage: "mappin.and.ellipse")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+
+                ShareLink(item: mapsURL) {
+                    Label("Share", systemImage: "square.and.arrow.up")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
             }
-            .buttonStyle(.bordered)
         }
     }
 

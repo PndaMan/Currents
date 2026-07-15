@@ -83,10 +83,7 @@ struct ProfileTab: View {
                 // Settings (Support/Ko-fi now lives inside About).
                 Section("Settings") {
                     NavigationLink { AppearanceSettingsView() } label: {
-                        Label("Appearance", systemImage: "paintbrush")
-                    }
-                    NavigationLink { AppIconSelectorView() } label: {
-                        Label("App Icon", systemImage: "app.badge")
+                        Label("Appearance & Icon", systemImage: "paintbrush")
                     }
                     NavigationLink { UnitsSettingsView() } label: {
                         Label("Units", systemImage: "ruler")

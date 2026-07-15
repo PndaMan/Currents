@@ -54,13 +54,9 @@ struct WaterbodyDetailSheet: View {
 
                     // Fish Species — from iNaturalist/GBIF observations
                     if isLoadingSpecies {
-                        HStack(spacing: 8) {
-                            ProgressView()
-                            Text("Loading species from iNaturalist & GBIF...")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        .glassCard()
+                        FishLoader(message: "Finding species here…")
+                            .frame(height: 90)
+                            .glassCard()
                     }
 
                     if !observedFish.isEmpty {
