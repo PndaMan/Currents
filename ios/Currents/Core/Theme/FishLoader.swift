@@ -20,12 +20,11 @@ struct FishLoader: View {
                 // A gentle "gulp" — the predator pulses slightly as it feeds.
                 let gulp = 1 + CGFloat(max(0, sin(t * 3.3)) * 0.06)
                 ZStack {
-                    // Predator, leading on the LEFT, mouth open to the right,
-                    // gently bobbing as it feeds.
+                    // Predator, leading on the LEFT, gently bobbing as it feeds
+                    // on the school that swims in and vanishes at its mouth.
                     Image(systemName: "fish.fill")
                         .font(.system(size: 40))
                         .foregroundStyle(CurrentsTheme.accent)
-                        .scaleEffect(x: -1) // flip to face right, toward the school
                         .scaleEffect(gulp)
                         .offset(x: -width / 2 + 22, y: CGFloat(sin(t * 3) * 3))
 

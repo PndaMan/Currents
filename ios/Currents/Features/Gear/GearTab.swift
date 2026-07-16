@@ -621,6 +621,7 @@ struct GearCatalogBrowser: View {
     @State private var ownedNames: Set<String> = []
     @State private var searchText = ""
     @State private var selectedCategory: GearItem.GearCategory?
+    @State private var didLoad = false
 
     var filtered: [GearItem] {
         var result = items
@@ -671,7 +672,11 @@ struct GearCatalogBrowser: View {
             .scrollBounceBehavior(.basedOnSize, axes: [.vertical, .horizontal])
             .frame(height: 46)
 
-            if filtered.isEmpty {
+            if !didLoad && items.isEmpty {
+                // First open (catalog still syncing from the cloud).
+                FishLoader(message: "Loading the tackle box…")
+                    .frame(maxHeight: .infinity)
+            } else if filtered.isEmpty {
                 ContentUnavailableView(
                     "No gear found",
                     systemImage: "backpack",
@@ -713,6 +718,13 @@ struct GearCatalogBrowser: View {
             items = (try? appState.gearCatalogRepository.fetchAll()) ?? []
             let owned = (try? appState.ownedGearRepository.fetchAll()) ?? []
             ownedNames = Set(owned.map(\.name))
+            // If the catalog hasn't landed yet (first launch, still syncing),
+            // wait briefly and re-read so the loader gives way to real content.
+            if items.isEmpty {
+                await GearCatalogSync.syncIfDue(db: appState.db)
+                items = (try? appState.gearCatalogRepository.fetchAll()) ?? []
+            }
+            didLoad = true
         }
     }
 }

@@ -428,6 +428,9 @@ private struct FriendsSection: View {
     @State private var friends: [CommunityService.Profile] = []
     @State private var addCode = ""
     @State private var requestSent = false
+    // Starts true so the very first frame (before .task runs) shows the loader
+    // rather than briefly flashing the "couldn't load" state.
+    @State private var isLoading = true
 
     var body: some View {
         Section("Friends") {
@@ -462,9 +465,22 @@ private struct FriendsSection: View {
                 Label("Friend request sent — they'll get it in Community.", systemImage: "paperplane.fill")
                     .font(.caption).foregroundStyle(.green)
             }
-            if friends.isEmpty {
+            if svc.friends.isEmpty {
+                // You genuinely have no friends yet.
                 ContentUnavailableView("No friends yet", systemImage: "person.2",
                     description: Text("Send a friend request by code to compare catches and share spots privately."))
+                    .listRowBackground(Color.clear)
+            } else if isLoading && friends.isEmpty {
+                // You have friend codes but their profiles are still loading —
+                // don't flash "No friends yet" while iCloud fetches them.
+                FishLoader(message: "Loading friends…")
+                    .frame(height: 88)
+                    .frame(maxWidth: .infinity)
+                    .listRowBackground(Color.clear)
+            } else if friends.isEmpty {
+                // Codes exist but nothing came back (offline / fetch failed).
+                ContentUnavailableView("Couldn't load friends", systemImage: "wifi.slash",
+                    description: Text("Check your connection and pull down to refresh."))
                     .listRowBackground(Color.clear)
             }
             ForEach(friends) { f in
@@ -497,11 +513,26 @@ private struct FriendsSection: View {
     }
 
     private func reload() async {
-        var result: [CommunityService.Profile] = []
-        for code in svc.friends {
-            if let p = await svc.fetchProfile(code: code) { result.append(p) }
+        let codes = svc.friends
+        guard !codes.isEmpty else {
+            friends = []
+            isLoading = false
+            return
         }
-        friends = result
+        isLoading = true
+        // Fetch every friend's profile concurrently instead of one-at-a-time —
+        // on the main actor each network await interleaves, so N friends load in
+        // roughly the time of one instead of N in series.
+        let tasks = codes.map { code in Task { await svc.fetchProfile(code: code) } }
+        var result: [CommunityService.Profile] = []
+        for t in tasks {
+            if let p = await t.value { result.append(p) }
+        }
+        // Preserve the local friend-code order.
+        let order = Dictionary(codes.enumerated().map { ($0.element, $0.offset) },
+                               uniquingKeysWith: { first, _ in first })
+        friends = result.sorted { (order[$0.id] ?? 0) < (order[$1.id] ?? 0) }
+        isLoading = false
     }
 }
 
@@ -552,7 +583,12 @@ struct NotificationInboxView: View {
         NavigationStack {
             List {
                 if !loaded {
-                    Section { HStack { ProgressView(); Text("Loading…").foregroundStyle(.secondary) } }
+                    Section {
+                        FishLoader(message: "Checking for updates…")
+                            .frame(height: 88)
+                            .frame(maxWidth: .infinity)
+                            .listRowBackground(Color.clear)
+                    }
                 } else if requests.isEmpty && invites.isEmpty {
                     Section {
                         ContentUnavailableView(
