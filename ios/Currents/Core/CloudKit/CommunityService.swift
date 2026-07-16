@@ -343,7 +343,63 @@ final class CommunityService: ObservableObject {
         if code.uppercased() == Self.demoCode { return demoProfile }
         let id = CKRecord.ID(recordName: "profile-\(code)")
         guard let r = try? await db.record(for: id) else { return nil }
-        return profile(from: r)
+        let p = profile(from: r)
+        cache(profile: p, code: code)
+        return p
+    }
+
+    // MARK: - Local profile cache (instant friend rendering)
+
+    /// A Codable snapshot of a friend's profile so the Friends list can render
+    /// immediately on launch instead of blocking on a CloudKit round-trip. The
+    /// (small) avatar is stored inline as JPEG data.
+    private struct ProfileDTO: Codable {
+        var id, name, bio, region, homeWater: String
+        var memberSince: Date
+        var totalCatches, speciesCount: Int
+        var bestWeightKg, bestLengthCm: Double
+        var favoriteSpecies: String
+        var avatarData: Data?
+
+        init(_ p: Profile) {
+            id = p.id; name = p.name; bio = p.bio; region = p.region
+            homeWater = p.homeWater; memberSince = p.memberSince
+            totalCatches = p.totalCatches; speciesCount = p.speciesCount
+            bestWeightKg = p.bestWeightKg; bestLengthCm = p.bestLengthCm
+            favoriteSpecies = p.favoriteSpecies
+            avatarData = p.avatar?.jpegData(compressionQuality: 0.6)
+        }
+
+        var profile: Profile {
+            Profile(id: id, name: name, bio: bio, region: region, homeWater: homeWater,
+                    avatar: avatarData.flatMap(UIImage.init(data:)), memberSince: memberSince,
+                    totalCatches: totalCatches, speciesCount: speciesCount,
+                    bestWeightKg: bestWeightKg, bestLengthCm: bestLengthCm,
+                    favoriteSpecies: favoriteSpecies)
+        }
+    }
+
+    private static let profileCacheKey = "cachedFriendProfiles"
+
+    private var profileCache: [String: ProfileDTO] {
+        get {
+            guard let data = UserDefaults.standard.data(forKey: Self.profileCacheKey) else { return [:] }
+            return (try? JSONDecoder().decode([String: ProfileDTO].self, from: data)) ?? [:]
+        }
+        set { UserDefaults.standard.set(try? JSONEncoder().encode(newValue), forKey: Self.profileCacheKey) }
+    }
+
+    private func cache(profile p: Profile, code: String) {
+        var c = profileCache
+        c[code.uppercased()] = ProfileDTO(p)
+        profileCache = c
+    }
+
+    /// Last-known profiles for these friend codes, in the same order, for
+    /// instant display while the network refresh runs.
+    func cachedProfiles(for codes: [String]) -> [Profile] {
+        let c = profileCache
+        return codes.compactMap { c[$0.uppercased()]?.profile }
     }
 
     private func profile(from r: CKRecord) -> Profile {

@@ -519,19 +519,32 @@ private struct FriendsSection: View {
             isLoading = false
             return
         }
-        isLoading = true
-        // Fetch every friend's profile concurrently instead of one-at-a-time —
-        // on the main actor each network await interleaves, so N friends load in
-        // roughly the time of one instead of N in series.
+        let order = Dictionary(codes.enumerated().map { ($0.element, $0.offset) },
+                               uniquingKeysWith: { first, _ in first })
+        func ordered(_ list: [CommunityService.Profile]) -> [CommunityService.Profile] {
+            list.sorted { (order[$0.id] ?? 0) < (order[$1.id] ?? 0) }
+        }
+
+        // 1) Instant: show last-known cached profiles right away — no spinner on
+        //    any launch after the first.
+        let cached = svc.cachedProfiles(for: codes)
+        if !cached.isEmpty {
+            friends = ordered(cached)
+            isLoading = false
+        } else {
+            isLoading = true
+        }
+
+        // 2) Background: refresh from iCloud (all friends concurrently) and
+        //    quietly swap in the fresh data.
         let tasks = codes.map { code in Task { await svc.fetchProfile(code: code) } }
         var result: [CommunityService.Profile] = []
         for t in tasks {
             if let p = await t.value { result.append(p) }
         }
-        // Preserve the local friend-code order.
-        let order = Dictionary(codes.enumerated().map { ($0.element, $0.offset) },
-                               uniquingKeysWith: { first, _ in first })
-        friends = result.sorted { (order[$0.id] ?? 0) < (order[$1.id] ?? 0) }
+        if !result.isEmpty {
+            friends = ordered(result)
+        }
         isLoading = false
     }
 }
@@ -878,7 +891,9 @@ struct FriendProfileView: View {
         .task {
             privacy = svc.privacy(for: code)
             override = svc.override(for: code)
-            profile = await svc.fetchProfile(code: code)
+            // Show the cached profile instantly, then refresh from iCloud.
+            if profile == nil { profile = svc.cachedProfiles(for: [code]).first }
+            if let fresh = await svc.fetchProfile(code: code) { profile = fresh }
             sharedSpots = await svc.sharedSpots(fromFriend: code)
             catchAccess = await svc.hasCatchAccess(to: code)
             if catchAccess { catches = await svc.anglerCatches(code: code) }
