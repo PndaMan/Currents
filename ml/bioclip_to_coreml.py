@@ -212,18 +212,38 @@ def main() -> None:
     final_features = text_features.copy()
     if args.photos > 0:
         import requests
+        from PIL import Image
         session = requests.Session()
         tw = float(min(1.0, max(0.0, args.text_weight)))
+        want = args.photos
+        # Pull MORE candidates than we keep, so we can throw out the bad ones
+        # (habitat shots, hands, wrong subject) before averaging.
+        cand = min(max(2 * want, want + 4), 16)
         got = 0
         with torch.no_grad():
             for idx, sp in enumerate(species):
-                imgs = fetch_reference_photos(sp["scientificName"], args.photos, session)
+                imgs = fetch_reference_photos(sp["scientificName"], cand, session)
                 if not imgs:
                     continue
-                batch = torch.stack([preprocess(im) for im in imgs])
-                emb = model.encode_image(batch)
+                emb = model.encode_image(torch.stack([preprocess(im) for im in imgs]))
                 emb = emb / emb.norm(dim=-1, keepdim=True)
-                proto = emb.mean(dim=0)
+                # Quality gate: keep the `want` photos whose embedding sits
+                # closest to the species' text embedding. This drops outliers
+                # that would otherwise poison the mean prototype.
+                txt = torch.from_numpy(text_features[idx]).float()
+                sims = emb.float() @ txt
+                k = min(want, emb.shape[0])
+                keep = torch.topk(sims, k).indices.tolist()
+                kept_imgs = [imgs[i] for i in keep]
+                # Flip-augment: mirror each kept photo and fold it in, so the
+                # prototype captures both facing directions (fish are logged
+                # pointing either way) — the same TTA trick used on-device.
+                flips = model.encode_image(
+                    torch.stack([preprocess(im.transpose(Image.FLIP_LEFT_RIGHT)) for im in kept_imgs])
+                )
+                flips = flips / flips.norm(dim=-1, keepdim=True)
+                stacked = torch.cat([emb[keep], flips], dim=0)
+                proto = stacked.mean(dim=0)
                 proto = (proto / proto.norm()).float().numpy()
                 blended = tw * text_features[idx] + (1.0 - tw) * proto
                 n = np.linalg.norm(blended)
@@ -232,7 +252,8 @@ def main() -> None:
                 got += 1
                 if idx % 100 == 0:
                     print(f"  photos {idx}/{len(species)} (prototypes so far: {got})")
-        print(f"  built visual prototypes for {got}/{len(species)} species")
+        print(f"  built visual prototypes for {got}/{len(species)} species "
+              f"(kept {want} of up to {cand} candidates each, flip-augmented)")
 
     # ---- 3. Write compact binary ------------------------------------------
     # [uint32 count][uint32 dim] then per species: int32 id + dim float32

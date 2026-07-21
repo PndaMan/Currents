@@ -75,26 +75,26 @@ actor EmbeddingSpeciesIdentifier {
     /// Identify the most likely species for a catch photo.
     func identify(image: UIImage, top: Int = 6) -> [Ranked] {
         loadIfNeeded()
-        guard let model, let imageInputName, let outputName else { return [] }
+        guard model != nil, imageInputName != nil, outputName != nil else { return [] }
 
         // Crop to the fish (saliency) so the angler / grass / sky don't dominate
-        // the embedding, then feed a 224px buffer.
+        // the embedding.
         let subject = Self.croppedToSubject(image) ?? image
-        guard let pixelBuffer = Self.pixelBuffer(from: subject, side: 224) else { return [] }
 
-        guard let provider = try? MLDictionaryFeatureProvider(
-            dictionary: [imageInputName: MLFeatureValue(pixelBuffer: pixelBuffer)]
-        ), let out = try? model.prediction(from: provider),
-           let arr = out.featureValue(for: outputName)?.multiArrayValue else { return [] }
-
-        // Read + L2-normalise the image embedding.
-        let n = arr.count
-        var q = [Float](repeating: 0, count: n)
-        for i in 0..<n { q[i] = arr[i].floatValue }
-        var norm: Float = 0
-        for v in q { norm += v * v }
-        norm = max(norm.squareRoot(), 1e-6)
-        for i in 0..<n { q[i] /= norm }
+        // Test-time augmentation: average the embedding of the fish and its
+        // mirror image. A horizontal flip shouldn't change the species, so
+        // averaging the two smooths out pose/lighting quirks and measurably
+        // steadies borderline IDs — for the cost of one extra encoder pass.
+        guard var q = embed(subject) else { return [] }
+        if let mirror = Self.mirrored(subject), let q2 = embed(mirror) {
+            let n = q.count
+            for i in 0..<n { q[i] += q2[i] }
+            var norm: Float = 0
+            for v in q { norm += v * v }
+            norm = max(norm.squareRoot(), 1e-6)
+            for i in 0..<n { q[i] /= norm }
+        }
+        let n = q.count
 
         // Cosine similarity against each species text embedding.
         var scored: [(id: Int64, sim: Float)] = []
@@ -125,6 +125,37 @@ actor EmbeddingSpeciesIdentifier {
         return exps.prefix(top).map { item in
             Ranked(speciesId: item.id, confidence: max(0.001, min(0.999, item.e / denom)))
         }
+    }
+
+    /// Run the encoder on one image → its L2-normalised embedding.
+    private func embed(_ image: UIImage) -> [Float]? {
+        guard let model, let imageInputName, let outputName,
+              let pixelBuffer = Self.pixelBuffer(from: image, side: 224),
+              let provider = try? MLDictionaryFeatureProvider(
+                  dictionary: [imageInputName: MLFeatureValue(pixelBuffer: pixelBuffer)]),
+              let out = try? model.prediction(from: provider),
+              let arr = out.featureValue(for: outputName)?.multiArrayValue else { return nil }
+        let n = arr.count
+        var q = [Float](repeating: 0, count: n)
+        for i in 0..<n { q[i] = arr[i].floatValue }
+        var norm: Float = 0
+        for v in q { norm += v * v }
+        norm = max(norm.squareRoot(), 1e-6)
+        for i in 0..<n { q[i] /= norm }
+        return q
+    }
+
+    /// A horizontally-mirrored copy (baked into pixels) for test-time augmentation.
+    private static func mirrored(_ image: UIImage) -> UIImage? {
+        guard image.cgImage != nil else { return nil }
+        let size = image.size
+        UIGraphicsBeginImageContextWithOptions(size, false, 1)
+        defer { UIGraphicsEndImageContext() }
+        guard let ctx = UIGraphicsGetCurrentContext() else { return nil }
+        ctx.translateBy(x: size.width, y: 0)
+        ctx.scaleBy(x: -1, y: 1)
+        image.draw(in: CGRect(origin: .zero, size: size))
+        return UIGraphicsGetImageFromCurrentImageContext()
     }
 
     /// Crop to the most salient region (the held-up fish) so the background
@@ -177,7 +208,17 @@ actor EmbeddingSpeciesIdentifier {
     private static func pixelBuffer(from image: UIImage, side: Int) -> CVPixelBuffer? {
         let size = CGSize(width: side, height: side)
         UIGraphicsBeginImageContextWithOptions(size, true, 1)
-        image.draw(in: CGRect(origin: .zero, size: size))
+        // Aspect-fill + centre-crop to a square (CLIP's own preprocessing),
+        // instead of stretching. Stretching squished long fish and skewed the
+        // embedding; filling keeps true proportions.
+        let src = image.size
+        if src.width > 0, src.height > 0 {
+            let scale = max(size.width / src.width, size.height / src.height)
+            let dw = src.width * scale, dh = src.height * scale
+            image.draw(in: CGRect(x: (size.width - dw) / 2, y: (size.height - dh) / 2, width: dw, height: dh))
+        } else {
+            image.draw(in: CGRect(origin: .zero, size: size))
+        }
         let scaled = UIGraphicsGetImageFromCurrentImageContext()
         UIGraphicsEndImageContext()
         guard let cg = scaled?.cgImage else { return nil }

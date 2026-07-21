@@ -21,13 +21,13 @@ on:
         required: false
         default: "bioclip"
       photos:
-        description: "Reference photos per species for visual prototypes (0 = text-only). Higher = more accurate, slower."
+        description: "Reference photos KEPT per species for visual prototypes (0 = text-only). ~2x candidates are fetched and quality-filtered down to this. Higher = more accurate, slower."
         required: false
-        default: "4"
+        default: "8"
       text_weight:
-        description: "Blend weight text↔image prototype (0..1). Lower leans on photos."
+        description: "Blend weight text↔image prototype (0..1). Lower leans on photos — now that prototypes are quality-gated + flip-augmented, 0.4 is a good default."
         required: false
-        default: "0.5"
+        default: "0.4"
       quantize_bits:
         description: "Weight quantisation bits (8 recommended for the bigger model; 0 = fp16)"
         required: false
