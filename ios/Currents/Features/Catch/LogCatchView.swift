@@ -812,6 +812,13 @@ struct LogCatchView: View {
                 catchRecord: rec, speciesName: name, region: region, groupCode: groupCode) }
         }
 
+        // Post to any crews with auto-post on — this is how friends keep up with
+        // each other's catches. No-op unless you're in a crew. Runs for every
+        // catch (measured or not), always in the background.
+        let crewName = species?.commonName ?? "Fish"
+        let crewCatch = catchRecord
+        Task { await CommunityService.shared.autoPostCatch(crewCatch, speciesName: crewName) }
+
         ToastCenter.shared.show("Catch logged 🎣")
         // Nudge for a review at a positive milestone (rate-limited by Apple).
         let logged = UserDefaults.standard.integer(forKey: "totalCatchesLogged") + 1

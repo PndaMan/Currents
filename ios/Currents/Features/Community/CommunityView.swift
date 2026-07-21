@@ -130,7 +130,7 @@ struct CommunityView: View {
                 AchievementsCard(catches: myCatches)
             }
             LeaderboardSection()
-            GroupTripsSection()
+            CrewsSection()
             FriendsSection()
             Section {
                 Button("Leave Community", role: .destructive) {

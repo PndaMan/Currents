@@ -935,6 +935,301 @@ final class CommunityService: ObservableObject {
         }
     }()
 
+    // MARK: - Crews (persistent shared catch-feeds for a circle of friends)
+
+    private let crewType = "Crew"
+    private let crewMemberType = "CrewMember"
+    private let crewPostType = "CrewPost"
+    private let crewReactionType = "CrewReaction"
+
+    /// Emoji offered as one-tap reactions in a crew feed.
+    static let crewReactionEmojis = ["🔥", "🎣", "👏", "😮", "🐟"]
+
+    struct Crew: Codable, Identifiable, Equatable {
+        let code: String
+        var name: String
+        var emoji: String
+        var createdByCode: String
+        var createdByName: String
+        var joinedAt: Date
+        /// Per-crew, per-device: auto-post my new catches into this crew's feed.
+        var autoPost: Bool = true
+        var id: String { code }
+    }
+
+    struct CrewReaction: Identifiable, Equatable {
+        let id: String            // crewreact-<postId>-<reactorCode>
+        let reactorCode: String
+        let reactorName: String
+        let emoji: String
+    }
+
+    struct CrewPost: Identifiable, Equatable {
+        let id: String            // crewpost-<crewCode>-<catchId>
+        let crewCode: String
+        let authorCode: String
+        let authorName: String
+        let species: String
+        let weightKg: Double?
+        let lengthCm: Double?
+        let caughtAt: Date
+        var caption: String
+        let hasPhoto: Bool
+        var reactions: [CrewReaction] = []
+    }
+
+    /// Crews I'm in — persisted locally so the list is instant + offline, and so
+    /// each crew's auto-post preference lives on-device.
+    var myCrews: [Crew] {
+        get {
+            guard let data = UserDefaults.standard.data(forKey: "myCrews"),
+                  let list = try? JSONDecoder().decode([Crew].self, from: data) else { return [] }
+            return list.sorted { $0.joinedAt > $1.joinedAt }
+        }
+        set {
+            if let data = try? JSONEncoder().encode(newValue) {
+                UserDefaults.standard.set(data, forKey: "myCrews")
+            }
+            bumpRevision()
+        }
+    }
+
+    func crew(withCode code: String) -> Crew? { myCrews.first { $0.code == code } }
+
+    private func rememberCrew(_ crew: Crew) {
+        var list = myCrews
+        if let i = list.firstIndex(where: { $0.code == crew.code }) {
+            list[i].name = crew.name
+            list[i].emoji = crew.emoji
+            list[i].createdByName = crew.createdByName
+        } else {
+            list.append(crew)
+        }
+        myCrews = list
+    }
+
+    private func forgetCrew(code: String) {
+        myCrews = myCrews.filter { $0.code != code }
+    }
+
+    func setAutoPost(_ on: Bool, forCrew code: String) {
+        var list = myCrews
+        guard let i = list.firstIndex(where: { $0.code == code }) else { return }
+        list[i].autoPost = on
+        myCrews = list
+    }
+
+    // Last-seen feed/members so reopening a crew shows content instantly.
+    private var crewFeedCache: [String: [CrewPost]] = [:]
+    private var crewMemberCacheStore: [String: [GroupMember]] = [:]
+    func cachedCrewFeed(_ code: String) -> [CrewPost] { crewFeedCache[code] ?? [] }
+    func cachedCrewMembers(_ code: String) -> [GroupMember] { crewMemberCacheStore[code] ?? [] }
+
+    @discardableResult
+    func createCrew(name: String, emoji: String) async -> Crew? {
+        await ensureJoined()
+        let chars = Array("ABCDEFGHJKLMNPQRSTUVWXYZ23456789")
+        let code = String((0..<6).map { _ in chars[Int.random(in: 0..<chars.count)] })
+        let id = CKRecord.ID(recordName: "crew-\(code)")
+        let record = CKRecord(recordType: crewType, recordID: id)
+        record["code"] = code as CKRecordValue
+        record["name"] = name as CKRecordValue
+        record["emoji"] = emoji as CKRecordValue
+        record["createdByCode"] = friendCode as CKRecordValue
+        record["createdByName"] = myName as CKRecordValue
+        record["createdAt"] = Date() as CKRecordValue
+        guard (try? await db.save(record)) != nil else { return nil }
+        await addCrewMembership(code: code)
+        let crew = Crew(code: code, name: name, emoji: emoji, createdByCode: friendCode,
+                        createdByName: myName, joinedAt: Date(), autoPost: true)
+        rememberCrew(crew)
+        return crew
+    }
+
+    @discardableResult
+    func joinCrew(code raw: String) async -> Crew? {
+        await ensureJoined()
+        let code = raw.uppercased().trimmingCharacters(in: .whitespaces)
+        guard code.count == 6, let crew = await fetchCrew(code: code) else { return nil }
+        await addCrewMembership(code: code)
+        rememberCrew(crew)
+        return crew
+    }
+
+    private func addCrewMembership(code: String) async {
+        let id = CKRecord.ID(recordName: "crewmember-\(code)-\(friendCode)")
+        let record = (try? await db.record(for: id)) ?? CKRecord(recordType: crewMemberType, recordID: id)
+        record["crewCode"] = code as CKRecordValue
+        record["memberCode"] = friendCode as CKRecordValue
+        record["memberName"] = myName as CKRecordValue
+        record["joinedAt"] = Date() as CKRecordValue
+        _ = try? await db.save(record)
+    }
+
+    func fetchCrew(code: String) async -> Crew? {
+        let id = CKRecord.ID(recordName: "crew-\(code)")
+        guard let r = try? await db.record(for: id) else { return nil }
+        let existing = crew(withCode: code)
+        return Crew(
+            code: r["code"] as? String ?? code,
+            name: r["name"] as? String ?? "Crew",
+            emoji: r["emoji"] as? String ?? "🎣",
+            createdByCode: r["createdByCode"] as? String ?? "",
+            createdByName: r["createdByName"] as? String ?? "Angler",
+            joinedAt: existing?.joinedAt ?? Date(),
+            autoPost: existing?.autoPost ?? true)
+    }
+
+    func leaveCrew(code: String) async {
+        let id = CKRecord.ID(recordName: "crewmember-\(code)-\(friendCode)")
+        _ = try? await db.deleteRecord(withID: id)
+        crewFeedCache[code] = nil
+        crewMemberCacheStore[code] = nil
+        forgetCrew(code: code)
+    }
+
+    func crewMembers(code: String) async -> [GroupMember] {
+        let query = CKQuery(recordType: crewMemberType,
+                            predicate: NSPredicate(format: "crewCode == %@", code))
+        guard let results = try? await db.records(matching: query, resultsLimit: 300) else {
+            return crewMemberCacheStore[code] ?? []
+        }
+        let members = results.matchResults.compactMap { _, res -> GroupMember? in
+            guard let r = try? res.get() else { return nil }
+            return GroupMember(id: r["memberCode"] as? String ?? "",
+                               name: r["memberName"] as? String ?? "Angler",
+                               joinedAt: r["joinedAt"] as? Date ?? .now)
+        }.sorted { $0.joinedAt < $1.joinedAt }
+        crewMemberCacheStore[code] = members
+        return members
+    }
+
+    /// The crew's catch feed (newest first) with each post's reactions attached.
+    func crewFeed(code: String) async -> [CrewPost] {
+        let postQuery = CKQuery(recordType: crewPostType,
+                                predicate: NSPredicate(format: "crewCode == %@", code))
+        guard let results = try? await db.records(matching: postQuery, resultsLimit: 300) else {
+            return crewFeedCache[code] ?? []
+        }
+        var posts = results.matchResults.compactMap { _, res -> CrewPost? in
+            guard let r = try? res.get() else { return nil }
+            return CrewPost(
+                id: r.recordID.recordName,
+                crewCode: code,
+                authorCode: r["authorCode"] as? String ?? "",
+                authorName: r["authorName"] as? String ?? "Angler",
+                species: r["species"] as? String ?? "Fish",
+                weightKg: r["weightKg"] as? Double,
+                lengthCm: r["lengthCm"] as? Double,
+                caughtAt: r["caughtAt"] as? Date ?? .now,
+                caption: r["caption"] as? String ?? "",
+                hasPhoto: (r["hasPhoto"] as? Int ?? 0) == 1)
+        }
+        // Fold in reactions for the whole crew in one query.
+        let reactQuery = CKQuery(recordType: crewReactionType,
+                                 predicate: NSPredicate(format: "crewCode == %@", code))
+        if let rr = try? await db.records(matching: reactQuery, resultsLimit: 800) {
+            let all = rr.matchResults.compactMap { _, res -> (String, CrewReaction)? in
+                guard let r = try? res.get() else { return nil }
+                return (r["postId"] as? String ?? "",
+                        CrewReaction(id: r.recordID.recordName,
+                                     reactorCode: r["reactorCode"] as? String ?? "",
+                                     reactorName: r["reactorName"] as? String ?? "",
+                                     emoji: r["emoji"] as? String ?? "🔥"))
+            }
+            let byPost = Dictionary(grouping: all, by: { $0.0 })
+            posts = posts.map { post in
+                var post = post
+                post.reactions = (byPost[post.id] ?? []).map { $0.1 }
+                return post
+            }
+        }
+        posts.sort { $0.caughtAt > $1.caughtAt }
+        crewFeedCache[code] = posts
+        return posts
+    }
+
+    func crewPostPhoto(recordName: String) async -> UIImage? {
+        let id = CKRecord.ID(recordName: recordName)
+        guard let r = try? await db.record(for: id),
+              let asset = r["photo"] as? CKAsset, let url = asset.fileURL,
+              let data = try? Data(contentsOf: url) else { return nil }
+        return UIImage(data: data)
+    }
+
+    /// Auto-post a freshly-logged catch into every crew that has auto-post on.
+    func autoPostCatch(_ c: Catch, speciesName: String) async {
+        let targets = myCrews.filter { $0.autoPost }
+        guard !targets.isEmpty else { return }
+        await ensureJoined()
+        for crew in targets {
+            await postCatch(c, speciesName: speciesName, toCrew: crew.code, caption: "")
+        }
+    }
+
+    /// Create/update a crew post for a catch (used by auto-post and manual share).
+    func postCatch(_ c: Catch, speciesName: String, toCrew code: String, caption: String) async {
+        await ensureJoined()
+        let id = CKRecord.ID(recordName: "crewpost-\(code)-\(c.id)")
+        let record = (try? await db.record(for: id)) ?? CKRecord(recordType: crewPostType, recordID: id)
+        record["crewCode"] = code as CKRecordValue
+        record["authorCode"] = friendCode as CKRecordValue
+        record["authorName"] = myName as CKRecordValue
+        record["species"] = speciesName as CKRecordValue
+        if let w = c.weightKg { record["weightKg"] = w as CKRecordValue }
+        if let l = c.lengthCm { record["lengthCm"] = l as CKRecordValue }
+        record["caughtAt"] = c.caughtAt as CKRecordValue
+        record["caption"] = caption as CKRecordValue
+        attachPhoto(c.photoPath, to: record)
+        _ = try? await db.save(record)
+    }
+
+    /// Set/clear the one-line caption on a post I authored.
+    func setCrewCaption(_ caption: String, postId: String) async {
+        let id = CKRecord.ID(recordName: postId)
+        guard let r = try? await db.record(for: id) else { return }
+        r["caption"] = caption as CKRecordValue
+        _ = try? await db.save(r)
+    }
+
+    /// Toggle my reaction on a post: same emoji removes it, a different emoji
+    /// replaces it (one reaction per member per post).
+    func toggleCrewReaction(emoji: String, postId: String, crewCode: String) async {
+        let id = CKRecord.ID(recordName: "crewreact-\(postId)-\(friendCode)")
+        if let existing = try? await db.record(for: id) {
+            if (existing["emoji"] as? String) == emoji {
+                _ = try? await db.deleteRecord(withID: id)
+                return
+            }
+            existing["emoji"] = emoji as CKRecordValue
+            _ = try? await db.save(existing)
+            return
+        }
+        let record = CKRecord(recordType: crewReactionType, recordID: id)
+        record["postId"] = postId as CKRecordValue
+        record["crewCode"] = crewCode as CKRecordValue
+        record["reactorCode"] = friendCode as CKRecordValue
+        record["reactorName"] = myName as CKRecordValue
+        record["emoji"] = emoji as CKRecordValue
+        record["createdAt"] = Date() as CKRecordValue
+        _ = try? await db.save(record)
+    }
+
+    func crewInviteLink(code: String, name: String) -> URL {
+        var comps = URLComponents(string: Self.webBase)!
+        comps.queryItems = [URLQueryItem(name: "c", value: code)]
+        if !name.isEmpty { comps.queryItems?.append(URLQueryItem(name: "n", value: name)) }
+        return comps.url!
+    }
+
+    func crewInviteMessage(code: String, name: String) -> String {
+        """
+        Join my crew “\(name)” on Currents 🎣 — we share our catches here.
+        \(crewInviteLink(code: code, name: name).absoluteString)
+        …or open Currents › Community › New Crew › Join and enter code \(code).
+        """
+    }
+
     // MARK: - Group trips (serverless, invite by link)
 
     private let groupTripType = "GroupTrip"
