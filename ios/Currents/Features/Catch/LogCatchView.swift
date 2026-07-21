@@ -23,6 +23,9 @@ struct LogCatchView: View {
     @State private var autoSelectedFromML = false
     @State private var modelReady = false
     @State private var hasScanned = false
+    /// The top match was weak or too close to the runner-up — don't auto-fill;
+    /// ask the angler to confirm.
+    @State private var lowConfidence = false
 
     // Catch data
     @State private var selectedSpeciesId: Int64?
@@ -161,6 +164,7 @@ struct LogCatchView: View {
                                         if capturedImages.isEmpty {
                                             speciesMatches = []
                                             hasScanned = false
+                                            lowConfidence = false
                                         }
                                     } label: {
                                         Image(systemName: "xmark.circle.fill")
@@ -298,7 +302,12 @@ struct LogCatchView: View {
                     .font(.caption)
                 }
             } footer: {
-                if autoSelectedFromML {
+                if lowConfidence {
+                    Label("Not fully sure on this one — tap the closest match to confirm, or pick a species manually below.",
+                          systemImage: "questionmark.circle")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                } else if autoSelectedFromML {
                     Text("Auto-selected the top match. Tap to change, or pick manually below.")
                 }
             }
@@ -631,6 +640,7 @@ struct LogCatchView: View {
     private func classifyImage(_ image: UIImage) {
         isClassifying = true
         autoSelectedFromML = false
+        lowConfidence = false
         Task {
             // BioCLIP is the only identifier — the old artwork-similarity and
             // Vision fallbacks produced junk guesses and were removed. Nudge
@@ -638,19 +648,61 @@ struct LogCatchView: View {
             await appState.fishModelDownloader.ensureModelDownloaded()
 
             let byId = Dictionary(uniqueKeysWithValues: allSpecies.map { ($0.id, $0) })
-            let ranked = await appState.embeddingIdentifier.identify(image: image)
+
+            // Region/season prior: nudge scores toward species whose thermal
+            // band brackets the local water temperature. Best-effort — no
+            // location or offline just means no nudge.
+            let (lat, lon) = resolveLocation()
+            var waterTemp: Double?
+            if lat != 0 || lon != 0 {
+                waterTemp = await WeatherService.shared.current(
+                    for: CLLocationCoordinate2D(latitude: lat, longitude: lon))?.waterTempC
+            }
+            let prior = thermalPrior(waterTempC: waterTemp)
+
+            let ranked = await appState.embeddingIdentifier.identify(image: image, prior: prior)
             speciesMatches = ranked.compactMap { r in
                 byId[r.speciesId].map { SpeciesMatch(species: $0, confidence: r.confidence) }
             }
+
+            // "Not sure" guardrail: skip auto-selecting when the top match is
+            // weak, or barely ahead of the runner-up — a confident wrong guess
+            // is worse than asking.
+            if let top = speciesMatches.first {
+                let second = speciesMatches.dropFirst().first?.confidence ?? 0
+                lowConfidence = top.confidence < 0.30 || (top.confidence - second) < 0.08
+            } else {
+                lowConfidence = false
+            }
+
             modelReady = await appState.fishModelDownloader.isModelAvailable
             hasScanned = true
             isClassifying = false
 
-            if let top = speciesMatches.first, selectedSpeciesId == nil {
+            if let top = speciesMatches.first, selectedSpeciesId == nil, !lowConfidence {
                 selectSpecies(top.species)
                 autoSelectedFromML = true
             }
         }
+    }
+
+    /// A gentle per-species multiplier (~0.55…1) from how well the local water
+    /// temperature sits inside each species' known thermal band. Empty when the
+    /// temperature is unknown, so the identifier falls back to vision only.
+    private func thermalPrior(waterTempC t: Double?) -> [Int64: Float] {
+        guard let t else { return [:] }
+        var out: [Int64: Float] = [:]
+        for sp in allSpecies {
+            guard let lo = sp.minTempC, let hi = sp.maxTempC, hi >= lo else { continue }
+            if t >= lo && t <= hi {
+                out[sp.id] = 1.0
+            } else {
+                let dist = t < lo ? (lo - t) : (t - hi)
+                // ~1 °C outside barely matters; ~9 °C+ outside hits the floor.
+                out[sp.id] = Float(max(0.55, 1.0 - dist / 20.0))
+            }
+        }
+        return out
     }
 
     private func saveNewSpot() {

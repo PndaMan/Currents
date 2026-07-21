@@ -73,7 +73,11 @@ actor EmbeddingSpeciesIdentifier {
     }
 
     /// Identify the most likely species for a catch photo.
-    func identify(image: UIImage, top: Int = 6) -> [Ranked] {
+    ///
+    /// `prior` is an optional per-species multiplier (species id → factor, ~0.5…1)
+    /// applied to each match's probability weight — a gentle location/season
+    /// nudge, never a hard filter. Species not in the map keep weight 1.
+    func identify(image: UIImage, prior: [Int64: Float] = [:], top: Int = 6) -> [Ranked] {
         loadIfNeeded()
         guard model != nil, imageInputName != nil, outputName != nil else { return [] }
 
@@ -116,7 +120,11 @@ actor EmbeddingSpeciesIdentifier {
         var exps: [(id: Int64, e: Float)] = []
         exps.reserveCapacity(scored.count)
         for s in scored {
-            let e = expf((s.sim - maxSim) * scale)
+            // Gentle region/season prior: scales this species' probability mass
+            // (0.5…1). Because it multiplies the softmax weight rather than the
+            // cosine logit, an implausible species is nudged down, not vetoed —
+            // a strong visual match still wins.
+            let e = expf((s.sim - maxSim) * scale) * (prior[s.id] ?? 1.0)
             sum += e
             exps.append((s.id, e))
         }
