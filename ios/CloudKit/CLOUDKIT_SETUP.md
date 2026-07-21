@@ -48,6 +48,10 @@ its **Indexes** and add a **Queryable** index on **`recordName`**. Finally
 | FriendRequest | fromCode, fromName, toCode, status, createdAt |
 | CatchGrant    | ownerCode, viewerCode |
 | CodeClaim     | claimedAt |
+| Crew          | code, name, emoji, createdByCode, createdByName, createdAt |
+| CrewMember    | crewCode, memberCode, memberName, joinedAt |
+| CrewPost      | crewCode, authorCode, authorName, species, weightKg, lengthCm, caughtAt, caption, hasPhoto, photo (Asset) |
+| CrewReaction  | postId, crewCode, reactorCode, reactorName, emoji, createdAt |
 
 Security roles (Console → Security Roles): CloudKit does **not** allow Write for
 the `_world` role. `GroupInvite` and `FriendRequest` therefore grant **Write to

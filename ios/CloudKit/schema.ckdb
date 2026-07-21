@@ -163,3 +163,82 @@ DEFINE SCHEMA
         GRANT CREATE TO "_icloud",
         GRANT READ TO "_world"
     );
+
+    -- A "Crew": a persistent circle of friends with a shared catch feed.
+    RECORD TYPE Crew (
+        code          STRING QUERYABLE,
+        name          STRING,
+        emoji         STRING,
+        createdByCode STRING,
+        createdByName STRING,
+        createdAt     TIMESTAMP,
+        "___createTime" TIMESTAMP,
+        "___createdBy"  REFERENCE,
+        "___etag"       STRING,
+        "___modTime"    TIMESTAMP,
+        "___modifiedBy" REFERENCE,
+        "___recordID"   REFERENCE QUERYABLE,
+        GRANT WRITE TO "_creator",
+        GRANT CREATE TO "_icloud",
+        GRANT READ TO "_world"
+    );
+
+    -- One row per angler per crew. Queried by crewCode to list a crew's members.
+    RECORD TYPE CrewMember (
+        crewCode    STRING QUERYABLE,
+        memberCode  STRING,
+        memberName  STRING,
+        joinedAt    TIMESTAMP,
+        "___createTime" TIMESTAMP,
+        "___createdBy"  REFERENCE,
+        "___etag"       STRING,
+        "___modTime"    TIMESTAMP,
+        "___modifiedBy" REFERENCE,
+        "___recordID"   REFERENCE QUERYABLE,
+        GRANT WRITE TO "_creator",
+        GRANT CREATE TO "_icloud",
+        GRANT READ TO "_world"
+    );
+
+    -- A catch shared into a crew's feed. Queried by crewCode.
+    RECORD TYPE CrewPost (
+        crewCode    STRING QUERYABLE,
+        authorCode  STRING,
+        authorName  STRING,
+        species     STRING,
+        weightKg    DOUBLE,
+        lengthCm    DOUBLE,
+        caughtAt    TIMESTAMP,
+        caption     STRING,
+        hasPhoto    INT64,
+        photo       ASSET,
+        "___createTime" TIMESTAMP,
+        "___createdBy"  REFERENCE,
+        "___etag"       STRING,
+        "___modTime"    TIMESTAMP,
+        "___modifiedBy" REFERENCE,
+        "___recordID"   REFERENCE QUERYABLE,
+        GRANT WRITE TO "_creator",
+        GRANT CREATE TO "_icloud",
+        GRANT READ TO "_world"
+    );
+
+    -- One reaction per angler per post. Queried by crewCode (grouped by postId
+    -- on-device), so postId itself does not need an index.
+    RECORD TYPE CrewReaction (
+        postId      STRING,
+        crewCode    STRING QUERYABLE,
+        reactorCode STRING,
+        reactorName STRING,
+        emoji       STRING,
+        createdAt   TIMESTAMP,
+        "___createTime" TIMESTAMP,
+        "___createdBy"  REFERENCE,
+        "___etag"       STRING,
+        "___modTime"    TIMESTAMP,
+        "___modifiedBy" REFERENCE,
+        "___recordID"   REFERENCE QUERYABLE,
+        GRANT WRITE TO "_creator",
+        GRANT CREATE TO "_icloud",
+        GRANT READ TO "_world"
+    );
