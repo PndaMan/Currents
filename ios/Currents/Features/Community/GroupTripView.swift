@@ -77,6 +77,9 @@ func leaveGroupAndCleanup(code: String, tripId: String?, appState: AppState) asy
 /// one by code. On join, a local trip is created and linked so your catches
 /// sync to the group and you get your own session to track.
 struct GroupTripSetupView: View {
+    /// When launched from a Crew, trips created here are tied to that crew.
+    var crewCode: String? = nil
+
     @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss
     private var svc: CommunityService { .shared }
@@ -199,8 +202,8 @@ struct GroupTripSetupView: View {
             openedCode = existing
             return
         }
-        if let code = await svc.createGroupTrip(name: trip.name, tripId: trip.id) {
-            ToastCenter.shared.show("Group trip created", style: .success)
+        if let code = await svc.createGroupTrip(name: trip.name, tripId: trip.id, crewCode: crewCode) {
+            ToastCenter.shared.show(crewCode != nil ? "Live trip started" : "Group trip created", style: .success)
             openedCode = code
         }
     }

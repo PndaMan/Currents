@@ -139,15 +139,18 @@ struct CrewDetailView: View {
     @StateObject private var svc = CommunityService.shared
     @State private var crew: CommunityService.Crew?
     @State private var members: [CommunityService.GroupMember] = []
+    @State private var memberAvatars: [String: UIImage] = [:]
     @State private var feed: [CommunityService.CrewPost] = []
     @State private var isLoading = true
     @State private var showingLeave = false
 
     private var isMine: Bool { crew?.createdByCode == svc.friendCode }
+    private var liveTrip: CommunityService.GroupRef? { svc.activeTrip(forCrew: code) }
 
     var body: some View {
         List {
             headerSection
+            if liveTrip != nil { liveTripBanner }
             controlsSection
             feedSection
         }
@@ -186,6 +189,23 @@ struct CrewDetailView: View {
         members = await svc.crewMembers(code: code)
         feed = await svc.crewFeed(code: code)
         isLoading = false
+        await loadAvatars()
+    }
+
+    /// Fetch each member's profile picture (concurrently) so the roster shows
+    /// real avatars, not placeholders.
+    private func loadAvatars() async {
+        // Instant: whatever's already cached.
+        for m in members where memberAvatars[m.id] == nil {
+            if let a = svc.cachedProfiles(for: [m.id]).first?.avatar { memberAvatars[m.id] = a }
+        }
+        // Fresh: fetch any we still don't have.
+        let missing = members.map(\.id).filter { memberAvatars[$0] == nil }
+        let tasks = missing.map { c in Task { (c, await svc.fetchProfile(code: c)?.avatar) } }
+        for t in tasks {
+            let (c, avatar) = await t.value
+            if let avatar { memberAvatars[c] = avatar }
+        }
     }
 
     // MARK: Header
@@ -216,11 +236,46 @@ struct CrewDetailView: View {
 
     @ViewBuilder
     private func memberChip(_ m: CommunityService.GroupMember) -> some View {
-        let avatar = svc.cachedProfiles(for: [m.id]).first?.avatar
-        VStack(spacing: 4) {
-            AnglerAvatar(image: avatar, size: 44)
+        let chip = VStack(spacing: 4) {
+            AnglerAvatar(image: memberAvatars[m.id], size: 48)
             Text(m.id == svc.friendCode ? "You" : m.name)
-                .font(.caption2).lineLimit(1).frame(maxWidth: 60)
+                .font(.caption2).lineLimit(1).frame(maxWidth: 64)
+                .foregroundStyle(.primary)
+        }
+        // Tapping a crewmate opens their profile; you can't open your own.
+        if m.id == svc.friendCode {
+            chip
+        } else {
+            NavigationLink { FriendProfileView(code: m.id) } label: { chip }
+                .buttonStyle(.plain)
+        }
+    }
+
+    // MARK: Live trip banner
+
+    private var liveTripBanner: some View {
+        Section {
+            if let trip = liveTrip {
+                NavigationLink {
+                    GroupTripView(tripId: svc.tripId(forGroupCode: trip.code),
+                                  tripName: trip.name, initialCode: trip.code)
+                } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: "dot.radiowaves.left.and.right")
+                            .foregroundStyle(.white)
+                            .frame(width: 34, height: 34)
+                            .background(Color.red, in: Circle())
+                            .symbolEffect(.variableColor.iterative, options: .repeating)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text("\(trip.name) is live").font(.subheadline.bold())
+                            Text(trip.isHost ? "You're hosting · tap to open"
+                                             : "Hosted by \(trip.hostName) · tap to join")
+                                .font(.caption2).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                    }
+                }
+            }
         }
     }
 
@@ -243,9 +298,10 @@ struct CrewDetailView: View {
             .tint(CurrentsTheme.accent)
 
             NavigationLink {
-                GroupTripSetupView()
+                GroupTripSetupView(crewCode: code)
             } label: {
-                Label("Start a live trip", systemImage: "dot.radiowaves.left.and.right")
+                Label(liveTrip == nil ? "Start a live trip" : "Start another trip",
+                      systemImage: "dot.radiowaves.left.and.right")
             }
 
             Button(role: .destructive) {
@@ -315,6 +371,11 @@ struct CrewPostCard: View {
             header
             if post.hasPhoto {
                 photoView
+            }
+            if !post.tripName.isEmpty {
+                Label("on \(post.tripName)", systemImage: "dot.radiowaves.left.and.right")
+                    .font(.caption2.bold())
+                    .foregroundStyle(CurrentsTheme.accent)
             }
             sizeLine
             if !post.caption.isEmpty {
@@ -435,5 +496,126 @@ struct CrewPostCard: View {
     private func startEditingCaption() {
         captionDraft = post.caption
         editingCaption = true
+    }
+}
+
+// MARK: - Join a crew from an invite link
+
+/// Presented when the app opens a `currents://crew/<CODE>` deep link. Confirms
+/// the crew, then joins with one tap (setting up a Community profile first if
+/// the angler hasn't got one yet).
+struct JoinCrewConfirmView: View {
+    let code: String
+    @Environment(\.dismiss) private var dismiss
+    @StateObject private var svc = CommunityService.shared
+
+    @State private var crew: CommunityService.Crew?
+    @State private var members = 0
+    @State private var loading = true
+    @State private var joining = false
+    @State private var joined = false
+    @State private var joinName = ""
+
+    private var alreadyIn: Bool { svc.myCrews.contains { $0.code == code.uppercased() } }
+
+    var body: some View {
+        Group {
+            if svc.joined { confirmBody } else { joinGate }
+        }
+        .navigationTitle(svc.joined ? "Join Crew" : "Join Community")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) { Button("Done") { dismiss() } }
+        }
+        .task {
+            crew = await svc.fetchCrew(code: code)
+            members = await svc.crewMembers(code: code).count
+            loading = false
+        }
+    }
+
+    private var joinGate: some View {
+        Form {
+            Section {
+                VStack(spacing: 10) {
+                    Text(crew?.emoji ?? "🎣").font(.system(size: 44))
+                    Text("Join “\(crew?.name ?? "a crew")”").font(.title3.bold())
+                    Text("Set up your free Currents profile — no account or password, just a name — to join this crew and share catches.")
+                        .font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                }
+                .frame(maxWidth: .infinity).padding(.vertical, 8)
+            }
+            Section("Your angler name") {
+                TextField("Name", text: $joinName).textContentType(.givenName)
+            }
+            Section {
+                Button {
+                    joining = true
+                    Task {
+                        await svc.join(name: joinName, region: svc.myRegion)
+                        Haptics.success()
+                        joining = false
+                    }
+                } label: {
+                    HStack {
+                        if joining { ProgressView().tint(.white) }
+                        Label("Join & Continue", systemImage: "arrow.right.circle.fill").frame(maxWidth: .infinity)
+                    }
+                }
+                .buttonStyle(.borderedProminent).tint(CurrentsTheme.accent)
+                .disabled(joining || joinName.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var confirmBody: some View {
+        Form {
+            Section {
+                VStack(spacing: 10) {
+                    Text(crew?.emoji ?? "🎣").font(.system(size: 52))
+                    Text(crew?.name ?? "Crew").font(.title2.bold())
+                    if loading {
+                        ProgressView()
+                    } else {
+                        Text("\(members) member\(members == 1 ? "" : "s") · started by \(crew?.createdByName ?? "an angler")")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                .frame(maxWidth: .infinity).padding(.vertical, 8)
+            }
+            .listRowBackground(Color.clear)
+
+            Section {
+                if joined || alreadyIn {
+                    Label("You're in this crew", systemImage: "checkmark.circle.fill")
+                        .foregroundStyle(.green)
+                } else {
+                    Button {
+                        joining = true
+                        Task {
+                            let ok = await svc.joinCrew(code: code) != nil
+                            joining = false
+                            if ok {
+                                joined = true
+                                Haptics.success()
+                                ToastCenter.shared.show("Joined the crew 🎣")
+                            } else {
+                                ToastCenter.shared.show("Couldn't join that crew", style: .error)
+                            }
+                        }
+                    } label: {
+                        HStack {
+                            if joining { ProgressView().tint(.white) }
+                            Label("Join crew", systemImage: "person.3.fill").frame(maxWidth: .infinity)
+                        }
+                    }
+                    .buttonStyle(.borderedProminent).tint(CurrentsTheme.accent)
+                    .disabled(joining || crew == nil)
+                }
+            } footer: {
+                Text("Open the crew from Community once you've joined.")
+            }
+        }
     }
 }

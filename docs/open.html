@@ -62,11 +62,21 @@
             var params = new URLSearchParams(window.location.search);
             var friend = (params.get('f') || '').toUpperCase();
             var trip = (params.get('t') || '').toUpperCase();
+            var crew = (params.get('c') || '').toUpperCase();
             var tripName = params.get('n') || '';
 
             var deepLink = '';
             var code = '';
-            if (friend) {
+            if (crew) {
+                code = crew;
+                deepLink = 'currents://crew/' + encodeURIComponent(crew);
+                var c = tripName ? ('“' + tripName + '”') : 'a crew';
+                document.getElementById('title').textContent = 'Join ' + c;
+                document.getElementById('subtitle').textContent =
+                    'Open the Currents app to join this crew and share catches.';
+                document.getElementById('hint').innerHTML =
+                    "Don't have the app yet? Install Currents, then open Community › New Crew › Join and enter this code.";
+            } else if (friend) {
                 code = friend;
                 deepLink = 'currents://friend/' + encodeURIComponent(friend);
                 document.getElementById('title').textContent = 'Add me on Currents';

@@ -36,6 +36,7 @@ struct ContentView: View {
     @State private var planPrompt: Trip?
     @State private var joinGroupCode: JoinCode?
     @State private var pendingFriend: JoinCode?
+    @State private var pendingCrew: JoinCode?
     @AppStorage("hasOnboarded") private var hasOnboarded = false
 
     struct JoinCode: Identifiable { let id: String }
@@ -98,6 +99,11 @@ struct ContentView: View {
         .sheet(item: $pendingFriend) { friend in
             NavigationStack {
                 AddFriendConfirmView(code: friend.id)
+            }
+        }
+        .sheet(item: $pendingCrew) { crew in
+            NavigationStack {
+                JoinCrewConfirmView(code: crew.id)
             }
         }
         .onChange(of: appState.siriRequestedLogCatch) { _, requested in
@@ -181,6 +187,8 @@ struct ContentView: View {
             joinGroupCode = JoinCode(id: code)
         } else if host == "friend" || url.pathComponents.contains("friend") {
             pendingFriend = JoinCode(id: code)
+        } else if host == "crew" || url.pathComponents.contains("crew") {
+            pendingCrew = JoinCode(id: code)
         }
     }
 

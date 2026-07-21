@@ -975,7 +975,15 @@ final class CommunityService: ObservableObject {
         let caughtAt: Date
         var caption: String
         let hasPhoto: Bool
+        /// Set when the catch was logged during a live trip run by this crew, so
+        /// the feed can badge it "on <trip>".
+        var tripName: String = ""
         var reactions: [CrewReaction] = []
+    }
+
+    /// The crew's currently-live trip, if any (a linked group trip not yet ended).
+    func activeTrip(forCrew code: String) -> GroupRef? {
+        myGroups.first { $0.crewCode == code && $0.endedAt == nil }
     }
 
     /// Crews I'm in — persisted locally so the list is instant + offline, and so
@@ -1123,7 +1131,8 @@ final class CommunityService: ObservableObject {
                 lengthCm: r["lengthCm"] as? Double,
                 caughtAt: r["caughtAt"] as? Date ?? .now,
                 caption: r["caption"] as? String ?? "",
-                hasPhoto: (r["hasPhoto"] as? Int ?? 0) == 1)
+                hasPhoto: (r["hasPhoto"] as? Int ?? 0) == 1,
+                tripName: r["tripName"] as? String ?? "")
         }
         // Fold in reactions for the whole crew in one query.
         let reactQuery = CKQuery(recordType: crewReactionType,
@@ -1163,12 +1172,14 @@ final class CommunityService: ObservableObject {
         guard !targets.isEmpty else { return }
         await ensureJoined()
         for crew in targets {
-            await postCatch(c, speciesName: speciesName, toCrew: crew.code, caption: "")
+            // Tag the post with the crew's live trip, if one is running.
+            let trip = activeTrip(forCrew: crew.code)?.name ?? ""
+            await postCatch(c, speciesName: speciesName, toCrew: crew.code, caption: "", tripName: trip)
         }
     }
 
     /// Create/update a crew post for a catch (used by auto-post and manual share).
-    func postCatch(_ c: Catch, speciesName: String, toCrew code: String, caption: String) async {
+    func postCatch(_ c: Catch, speciesName: String, toCrew code: String, caption: String, tripName: String = "") async {
         await ensureJoined()
         let id = CKRecord.ID(recordName: "crewpost-\(code)-\(c.id)")
         let record = (try? await db.record(for: id)) ?? CKRecord(recordType: crewPostType, recordID: id)
@@ -1180,6 +1191,7 @@ final class CommunityService: ObservableObject {
         if let l = c.lengthCm { record["lengthCm"] = l as CKRecordValue }
         record["caughtAt"] = c.caughtAt as CKRecordValue
         record["caption"] = caption as CKRecordValue
+        if !tripName.isEmpty { record["tripName"] = tripName as CKRecordValue }
         attachPhoto(c.photoPath, to: record)
         _ = try? await db.save(record)
     }
@@ -1252,6 +1264,8 @@ final class CommunityService: ObservableObject {
         /// Set when the host ends the trip for everyone. Members' own GPS
         /// sessions are unaffected — only the shared trip is closed.
         var endedAt: Date?
+        /// The Crew this trip belongs to, if started from one.
+        var crewCode: String? = nil
         var isEnded: Bool { endedAt != nil }
     }
 
@@ -1283,6 +1297,9 @@ final class CommunityService: ObservableObject {
         /// (they stay as history until you leave the group). Optional so old
         /// stored refs decode fine.
         var endedAt: Date? = nil
+        /// The Crew this trip belongs to, if it was started from one. Optional so
+        /// old stored refs decode fine and standalone trips stay unlinked.
+        var crewCode: String? = nil
         var id: String { code }
     }
 
@@ -1356,9 +1373,10 @@ final class CommunityService: ObservableObject {
         await join(name: myName, region: myRegion)
     }
 
-    /// Host creates a shared trip and returns its join code.
+    /// Host creates a shared trip and returns its join code. Pass `crewCode` to
+    /// tie the trip to a Crew (its live banner + trip-tagged feed posts).
     @discardableResult
-    func createGroupTrip(name: String, tripId: String) async -> String? {
+    func createGroupTrip(name: String, tripId: String, crewCode: String? = nil) async -> String? {
         await ensureJoined()
         let chars = Array("ABCDEFGHJKLMNPQRSTUVWXYZ23456789")
         let code = String((0..<6).map { _ in chars[Int.random(in: 0..<chars.count)] })
@@ -1369,10 +1387,12 @@ final class CommunityService: ObservableObject {
         record["hostCode"] = friendCode as CKRecordValue
         record["hostName"] = myName as CKRecordValue
         record["createdAt"] = Date() as CKRecordValue
+        if let crewCode { record["crewCode"] = crewCode as CKRecordValue }
         guard (try? await db.save(record)) != nil else { return nil }
         await addMembership(code: code)
         setGroupCode(code, forTripId: tripId)
-        rememberGroup(GroupRef(code: code, name: name, hostName: myName, isHost: true, joinedAt: Date()))
+        rememberGroup(GroupRef(code: code, name: name, hostName: myName, isHost: true,
+                               joinedAt: Date(), crewCode: crewCode))
         return code
     }
 
@@ -1386,7 +1406,7 @@ final class CommunityService: ObservableObject {
         await addMembership(code: code)
         if let tripId { setGroupCode(code, forTripId: tripId) }
         rememberGroup(GroupRef(code: code, name: trip.name, hostName: trip.hostName,
-                               isHost: trip.isHost, joinedAt: Date()))
+                               isHost: trip.isHost, joinedAt: Date(), crewCode: trip.crewCode))
         return trip
     }
 
@@ -1415,7 +1435,8 @@ final class CommunityService: ObservableObject {
             hostName: r["hostName"] as? String ?? "Host",
             createdAt: r["createdAt"] as? Date ?? .now,
             isHost: hostCode == friendCode,
-            endedAt: endedAt
+            endedAt: endedAt,
+            crewCode: r["crewCode"] as? String
         )
     }
 
