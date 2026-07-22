@@ -90,6 +90,8 @@ struct GroupTripSetupView: View {
     @State private var openedCode: String?
     @State private var showingPlanner = false
     @State private var editingPlan: Trip?
+    @State private var showingStartNow = false
+    @State private var newTripName = ""
 
     // Trips you can turn into a group: planned or currently-active (not
     // finished) that don't already have a group. A trip with a group is opened
@@ -102,27 +104,36 @@ struct GroupTripSetupView: View {
         Form {
             Section {
                 Button {
-                    showingPlanner = true
+                    newTripName = SessionFormat.defaultName()
+                    showingStartNow = true
                 } label: {
-                    Label("Plan a new trip", systemImage: "calendar.badge.plus")
+                    Label("Start now", systemImage: "dot.radiowaves.left.and.right")
                         .foregroundStyle(.white)
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent).tint(CurrentsTheme.accent)
                 .disabled(busy)
+
+                Button {
+                    showingPlanner = true
+                } label: {
+                    Label("Plan for later", systemImage: "calendar.badge.plus")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .disabled(busy)
             } header: {
                 Text("Start a new shared trip")
             } footer: {
-                Text("Plan a trip (name, date, gear checklist), then invite friends — they see the same trip, members and every catch, live. Starting it begins a normal GPS-tracked session at your current location.")
+                Text("“Start now” begins a GPS-tracked session at your current location and shares it live with the crew. “Plan for later” schedules a trip (name, date, gear checklist) you can start from here when it's time.")
             }
 
             if !startableTrips.isEmpty {
                 Section {
                     ForEach(startableTrips) { t in
                         HStack(spacing: 10) {
-                            // Tap a planned trip (anywhere but Share) to edit its
-                            // name, date and checklist; active sessions can't be
-                            // edited, so tapping them shares instead.
+                            // Tap a planned trip to edit its name, date and
+                            // checklist; tapping an active session shares it.
                             Button {
                                 if t.isPlanned { editingPlan = t } else { Task { await startTrip(from: t) } }
                             } label: {
@@ -139,19 +150,31 @@ struct GroupTripSetupView: View {
                                 .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
-                            Button { Task { await startTrip(from: t) } } label: {
-                                Label("Share", systemImage: "person.2.badge.plus")
-                                    .labelStyle(.titleAndIcon)
-                                    .font(.caption.bold())
+                            if t.isPlanned {
+                                // Begin the planned session live now (+ share to crew).
+                                Button { Task { await beginLive(planned: t) } } label: {
+                                    Label("Start", systemImage: "play.fill")
+                                        .labelStyle(.titleAndIcon)
+                                        .font(.caption.bold())
+                                }
+                                .buttonStyle(.borderedProminent).tint(CurrentsTheme.accent)
+                                .disabled(busy)
+                            } else {
+                                // Already a live session — just share it.
+                                Button { Task { await startTrip(from: t) } } label: {
+                                    Label("Share", systemImage: "person.2.badge.plus")
+                                        .labelStyle(.titleAndIcon)
+                                        .font(.caption.bold())
+                                }
+                                .buttonStyle(.borderedProminent).tint(CurrentsTheme.accent)
+                                .disabled(busy)
                             }
-                            .buttonStyle(.borderedProminent).tint(CurrentsTheme.accent)
-                            .disabled(busy)
                         }
                     }
                 } header: {
-                    Text("Share an existing trip")
+                    Text("Your trips")
                 } footer: {
-                    Text("Turn a trip you've already planned or started into a group trip. Tap a planned trip to edit its checklist first. Trips that already have a group are in your Group Trips list.")
+                    Text("Start a trip you've already planned to take it live and share it with the crew (tap it first to edit its checklist), or share a session you're already running.")
                 }
             }
 
@@ -171,9 +194,18 @@ struct GroupTripSetupView: View {
         .navigationTitle("Group Trip")
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $showingPlanner) {
-            PlanSessionSheet(onSaved: { id in Task { await startTrip(fromId: id) } })
+            // Planning only schedules the trip locally — you start it (going
+            // live + sharing to the crew) from the list below when it's time.
+            PlanSessionSheet(onSaved: { _ in trips = (try? appState.tripRepository.fetchAll()) ?? [] })
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
+        }
+        .alert("Start live trip", isPresented: $showingStartNow) {
+            TextField("Trip name", text: $newTripName)
+            Button("Start") { Task { await beginLiveNew(name: newTripName) } }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Begins a GPS-tracked session now and shares it live with the crew.")
         }
         .sheet(item: $editingPlan, onDismiss: { trips = (try? appState.tripRepository.fetchAll()) ?? [] }) { t in
             PlanSessionSheet(editingTrip: t)
@@ -212,6 +244,37 @@ struct GroupTripSetupView: View {
         trips = (try? appState.tripRepository.fetchAll()) ?? []
         guard let t = trips.first(where: { $0.id == id }) else { return }
         await startTrip(from: t)
+    }
+
+    /// Start a brand-new live session now and share it with the crew.
+    private func beginLiveNew(name: String) async {
+        guard !busy else { return }
+        busy = true; defer { busy = false }
+        let n = name.trimmingCharacters(in: .whitespaces).isEmpty ? SessionFormat.defaultName() : name
+        let trip = appState.tripTracker.start(name: n, spotId: nil)
+        await shareStartedTrip(trip)
+    }
+
+    /// Take a planned trip live now (begin its GPS session) and share it.
+    private func beginLive(planned: Trip) async {
+        guard !busy else { return }
+        busy = true; defer { busy = false }
+        let trip = appState.tripTracker.activeTrip?.id == planned.id
+            ? planned
+            : appState.tripTracker.startPlanned(planned)
+        await shareStartedTrip(trip)
+    }
+
+    /// Create (or reopen) the shared crew group for a now-live local trip.
+    private func shareStartedTrip(_ trip: Trip) async {
+        if let existing = svc.groupCode(forTripId: trip.id) {
+            openedCode = existing
+            return
+        }
+        if let code = await svc.createGroupTrip(name: trip.name, tripId: trip.id, crewCode: crewCode) {
+            ToastCenter.shared.show(crewCode != nil ? "Live trip started" : "Group trip created", style: .success)
+            openedCode = code
+        }
     }
 
     private func joinTrip() async {
