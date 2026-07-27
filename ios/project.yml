@@ -69,11 +69,11 @@ targets:
     dependencies:
       - target: CurrentsWidgets
         embed: true
-      # Watch app temporarily NOT embedded while its watchOS App Store
-      # validation is sorted on a dedicated pass — it was serialising the
-      # release pipeline. Widgets + Live Activity ship without it. Re-enable:
-      # - target: CurrentsWatch
-      #   embed: true
+      # watchOS companion — embedded so it ships to TestFlight and installs on
+      # the paired watch. Its provisioning profile is minted in CI alongside the
+      # widget (see .github/workflows/ios.yml).
+      - target: CurrentsWatch
+        embed: true
       - package: GRDB
         product: GRDB
       - package: Nuke
