@@ -34,11 +34,13 @@ enum ComplicationStore {
     }
 
     static func color(forScore s: Int) -> UIColor {
+        // watchOS UIColor has no system* semantic colours, so use fixed RGB
+        // matching the app's score palette (green / teal / orange / gray).
         switch s {
-        case 80...: return .systemGreen
-        case 60..<80: return UIColor.systemTeal
-        case 40..<60: return .systemOrange
-        default: return .gray
+        case 80...:   return UIColor(red: 0.30, green: 0.78, blue: 0.36, alpha: 1)
+        case 60..<80: return UIColor(red: 0.19, green: 0.69, blue: 0.78, alpha: 1)
+        case 40..<60: return UIColor(red: 0.98, green: 0.58, blue: 0.13, alpha: 1)
+        default:      return .gray
         }
     }
 }
