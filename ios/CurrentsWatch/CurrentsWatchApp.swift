@@ -1,5 +1,6 @@
 import SwiftUI
 import WatchConnectivity
+import ClockKit
 
 @main
 struct CurrentsWatchApp: App {
@@ -65,7 +66,13 @@ final class WatchConnector: NSObject, ObservableObject, WCSessionDelegate {
         else { sessionStart = nil }
         catchCount = dict[WatchMessage.catchCount] as? Int ?? catchCount
         biteScore = dict[WatchMessage.biteScore] as? Int ?? biteScore
+        if let w = dict[WatchMessage.nextPrimeWindow] as? String { ComplicationStore.nextWindow = w }
         reachable = true
+        // Persist the latest state where the watch-face complications read it,
+        // then ask the clock to refresh them.
+        ComplicationStore.update(biteScore: biteScore, isTracking: isTracking,
+                                 sessionStart: sessionStart, catchCount: catchCount)
+        ComplicationStore.reloadComplications()
     }
 
     // MARK: WCSessionDelegate

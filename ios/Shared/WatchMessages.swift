@@ -18,5 +18,7 @@ public enum WatchMessage {
     public static let sessionStart = "sessionStart"   // epoch seconds
     public static let catchCount = "catchCount"
     public static let biteScore = "biteScore"
+    /// Short human string for the next prime feeding window, e.g. "6–8 AM".
+    public static let nextPrimeWindow = "nextPrimeWindow"
     public static let ok = "ok"
 }

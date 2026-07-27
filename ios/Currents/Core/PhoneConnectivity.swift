@@ -38,6 +38,12 @@ final class PhoneConnectivity: NSObject, WCSessionDelegate, @unchecked Sendable 
             dict[WatchMessage.sessionName] = trip.name
             dict[WatchMessage.sessionStart] = trip.startDate.timeIntervalSince1970
         }
+        // Next planned trip → the "Next Trip" watch complication.
+        if let name = snap?.nextSessionName, let date = snap?.nextSessionDate, date > .now {
+            let f = DateFormatter()
+            f.dateFormat = "EEE h a"
+            dict[WatchMessage.nextPrimeWindow] = "\(name) · \(f.string(from: date))"
+        }
         return dict
     }
 
