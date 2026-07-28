@@ -762,7 +762,8 @@ struct ForecastTab: View {
             case 40..<60: verdict = "Fair"
             default: verdict = "Slow"
             }
-            WidgetSnapshotWriter.writeBite(score: f.score, verdict: verdict, location: "")
+            WidgetSnapshotWriter.writeBite(score: f.score, verdict: verdict, location: "",
+                                           hourly: WidgetSnapshotWriter.hourlyEntries(from: f.hourlyScores))
         }
     }
 

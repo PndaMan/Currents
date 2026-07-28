@@ -20,6 +20,24 @@ enum ComplicationStore {
         set { d.set(newValue, forKey: "cx_window") }
     }
 
+    /// Upcoming hourly bite scores so the face ticks through the day on its own.
+    static var hourly: [SnapHour] {
+        get {
+            guard let data = d.data(forKey: "cx_hourly") else { return [] }
+            return (try? JSONDecoder().decode([SnapHour].self, from: data)) ?? []
+        }
+        set {
+            d.set(try? JSONEncoder().encode(newValue), forKey: "cx_hourly")
+            reloadComplications()
+        }
+    }
+
+    /// Bite score for a given time from the hourly list, falling back to the
+    /// last pushed value.
+    static func score(at date: Date) -> Int {
+        hourly.last(where: { $0.date <= date })?.score ?? hourly.first?.score ?? biteScore
+    }
+
     static func update(biteScore: Int, isTracking: Bool, sessionStart: Date?, catchCount: Int) {
         d.set(biteScore, forKey: "cx_bite")
         d.set(isTracking, forKey: "cx_tracking")
@@ -70,23 +88,41 @@ final class ComplicationController: NSObject, CLKComplicationDataSource {
 
     func getCurrentTimelineEntry(for complication: CLKComplication,
                                  withHandler handler: @escaping (CLKComplicationTimelineEntry?) -> Void) {
-        if let t = template(for: complication.identifier, family: complication.family, sample: false) {
+        if let t = template(for: complication.identifier, family: complication.family, date: Date(), sample: false) {
             handler(CLKComplicationTimelineEntry(date: Date(), complicationTemplate: t))
         } else {
             handler(nil)
         }
     }
 
+    // Forward timeline for the bite score: one entry per upcoming hour, so the
+    // face updates the score every hour without the app running.
+    func getTimelineEndDate(for complication: CLKComplication,
+                            withHandler handler: @escaping (Date?) -> Void) {
+        handler(complication.identifier == "bite" ? ComplicationStore.hourly.last?.date : nil)
+    }
+
+    func getTimelineEntries(for complication: CLKComplication, after date: Date, limit: Int,
+                            withHandler handler: @escaping ([CLKComplicationTimelineEntry]?) -> Void) {
+        guard complication.identifier == "bite" else { handler(nil); return }
+        let entries = ComplicationStore.hourly.filter { $0.date > date }.prefix(limit).compactMap {
+            biteTemplate(complication.family, date: $0.date, sample: false).map { t in
+                CLKComplicationTimelineEntry(date: $0.date, complicationTemplate: t)
+            }
+        }
+        handler(entries.isEmpty ? nil : entries)
+    }
+
     func getLocalizableSampleTemplate(for complication: CLKComplication,
                                       withHandler handler: @escaping (CLKComplicationTemplate?) -> Void) {
-        handler(template(for: complication.identifier, family: complication.family, sample: true))
+        handler(template(for: complication.identifier, family: complication.family, date: Date(), sample: true))
     }
 
     // MARK: - Template building
 
-    private func template(for id: String, family: CLKComplicationFamily, sample: Bool) -> CLKComplicationTemplate? {
+    private func template(for id: String, family: CLKComplicationFamily, date: Date, sample: Bool) -> CLKComplicationTemplate? {
         switch id {
-        case "bite":    return biteTemplate(family, sample: sample)
+        case "bite":    return biteTemplate(family, date: date, sample: sample)
         case "session": return sessionTemplate(family, sample: sample)
         case "window":  return windowTemplate(family, sample: sample)
         case "log":     return logTemplate(family)
@@ -94,43 +130,48 @@ final class ComplicationController: NSObject, CLKComplicationDataSource {
         }
     }
 
-    // Bite score — a 0…100 gauge with the number, colour-coded.
-    private func biteTemplate(_ family: CLKComplicationFamily, sample: Bool) -> CLKComplicationTemplate? {
-        let score = sample ? 72 : ComplicationStore.biteScore
+    // Bite score — a 0…100 gauge with the number and a 🎣 so it clearly reads
+    // as a fishing bite score.
+    private func biteTemplate(_ family: CLKComplicationFamily, date: Date, sample: Bool) -> CLKComplicationTemplate? {
+        let score = sample ? 72 : ComplicationStore.score(at: date)
         let color = ComplicationStore.color(forScore: score)
         let fill = Float(max(0, min(100, score))) / 100
         let num = CLKSimpleTextProvider(text: "\(score)")
+        let fishText = CLKSimpleTextProvider(text: "🎣")
         let gauge = CLKSimpleGaugeProvider(style: .fill, gaugeColor: color, fillFraction: fill)
 
         switch family {
         case .graphicCircular:
-            return CLKComplicationTemplateGraphicCircularClosedGaugeText(gaugeProvider: gauge, centerTextProvider: num)
+            return CLKComplicationTemplateGraphicCircularOpenGaugeSimpleText(
+                gaugeProvider: gauge, bottomTextProvider: fishText, centerTextProvider: num)
         case .graphicExtraLarge:
-            return CLKComplicationTemplateGraphicExtraLargeCircularClosedGaugeText(gaugeProvider: gauge, centerTextProvider: num)
+            return CLKComplicationTemplateGraphicExtraLargeCircularClosedGaugeText(
+                gaugeProvider: gauge, centerTextProvider: num)
         case .graphicCorner:
-            return CLKComplicationTemplateGraphicCornerGaugeText(gaugeProvider: gauge, outerTextProvider: num)
+            return CLKComplicationTemplateGraphicCornerGaugeText(
+                gaugeProvider: gauge, outerTextProvider: CLKSimpleTextProvider(text: "🎣 \(score)"))
         case .graphicBezel:
             let circ = CLKComplicationTemplateGraphicCircularClosedGaugeText(gaugeProvider: gauge, centerTextProvider: num)
-            return CLKComplicationTemplateGraphicBezelCircularText(circularTemplate: circ,
-                textProvider: CLKSimpleTextProvider(text: "Bite Score"))
+            return CLKComplicationTemplateGraphicBezelCircularText(
+                circularTemplate: circ, textProvider: CLKSimpleTextProvider(text: "🎣 Bite Score"))
         case .graphicRectangular:
             return CLKComplicationTemplateGraphicRectangularTextGauge(
-                headerTextProvider: CLKSimpleTextProvider(text: "Bite Score"),
+                headerTextProvider: CLKSimpleTextProvider(text: "🎣 Bite Score"),
                 body1TextProvider: num, gaugeProvider: gauge)
         case .modularSmall:
-            return CLKComplicationTemplateModularSmallSimpleText(textProvider: num)
+            return CLKComplicationTemplateModularSmallStackText(line1TextProvider: fishText, line2TextProvider: num)
         case .modularLarge:
             return CLKComplicationTemplateModularLargeStandardBody(
-                headerTextProvider: CLKSimpleTextProvider(text: "Bite Score"),
+                headerTextProvider: CLKSimpleTextProvider(text: "🎣 Bite Score"),
                 body1TextProvider: CLKSimpleTextProvider(text: "\(score) / 100"))
         case .circularSmall:
-            return CLKComplicationTemplateCircularSmallSimpleText(textProvider: num)
+            return CLKComplicationTemplateCircularSmallStackText(line1TextProvider: fishText, line2TextProvider: num)
         case .extraLarge:
-            return CLKComplicationTemplateExtraLargeSimpleText(textProvider: num)
+            return CLKComplicationTemplateExtraLargeStackText(line1TextProvider: fishText, line2TextProvider: num)
         case .utilitarianSmall, .utilitarianSmallFlat:
             return CLKComplicationTemplateUtilitarianSmallFlat(textProvider: CLKSimpleTextProvider(text: "🎣 \(score)"))
         case .utilitarianLarge:
-            return CLKComplicationTemplateUtilitarianLargeFlat(textProvider: CLKSimpleTextProvider(text: "Bite \(score)"))
+            return CLKComplicationTemplateUtilitarianLargeFlat(textProvider: CLKSimpleTextProvider(text: "🎣 Bite \(score)"))
         default:
             return nil
         }

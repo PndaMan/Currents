@@ -138,6 +138,40 @@ struct QuickLogCatchIntent: AppIntent {
     }
 }
 
+// MARK: - Log a named species (hands-free, headless)
+
+/// "Log a largemouth bass in Currents" — records a catch of the named species
+/// at your current location, without opening the app. Resolves the spoken name
+/// against the species catalog; logs it unmatched (with a note) if it can't.
+struct LogSpeciesCatchIntent: AppIntent {
+    static var title: LocalizedStringResource = "Log a Fish"
+    static var description = IntentDescription("Log a catch of a named species without opening the app.")
+    static var openAppWhenRun = false
+
+    @Parameter(title: "Species", requestValueDialog: "What did you catch?")
+    var species: String
+
+    @MainActor
+    func perform() async throws -> some IntentResult & ProvidesDialog {
+        let app = liveAppState()
+        let coord = app.locationManager.currentLocation?.coordinate
+            ?? app.tripTracker.currentLocation?.coordinate
+            ?? fallbackCoordinate
+        let match = app.speciesRepository.resolve(spokenName: species)
+        var record = Catch(
+            speciesId: match?.id, spotId: nil, caughtAt: .now,
+            latitude: coord.latitude, longitude: coord.longitude,
+            tripId: app.tripTracker.activeTrip?.id,
+            notes: match == nil ? "Siri: \"\(species)\"" : "Logged via Siri")
+        try? app.catchRepository.save(&record)
+        if app.tripTracker.isTracking { await NotificationManager.shared.scheduleColdStreakNudge() }
+        if let match {
+            return .result(dialog: "Logged a \(match.commonName). Tight lines!")
+        }
+        return .result(dialog: "Logged your catch. I couldn't match “\(species)” — open Currents to set the species.")
+    }
+}
+
 // MARK: - Shortcut phrases
 
 struct CurrentsShortcuts: AppShortcutsProvider {
@@ -188,6 +222,15 @@ struct CurrentsShortcuts: AppShortcutsProvider {
             ],
             shortTitle: "Quick Catch",
             systemImageName: "bolt.fill"
+        )
+        AppShortcut(
+            intent: LogSpeciesCatchIntent(),
+            phrases: [
+                "Log a \(\.$species) in \(.applicationName)",
+                "I caught a \(\.$species) in \(.applicationName)",
+            ],
+            shortTitle: "Log a Fish",
+            systemImageName: "fish.fill"
         )
     }
 }

@@ -44,6 +44,18 @@ final class PhoneConnectivity: NSObject, WCSessionDelegate, @unchecked Sendable 
             f.dateFormat = "EEE h a"
             dict[WatchMessage.nextPrimeWindow] = "\(name) · \(f.string(from: date))"
         }
+        // Upcoming hourly bite scores so the watch face ticks on its own.
+        if let hourly = snap?.hourly, !hourly.isEmpty {
+            dict[WatchMessage.hourly] = hourly.map { [$0.date.timeIntervalSince1970, Double($0.score)] }
+        }
+        // Recent species → quick-log buttons on the watch.
+        if let recent = try? app?.catchRepository.fetchAll(limit: 40) {
+            var seen = Set<String>()
+            let names = recent.compactMap { $0.species?.commonName }
+                .filter { seen.insert($0).inserted }
+                .prefix(6)
+            if !names.isEmpty { dict[WatchMessage.recentSpecies] = Array(names) }
+        }
         return dict
     }
 
@@ -65,7 +77,7 @@ final class PhoneConnectivity: NSObject, WCSessionDelegate, @unchecked Sendable 
             case WatchMessage.endSession:
                 _ = AppState.shared?.tripTracker.end()
             case WatchMessage.logCatch:
-                Self.logQuickCatch()
+                Self.logQuickCatch(speciesName: message[WatchMessage.speciesName] as? String)
             default:
                 break
             }
@@ -73,22 +85,25 @@ final class PhoneConnectivity: NSObject, WCSessionDelegate, @unchecked Sendable 
         }
     }
 
-    /// A minimal catch at the current location, auto-added to the active
-    /// session — the angler fills in species/size later on the phone.
+    /// A catch at the current location — with the species the angler named on
+    /// the watch if it resolves. Works with or without an active session.
     @MainActor
-    private static func logQuickCatch() {
+    private static func logQuickCatch(speciesName: String?) {
         guard let app = AppState.shared else { return }
         let coord = app.locationManager.currentLocation?.coordinate
             ?? app.tripTracker.currentLocation?.coordinate
             ?? CLLocationCoordinate2D(latitude: 0, longitude: 0)
+        let species = speciesName.flatMap { app.speciesRepository.resolve(spokenName: $0) }
+        let note = speciesName.map { species == nil ? "Watch: \"\($0)\"" : "Logged from Apple Watch" }
+            ?? "Logged from Apple Watch"
         var record = Catch(
-            speciesId: nil,
+            speciesId: species?.id,
             spotId: nil,
             caughtAt: .now,
             latitude: coord.latitude,
             longitude: coord.longitude,
             tripId: app.tripTracker.activeTrip?.id,
-            notes: "Logged from Apple Watch"
+            notes: note
         )
         try? app.catchRepository.save(&record)
     }

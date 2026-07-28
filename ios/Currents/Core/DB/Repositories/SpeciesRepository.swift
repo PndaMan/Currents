@@ -43,6 +43,32 @@ final class SpeciesRepository: ObservableObject {
         }
     }
 
+    /// Best-effort match for a spoken / typed species name ("a largemouth bass"
+    /// → Largemouth Bass). Strips lead-in words, then tries an exact match, a
+    /// contains-match, and finally word-overlap. Returns nil if nothing fits.
+    func resolve(spokenName raw: String) -> Species? {
+        var q = raw.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        for lead in ["log a ", "log ", "logged a ", "logged ", "caught a ", "caught ",
+                     "a ", "an ", "the ", "one "] where q.hasPrefix(lead) {
+            q = String(q.dropFirst(lead.count)); break
+        }
+        q = q.trimmingCharacters(in: .whitespaces)
+        guard q.count >= 2 else { return nil }
+        if let exact = try? fetchByCommonName(q) { return exact }
+        // Contains-match, preferring the closest-length name.
+        if let matches = try? search(q), !matches.isEmpty {
+            return matches.min { abs($0.commonName.count - q.count) < abs($1.commonName.count - q.count) }
+        }
+        // Word-overlap fallback across the whole catalog.
+        let qWords = Set(q.split(separator: " ").map(String.init))
+        guard !qWords.isEmpty, let all = try? fetchAll() else { return nil }
+        func overlap(_ s: Species) -> Int {
+            Set(s.commonName.lowercased().split(separator: " ").map(String.init)).intersection(qWords).count
+        }
+        let best = all.max { overlap($0) < overlap($1) }
+        return best.flatMap { overlap($0) > 0 ? $0 : nil }
+    }
+
     /// Case-insensitive exact match on the scientific name (used to link a
     /// fishing regulation to its species artwork + guide page).
     func fetchByScientificName(_ name: String) throws -> Species? {

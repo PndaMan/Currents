@@ -17,9 +17,34 @@ private struct SnapshotProvider: TimelineProvider {
     }
     func getTimeline(in context: Context, completion: @escaping (Timeline<SnapshotEntry>) -> Void) {
         let snap = SharedStore.load() ?? placeholder(in: context).snapshot
-        // Refresh roughly every 30 min; the app also refreshes on foreground.
-        let next = Calendar.current.date(byAdding: .minute, value: 30, to: .now) ?? .now.addingTimeInterval(1800)
-        completion(Timeline(entries: [SnapshotEntry(date: .now, snapshot: snap)], policy: .after(next)))
+        let cal = Calendar.current
+        let now = Date()
+        let hourStart = cal.date(bySetting: .minute, value: 0, of: now) ?? now
+
+        // Build one entry per upcoming hour from the stored hourly scores, so the
+        // widget ticks through the day on its own — the bite score updates every
+        // hour without the app being opened. Falls back to a single entry.
+        let upcoming = snap.hourly.filter { $0.date >= hourStart }.prefix(24)
+        var entries: [SnapshotEntry] = upcoming.map { h in
+            var s = snap
+            s.biteScore = h.score
+            s.biteVerdict = verdict(for: h.score)
+            return SnapshotEntry(date: h.date, snapshot: s)
+        }
+        if entries.isEmpty { entries = [SnapshotEntry(date: now, snapshot: snap)] }
+        // Reload after the last known hour (or in an hour) to pull fresh scores.
+        let next = entries.last.map { cal.date(byAdding: .hour, value: 1, to: $0.date) ?? $0.date }
+            ?? (cal.date(byAdding: .hour, value: 1, to: now) ?? now.addingTimeInterval(3600))
+        completion(Timeline(entries: entries, policy: .after(next)))
+    }
+}
+
+private func verdict(for score: Int) -> String {
+    switch score {
+    case 80...: return "Excellent"
+    case 60..<80: return "Good"
+    case 40..<60: return "Fair"
+    default: return "Slow"
     }
 }
 

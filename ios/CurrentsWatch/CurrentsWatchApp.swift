@@ -30,6 +30,7 @@ final class WatchConnector: NSObject, ObservableObject, WCSessionDelegate {
     @Published var reachable = false
     @Published var busy = false
     @Published var lastConfirmation: String?
+    @Published var recentSpecies: [String] = []
 
     func activate() {
         guard WCSession.isSupported() else { return }
@@ -40,15 +41,27 @@ final class WatchConnector: NSObject, ObservableObject, WCSessionDelegate {
     func refresh() { send(WatchMessage.requestState) }
     func startSession() { send(WatchMessage.startSession, confirm: "Session started") }
     func endSession() { send(WatchMessage.endSession, confirm: "Session ended") }
-    func logCatch() { send(WatchMessage.logCatch, confirm: "Catch logged!") }
 
-    private func send(_ action: String, confirm: String? = nil) {
+    /// Log a catch (optionally naming the species). Works with or without an
+    /// active session — the phone attaches it to the session if one's running.
+    func logCatch(species: String? = nil) {
+        var extra: [String: Any] = [:]
+        if let species, !species.trimmingCharacters(in: .whitespaces).isEmpty {
+            extra[WatchMessage.speciesName] = species
+        }
+        let confirm = species.map { "Logged \($0)!" } ?? "Catch logged!"
+        send(WatchMessage.logCatch, extra: extra, confirm: confirm)
+    }
+
+    private func send(_ action: String, extra: [String: Any] = [:], confirm: String? = nil) {
         guard WCSession.default.activationState == .activated, WCSession.default.isReachable else {
             reachable = false
             return
         }
         busy = true
-        WCSession.default.sendMessage([WatchMessage.action: action], replyHandler: { [weak self] reply in
+        var msg: [String: Any] = [WatchMessage.action: action]
+        msg.merge(extra) { _, new in new }
+        WCSession.default.sendMessage(msg, replyHandler: { [weak self] reply in
             Task { @MainActor in
                 self?.apply(reply)
                 self?.busy = false
@@ -67,6 +80,12 @@ final class WatchConnector: NSObject, ObservableObject, WCSessionDelegate {
         catchCount = dict[WatchMessage.catchCount] as? Int ?? catchCount
         biteScore = dict[WatchMessage.biteScore] as? Int ?? biteScore
         if let w = dict[WatchMessage.nextPrimeWindow] as? String { ComplicationStore.nextWindow = w }
+        if let recent = dict[WatchMessage.recentSpecies] as? [String] { recentSpecies = recent }
+        if let raw = dict[WatchMessage.hourly] as? [[Double]] {
+            ComplicationStore.hourly = raw.compactMap { p in
+                p.count == 2 ? SnapHour(date: Date(timeIntervalSince1970: p[0]), score: Int(p[1])) : nil
+            }
+        }
         reachable = true
         // Persist the latest state where the watch-face complications read it,
         // then ask the clock to refresh them.
@@ -98,11 +117,19 @@ final class WatchConnector: NSObject, ObservableObject, WCSessionDelegate {
 
 struct WatchRootView: View {
     @EnvironmentObject var connector: WatchConnector
+    @State private var showingLog = false
 
     var body: some View {
         ScrollView {
             VStack(spacing: 10) {
                 biteCard
+                // Log a catch is always available — no need to start a session.
+                Button { showingLog = true } label: {
+                    Label("Log a Catch", systemImage: "plus.circle.fill").frame(maxWidth: .infinity)
+                }
+                .tint(.blue)
+                .disabled(connector.busy)
+
                 if connector.isTracking { activeCard } else { idleCard }
                 if let msg = connector.lastConfirmation {
                     Text(msg).font(.footnote).foregroundStyle(.green)
@@ -116,6 +143,7 @@ struct WatchRootView: View {
         }
         .navigationTitle("Currents")
         .onAppear { connector.refresh() }
+        .sheet(isPresented: $showingLog) { WatchLogView() }
     }
 
     private var biteCard: some View {
@@ -137,9 +165,6 @@ struct WatchRootView: View {
                     .font(.system(.title3, design: .rounded).bold()).monospacedDigit()
             }
             Text("\(connector.catchCount) caught").font(.caption)
-            Button { connector.logCatch() } label: {
-                Label("Log Catch", systemImage: "fish.fill").frame(maxWidth: .infinity)
-            }.tint(.blue)
             Button(role: .destructive) { connector.endSession() } label: {
                 Label("End", systemImage: "stop.fill").frame(maxWidth: .infinity)
             }
@@ -162,5 +187,60 @@ struct WatchRootView: View {
         case 40..<60: return .orange
         default: return .gray
         }
+    }
+}
+
+// MARK: - Log a catch (species by dictation or recents)
+
+/// Logs a catch to the phone with the species you name — tap the mic in the
+/// text field to say "largemouth bass", or pick a recent species. No active
+/// session required.
+struct WatchLogView: View {
+    @EnvironmentObject var connector: WatchConnector
+    @Environment(\.dismiss) private var dismiss
+    @State private var species = ""
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 10) {
+                // watchOS shows Dictation / Scribble automatically for this field.
+                TextField("Species (tap 🎙 to speak)", text: $species)
+                    .textInputAutocapitalization(.words)
+
+                Button {
+                    connector.logCatch(species: species)
+                    dismiss()
+                } label: {
+                    Label(species.isEmpty ? "Log Catch" : "Log \(species)", systemImage: "fish.fill")
+                        .frame(maxWidth: .infinity)
+                }
+                .tint(.blue)
+                .disabled(connector.busy)
+
+                if !connector.recentSpecies.isEmpty {
+                    Text("Recent").font(.caption2).foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    ForEach(connector.recentSpecies, id: \.self) { name in
+                        Button {
+                            connector.logCatch(species: name)
+                            dismiss()
+                        } label: {
+                            Text(name).frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(connector.busy)
+                    }
+                }
+
+                Button("Log without species") {
+                    connector.logCatch()
+                    dismiss()
+                }
+                .font(.caption)
+                .disabled(connector.busy)
+            }
+            .padding(.horizontal, 4)
+        }
+        .navigationTitle("Log Catch")
     }
 }

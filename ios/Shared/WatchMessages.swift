@@ -20,5 +20,12 @@ public enum WatchMessage {
     public static let biteScore = "biteScore"
     /// Short human string for the next prime feeding window, e.g. "6–8 AM".
     public static let nextPrimeWindow = "nextPrimeWindow"
+    /// Species name (typed/dictated on the watch) to attach to a logged catch.
+    public static let speciesName = "speciesName"
+    /// Recent species [String] sent to the watch for quick-log buttons.
+    public static let recentSpecies = "recentSpecies"
+    /// Upcoming hourly bite scores: [[epochSeconds, score]] so the watch face
+    /// can tick through the day on its own.
+    public static let hourly = "hourly"
     public static let ok = "ok"
 }
