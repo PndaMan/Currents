@@ -226,8 +226,12 @@ struct CurrentsShortcuts: AppShortcutsProvider {
         AppShortcut(
             intent: LogSpeciesCatchIntent(),
             phrases: [
-                "Log a \(\.$species) in \(.applicationName)",
-                "I caught a \(\.$species) in \(.applicationName)",
+                // A raw String parameter can't be interpolated into a spoken
+                // phrase (App Intents only allows AppEntity/AppEnum there), so
+                // Siri prompts "What did you catch?" and the angler says the
+                // species — resolved against the catalog.
+                "Log a fish in \(.applicationName)",
+                "Log the species I caught in \(.applicationName)",
             ],
             shortTitle: "Log a Fish",
             systemImageName: "fish.fill"

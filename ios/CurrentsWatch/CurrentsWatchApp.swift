@@ -31,6 +31,8 @@ final class WatchConnector: NSObject, ObservableObject, WCSessionDelegate {
     @Published var busy = false
     @Published var lastConfirmation: String?
     @Published var recentSpecies: [String] = []
+    /// Selected app theme raw value (synced from phone) — tints the in-app logo.
+    @Published var theme = UserDefaults.standard.string(forKey: "cx_theme") ?? "ocean"
 
     func activate() {
         guard WCSession.isSupported() else { return }
@@ -81,6 +83,10 @@ final class WatchConnector: NSObject, ObservableObject, WCSessionDelegate {
         biteScore = dict[WatchMessage.biteScore] as? Int ?? biteScore
         if let w = dict[WatchMessage.nextPrimeWindow] as? String { ComplicationStore.nextWindow = w }
         if let recent = dict[WatchMessage.recentSpecies] as? [String] { recentSpecies = recent }
+        if let t = dict[WatchMessage.theme] as? String, !t.isEmpty {
+            theme = t
+            UserDefaults.standard.set(t, forKey: "cx_theme")
+        }
         if let raw = dict[WatchMessage.hourly] as? [[Double]] {
             ComplicationStore.hourly = raw.compactMap { p in
                 p.count == 2 ? SnapHour(date: Date(timeIntervalSince1970: p[0]), score: Int(p[1])) : nil
@@ -122,6 +128,8 @@ struct WatchRootView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 10) {
+                WatchLogoHeader(theme: connector.theme)
+                    .padding(.top, 2)
                 biteCard
                 // Log a catch is always available — no need to start a session.
                 Button { showingLog = true } label: {

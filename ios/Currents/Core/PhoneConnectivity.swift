@@ -48,6 +48,8 @@ final class PhoneConnectivity: NSObject, WCSessionDelegate, @unchecked Sendable 
         if let hourly = snap?.hourly, !hourly.isEmpty {
             dict[WatchMessage.hourly] = hourly.map { [$0.date.timeIntervalSince1970, Double($0.score)] }
         }
+        // Selected theme so the watch's in-app logo tints to the chosen app icon.
+        dict[WatchMessage.theme] = UserDefaults.standard.string(forKey: "selectedTheme") ?? "ocean"
         // Recent species → quick-log buttons on the watch.
         if let recent = try? app?.catchRepository.fetchAll(limit: 40) {
             var seen = Set<String>()

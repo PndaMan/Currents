@@ -27,5 +27,8 @@ public enum WatchMessage {
     /// Upcoming hourly bite scores: [[epochSeconds, score]] so the watch face
     /// can tick through the day on its own.
     public static let hourly = "hourly"
+    /// Selected app theme raw value (e.g. "ocean") so the watch's in-app logo
+    /// tints to match the icon/theme the user picked on the phone.
+    public static let theme = "theme"
     public static let ok = "ok"
 }
