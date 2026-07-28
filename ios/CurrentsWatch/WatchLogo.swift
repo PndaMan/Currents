@@ -38,20 +38,17 @@ func currentsThemeColor(_ raw: String) -> Color {
     }
 }
 
-/// Small logo header: the current mark + wordmark, tinted to the chosen theme.
+/// Small logo header: just the mark, tinted to the chosen theme. The app name
+/// already sits in the watch's navigation title, so the wordmark would only
+/// repeat it and eat vertical space on a small screen.
 struct WatchLogoHeader: View {
     var theme: String
-    var size: CGFloat = 22
+    var size: CGFloat = 20
 
     var body: some View {
-        HStack(spacing: size * 0.3) {
-            CurrentsMark()
-                .stroke(currentsThemeColor(theme),
-                        style: StrokeStyle(lineWidth: size * 0.12, lineCap: .round, lineJoin: .round))
-                .frame(width: size, height: size)
-            Text("Currents")
-                .font(.system(size: size * 0.7, weight: .semibold, design: .rounded))
-                .foregroundStyle(currentsThemeColor(theme))
-        }
+        CurrentsMark()
+            .stroke(currentsThemeColor(theme),
+                    style: StrokeStyle(lineWidth: size * 0.12, lineCap: .round, lineJoin: .round))
+            .frame(width: size, height: size)
     }
 }
