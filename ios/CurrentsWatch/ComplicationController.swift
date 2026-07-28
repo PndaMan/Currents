@@ -105,9 +105,9 @@ final class ComplicationController: NSObject, CLKComplicationDataSource {
     func getTimelineEntries(for complication: CLKComplication, after date: Date, limit: Int,
                             withHandler handler: @escaping ([CLKComplicationTimelineEntry]?) -> Void) {
         guard complication.identifier == "bite" else { handler(nil); return }
-        let entries = ComplicationStore.hourly.filter { $0.date > date }.prefix(limit).compactMap {
-            biteTemplate(complication.family, date: $0.date, sample: false).map { t in
-                CLKComplicationTimelineEntry(date: $0.date, complicationTemplate: t)
+        let entries = ComplicationStore.hourly.filter { $0.date > date }.prefix(limit).compactMap { hour in
+            biteTemplate(complication.family, date: hour.date, sample: false).map { t in
+                CLKComplicationTimelineEntry(date: hour.date, complicationTemplate: t)
             }
         }
         handler(entries.isEmpty ? nil : entries)
