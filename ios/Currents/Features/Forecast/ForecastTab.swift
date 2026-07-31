@@ -130,8 +130,13 @@ struct ForecastTab: View {
     private func currentConditionsCard(_ weather: WeatherService.WeatherData) -> some View {
         VStack(spacing: 16) {
             HStack {
-                Text(selectedDay == 0 ? "Current Conditions" : "Expected Conditions")
-                    .font(.headline)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(selectedDay == 0 ? "Current Conditions" : "Expected Conditions")
+                        .font(.headline)
+                    Text("Tap a reading to see what it means")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
                 Spacer()
                 Text(weather.fetchedAt, style: .relative)
                     .font(.caption2)
@@ -177,10 +182,18 @@ struct ForecastTab: View {
             LazyVGrid(columns: [
                 GridItem(.flexible()), GridItem(.flexible())
             ], spacing: 10) {
-                WeatherDetailCell(icon: "drop.fill", value: "\(weather.humidity)%", label: "Humidity")
-                WeatherDetailCell(icon: "cloud.fill", value: "\(weather.cloudCoverPct)%", label: "Cloud Cover")
-                WeatherDetailCell(icon: "umbrella.fill", value: String(format: "%.1fmm", weather.precipMm), label: "Precipitation")
-                WeatherDetailCell(icon: "sun.max.fill", value: String(format: "%.0f", weather.uvIndex), label: "UV Index")
+                WeatherDetailCell(
+                    icon: "drop.fill", value: "\(weather.humidity)%", label: "Humidity",
+                    explanation: "High humidity usually travels with low pressure and cloud — the conditions that push fish shallow and feeding.")
+                WeatherDetailCell(
+                    icon: "cloud.fill", value: "\(weather.cloudCoverPct)%", label: "Cloud Cover",
+                    explanation: "Cloud takes away the ambush advantage bright sun gives prey, so an overcast day spreads the bite out instead of bunching it at dawn and dusk.")
+                WeatherDetailCell(
+                    icon: "umbrella.fill", value: String(format: "%.1fmm", weather.precipMm), label: "Precipitation",
+                    explanation: "Light rain dims the surface and adds oxygen — often a trigger. Heavy rain colours the water up and usually shuts it down for a while.")
+                WeatherDetailCell(
+                    icon: "sun.max.fill", value: String(format: "%.0f", weather.uvIndex), label: "UV Index",
+                    explanation: "Hard UV drives fish deep or under cover. When it's high, fish shade, structure and depth rather than open water.")
             }
         }
         .glassCard()
@@ -631,20 +644,29 @@ struct ForecastTab: View {
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
             }
-            Text("Track length shows how much each factor can move the score.")
+            Text("Track length shows how much each factor can move the score. Tap a row to see why it matters.")
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
                 .padding(.bottom, 2)
 
-            BreakdownRow(label: "Pressure", value: forecast.breakdown.pressure, weight: 10)
-            BreakdownRow(label: "Pressure Trend", value: forecast.breakdown.pressureTrend, weight: 15)
-            BreakdownRow(label: "Tide", value: forecast.breakdown.tide, weight: 15)
-            BreakdownRow(label: "Moon Phase", value: forecast.breakdown.moon, weight: 10)
-            BreakdownRow(label: "Solunar Window", value: forecast.breakdown.solunar, weight: 15)
-            BreakdownRow(label: "Time of Day", value: forecast.breakdown.timeOfDay, weight: 15)
-            BreakdownRow(label: "Wind", value: forecast.breakdown.wind, weight: 8)
-            BreakdownRow(label: "Temperature", value: forecast.breakdown.temperature, weight: 7)
-            BreakdownRow(label: "Season/Spawn", value: forecast.breakdown.season, weight: 5)
+            BreakdownRow(label: "Pressure", value: forecast.breakdown.pressure, weight: 10,
+                explanation: "Steady, moderate pressure keeps fish comfortable at their normal depth. Extremes push them down and make them sluggish.")
+            BreakdownRow(label: "Pressure Trend", value: forecast.breakdown.pressureTrend, weight: 15,
+                explanation: "A falling glass ahead of a front is the classic feeding trigger. The high-pressure bluebird day behind it is the toughest bite there is.")
+            BreakdownRow(label: "Tide", value: forecast.breakdown.tide, weight: 15,
+                explanation: "Moving water concentrates bait against structure. Slack water at the top or bottom of the tide is usually the quietest part of the cycle.")
+            BreakdownRow(label: "Moon Phase", value: forecast.breakdown.moon, weight: 10,
+                explanation: "Full and new moons give the biggest tidal movement, and a bright night can shift feeding into darkness and flatten the dawn bite.")
+            BreakdownRow(label: "Solunar Window", value: forecast.breakdown.solunar, weight: 15,
+                explanation: "Major and minor periods track when the moon is overhead or underfoot — the windows fish most reliably switch on.")
+            BreakdownRow(label: "Time of Day", value: forecast.breakdown.timeOfDay, weight: 15,
+                explanation: "Low light at dawn and dusk hands predators the advantage, which is why those hours consistently out-fish the middle of the day.")
+            BreakdownRow(label: "Wind", value: forecast.breakdown.wind, weight: 8,
+                explanation: "A ripple breaks up the surface and stacks bait on the windward bank. Dead calm makes fish spooky; a gale makes them unfishable.")
+            BreakdownRow(label: "Temperature", value: forecast.breakdown.temperature, weight: 7,
+                explanation: "Scored against your target species' preferred band — fish are cold-blooded, so water temperature sets how hard they'll chase.")
+            BreakdownRow(label: "Season/Spawn", value: forecast.breakdown.season, weight: 5,
+                explanation: "Pre-spawn fish feed hard, spawning fish guard rather than eat, and post-spawn fish recover before switching back on.")
         }
         .glassCard()
     }
@@ -849,8 +871,31 @@ struct WeatherDetailCell: View {
     let icon: String
     let value: String
     let label: String
+    /// What this reading means for the bite. Tap to show, tap again to hide —
+    /// the same reveal used on the Best Windows bars.
+    var explanation: String? = nil
+    @State private var expanded = false
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            tile
+            if expanded, let explanation {
+                Text(explanation)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 2)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            guard explanation != nil else { return }
+            withAnimation(.snappy(duration: 0.2)) { expanded.toggle() }
+        }
+    }
+
+    private var tile: some View {
         // Was three stacked greys with no container, which read as a caption
         // rather than a value. Now a proper tile: tinted glyph, the number as
         // the loudest thing, and its own surface so the grid has structure.
@@ -1040,8 +1085,31 @@ struct BreakdownRow: View {
     let label: String
     let value: Double
     let weight: Double
+    /// Why this factor matters. Tap the row to show it, tap again to hide.
+    var explanation: String? = nil
+    @State private var expanded = false
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            row
+            if expanded, let explanation {
+                Text(explanation)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.leading, 2)
+                    .padding(.bottom, 2)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            guard explanation != nil else { return }
+            withAnimation(.snappy(duration: 0.2)) { expanded.toggle() }
+        }
+    }
+
+    private var row: some View {
         // The same number was shown three ways — points, percent and a bar.
         // Now one bar carrying the proportion, one figure carrying the points,
         // and the bar's width reflecting how much this factor can move the
