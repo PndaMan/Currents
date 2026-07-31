@@ -195,7 +195,7 @@ struct SeasonalCalendarView: View {
     private var monthSelector: some View {
         ScrollViewReader { proxy in
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
+                HStack(spacing: 4) {
                     ForEach(1...12, id: \.self) { month in
                         FilterChip(
                             title: Self.monthNames[month - 1],
@@ -315,7 +315,6 @@ struct SeasonalCalendarView: View {
             speciesRow(sp, dimmed: dimmed)
         }
         .buttonStyle(.plain)
-        .simultaneousGesture(TapGesture().onEnded { Haptics.tap() })
     }
 
     // MARK: - Species Row

@@ -235,34 +235,25 @@ struct FilterChip: View {
             HStack(spacing: 5) {
                 if let systemImage {
                     Image(systemName: systemImage)
-                        .font(.caption2)
+                        .font(.system(size: 11, weight: .semibold))
                 }
                 Text(title)
                     .font(.subheadline.weight(isSelected ? .semibold : .regular))
+                    .lineLimit(1)
             }
-            .padding(.horizontal, 13)
-            .padding(.vertical, 6.5)
+            // Only the selected chip gets a fill. Giving every chip a
+            // background turned a filter row into a wall of identical grey
+            // blobs — with eight or twelve of them the row read as noise and
+            // the actual selection was hard to pick out. Unselected chips are
+            // now plain text, so the row is quiet and the choice is obvious.
+            .padding(.horizontal, isSelected ? 14 : 10)
+            .padding(.vertical, 6)
             .background {
-                if isSelected {
-                    // Slight vertical gradient + a lift so the active chip
-                    // reads as raised rather than just a flat colour fill.
-                    Capsule()
-                        .fill(LinearGradient(colors: [accent.opacity(0.95), accent],
-                                             startPoint: .top, endPoint: .bottom))
-                        .shadow(color: accent.opacity(0.35), radius: 5, y: 2)
-                } else {
-                    // A tinted fill instead of ultraThinMaterial: on a dark
-                    // background the material turned every chip into the same
-                    // mid-grey blob with no edge.
-                    Capsule().fill(.primary.opacity(0.07))
-                }
+                if isSelected { Capsule().fill(accent) }
             }
-            .foregroundStyle(isSelected ? .white : .primary.opacity(0.8))
-            .overlay(
-                Capsule().strokeBorder(isSelected ? .white.opacity(0.22)
-                                                  : .primary.opacity(0.12),
-                                       lineWidth: 0.75)
-            )
+            .foregroundStyle(isSelected ? .white : .secondary)
+            .contentShape(Capsule())
+            .animation(.snappy(duration: 0.2), value: isSelected)
         }
         .buttonStyle(.plain)
     }
@@ -277,7 +268,9 @@ struct FilterChipRow<Item: Hashable>: View {
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
+            // Tighter than before: unselected chips carry no fill now, so wide
+            // gaps left the row looking sparse and disconnected.
+            HStack(spacing: 4) {
                 ForEach(items, id: \.self) { item in
                     FilterChip(title: title(item), isSelected: selection == item) {
                         withAnimation(.easeInOut(duration: 0.15)) { selection = item }

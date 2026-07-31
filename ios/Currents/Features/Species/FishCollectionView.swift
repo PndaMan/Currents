@@ -201,7 +201,7 @@ struct FishCollectionView: View {
 
             // Rarity filter chips
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
+                HStack(spacing: 4) {
                     FilterChip(title: "All", isSelected: rarityFilter == nil) {
                         withAnimation(.easeInOut(duration: 0.15)) { rarityFilter = nil }
                     }

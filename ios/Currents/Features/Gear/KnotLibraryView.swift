@@ -21,7 +21,7 @@ struct KnotLibraryView: View {
         List {
             Section {
                 ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
+                    HStack(spacing: 4) {
                         FilterChip(title: "All", isSelected: category == nil) { category = nil }
                         ForEach(KnotEntry.Category.allCases, id: \.self) { c in
                             FilterChip(title: c.rawValue, isSelected: category == c) {
@@ -41,7 +41,6 @@ struct KnotLibraryView: View {
                 } label: {
                     knotRowLabel(knot)
                 }
-                .simultaneousGesture(TapGesture().onEnded { Haptics.tap() })
             }
         }
         .navigationTitle("Knots & Rigs")

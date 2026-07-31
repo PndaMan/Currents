@@ -50,7 +50,6 @@ struct SpeciesBrowserView: View {
                                 SpeciesGuideCard(species: sp, caught: caughtIds.contains(sp.id))
                             }
                             .buttonStyle(.plain)
-                            .simultaneousGesture(TapGesture().onEnded { Haptics.tap() })
                         }
                     }
                 } else {
@@ -60,7 +59,6 @@ struct SpeciesBrowserView: View {
                                 SpeciesGuideRow(species: sp, caught: caughtIds.contains(sp.id))
                             }
                             .buttonStyle(.plain)
-                            .simultaneousGesture(TapGesture().onEnded { Haptics.tap() })
                         }
                     }
                 }
@@ -95,7 +93,7 @@ struct SpeciesBrowserView: View {
     private var filterBar: some View {
         VStack(spacing: 8) {
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
+                HStack(spacing: 4) {
                     FilterChip(title: "All", isSelected: selectedHabitat == nil) {
                         withAnimation(.easeInOut(duration: 0.15)) { selectedHabitat = nil }
                     }

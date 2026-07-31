@@ -161,7 +161,7 @@ struct GearTab: View {
         } else {
             // Category filter chips
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
+                HStack(spacing: 4) {
                     FilterChip(title: "All", isSelected: categoryFilter == nil) {
                         withAnimation(.easeInOut(duration: 0.15)) { categoryFilter = nil }
                     }
@@ -663,10 +663,12 @@ struct GearCatalogBrowser: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Category filter — fixed height and no vertical rubber-banding,
-            // so the chips can't be dragged up and down.
+            // The row used to be pinned to a hard 46pt. Chips are taller than
+            // that once they have an icon, so the content overflowed its own
+            // scroll view and could be dragged around inside it. It sizes to
+            // its content now, and only bounces along the axis it scrolls.
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
+                HStack(spacing: 4) {
                     FilterChip(title: "All", isSelected: selectedCategory == nil) {
                         selectedCategory = nil
                     }
@@ -681,9 +683,10 @@ struct GearCatalogBrowser: View {
                     }
                 }
                 .padding(.horizontal)
+                .padding(.vertical, 6)
             }
-            .scrollBounceBehavior(.basedOnSize, axes: [.vertical, .horizontal])
-            .frame(height: 46)
+            .scrollBounceBehavior(.basedOnSize, axes: [.vertical])
+            .fixedSize(horizontal: false, vertical: true)
 
             if !didLoad && items.isEmpty {
                 // First open (catalog still syncing from the cloud).
