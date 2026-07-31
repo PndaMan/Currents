@@ -379,6 +379,8 @@ struct LogCatchView: View {
 
     // MARK: - Measurements
 
+    // Two sections now (measurements + water), so this needs the builder.
+    @ViewBuilder
     private var measurementsSection: some View {
         Section("Measurements") {
             HStack {
