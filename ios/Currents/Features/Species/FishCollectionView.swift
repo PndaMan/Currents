@@ -7,6 +7,9 @@ import SwiftUI
 /// by rarity tier and caught state.
 struct FishCollectionView: View {
     @Environment(AppState.self) private var appState
+    /// True when hosted inside the Fish tab, which supplies its own
+    /// NavigationStack — nesting one here would break the search bar.
+    var embedded: Bool = false
 
     @State private var species: [Species] = []
     @State private var caughtIds: Set<Int64> = []
@@ -63,7 +66,13 @@ struct FishCollectionView: View {
     }
 
     var body: some View {
-        NavigationStack {
+        // Inside the Fish tab this is already in a NavigationStack; only wrap
+        // when used standalone.
+        if embedded { content } else { NavigationStack { content } }
+    }
+
+    @ViewBuilder
+    private var content: some View {
             ScrollView {
                 VStack(spacing: CurrentsTheme.paddingM) {
                     progressHeader
@@ -95,7 +104,6 @@ struct FishCollectionView: View {
                 .presentationDragIndicator(.visible)
             }
             .task { await load() }
-        }
     }
 
     // MARK: - Progress Header

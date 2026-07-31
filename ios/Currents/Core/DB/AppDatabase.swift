@@ -389,6 +389,16 @@ final class AppDatabase: Sendable {
             }
         }
 
+        migrator.registerMigration("v21_catch_water_conditions") { db in
+            // Water clarity + depth fished. Clarity is the single strongest
+            // input to lure-colour choice, so recording it per catch is what
+            // lets the lure engine learn what actually works for this angler.
+            try db.alter(table: "catch") { t in
+                t.add(column: "waterClarity", .text)   // WaterClarity raw value
+                t.add(column: "depthM", .double)
+            }
+        }
+
         return migrator
     }
 }

@@ -5,35 +5,38 @@ struct ContentView: View {
     // Opens straight to a requested tab in screenshot mode, else the map.
     @State private var selectedTab: Tab = ScreenshotSupport.initialTab ?? .map
 
+    /// Four tabs, one job each. The old "More" tab was a dumping ground of 16
+    /// rows; its contents now live where they're used (spots on the Map,
+    /// sessions and analytics on Catches, the guide and calendar on Fish) with
+    /// genuine settings behind the gear icon on Today.
     enum Tab: String, CaseIterable {
+        case today
         case map
         case catches
-        case collection
-        case forecast
-        case profile
+        case fish
 
         var title: String {
             switch self {
+            case .today: "Today"
             case .map: "Explore"
             case .catches: "Catches"
-            case .collection: "Collection"
-            case .forecast: "Forecast"
-            case .profile: "More"
+            case .fish: "Fish"
             }
         }
 
         var icon: String {
             switch self {
+            case .today: "sun.horizon.fill"
             case .map: "map.fill"
-            case .catches: "fish.fill"
-            case .collection: "books.vertical.fill"
-            case .forecast: "cloud.sun.fill"
-            case .profile: "square.grid.2x2.fill"
+            case .catches: "figure.fishing"
+            case .fish: "books.vertical.fill"
             }
         }
     }
 
     @State private var planPrompt: Trip?
+    /// Non-nil while a deep link is showing the Settings sheet at a screen.
+    @State private var settingsDestination: AppState.MoreDestination?
     @State private var joinGroupCode: JoinCode?
     @State private var pendingFriend: JoinCode?
     @State private var pendingCrew: JoinCode?
@@ -46,16 +49,14 @@ struct ContentView: View {
             ForEach(Tab.allCases, id: \.self) { tab in
                 SwiftUI.Tab(tab.title, systemImage: tab.icon, value: tab) {
                     switch tab {
+                    case .today:
+                        TodayTab()
                     case .map:
                         MapTab()
                     case .catches:
                         CatchesTab()
-                    case .collection:
-                        FishCollectionView()
-                    case .forecast:
-                        ForecastTab()
-                    case .profile:
-                        ProfileTab()
+                    case .fish:
+                        FishTab()
                     }
                 }
             }
@@ -106,6 +107,9 @@ struct ContentView: View {
                 JoinCrewConfirmView(code: crew.id)
             }
         }
+        .sheet(item: $settingsDestination) { dest in
+            SettingsView(initialDestination: dest)
+        }
         .onChange(of: appState.siriRequestedLogCatch) { _, requested in
             // Siri "Log a Catch" shortcut — surface the Catches tab so its
             // log sheet (which watches the same flag) can present.
@@ -151,21 +155,19 @@ struct ContentView: View {
             selectedTab = .map
             appState.openLiveSession = true
             return
+        // These four now live behind the Settings sheet (which still pushes
+        // each destination), so the existing links keep working unchanged.
         case "sessions":
-            selectedTab = .profile
-            appState.moreDestination = .sessions
+            settingsDestination = .sessions
             return
         case "community":
-            selectedTab = .profile
-            appState.moreDestination = .community
+            settingsDestination = .community
             return
         case "gear":
-            selectedTab = .profile
-            appState.moreDestination = .gear
+            settingsDestination = .gear
             return
         case "licenses":
-            selectedTab = .profile
-            appState.moreDestination = .licenses
+            settingsDestination = .licenses
             return
         case "map":
             selectedTab = .map

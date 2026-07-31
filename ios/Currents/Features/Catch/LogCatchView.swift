@@ -34,6 +34,8 @@ struct LogCatchView: View {
     @State private var selectedTripId: String?
     @State private var lengthCm: String = ""
     @State private var weightKg: String = ""
+    @State private var waterClarity: WaterClarity?
+    @State private var depthText: String = ""
     @State private var released = true
     @State private var selectedGearId: String?
     @State private var notes: String = ""
@@ -425,6 +427,26 @@ struct LogCatchView: View {
                 .buttonStyle(.plain)
             }
             Toggle("Released", isOn: $released)
+        }
+
+        // Water conditions. Both optional — but clarity is what teaches
+        // "What to Throw" which colours actually work for you.
+        Section {
+            Picker("Clarity", selection: $waterClarity) {
+                Text("Not set").tag(WaterClarity?.none)
+                ForEach(WaterClarity.allCases) { c in
+                    Text(c.label).tag(WaterClarity?.some(c))
+                }
+            }
+            HStack {
+                TextField("Depth", text: $depthText)
+                    .keyboardType(.decimalPad)
+                Text(imperial ? "ft" : "m").foregroundStyle(.secondary)
+            }
+        } header: {
+            Text("Water")
+        } footer: {
+            Text("Recording clarity sharpens your lure and colour suggestions.")
         }
     }
 
@@ -834,7 +856,10 @@ struct LogCatchView: View {
             weatherSnapshot: weatherJSON,
             gearLoadoutId: gearId,
             tripId: tripId,
-            notes: notes.isEmpty ? nil : notes
+            notes: notes.isEmpty ? nil : notes,
+            waterClarity: waterClarity,
+            // Stored in metres regardless of the angler's display units.
+            depthM: depthText.measurementValue.map { imperial ? $0 * 0.3048 : $0 }
         )
 
         try? appState.catchRepository.save(&catchRecord)

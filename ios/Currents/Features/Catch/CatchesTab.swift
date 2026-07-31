@@ -156,6 +156,22 @@ struct CatchesTab: View {
                         Image(systemName: "plus")
                     }
                 }
+                // Sessions and analytics are about your logged catches, so
+                // they live here now rather than in a separate "More" list.
+                ToolbarItem(placement: .topBarLeading) {
+                    Menu {
+                        if FeatureFlags.liveTrips {
+                            NavigationLink { SessionsView() } label: {
+                                Label("Fishing Sessions", systemImage: "figure.fishing")
+                            }
+                        }
+                        NavigationLink { AnalyticsView() } label: {
+                            Label("Analytics & Personal Bests", systemImage: "chart.xyaxis.line")
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                    }
+                }
                 ToolbarItem(placement: .secondaryAction) {
                     Menu {
                         ForEach(SortOrder.allCases, id: \.self) { order in

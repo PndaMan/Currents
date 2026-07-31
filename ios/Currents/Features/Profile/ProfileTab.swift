@@ -2,8 +2,16 @@ import SwiftUI
 import MapKit
 import UniformTypeIdentifiers
 
-struct ProfileTab: View {
+/// Everything that used to be dumped in the "More" tab. It's now a sheet
+/// behind the gear icon on Today: the things anglers use *while fishing* moved
+/// out to the tabs they belong to (spots → Map, sessions & analytics →
+/// Catches, species guide & calendar → Fish), leaving genuine settings, kit
+/// and reference here.
+struct SettingsView: View {
     @Environment(AppState.self) private var appState
+    @Environment(\.dismiss) private var dismiss
+    /// Set when a deep link wants a specific screen (gear, licences, …).
+    var initialDestination: AppState.MoreDestination? = nil
     @State private var totalCatches = 0
     @State private var totalSpots = 0
     @State private var catches: [CatchDetail] = []
@@ -39,33 +47,17 @@ struct ProfileTab: View {
                     .listRowInsets(EdgeInsets())
                 }
 
-                // Browse & Analytics
-                // Your fishing — community, records, spots, sessions.
+                // Spots now live on the Map, analytics and sessions on Catches,
+                // and the species guide and calendar on Fish — so only the
+                // community entry point remains here.
                 Section("Community") {
                     NavigationLink { CommunityView() } label: {
                         Label("Community & Friends", systemImage: "person.3.fill")
                     }
-                    NavigationLink { AnalyticsView() } label: {
-                        Label("Analytics & Personal Bests", systemImage: "chart.xyaxis.line")
-                    }
-                    NavigationLink { SpotsListView() } label: {
-                        Label("My Spots", systemImage: "mappin.circle.fill")
-                    }
-                    if FeatureFlags.liveTrips {
-                        NavigationLink { SessionsView() } label: {
-                            Label("Fishing Sessions", systemImage: "figure.fishing")
-                        }
-                    }
                 }
 
-                // Field reference.
-                Section("Reference") {
-                    NavigationLink { SpeciesBrowserView() } label: {
-                        Label("Species Guide", systemImage: "fish.fill")
-                    }
-                    NavigationLink { SeasonalCalendarView() } label: {
-                        Label("Seasonal Calendar", systemImage: "calendar")
-                    }
+                // Your kit and the field reference that goes with it.
+                Section("Kit & Reference") {
                     NavigationLink { GearTab() } label: {
                         Label("Gear & Tackle", systemImage: "wrench.and.screwdriver.fill")
                     }
@@ -126,7 +118,10 @@ struct ProfileTab: View {
                     }
                 }
             }
-            .navigationTitle("More")
+            .navigationTitle("Settings")
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
+            }
             .navigationDestination(item: $moreDest) { dest in
                 switch dest {
                 case .community: CommunityView()
@@ -135,6 +130,7 @@ struct ProfileTab: View {
                 case .sessions: SessionsView()
                 }
             }
+            .onAppear { if moreDest == nil { moreDest = initialDestination } }
             .onChange(of: appState.moreDestination) { _, dest in
                 if let dest { moreDest = dest; appState.moreDestination = nil }
             }

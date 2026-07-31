@@ -27,6 +27,15 @@ struct Catch: Codable, Identifiable, Sendable {
     /// iNaturalist observation id once this catch has been uploaded (nil until
     /// shared). Drives the auto-sync so a catch is never posted twice.
     var inatObservationId: String? = nil
+    /// Water conditions at the catch. Both optional — they teach the lure
+    /// engine what actually works for this angler, but are never required.
+    var waterClarity: String? = nil     // WaterClarity raw value
+    var depthM: Double? = nil
+
+    var clarity: WaterClarity? {
+        get { waterClarity.flatMap(WaterClarity.init(rawValue:)) }
+        set { waterClarity = newValue?.rawValue }
+    }
 
     init(
         id: String = UUID().uuidString,
@@ -48,7 +57,9 @@ struct Catch: Codable, Identifiable, Sendable {
         gearLoadoutId: String? = nil,
         tripId: String? = nil,
         notes: String? = nil,
-        isFavorite: Bool = false
+        isFavorite: Bool = false,
+        waterClarity: WaterClarity? = nil,
+        depthM: Double? = nil
     ) {
         self.id = id
         self.speciesId = speciesId
@@ -71,6 +82,8 @@ struct Catch: Codable, Identifiable, Sendable {
         self.tripId = tripId
         self.notes = notes
         self.isFavorite = isFavorite
+        self.waterClarity = waterClarity?.rawValue
+        self.depthM = depthM
         self.createdAt = .now
     }
 }

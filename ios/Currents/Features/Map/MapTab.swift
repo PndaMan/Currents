@@ -240,6 +240,15 @@ struct MapTab: View {
                             }
                         }
 
+                        Section("Show on map") {
+                            Toggle(isOn: $showWaterbodies) {
+                                Label("Water Bodies", systemImage: "water.waves")
+                            }
+                            Toggle(isOn: $showCatchPins) {
+                                Label("My Catches", systemImage: "fish.fill")
+                            }
+                        }
+
                         Section("Overlays (offline map)") {
                             Toggle(isOn: $layerNautical) {
                                 Label("Nautical / Depth", systemImage: "water.waves")
@@ -265,37 +274,24 @@ struct MapTab: View {
                             }
                     }
 
-                    // Add spot
-                    Button {
-                        showingAddSpot = true
+                    // Spots — adding one and browsing them are the same job,
+                    // so they share a button instead of taking two.
+                    Menu {
+                        Button {
+                            showingAddSpot = true
+                        } label: {
+                            Label("Add Spot Here", systemImage: "mappin.and.ellipse")
+                        }
+                        NavigationLink { SpotsListView() } label: {
+                            Label("My Spots", systemImage: "list.bullet")
+                        }
                     } label: {
                         mapButton(icon: "mappin.and.ellipse")
                     }
 
-                    // Toggle water body overlays
-                    Button {
-                        showWaterbodies.toggle()
-                    } label: {
-                        mapButton(icon: showWaterbodies ? "water.waves" : "water.waves")
-                            .opacity(showWaterbodies ? 1.0 : 0.5)
-                    }
-
-                    // Toggle catch pins
-                    Button {
-                        showCatchPins.toggle()
-                    } label: {
-                        mapButton(icon: showCatchPins ? "fish.fill" : "fish")
-                    }
-
-                    // Species browser
-                    Button {
-                        showingSpeciesBrowser = true
-                    } label: {
-                        mapButton(icon: "book.fill")
-                    }
-
-                    // (Forecast lives on the main tab bar — no duplicate button
-                    // here. This column slot is used by the trip button below.)
+                    // (Pin visibility moved into the Layers menu above, and the
+                    // species browser now has its own Fish tab — this column is
+                    // down from seven buttons to three plus the session.)
 
                     // Start / resume a fishing session
                     if FeatureFlags.liveTrips {
