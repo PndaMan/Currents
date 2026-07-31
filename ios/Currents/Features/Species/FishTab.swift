@@ -5,14 +5,16 @@ import SwiftUI
 /// "More" list; they answer the same question — *what fish, and when* — so
 /// they're segments of a single tab now.
 struct FishTab: View {
-    enum Section: String, CaseIterable, Identifiable {
+    /// Named Segment, not Section — a nested `Section` would shadow
+    /// SwiftUI's own inside this file.
+    enum Segment: String, CaseIterable, Identifiable {
         case collection = "Collection"
         case guide = "Guide"
         case seasons = "Seasons"
         var id: String { rawValue }
     }
 
-    @AppStorage("fishTabSection") private var section: Section = .collection
+    @AppStorage("fishTabSection") private var section: Segment = .collection
 
     var body: some View {
         NavigationStack {
