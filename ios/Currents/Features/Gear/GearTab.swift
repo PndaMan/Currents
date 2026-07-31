@@ -931,16 +931,9 @@ struct AddGearSheet: View {
         if items.isEmpty {
             TextField(placeholder, text: selection)
         } else {
-            Picker(placeholder, selection: selection) {
-                Text("None").tag("")
-                ForEach(items) { item in
-                    Text(item.displayName).tag(item.displayName)
-                }
-                Text("Custom...").tag("__custom__")
-            }
-            if selection.wrappedValue == "__custom__" {
-                TextField("Custom \(placeholder.lowercased())", text: selection)
-            }
+            // Shared picker: custom mode is tracked separately from the
+            // value, so typing a custom name doesn't dismiss the field.
+            GearFieldPicker(placeholder: placeholder, items: items, selection: selection)
         }
     }
 
@@ -1198,16 +1191,9 @@ struct EditLoadoutSheet: View {
         if items.isEmpty {
             TextField(placeholder, text: selection)
         } else {
-            Picker(placeholder, selection: selection) {
-                Text("None").tag("")
-                ForEach(items) { item in
-                    Text(item.displayName).tag(item.displayName)
-                }
-                Text("Custom...").tag("__custom__")
-            }
-            if selection.wrappedValue == "__custom__" {
-                TextField("Custom \(placeholder.lowercased())", text: selection)
-            }
+            // Shared picker: custom mode is tracked separately from the
+            // value, so typing a custom name doesn't dismiss the field.
+            GearFieldPicker(placeholder: placeholder, items: items, selection: selection)
         }
     }
 }
