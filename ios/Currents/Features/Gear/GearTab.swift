@@ -182,7 +182,7 @@ struct GearTab: View {
             ForEach(gearByCategory, id: \.0) { category, items in
                 VStack(alignment: .leading, spacing: 4) {
                     HStack {
-                        Label("\(category.rawValue)s", systemImage: category.icon)
+                        GearCategoryLabel(category: category, text: "\(category.rawValue)s")
                             .font(.headline)
                         Spacer()
                         Text("\(items.count)")
@@ -498,8 +498,10 @@ struct AddOwnedGearSheet: View {
                 }
                 Section("Type") {
                     Picker("Category", selection: $category) {
+                        // Glyph in the dropdown so the category is recognisable
+                        // before you read it.
                         ForEach(OwnedGear.Category.allCases, id: \.self) { cat in
-                            Text(cat.rawValue).tag(cat)
+                            GearCategoryLabel(category: cat).tag(cat)
                         }
                     }
                 }
@@ -1026,8 +1028,10 @@ struct EditOwnedGearSheet: View {
                 }
                 Section("Type") {
                     Picker("Category", selection: $category) {
+                        // Glyph in the dropdown so the category is recognisable
+                        // before you read it.
                         ForEach(OwnedGear.Category.allCases, id: \.self) { cat in
-                            Text(cat.rawValue).tag(cat)
+                            GearCategoryLabel(category: cat).tag(cat)
                         }
                     }
                 }

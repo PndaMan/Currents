@@ -271,6 +271,103 @@ struct GearPhotoField: View {
     }
 }
 
+// MARK: - Gear glyphs
+
+/// SF Symbols has no fishing hook, so the hook category was borrowing a
+/// paperclip. Drawn here instead: eye, straight shank, the bend, and a barbed
+/// point — stroked to sit alongside real symbols without looking foreign.
+struct FishHookShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        var p = Path()
+        let w = rect.width, h = rect.height
+        let shankX = w * 0.60
+
+        // Eye at the top of the shank.
+        let eyeR = w * 0.11
+        p.addEllipse(in: CGRect(x: shankX - eyeR, y: h * 0.06,
+                                width: eyeR * 2, height: eyeR * 2))
+
+        // Shank straight down, then the bend sweeping left and back up.
+        p.move(to: CGPoint(x: shankX, y: h * 0.06 + eyeR * 2))
+        p.addLine(to: CGPoint(x: shankX, y: h * 0.56))
+        p.addCurve(to: CGPoint(x: w * 0.26, y: h * 0.60),
+                   control1: CGPoint(x: shankX, y: h * 0.92),
+                   control2: CGPoint(x: w * 0.24, y: h * 0.90))
+
+        // Point, with a barb kicking off it.
+        p.addLine(to: CGPoint(x: w * 0.33, y: h * 0.44))
+        p.move(to: CGPoint(x: w * 0.295, y: h * 0.53))
+        p.addLine(to: CGPoint(x: w * 0.44, y: h * 0.56))
+        return p
+    }
+}
+
+/// Likewise no reel symbol — "record.circle" read as a camera control. A
+/// spinning reel in profile: spool, stem, rod foot and handle.
+struct FishingReelShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        var p = Path()
+        let w = rect.width, h = rect.height
+        let c = CGPoint(x: w * 0.46, y: h * 0.60)
+        let r = min(w, h) * 0.29
+
+        // Spool.
+        p.addEllipse(in: CGRect(x: c.x - r, y: c.y - r, width: r * 2, height: r * 2))
+        let inner = r * 0.36
+        p.addEllipse(in: CGRect(x: c.x - inner, y: c.y - inner,
+                                width: inner * 2, height: inner * 2))
+
+        // Stem up to the rod foot.
+        p.move(to: CGPoint(x: c.x, y: c.y - r))
+        p.addLine(to: CGPoint(x: c.x, y: h * 0.20))
+        p.move(to: CGPoint(x: w * 0.20, y: h * 0.16))
+        p.addLine(to: CGPoint(x: w * 0.78, y: h * 0.16))
+
+        // Handle arm and knob.
+        p.move(to: CGPoint(x: c.x + r, y: c.y))
+        p.addLine(to: CGPoint(x: w * 0.90, y: c.y))
+        p.addLine(to: CGPoint(x: w * 0.90, y: c.y + h * 0.16))
+        return p
+    }
+}
+
+/// One place that knows how to draw a gear category, so the custom hook and
+/// reel appear everywhere the SF Symbol ones do.
+struct GearGlyph: View {
+    let category: OwnedGear.Category
+    var size: CGFloat = 17
+
+    var body: some View {
+        switch category {
+        case .hook:
+            FishHookShape()
+                .stroke(style: StrokeStyle(lineWidth: size * 0.09, lineCap: .round, lineJoin: .round))
+                .frame(width: size, height: size)
+        case .reel:
+            FishingReelShape()
+                .stroke(style: StrokeStyle(lineWidth: size * 0.09, lineCap: .round, lineJoin: .round))
+                .frame(width: size, height: size)
+        default:
+            Image(systemName: category.icon)
+                .font(.system(size: size * 0.82))
+                .frame(width: size, height: size)
+        }
+    }
+}
+
+/// Label equivalent, for rows and menus that want glyph + text.
+struct GearCategoryLabel: View {
+    let category: OwnedGear.Category
+    var text: String? = nil
+
+    var body: some View {
+        HStack(spacing: 8) {
+            GearGlyph(category: category, size: 17)
+            Text(text ?? category.rawValue)
+        }
+    }
+}
+
 // MARK: - Gear thumbnail
 
 /// Row-sized gear image: the photo when there is one, the category glyph when
@@ -289,8 +386,7 @@ struct GearThumbnail: View {
                     .resizable()
                     .scaledToFill()
             } else {
-                Image(systemName: category.icon)
-                    .font(.subheadline)
+                GearGlyph(category: category, size: size * 0.46)
                     .foregroundStyle(CurrentsTheme.accent)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(CurrentsTheme.accent.opacity(0.12))

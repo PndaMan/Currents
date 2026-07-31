@@ -156,8 +156,9 @@ struct CatchesTab: View {
                         Image(systemName: "plus")
                     }
                 }
-                // Sessions and analytics are about your logged catches, so
-                // they live here now rather than in a separate "More" list.
+                // Sessions, analytics and your tackle box are all about your
+                // fishing rather than app settings, so they live here now
+                // instead of in a separate "More" list.
                 ToolbarItem(placement: .topBarLeading) {
                     Menu {
                         if FeatureFlags.liveTrips {
@@ -168,11 +169,16 @@ struct CatchesTab: View {
                         NavigationLink { AnalyticsView() } label: {
                             Label("Analytics & Personal Bests", systemImage: "chart.xyaxis.line")
                         }
+                        NavigationLink { GearTab() } label: {
+                            Label("Gear & Tackle", systemImage: "wrench.and.screwdriver.fill")
+                        }
                     } label: {
                         Image(systemName: "ellipsis.circle")
                     }
                 }
-                ToolbarItem(placement: .secondaryAction) {
+                // Sort was the only thing behind the overflow "..." — a menu
+                // wrapping a menu. It's a direct control with a sort glyph now.
+                ToolbarItem(placement: .topBarTrailing) {
                     Menu {
                         ForEach(SortOrder.allCases, id: \.self) { order in
                             Button {
@@ -189,8 +195,9 @@ struct CatchesTab: View {
                         }
                         .disabled(sortOrder == SortOrder.defaultOrder)
                     } label: {
-                        Label("Sort", systemImage: "arrow.up.arrow.down")
+                        Image(systemName: "arrow.up.arrow.down")
                     }
+                    .accessibilityLabel("Sort")
                 }
             }
             .sheet(isPresented: $showingLogCatch, onDismiss: {

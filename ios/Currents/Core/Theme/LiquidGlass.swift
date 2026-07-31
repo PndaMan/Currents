@@ -240,18 +240,28 @@ struct FilterChip: View {
                 Text(title)
                     .font(.subheadline.weight(isSelected ? .semibold : .regular))
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 7)
+            .padding(.horizontal, 13)
+            .padding(.vertical, 6.5)
             .background {
                 if isSelected {
-                    Capsule().fill(accent)
+                    // Slight vertical gradient + a lift so the active chip
+                    // reads as raised rather than just a flat colour fill.
+                    Capsule()
+                        .fill(LinearGradient(colors: [accent.opacity(0.95), accent],
+                                             startPoint: .top, endPoint: .bottom))
+                        .shadow(color: accent.opacity(0.35), radius: 5, y: 2)
                 } else {
-                    Capsule().fill(.ultraThinMaterial)
+                    // A tinted fill instead of ultraThinMaterial: on a dark
+                    // background the material turned every chip into the same
+                    // mid-grey blob with no edge.
+                    Capsule().fill(.primary.opacity(0.07))
                 }
             }
-            .foregroundStyle(isSelected ? .white : .primary)
+            .foregroundStyle(isSelected ? .white : .primary.opacity(0.8))
             .overlay(
-                Capsule().stroke(.secondary.opacity(isSelected ? 0 : 0.25), lineWidth: 1)
+                Capsule().strokeBorder(isSelected ? .white.opacity(0.22)
+                                                  : .primary.opacity(0.12),
+                                       lineWidth: 0.75)
             )
         }
         .buttonStyle(.plain)

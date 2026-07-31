@@ -2,6 +2,9 @@ import SwiftUI
 
 struct SeasonalCalendarView: View {
     @Environment(AppState.self) private var appState
+    /// Rendered as the first row inside the scroll view — see the note on
+    /// FishCollectionView.header.
+    var header: AnyView? = nil
     @State private var species: [Species] = []
     // Cached, precomputed lists + scores so the 1,500-species filter/sort
     // doesn't re-run on every scroll frame (that made this tab crawl).
@@ -142,6 +145,7 @@ struct SeasonalCalendarView: View {
             // LazyVStack with the species rows as DIRECT children so hundreds of
             // rows render on demand instead of all at once.
             LazyVStack(spacing: CurrentsTheme.paddingM) {
+                if let header { header }
                 monthSelector
                 searchAndFilterBar
                 tempBanner
@@ -170,7 +174,7 @@ struct SeasonalCalendarView: View {
             }
             .padding()
         }
-        .navigationTitle("Seasonal Calendar")
+        .navigationTitle(header == nil ? "Seasonal Calendar" : "")
         .sensoryFeedback(.selection, trigger: selectedMonth)
         .sensoryFeedback(.selection, trigger: sortOrder)
         .sensoryFeedback(.selection, trigger: habitatFilter)

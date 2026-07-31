@@ -21,6 +21,8 @@ struct TodayTab: View {
     @State private var showFullForecast = false
     @State private var showAllLures = false
     @State private var showSettings = false
+    /// Hour tapped on the day timeline; nil shows the window list instead.
+    @State private var selectedHour: Int?
 
     private var coordinate: CLLocationCoordinate2D {
         appState.locationManager.currentLocation?.coordinate
@@ -147,9 +149,51 @@ struct TodayTab: View {
 
             // The whole day at a glance: one bar per hour, coloured by score,
             // with a marker on now. Reading the shape is faster than reading
-            // three time ranges.
-            DayTimeline(hourly: forecast?.hourlyScores ?? [])
+            // three time ranges. Tapping an hour swaps the window list below
+            // for that hour's detail; tapping it again puts the list back.
+            DayTimeline(hourly: forecast?.hourlyScores ?? [], selected: $selectedHour)
 
+            if let hour = selectedHour, let point = hourPoint(hour) {
+                hourDetail(hour: hour, score: point)
+            } else {
+                windowList
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassCard()
+    }
+
+    private func hourPoint(_ hour: Int) -> Int? {
+        forecast?.hourlyScores.first { $0.hour == hour }?.score
+    }
+
+    /// Replaces the window list while an hour is selected.
+    private func hourDetail(hour: Int, score: Int) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text(BiteWindows.Window(startHour: hour, endHour: hour, peakScore: score)
+                    .label(use24Hour: use24HourTime))
+                    .font(.subheadline.weight(.semibold))
+                    .monospacedDigit()
+                Spacer()
+                Text("\(score)")
+                    .font(.title3.bold())
+                    .foregroundStyle(CurrentsTheme.scoreColor(score))
+            }
+            Text(BiteWindows.guidance(forScore: score))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Text("Tap the hour again to go back")
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .transition(.opacity.combined(with: .move(edge: .top)))
+    }
+
+    private var windowList: some View {
+        VStack(alignment: .leading, spacing: 10) {
             ForEach(windows) { w in
                 VStack(alignment: .leading, spacing: 3) {
                     HStack {
@@ -174,7 +218,7 @@ struct TodayTab: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .glassCard()
+        .transition(.opacity)
     }
 
     // MARK: - What to Throw
@@ -341,6 +385,7 @@ struct LureRow: View {
 /// reads at a glance in sunlight, with a marker on the current hour.
 struct DayTimeline: View {
     let hourly: [(hour: Int, score: Int)]
+    @Binding var selected: Int?
 
     private var currentHour: Int { Calendar.current.component(.hour, from: .now) }
 
@@ -349,14 +394,27 @@ struct DayTimeline: View {
             HStack(alignment: .bottom, spacing: 2) {
                 ForEach(hourly, id: \.hour) { point in
                     let isNow = point.hour == currentHour
+                    let isSelected = point.hour == selected
                     RoundedRectangle(cornerRadius: 1.5)
                         .fill(CurrentsTheme.scoreColor(point.score)
-                            .opacity(point.hour < currentHour ? 0.35 : 1))
+                            .opacity(point.hour < currentHour && !isSelected ? 0.35 : 1))
                         .frame(height: max(4, CGFloat(point.score) * 0.28))
                         .overlay {
-                            if isNow {
+                            if isSelected {
                                 RoundedRectangle(cornerRadius: 1.5)
-                                    .strokeBorder(.primary, lineWidth: 1)
+                                    .strokeBorder(.primary, lineWidth: 1.5)
+                            } else if isNow {
+                                RoundedRectangle(cornerRadius: 1.5)
+                                    .strokeBorder(.primary.opacity(0.7), lineWidth: 1)
+                            }
+                        }
+                        // A 4pt bar is far too small a target, so each one gets
+                        // the full height of the strip to be tapped in.
+                        .frame(maxHeight: .infinity, alignment: .bottom)
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            withAnimation(.snappy(duration: 0.2)) {
+                                selected = isSelected ? nil : point.hour
                             }
                         }
                 }

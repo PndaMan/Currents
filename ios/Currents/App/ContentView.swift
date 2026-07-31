@@ -29,7 +29,9 @@ struct ContentView: View {
             case .today: "sun.horizon.fill"
             case .map: "map.fill"
             case .catches: "figure.fishing"
-            case .fish: "books.vertical.fill"
+            // The fish glyph Catches used to carry — it belongs to the species
+            // guide now that Catches shows the angler instead.
+            case .fish: "fish.fill"
             }
         }
     }

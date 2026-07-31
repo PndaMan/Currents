@@ -10,6 +10,10 @@ struct FishCollectionView: View {
     /// True when hosted inside the Fish tab, which supplies its own
     /// NavigationStack — nesting one here would break the search bar.
     var embedded: Bool = false
+    /// Rendered as the first row *inside* the scroll view. The tab's segment
+    /// pills live here so they scroll away with the content instead of being
+    /// pinned over the large title.
+    var header: AnyView? = nil
 
     @State private var species: [Species] = []
     @State private var caughtIds: Set<Int64> = []
@@ -75,6 +79,7 @@ struct FishCollectionView: View {
     private var content: some View {
             ScrollView {
                 VStack(spacing: CurrentsTheme.paddingM) {
+                    if let header { header }
                     progressHeader
                     controls
                     grid
@@ -82,7 +87,7 @@ struct FishCollectionView: View {
                 .padding(.horizontal)
                 .padding(.bottom, 24)
             }
-            .navigationTitle("Collection")
+            .navigationTitle(embedded ? "" : "Collection")
             .searchable(text: $searchText, prompt: "Search species")
             .sensoryFeedback(.selection, trigger: sort)
             .sensoryFeedback(.selection, trigger: rarityFilter)
@@ -243,14 +248,18 @@ private struct CollectionCell: View {
 
     var body: some View {
         VStack(spacing: 6) {
-            SpeciesArtworkView(species: species, caught: caught, size: 72, fillWidth: true)
+            // Always full colour and always named: this is the field guide as
+            // well as the collection now, so hiding a species you haven't
+            // caught would hide the reference you came here to read.
+            SpeciesArtworkView(species: species, caught: true, size: 72, fillWidth: true)
                 .frame(maxWidth: .infinity)
                 .frame(height: 76)
 
-            Text(caught ? species.commonName : "???")
+            Text(species.commonName)
                 .font(.system(size: 11, weight: .semibold))
                 .lineLimit(1)
-                .foregroundStyle(caught ? .primary : .secondary)
+                .minimumScaleFactor(0.85)
+                .foregroundStyle(.primary)
 
             Text(String(format: "#%04d", species.id))
                 .font(.system(size: 9, weight: .medium))
@@ -267,6 +276,16 @@ private struct CollectionCell: View {
                 .font(.system(size: 9))
                 .foregroundStyle(species.rarity.color)
                 .padding(6)
+        }
+        // Caught is now shown by a tick rather than by hiding everything else.
+        .overlay(alignment: .topLeading) {
+            if caught {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 11))
+                    .symbolRenderingMode(.palette)
+                    .foregroundStyle(.white, .green)
+                    .padding(6)
+            }
         }
         .overlay(
             RoundedRectangle(cornerRadius: 14)
