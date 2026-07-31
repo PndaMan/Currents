@@ -623,8 +623,18 @@ struct ForecastTab: View {
 
     private func breakdownCard(_ forecast: ForecastEngine.ForecastResult) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Score Breakdown")
-                .font(.headline)
+            HStack(alignment: .firstTextBaseline) {
+                Text("Score Breakdown")
+                    .font(.headline)
+                Spacer()
+                Text("points of \(forecast.score)")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+            Text("Track length shows how much each factor can move the score.")
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+                .padding(.bottom, 2)
 
             BreakdownRow(label: "Pressure", value: forecast.breakdown.pressure, weight: 10)
             BreakdownRow(label: "Pressure Trend", value: forecast.breakdown.pressureTrend, weight: 15)
@@ -841,17 +851,34 @@ struct WeatherDetailCell: View {
     let label: String
 
     var body: some View {
-        VStack(spacing: 4) {
+        // Was three stacked greys with no container, which read as a caption
+        // rather than a value. Now a proper tile: tinted glyph, the number as
+        // the loudest thing, and its own surface so the grid has structure.
+        HStack(spacing: 9) {
             Image(systemName: icon)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            Text(value)
-                .font(.caption.bold())
-                .monospacedDigit()
-            Text(label)
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(CurrentsTheme.accent)
+                .frame(width: 26, height: 26)
+                .background(CurrentsTheme.accent.opacity(0.14), in: Circle())
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(value)
+                    .font(.subheadline.weight(.semibold))
+                    .monospacedDigit()
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                Text(label)
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 0)
         }
+        .padding(.horizontal, 9)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.primary.opacity(0.05),
+                    in: RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 }
 
@@ -1015,29 +1042,38 @@ struct BreakdownRow: View {
     let weight: Double
 
     var body: some View {
-        VStack(spacing: 4) {
-            HStack {
-                Text(label)
-                    .font(.caption)
-                Text("\(Int(value * weight))/\(Int(weight))")
-                    .font(.caption.bold())
-                    .monospacedDigit()
-                    .foregroundStyle(CurrentsTheme.scoreColor(Int(value * 100)))
-                Spacer()
-                Text("\(Int(value * 100))%")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
+        // The same number was shown three ways — points, percent and a bar.
+        // Now one bar carrying the proportion, one figure carrying the points,
+        // and the bar's width reflecting how much this factor can move the
+        // score at all, so a 15-point factor visibly outweighs a 5-point one.
+        HStack(spacing: 10) {
+            Text(label)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .frame(width: 104, alignment: .leading)
+                .lineLimit(1)
+                .minimumScaleFactor(0.85)
+
             GeometryReader { geo in
+                let full = geo.size.width * (weight / 15.0)
                 ZStack(alignment: .leading) {
-                    RoundedRectangle(cornerRadius: 2)
-                        .fill(.secondary.opacity(0.15))
-                    RoundedRectangle(cornerRadius: 2)
-                        .fill(CurrentsTheme.scoreColor(Int(value * 100)))
-                        .frame(width: geo.size.width * min(1, max(0, value)))
+                    Capsule()
+                        .fill(.primary.opacity(0.08))
+                        .frame(width: full)
+                    Capsule()
+                        .fill(CurrentsTheme.scoreColor(Int(value * 100)).gradient)
+                        .frame(width: full * min(1, max(0, value)))
                 }
+                .frame(maxHeight: .infinity, alignment: .center)
             }
-            .frame(height: 4)
+            .frame(height: 7)
+
+            Text("\(Int((value * weight).rounded()))")
+                .font(.caption.weight(.semibold))
+                .monospacedDigit()
+                .foregroundStyle(CurrentsTheme.scoreColor(Int(value * 100)))
+                .frame(width: 22, alignment: .trailing)
         }
+        .frame(height: 20)
     }
 }

@@ -99,9 +99,8 @@ struct TodayTab: View {
 
     private func scoreHero(_ f: ForecastEngine.ForecastResult) -> some View {
         VStack(spacing: 6) {
-            Text("\(f.score)")
-                .font(.system(size: 64, weight: .bold, design: .rounded))
-                .foregroundStyle(CurrentsTheme.scoreColor(f.score))
+            // Same ring as the tapped-hour card, so the two read as one idea.
+            ScoreRing(score: f.score, size: 116, caption: "bite score")
             Text(verdict(f.score)).font(.headline)
             if let reason = f.reasons.first {
                 Text(reason).font(.caption).foregroundStyle(.secondary)
@@ -167,26 +166,47 @@ struct TodayTab: View {
         forecast?.hourlyScores.first { $0.hour == hour }?.score
     }
 
-    /// Replaces the window list while an hour is selected.
+    /// Replaces the window list while an hour is selected. Built for this
+    /// card rather than borrowed from the full forecast's hourly drill-down:
+    /// a ring you can read at arm's length, the change against right now, and
+    /// what to actually do in that hour.
     private func hourDetail(hour: Int, score: Int) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Text(BiteWindows.Window(startHour: hour, endHour: hour, peakScore: score)
-                    .label(use24Hour: use24HourTime))
-                    .font(.subheadline.weight(.semibold))
-                    .monospacedDigit()
-                Spacer()
-                Text("\(score)")
-                    .font(.title3.bold())
-                    .foregroundStyle(CurrentsTheme.scoreColor(score))
+        let nowScore = hourPoint(Calendar.current.component(.hour, from: .now))
+        let delta = nowScore.map { score - $0 }
+
+        return HStack(alignment: .top, spacing: 14) {
+            ScoreRing(score: score, size: 62)
+
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 6) {
+                    Text(BiteWindows.Window(startHour: hour, endHour: hour, peakScore: score)
+                        .label(use24Hour: use24HourTime))
+                        .font(.subheadline.weight(.semibold))
+                        .monospacedDigit()
+                    if let delta, delta != 0 {
+                        Label("\(abs(delta))", systemImage: delta > 0 ? "arrow.up" : "arrow.down")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundStyle(delta > 0 ? .green : .orange)
+                            .labelStyle(.titleAndIcon)
+                        Text("vs now").font(.caption2).foregroundStyle(.tertiary)
+                    }
+                }
+                Text(BiteWindows.guidance(forScore: score))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Button {
+                    withAnimation(.snappy(duration: 0.2)) { selectedHour = nil }
+                } label: {
+                    Label("Back to windows", systemImage: "chevron.left")
+                        .font(.caption2.weight(.medium))
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(CurrentsTheme.accent)
+                .padding(.top, 2)
             }
-            Text(BiteWindows.guidance(forScore: score))
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-            Text("Tap the hour again to go back")
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
+            Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .transition(.opacity.combined(with: .move(edge: .top)))

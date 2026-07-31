@@ -45,6 +45,41 @@ struct SegmentedPills<T: Hashable & Identifiable>: View {
     }
 }
 
+// MARK: - Score ring
+
+/// A 0–100 bite score as a ring. Readable at arm's length on a boat, and the
+/// arc carries the value even before you read the number.
+struct ScoreRing: View {
+    let score: Int
+    var size: CGFloat = 62
+    var caption: String? = nil
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .stroke(.primary.opacity(0.08), lineWidth: size * 0.11)
+            Circle()
+                .trim(from: 0, to: CGFloat(min(100, max(0, score))) / 100)
+                .stroke(CurrentsTheme.scoreColor(score).gradient,
+                        style: StrokeStyle(lineWidth: size * 0.11, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+            VStack(spacing: -1) {
+                Text("\(score)")
+                    .font(.system(size: size * 0.34, weight: .bold, design: .rounded))
+                    .monospacedDigit()
+                    .foregroundStyle(CurrentsTheme.scoreColor(score))
+                if let caption {
+                    Text(caption)
+                        .font(.system(size: size * 0.13))
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .frame(width: size, height: size)
+        .animation(.snappy(duration: 0.3), value: score)
+    }
+}
+
 // MARK: - Water clarity
 
 /// Three cards showing what the water actually looks like, rather than a
