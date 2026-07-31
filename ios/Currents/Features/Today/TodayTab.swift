@@ -144,6 +144,12 @@ struct TodayTab: View {
         VStack(alignment: .leading, spacing: 10) {
             Label("Best Windows Today", systemImage: "clock.badge.checkmark")
                 .font(.headline)
+
+            // The whole day at a glance: one bar per hour, coloured by score,
+            // with a marker on now. Reading the shape is faster than reading
+            // three time ranges.
+            DayTimeline(hourly: forecast?.hourlyScores ?? [])
+
             ForEach(windows) { w in
                 VStack(alignment: .leading, spacing: 3) {
                     HStack {
@@ -183,24 +189,20 @@ struct TodayTab: View {
             }
 
             // Clarity is the biggest lever on colour, and only the angler can
-            // actually see it — so it's a first-class control, pre-filled.
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Water clarity").font(.caption).foregroundStyle(.secondary)
-                Picker("Water clarity", selection: Binding(
-                    get: { clarity },
-                    set: { clarityOverride = $0.rawValue }
-                )) {
-                    ForEach(WaterClarity.allCases) { c in Text(c.label).tag(c) }
-                }
-                .pickerStyle(.segmented)
-            }
+            // actually see it — so it's a first-class control, pre-filled from
+            // recent rainfall and shown as water rather than words.
+            ClarityPicker(selection: Binding(
+                get: { clarity },
+                set: { if let new = $0 { clarityOverride = new.rawValue } }
+            ))
 
             if isLoading {
                 FishLoader(message: "Matching conditions…").frame(height: 80)
             } else {
-                ForEach(suggestions.prefix(3)) { s in
-                    LureRow(suggestion: s)
-                    if s.id != suggestions.prefix(3).last?.id { Divider() }
+                let top = Array(suggestions.prefix(3))
+                ForEach(Array(top.enumerated()), id: \.element.id) { index, s in
+                    LureRow(suggestion: s, rank: index + 1)
+                    if index < top.count - 1 { Divider() }
                 }
             }
         }
@@ -283,51 +285,124 @@ struct TodayTab: View {
 
 struct LureRow: View {
     let suggestion: LureEngine.Suggestion
+    /// 1-based position, shown as a rank badge so the ordering is explicit
+    /// rather than implied by a bar you have to squint at.
+    var rank: Int? = nil
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(suggestion.lure).font(.subheadline.weight(.semibold))
-                if suggestion.isOwned {
-                    Image(systemName: "checkmark.seal.fill")
-                        .font(.caption2).foregroundStyle(.green)
+        HStack(alignment: .top, spacing: 10) {
+            if let rank { rankBadge(rank) }
+
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(spacing: 6) {
+                    Text(suggestion.lure).font(.subheadline.weight(.semibold))
+                    if suggestion.isOwned {
+                        Text("HAVE IT")
+                            .font(.system(size: 8, weight: .bold))
+                            .padding(.horizontal, 5).padding(.vertical, 2)
+                            .background(.green.opacity(0.18), in: Capsule())
+                            .foregroundStyle(.green)
+                    }
+                    Spacer(minLength: 0)
                 }
+
+                // The colour shown as the colour — "Chartreuse / White" is
+                // meaningless at a glance, two stripes of it are not.
+                HStack(spacing: 6) {
+                    LureColorSwatch(name: suggestion.color)
+                    Text(suggestion.color)
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.primary)
+                }
+
+                Text(suggestion.technique)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                FlowChips(items: [suggestion.depth] + suggestion.reasons.prefix(2))
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    private func rankBadge(_ n: Int) -> some View {
+        Text("\(n)")
+            .font(.caption.bold())
+            .monospacedDigit()
+            .frame(width: 22, height: 22)
+            .background(CurrentsTheme.scoreColor(Int(suggestion.score * 100)).opacity(0.18),
+                        in: Circle())
+            .foregroundStyle(CurrentsTheme.scoreColor(Int(suggestion.score * 100)))
+    }
+}
+
+/// The day's bite as 24 bars. Height and colour both carry the score so it
+/// reads at a glance in sunlight, with a marker on the current hour.
+struct DayTimeline: View {
+    let hourly: [(hour: Int, score: Int)]
+
+    private var currentHour: Int { Calendar.current.component(.hour, from: .now) }
+
+    var body: some View {
+        VStack(spacing: 4) {
+            HStack(alignment: .bottom, spacing: 2) {
+                ForEach(hourly, id: \.hour) { point in
+                    let isNow = point.hour == currentHour
+                    RoundedRectangle(cornerRadius: 1.5)
+                        .fill(CurrentsTheme.scoreColor(point.score)
+                            .opacity(point.hour < currentHour ? 0.35 : 1))
+                        .frame(height: max(4, CGFloat(point.score) * 0.28))
+                        .overlay {
+                            if isNow {
+                                RoundedRectangle(cornerRadius: 1.5)
+                                    .strokeBorder(.primary, lineWidth: 1)
+                            }
+                        }
+                }
+            }
+            .frame(height: 30, alignment: .bottom)
+
+            HStack {
+                Text("12 AM").font(.system(size: 8))
                 Spacer()
-                confidenceBar
+                Text("Noon").font(.system(size: 8))
+                Spacer()
+                Text("11 PM").font(.system(size: 8))
             }
-            Text(suggestion.color)
-                .font(.caption.weight(.medium))
-                .foregroundStyle(CurrentsTheme.accent)
-            Text(suggestion.technique).font(.caption).foregroundStyle(.secondary)
-            HStack(spacing: 6) {
-                chip(suggestion.depth, icon: "arrow.down.to.line")
-                ForEach(suggestion.reasons.prefix(2), id: \.self) { chip($0, icon: nil) }
+            .foregroundStyle(.tertiary)
+        }
+    }
+}
+
+/// Chips that wrap instead of clipping — reason text varies in length and a
+/// single HStack would truncate the useful ones.
+struct FlowChips: View {
+    let items: [String]
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 5) { chips }
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 5) { chip(items.first ?? "") }
+                HStack(spacing: 5) {
+                    ForEach(Array(items.dropFirst()), id: \.self) { chip($0) }
+                }
             }
         }
-        .padding(.vertical, 2)
     }
 
-    private var confidenceBar: some View {
-        GeometryReader { geo in
-            ZStack(alignment: .leading) {
-                Capsule().fill(.gray.opacity(0.25))
-                Capsule()
-                    .fill(CurrentsTheme.scoreColor(Int(suggestion.score * 100)))
-                    .frame(width: geo.size.width * suggestion.score)
-            }
-        }
-        .frame(width: 44, height: 5)
+    private var chips: some View {
+        ForEach(items, id: \.self) { chip($0) }
     }
 
-    private func chip(_ text: String, icon: String?) -> some View {
-        HStack(spacing: 3) {
-            if let icon { Image(systemName: icon).font(.system(size: 8)) }
-            Text(text).font(.caption2)
-        }
-        .padding(.horizontal, 6).padding(.vertical, 3)
-        .background(.gray.opacity(0.15), in: Capsule())
-        .foregroundStyle(.secondary)
-        .lineLimit(1)
+    private func chip(_ text: String) -> some View {
+        Text(text)
+            .font(.caption2)
+            .padding(.horizontal, 7).padding(.vertical, 3)
+            .background(.gray.opacity(0.15), in: Capsule())
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
     }
 }
 
@@ -343,9 +418,9 @@ struct WhatToThrowDetailView: View {
         NavigationStack {
             List {
                 Section {
-                    ForEach(suggestions) { s in
+                    ForEach(Array(suggestions.enumerated()), id: \.element.id) { index, s in
                         VStack(alignment: .leading, spacing: 6) {
-                            LureRow(suggestion: s)
+                            LureRow(suggestion: s, rank: index + 1)
                             if s.personalCatches > 0 {
                                 Label("\(s.personalCatches) of your catches came on this",
                                       systemImage: "chart.line.uptrend.xyaxis")

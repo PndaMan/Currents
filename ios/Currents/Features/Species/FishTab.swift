@@ -11,7 +11,16 @@ struct FishTab: View {
         case collection = "Collection"
         case guide = "Guide"
         case seasons = "Seasons"
+
         var id: String { rawValue }
+
+        var icon: String {
+            switch self {
+            case .collection: "checklist"
+            case .guide:      "book.fill"
+            case .seasons:    "calendar"
+            }
+        }
     }
 
     @AppStorage("fishTabSection") private var section: Segment = .collection
@@ -19,12 +28,10 @@ struct FishTab: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                Picker("Section", selection: $section) {
-                    ForEach(Section.allCases) { Text($0.rawValue).tag($0) }
-                }
-                .pickerStyle(.segmented)
-                .padding(.horizontal)
-                .padding(.bottom, 6)
+                SegmentedPills(options: Segment.allCases, selection: $section,
+                               title: { $0.rawValue }, icon: { $0.icon })
+                    .padding(.horizontal)
+                    .padding(.bottom, 8)
 
                 switch section {
                 case .collection: FishCollectionView(embedded: true)

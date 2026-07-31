@@ -219,6 +219,7 @@ struct GearTab: View {
                                 }
                                 Button(role: .destructive) {
                                     try? appState.ownedGearRepository.delete(item)
+                                    if let p = item.photoPath { PhotoManager.delete(p) }
                                     NotificationManager.shared.cancelLowStockAlert(itemId: item.id)
                                     Haptics.warning()
                                     ToastCenter.shared.show("Gear deleted", style: .info, haptic: false)
@@ -248,11 +249,7 @@ struct GearTab: View {
 
     private func gearItemRow(_ item: OwnedGear) -> some View {
         HStack(spacing: 12) {
-            Image(systemName: item.category.icon)
-                .font(.subheadline)
-                .foregroundStyle(CurrentsTheme.accent)
-                .frame(width: 40, height: 40)
-                .background(CurrentsTheme.accent.opacity(0.12), in: Circle())
+            GearThumbnail(photoPath: item.photoPath, category: item.category)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(item.name)
@@ -486,10 +483,19 @@ struct AddOwnedGearSheet: View {
     @State private var lowStockThreshold = 2
     @State private var showingScanner = false
     @State private var lookupState: BarcodeLookupState = .idle
+    @State private var photo: UIImage?
 
     var body: some View {
         NavigationStack {
             Form {
+                // Photo first: for a lure it carries the colour and pattern
+                // that a name never will, so it's the fastest way to make an
+                // entry recognisable later.
+                Section {
+                    GearPhotoField(image: $photo)
+                        .listRowInsets(EdgeInsets())
+                        .listRowBackground(Color.clear)
+                }
                 Section("Type") {
                     Picker("Category", selection: $category) {
                         ForEach(OwnedGear.Category.allCases, id: \.self) { cat in
@@ -572,6 +578,11 @@ struct AddOwnedGearSheet: View {
             lowStockThreshold: consumable ? lowStockThreshold : nil,
             barcode: barcode.isEmpty ? nil : barcode
         )
+        // Saved under the item's own id so it travels with the record and is
+        // picked up by the existing photo backup.
+        if let photo, let filename = try? PhotoManager.save(photo, id: "gear_\(item.id)") {
+            item.photoPath = filename
+        }
         try? appState.ownedGearRepository.save(&item)
         if item.isLowStock {
             Task { await NotificationManager.shared.scheduleLowStockAlert(item: item) }
@@ -992,6 +1003,7 @@ struct EditOwnedGearSheet: View {
     @State private var specs: String
     @State private var stock: Int
     @State private var lowStockThreshold: Int
+    @State private var photo: UIImage?
 
     init(gear: OwnedGear) {
         self.gear = gear
@@ -1001,11 +1013,17 @@ struct EditOwnedGearSheet: View {
         _specs = State(initialValue: gear.specs ?? "")
         _stock = State(initialValue: gear.stock ?? 0)
         _lowStockThreshold = State(initialValue: gear.lowStockThreshold ?? 2)
+        _photo = State(initialValue: gear.photoPath.flatMap { PhotoManager.load($0) })
     }
 
     var body: some View {
         NavigationStack {
             Form {
+                Section {
+                    GearPhotoField(image: $photo)
+                        .listRowInsets(EdgeInsets())
+                        .listRowBackground(Color.clear)
+                }
                 Section("Type") {
                     Picker("Category", selection: $category) {
                         ForEach(OwnedGear.Category.allCases, id: \.self) { cat in
@@ -1048,6 +1066,13 @@ struct EditOwnedGearSheet: View {
                         let consumable = category.isConsumable
                         updated.stock = consumable ? stock : nil
                         updated.lowStockThreshold = consumable ? lowStockThreshold : nil
+                        // Delete first even when replacing: it clears the
+                        // cached thumbnail, otherwise the row would keep
+                        // showing the old picture at the same filename.
+                        if let old = gear.photoPath { PhotoManager.delete(old) }
+                        updated.photoPath = photo.flatMap {
+                            try? PhotoManager.save($0, id: "gear_\(gear.id)")
+                        }
                         try? appState.ownedGearRepository.save(&updated)
                         if updated.isLowStock {
                             Task { await NotificationManager.shared.scheduleLowStockAlert(item: updated) }

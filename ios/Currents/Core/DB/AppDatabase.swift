@@ -399,6 +399,14 @@ final class AppDatabase: Sendable {
             }
         }
 
+        migrator.registerMigration("v22_gear_photo") { db in
+            // A photo *is* the identity of a lure — "Chatterbait" doesn't tell
+            // you it's the chartreuse one with the gold blade.
+            try db.alter(table: "ownedGear") { t in
+                t.add(column: "photoPath", .text)
+            }
+        }
+
         return migrator
     }
 }

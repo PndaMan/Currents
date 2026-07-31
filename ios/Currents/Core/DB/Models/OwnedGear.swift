@@ -19,6 +19,9 @@ struct OwnedGear: Codable, Identifiable, Sendable {
     var lowStockThreshold: Int?
     /// Product barcode (EAN/UPC), for re-ordering. Stored on its own, not in specs.
     var barcode: String?
+    /// Filename of a photo of this item (in the shared photo store). For lures
+    /// the picture carries the colour and pattern that a name never can.
+    var photoPath: String?
     var createdAt: Date
 
     enum Category: String, Codable, CaseIterable, Sendable {
@@ -59,7 +62,8 @@ struct OwnedGear: Codable, Identifiable, Sendable {
         specs: String? = nil,
         stock: Int? = nil,
         lowStockThreshold: Int? = nil,
-        barcode: String? = nil
+        barcode: String? = nil,
+        photoPath: String? = nil
     ) {
         self.id = id
         self.category = category
@@ -69,6 +73,7 @@ struct OwnedGear: Codable, Identifiable, Sendable {
         self.stock = stock
         self.lowStockThreshold = lowStockThreshold
         self.barcode = barcode
+        self.photoPath = photoPath
         self.createdAt = .now
     }
 

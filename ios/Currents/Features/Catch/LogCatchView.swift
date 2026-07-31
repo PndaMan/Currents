@@ -432,12 +432,10 @@ struct LogCatchView: View {
         // Water conditions. Both optional — but clarity is what teaches
         // "What to Throw" which colours actually work for you.
         Section {
-            Picker("Clarity", selection: $waterClarity) {
-                Text("Not set").tag(WaterClarity?.none)
-                ForEach(WaterClarity.allCases) { c in
-                    Text(c.label).tag(WaterClarity?.some(c))
-                }
-            }
+            // Tap-again-to-clear, because "not recorded" is a real answer here
+            // and shouldn't need a separate row to express.
+            ClarityPicker(selection: $waterClarity, allowsDeselect: true)
+                .padding(.vertical, 4)
             HStack {
                 TextField("Depth", text: $depthText)
                     .keyboardType(.decimalPad)
@@ -446,7 +444,7 @@ struct LogCatchView: View {
         } header: {
             Text("Water")
         } footer: {
-            Text("Recording clarity sharpens your lure and colour suggestions.")
+            Text("Optional. Recording clarity sharpens your lure and colour suggestions.")
         }
     }
 
