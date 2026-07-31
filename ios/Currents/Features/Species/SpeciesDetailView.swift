@@ -16,8 +16,14 @@ struct SpeciesDetailView: View {
                 VStack(spacing: 8) {
                     // Always shown in full colour — the guide/detail is a
                     // reference, not the grey Pokédex "not yet caught" state.
-                    SpeciesArtworkView(species: species, caught: true, size: 132)
-                        .frame(width: 132, height: 132)
+                    // Fill the width rather than sitting in a 132pt square. Fish
+                    // art is wide and short, so a square frame binds on width
+                    // and wastes the rest: the tarpon drew 132x75 in a 132pt
+                    // box, leaving most of it empty. Here it renders 298x170 —
+                    // 2.3x on each edge — while the height cap still stops a
+                    // deep-bodied species from taking over the screen.
+                    SpeciesArtworkView(species: species, caught: true, size: 170, fillWidth: true)
+                        .frame(maxWidth: .infinity)
 
                     Label(species.rarity.label, systemImage: species.rarity.symbol)
                         .font(.caption2.bold())
