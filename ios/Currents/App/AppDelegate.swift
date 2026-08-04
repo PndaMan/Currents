@@ -1,5 +1,6 @@
 import UIKit
 import UserNotifications
+import CloudKit
 
 /// Handles remote (APNs) notifications and foreground presentation. Community
 /// events — friend requests, trip invites, request-accepted — are delivered as
@@ -34,20 +35,58 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
                      didReceiveRemoteNotification userInfo: [AnyHashable: Any],
                      fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void) {
         Task { @MainActor in
+            // Crew/trip event pushes carry content-available, so this also runs
+            // in the background — pre-warm the crew feed the event landed in,
+            // so opening the app (or the notification) shows it instantly.
+            if let crewCode = Self.queryFields(userInfo)?["crewCode"] as? String {
+                _ = await CommunityService.shared.crewFeed(code: crewCode)
+            }
             await CommunityService.shared.refreshTripInvites()
             await CommunityService.shared.refreshFriendRequests()
             completionHandler(.newData)
         }
     }
 
+    // MARK: - CloudKit event payload helpers
+
+    /// The record fields a CloudKit query push carried (its `desiredKeys`),
+    /// or nil for pushes without any (friend requests, invites).
+    private static func queryFields(_ userInfo: [AnyHashable: Any]) -> [String: Any]? {
+        guard let dict = userInfo as? [String: NSObject],
+              let note = CKNotification(fromRemoteNotificationDictionary: dict) as? CKQueryNotification
+        else { return nil }
+        return note.recordFields
+    }
+
+    /// True when the push describes something this user did themself. CloudKit
+    /// subscription predicates can't express "author != me", so your own
+    /// subscription fires when you post, react, host a trip or land a catch —
+    /// each event sub includes the author-ish field in its desiredKeys, and
+    /// the banner is dropped here instead.
+    private static func isSelfEvent(_ userInfo: [AnyHashable: Any]) -> Bool {
+        guard let fields = queryFields(userInfo),
+              let me = UserDefaults.standard.string(forKey: "communityFriendCode")
+        else { return false }
+        for key in ["authorCode", "reactorCode", "hostCode", "friendCode"] {
+            if let code = fields[key] as? String { return code == me }
+        }
+        return false
+    }
+
     // MARK: - UNUserNotificationCenterDelegate
 
-    /// Show notifications as a banner + sound even when the app is open.
+    /// Show notifications as a banner + sound even when the app is open —
+    /// except your own crew/trip events echoing back (you just posted; you
+    /// don't need a banner telling you so).
     func userNotificationCenter(_ center: UNUserNotificationCenter,
                                 willPresent notification: UNNotification,
                                 withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
-        completionHandler([.banner, .list, .sound, .badge])
+        let userInfo = notification.request.content.userInfo
+        completionHandler(Self.isSelfEvent(userInfo) ? [] : [.banner, .list, .sound, .badge])
         Task { @MainActor in
+            if let crewCode = Self.queryFields(userInfo)?["crewCode"] as? String {
+                _ = await CommunityService.shared.crewFeed(code: crewCode)
+            }
             await CommunityService.shared.refreshTripInvites()
             await CommunityService.shared.refreshFriendRequests()
         }

@@ -454,7 +454,7 @@ struct CrewPostCard: View {
             ForEach(CommunityService.crewReactionEmojis.filter { grouped[$0] != nil }, id: \.self) { emoji in
                 let count = grouped[emoji]?.count ?? 0
                 Button {
-                    Task { await svc.toggleCrewReaction(emoji: emoji, postId: post.id, crewCode: crewCode); await reload() }
+                    Task { await svc.toggleCrewReaction(emoji: emoji, postId: post.id, crewCode: crewCode, postAuthorCode: post.authorCode); await reload() }
                     Haptics.tap()
                 } label: {
                     HStack(spacing: 3) {
@@ -471,7 +471,7 @@ struct CrewPostCard: View {
             Menu {
                 ForEach(CommunityService.crewReactionEmojis, id: \.self) { emoji in
                     Button {
-                        Task { await svc.toggleCrewReaction(emoji: emoji, postId: post.id, crewCode: crewCode); await reload() }
+                        Task { await svc.toggleCrewReaction(emoji: emoji, postId: post.id, crewCode: crewCode, postAuthorCode: post.authorCode); await reload() }
                         Haptics.tap()
                     } label: {
                         Text("\(emoji)  \(mine == emoji ? "Remove" : "React")")

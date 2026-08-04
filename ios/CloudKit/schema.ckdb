@@ -75,7 +75,8 @@ DEFINE SCHEMA
         hostCode    STRING,
         hostName    STRING,
         createdAt   TIMESTAMP,
-        crewCode    STRING,
+        -- Queryable so crew members get a push the moment a trip goes live.
+        crewCode    STRING QUERYABLE,
         "___createTime" TIMESTAMP,
         "___createdBy"  REFERENCE,
         "___etag"       STRING,
@@ -226,10 +227,13 @@ DEFINE SCHEMA
     );
 
     -- One reaction per angler per post. Queried by crewCode (grouped by postId
-    -- on-device), so postId itself does not need an index.
+    -- on-device). postAuthorCode carries the post owner's friend code so a
+    -- push subscription can target "reactions to MY posts" (CloudKit predicates
+    -- cannot express joins or !=, so the fact is denormalised onto the record).
     RECORD TYPE CrewReaction (
         postId      STRING,
         crewCode    STRING QUERYABLE,
+        postAuthorCode STRING QUERYABLE,
         reactorCode STRING,
         reactorName STRING,
         emoji       STRING,

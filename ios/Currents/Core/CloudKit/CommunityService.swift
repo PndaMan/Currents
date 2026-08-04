@@ -1014,10 +1014,12 @@ final class CommunityService: ObservableObject {
             list.append(crew)
         }
         myCrews = list
+        scheduleEventSubSync()
     }
 
     private func forgetCrew(code: String) {
         myCrews = myCrews.filter { $0.code != code }
+        scheduleEventSubSync()
     }
 
     func setAutoPost(_ on: Bool, forCrew code: String) {
@@ -1206,7 +1208,8 @@ final class CommunityService: ObservableObject {
 
     /// Toggle my reaction on a post: same emoji removes it, a different emoji
     /// replaces it (one reaction per member per post).
-    func toggleCrewReaction(emoji: String, postId: String, crewCode: String) async {
+    func toggleCrewReaction(emoji: String, postId: String, crewCode: String,
+                            postAuthorCode: String) async {
         let id = CKRecord.ID(recordName: "crewreact-\(postId)-\(friendCode)")
         if let existing = try? await db.record(for: id) {
             if (existing["emoji"] as? String) == emoji {
@@ -1220,6 +1223,9 @@ final class CommunityService: ObservableObject {
         let record = CKRecord(recordType: crewReactionType, recordID: id)
         record["postId"] = postId as CKRecordValue
         record["crewCode"] = crewCode as CKRecordValue
+        // Denormalised so the post owner's "someone reacted to your catch"
+        // subscription can match it (CloudKit predicates can't join to the post).
+        record["postAuthorCode"] = postAuthorCode as CKRecordValue
         record["reactorCode"] = friendCode as CKRecordValue
         record["reactorName"] = myName as CKRecordValue
         record["emoji"] = emoji as CKRecordValue
@@ -1327,10 +1333,12 @@ final class CommunityService: ObservableObject {
             groups.append(ref)
         }
         myGroups = groups
+        scheduleEventSubSync()
     }
 
     private func forgetGroup(code: String) {
         myGroups = myGroups.filter { $0.code != code }
+        scheduleEventSubSync()
     }
 
     // Local trip.id → group code mapping so a trip stays linked to its group
@@ -1458,6 +1466,8 @@ final class CommunityService: ObservableObject {
         if let i = groups.firstIndex(where: { $0.code == code }), groups[i].endedAt == nil {
             groups[i].endedAt = date
             myGroups = groups
+            // Drops the trip's catch subscription now that it's over.
+            scheduleEventSubSync()
         }
     }
 
@@ -1734,6 +1744,8 @@ final class CommunityService: ObservableObject {
         guard granted else { return }
         UIApplication.shared.registerForRemoteNotifications()
         await registerPushSubscriptions()
+        // Crew/trip subscriptions — forced so baked-in crew names stay fresh.
+        await syncEventSubscriptions(force: true)
     }
 
     /// Whether APNs registration succeeded on this build (proves the aps-
@@ -1756,6 +1768,7 @@ final class CommunityService: ObservableObject {
     /// tells us if the schema/indexes are deployed to this environment).
     func verifyPushSubscriptions() async -> Bool {
         await registerPushSubscriptions(force: true)
+        await syncEventSubscriptions(force: true)
         return pushSubscriptionsCreated
     }
 
@@ -1820,4 +1833,140 @@ final class CommunityService: ObservableObject {
     }
 
     var pushSubsError: String? { UserDefaults.standard.string(forKey: "pushSubsError") }
+    var eventSubsError: String? { UserDefaults.standard.string(forKey: "eventSubsError") }
+    /// True once the crew/trip subscriptions have completed a successful sync.
+    var eventSubscriptionsSynced: Bool {
+        UserDefaults.standard.string(forKey: "eventSubsFingerprint") != nil && eventSubsError == nil
+    }
+
+    // MARK: - Event push subscriptions (crews + live trips)
+    //
+    // Unlike the friend-request/invite subscriptions above (fixed set, keyed
+    // only on my code), these come and go with membership: one per crew for
+    // new posts, one per crew for a trip going live, one per still-live group
+    // trip for members' catches, and a single one for reactions to my posts.
+    // CloudKit sends the APNs push itself when a matching record lands — no
+    // server of ours involved. Every one also carries content-available, so
+    // delivery quietly wakes the app to pre-warm the crew feed cache.
+
+    /// The dynamic subscriptions this device should hold right now.
+    private func desiredEventSubscriptions() -> [CKQuerySubscription] {
+        guard joined else { return [] }
+
+        func info(title: String, key: String, args: [String],
+                  desiredKeys: [CKRecord.FieldKey]) -> CKSubscription.NotificationInfo {
+            let n = CKSubscription.NotificationInfo()
+            n.title = title
+            n.alertLocalizationKey = key
+            n.alertLocalizationArgs = args
+            n.soundName = "default"
+            n.shouldBadge = true
+            // Wake the app in the background as well as showing the alert, so
+            // the relevant feed is already fresh when the user opens it.
+            n.shouldSendContentAvailable = true
+            // Included in the payload so the app can drop self-authored events
+            // (CloudKit predicates can't express `authorCode != me`).
+            n.desiredKeys = desiredKeys
+            return n
+        }
+
+        var subs: [CKQuerySubscription] = []
+
+        // Reactions to my posts — one subscription regardless of crew count.
+        // Fires on update too, since changing your emoji edits the record.
+        let react = CKQuerySubscription(
+            recordType: crewReactionType,
+            predicate: NSPredicate(format: "postAuthorCode == %@", friendCode),
+            subscriptionID: "ev-react-\(friendCode)",
+            options: [.firesOnRecordCreation, .firesOnRecordUpdate])
+        react.notificationInfo = info(
+            title: "Your catch got a reaction",
+            key: "%1$@ reacted %2$@ to your catch",
+            args: ["reactorName", "emoji"],
+            desiredKeys: ["reactorCode", "crewCode"])
+        subs.append(react)
+
+        for crew in myCrews {
+            // Someone posted a catch to this crew's feed.
+            let posts = CKQuerySubscription(
+                recordType: crewPostType,
+                predicate: NSPredicate(format: "crewCode == %@", crew.code),
+                subscriptionID: "ev-posts-\(crew.code)",
+                options: [.firesOnRecordCreation])
+            posts.notificationInfo = info(
+                title: "\(crew.emoji) \(crew.name)",
+                key: "%1$@ landed a %2$@ 🎣",
+                args: ["authorName", "species"],
+                desiredKeys: ["authorCode", "crewCode"])
+            subs.append(posts)
+
+            // A live trip just started in this crew.
+            let trips = CKQuerySubscription(
+                recordType: groupTripType,
+                predicate: NSPredicate(format: "crewCode == %@", crew.code),
+                subscriptionID: "ev-trip-\(crew.code)",
+                options: [.firesOnRecordCreation])
+            trips.notificationInfo = info(
+                title: "\(crew.emoji) \(crew.name)",
+                key: "%1$@ started a live trip — jump in",
+                args: ["hostName"],
+                desiredKeys: ["hostCode", "crewCode"])
+            subs.append(trips)
+        }
+
+        // Catches landing on group trips I'm on that are still live. Fires on
+        // update too: sharing an already-published catch tags the existing
+        // leaderboard record rather than creating one.
+        for g in myGroups where g.endedAt == nil {
+            let catches = CKQuerySubscription(
+                recordType: catchType,
+                predicate: NSPredicate(format: "groupCode == %@", g.code),
+                subscriptionID: "ev-tripcatch-\(g.code)",
+                options: [.firesOnRecordCreation, .firesOnRecordUpdate])
+            catches.notificationInfo = info(
+                title: g.name,
+                key: "%1$@ just landed a %2$@ on the trip!",
+                args: ["anglerName", "species"],
+                desiredKeys: ["friendCode", "groupCode"])
+            subs.append(catches)
+        }
+
+        return subs
+    }
+
+    /// Reconcile the dynamic subscriptions against the server: create what's
+    /// missing, delete what no longer applies (left crew, trip ended). Cheap
+    /// no-op when membership hasn't changed since the last successful sync.
+    /// `force` rebuilds everything — also refreshes baked-in crew names.
+    func syncEventSubscriptions(force: Bool = false) async {
+        guard joined else { return }
+        let desired = desiredEventSubscriptions()
+        let fingerprint = desired.map(\.subscriptionID).sorted().joined(separator: ",")
+        if !force, UserDefaults.standard.string(forKey: "eventSubsFingerprint") == fingerprint {
+            return
+        }
+        do {
+            let existing = try await db.allSubscriptions()
+                .map(\.subscriptionID)
+                .filter { $0.hasPrefix("ev-") }
+            let desiredIDs = Set(desired.map(\.subscriptionID))
+            let stale = existing.filter { !desiredIDs.contains($0) }
+            let existingSet = Set(existing)
+            let saving = force ? desired : desired.filter { !existingSet.contains($0.subscriptionID) }
+            if !saving.isEmpty || !stale.isEmpty {
+                _ = try await db.modifySubscriptions(saving: saving, deleting: stale)
+            }
+            UserDefaults.standard.set(fingerprint, forKey: "eventSubsFingerprint")
+            UserDefaults.standard.removeObject(forKey: "eventSubsError")
+        } catch {
+            // Schema not deployed / offline — retried on the next membership
+            // change or push re-enable.
+            UserDefaults.standard.set(error.localizedDescription, forKey: "eventSubsError")
+        }
+    }
+
+    /// Fire-and-forget wrapper for the synchronous membership mutation points.
+    private func scheduleEventSubSync() {
+        Task { await self.syncEventSubscriptions() }
+    }
 }

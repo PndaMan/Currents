@@ -104,8 +104,15 @@ struct AlertSettingsView: View {
                         }
                     }
                     .disabled(busyPush)
+                    LabeledContent("Crew & trip alerts") {
+                        Text(svc.eventSubscriptionsSynced ? "On" : "Off")
+                            .foregroundStyle(svc.eventSubscriptionsSynced ? .green : .orange)
+                    }
                     if let e = svc.pushSubsError {
                         Text("Subscription error: \(e)").font(.caption).foregroundStyle(.orange)
+                    }
+                    if let e = svc.eventSubsError {
+                        Text("Crew alerts error: \(e)").font(.caption).foregroundStyle(.orange)
                     }
                     if !svc.apnsRegistered, let e = svc.apnsRegisterError {
                         Text("APNs error: \(e)").font(.caption).foregroundStyle(.orange)
