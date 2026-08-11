@@ -92,12 +92,19 @@ struct CommunityView: View {
             MyProfileView(stats: stats, catches: myCatches)
         }
         .task(id: svc.joined) {
-            refreshStats(); await syncCatches(); await loadNotifications()
-            // Rebuild membership from the server once per launch — a
-            // reinstall used to show zero crews/trips while the server still
-            // counted (and pushed to) this angler.
-            await svc.reconcileMemberships()
+            refreshStats()
+            // Visible content FIRST — the feed used to wait behind the whole
+            // catch-upload/grant-healing pass before it even started loading.
             await loadMergedFeed()
+            await loadNotifications()
+            // Maintenance in the background: publish history, heal grants and
+            // spot shares, and rebuild membership from the server once per
+            // launch (a reinstall used to show zero crews/trips while the
+            // server still counted — and pushed to — this angler).
+            Task {
+                await syncCatches()
+                await svc.reconcileMemberships()
+            }
         }
         .onChange(of: svc.revision) { _, _ in refreshStats() }
         // A crew push tap lands directly in that crew.
@@ -237,9 +244,11 @@ struct CommunityView: View {
             // bumpRevision re-runs every section's reload (they all watch it).
             svc.bumpRevision()
             refreshStats()
-            await syncCatches()
-            await loadNotifications()
             await loadMergedFeed()
+            await loadNotifications()
+            // Uploads and share-healing refresh in the background — pulling
+            // down shouldn't pin the spinner on maintenance work.
+            Task { await syncCatches() }
         }
         .task(id: tab) {
             if tab == .feed { await loadMergedFeed() }
@@ -326,6 +335,12 @@ struct CommunityView: View {
         guard svc.joined else { return }
         let crews = svc.myCrews
         guard !crews.isEmpty else { mergedFeed = []; return }
+        // Instant: last-seen pages from disk, so the feed is on screen before
+        // the network round trips come back.
+        if mergedFeed.isEmpty {
+            let cached = crews.flatMap { CommunityDiskCache.loadFeed($0.code) }
+            if !cached.isEmpty { mergedFeed = cached.sorted { $0.caughtAt > $1.caughtAt } }
+        }
         feedLoading = true
         var all: [CommunityService.CrewPost] = []
         await withTaskGroup(of: [CommunityService.CrewPost].self) { group in
@@ -702,17 +717,17 @@ private struct LeaderboardSection: View {
     }
 
     private func reload() async {
-        loading = true
+        // Only show the loader when there's nothing on screen yet — refreshes
+        // swap data in place instead of blanking the board.
+        if rows.isEmpty { loading = true }
         let result = await svc.board(metric: metric, myRows: myLocalRows())
         rows = result.rows
         myStanding = result.mine
         // Per-friend catch access, so a friend who set "hide my catch history"
-        // isn't still browsable through the Heaviest/Longest rows.
-        var access: [String: Bool] = [:]
-        for code in Set(result.rows.map(\.friendCode)) where code != svc.friendCode {
-            access[code] = await svc.hasCatchAccess(to: code)
-        }
-        catchAccess = access
+        // isn't still browsable through the Heaviest/Longest rows. One batched
+        // round trip for every code (this used to be N sequential fetches).
+        let codes = Set(result.rows.map(\.friendCode)).filter { $0 != svc.friendCode }
+        catchAccess = await svc.catchAccess(for: Array(codes))
         loading = false
     }
 }
@@ -832,14 +847,14 @@ private struct FriendsSection: View {
             isLoading = true
         }
 
-        // 2) Background: refresh from iCloud (all friends concurrently) and
-        //    quietly swap in the fresh data.
-        let tasks = codes.map { code in Task { (code, await svc.fetchProfile(code: code)) } }
+        // 2) Background: refresh from iCloud — batched, concurrent, and TTL'd
+        //    (fresh disk copies skip the network entirely) so opening Friends
+        //    doesn't re-download every avatar every time.
+        let fetched = await svc.profiles(for: codes, maxAge: 900)
         var result: [CommunityService.Profile] = []
         var resolved = 0
-        for t in tasks {
-            let (code, p) = await t.value
-            if let p {
+        for code in codes {
+            if let p = fetched[code] {
                 result.append(p)
                 resolved += 1
             } else {
@@ -1210,11 +1225,18 @@ struct FriendProfileView: View {
             privacy = svc.privacy(for: code)
             override = svc.override(for: code)
             overrideLoaded = true
-            // Show the cached profile instantly, then refresh from iCloud.
+            // Instant: last-seen profile, grant answer and catches from disk —
+            // the page fills immediately and quietly swaps in fresh data.
             if profile == nil { profile = svc.cachedProfiles(for: [code]).first }
-            if let fresh = await svc.fetchProfile(code: code) { profile = fresh }
-            sharedSpots = await svc.sharedSpots(fromFriend: code)
-            catchAccess = await svc.hasCatchAccess(to: code)
+            catchAccess = svc.cachedCatchAccess(code)
+            if catchAccess, catches.isEmpty { catches = svc.cachedAnglerCatches(code: code) }
+            // Refresh: everything in parallel, not one round trip after another.
+            async let freshProfile = svc.fetchProfile(code: code)
+            async let freshSpots = svc.sharedSpots(fromFriend: code)
+            async let freshAccess = svc.hasCatchAccess(to: code)
+            if let fresh = await freshProfile { profile = fresh }
+            sharedSpots = await freshSpots
+            catchAccess = await freshAccess
             if catchAccess { catches = await svc.anglerCatches(code: code) }
         }
     }

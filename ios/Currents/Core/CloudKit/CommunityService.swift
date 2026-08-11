@@ -129,9 +129,34 @@ final class CommunityService: ObservableObject {
     /// flips or a new friend is added.
     func syncCatchGrants() async {
         guard joined else { return }
+        // State-diffed and batched: remember what was last written per friend
+        // and only touch CloudKit when the desired state changed. The old pass
+        // did fetch + save round trips per friend on every Community visit.
+        let previous = (UserDefaults.standard.dictionary(forKey: "catchGrantState") as? [String: Bool]) ?? [:]
+        var desired: [String: Bool] = [:]
+        var toSave: [CKRecord] = []
+        var toDelete: [CKRecord.ID] = []
         for code in friends where code.uppercased() != Self.demoCode {
-            await updateCatchGrant(for: code, share: privacy(for: code).shareCatches)
+            let share = privacy(for: code).shareCatches
+            desired[code] = share
+            guard previous[code] != share else { continue }
+            let id = CKRecord.ID(recordName: "catchgrant-\(friendCode)-\(code)")
+            if share {
+                let rec = CKRecord(recordType: catchGrantType, recordID: id)
+                rec["ownerCode"] = friendCode as CKRecordValue
+                rec["viewerCode"] = code as CKRecordValue
+                toSave.append(rec)
+            } else {
+                toDelete.append(id)
+            }
         }
+        if !toSave.isEmpty || !toDelete.isEmpty {
+            guard (try? await db.modifyRecords(saving: toSave, deleting: toDelete,
+                                               savePolicy: .allKeys, atomically: false)) != nil else {
+                return   // offline — keep the old state so the next pass retries
+            }
+        }
+        UserDefaults.standard.set(desired, forKey: "catchGrantState")
     }
 
     /// The honey-hole radius (km) the angler set in Privacy settings; used to
@@ -324,7 +349,21 @@ final class CommunityService: ObservableObject {
     }
 
     func saveAvatar(_ image: UIImage) {
-        guard let data = image.jpegData(compressionQuality: 0.85) else { return }
+        // Cap the stored size: this file uploads as the profile's avatar asset
+        // and every friend downloads it — a full camera photo here made friend
+        // lists crawl. 512px covers the largest avatar the app draws at 3x.
+        let side = max(image.size.width, image.size.height)
+        var scaled = image
+        if side > 512 {
+            let ratio = 512 / side
+            let size = CGSize(width: image.size.width * ratio, height: image.size.height * ratio)
+            let format = UIGraphicsImageRendererFormat.default()
+            format.scale = 1
+            scaled = UIGraphicsImageRenderer(size: size, format: format).image { _ in
+                image.draw(in: CGRect(origin: .zero, size: size))
+            }
+        }
+        guard let data = scaled.jpegData(compressionQuality: 0.8) else { return }
         try? data.write(to: avatarURL, options: .atomic)
         bumpRevision()
     }
@@ -581,42 +620,85 @@ final class CommunityService: ObservableObject {
         }
     }
 
+    /// Everything EXCEPT the photo asset — lists only need to know a photo
+    /// exists (`hasPhoto`); the asset downloads on demand when a catch opens.
+    private static let leaderCatchKeys = ["anglerName", "friendCode", "species",
+                                          "weightKg", "lengthCm", "region",
+                                          "caughtAt", "groupCode", "hasPhoto",
+                                          "lat", "lon"]
+
+    private func leaderRow(from r: CKRecord) -> LeaderRow {
+        var coord: CLLocationCoordinate2D?
+        if let lat = r["lat"] as? Double, let lon = r["lon"] as? Double {
+            coord = CLLocationCoordinate2D(latitude: lat, longitude: lon)
+        }
+        return LeaderRow(
+            id: r.recordID.recordName,
+            anglerName: r["anglerName"] as? String ?? "Angler",
+            friendCode: r["friendCode"] as? String ?? "",
+            species: r["species"] as? String ?? "Fish",
+            weightKg: r["weightKg"] as? Double,
+            lengthCm: r["lengthCm"] as? Double,
+            catchCount: nil,
+            region: r["region"] as? String ?? "",
+            date: r["caughtAt"] as? Date ?? .now,
+            hasRemotePhoto: (r["hasPhoto"] as? Int ?? 0) == 1,
+            coordinate: coord
+        )
+    }
+
+    /// Codable snapshot of a LeaderRow so ranked lists cache to disk.
+    struct LeaderRowDTO: Codable {
+        var id, anglerName, friendCode, species, region: String
+        var weightKg, lengthCm, lat, lon: Double?
+        var date: Date
+        var hasRemotePhoto: Bool
+
+        init(_ r: LeaderRow) {
+            id = r.id; anglerName = r.anglerName; friendCode = r.friendCode
+            species = r.species; region = r.region
+            weightKg = r.weightKg; lengthCm = r.lengthCm
+            lat = r.coordinate?.latitude; lon = r.coordinate?.longitude
+            date = r.date; hasRemotePhoto = r.hasRemotePhoto
+        }
+
+        var row: LeaderRow {
+            LeaderRow(id: id, anglerName: anglerName, friendCode: friendCode,
+                      species: species, weightKg: weightKg, lengthCm: lengthCm,
+                      catchCount: nil, region: region, date: date,
+                      hasRemotePhoto: hasRemotePhoto,
+                      coordinate: lat.flatMap { la in lon.map { CLLocationCoordinate2D(latitude: la, longitude: $0) } })
+        }
+    }
+
     /// All published catches. No server-side sort (we rank client-side), so the
     /// query needs no custom Sortable index — one less CloudKit setup step.
-    private func fetchAllLeaderCatches(limit: Int = 400) async -> [LeaderRow] {
+    /// Disk-cached with a short TTL: switching leaderboard metrics or reopening
+    /// Community reuses the last fetch instead of re-querying every time.
+    private func fetchAllLeaderCatches(limit: Int = 400,
+                                       maxAge: TimeInterval = 60) async -> [LeaderRow] {
+        let cacheKey = "leadercatches"
+        if maxAge > 0, CommunityDiskCache.isFresh(key: cacheKey, maxAge: maxAge),
+           let cached = CommunityDiskCache.load([LeaderRowDTO].self, key: cacheKey) {
+            return cached.map(\.row)
+        }
         // Server-side filter on the indexed friendCode: a TRUEPREDICATE scan
         // capped at `limit` would silently drop friends' catches once the
         // whole public DB outgrew it.
         let codes = friends + [friendCode]
         let query = CKQuery(recordType: catchType,
                             predicate: NSPredicate(format: "friendCode IN %@", codes))
-        // Fetch everything EXCEPT the photo asset — the leaderboard only needs to
-        // know a photo exists (`hasPhoto`); the asset itself is downloaded on
-        // demand when a catch is opened, so lists stay fast.
-        let keys = ["anglerName", "friendCode", "species", "weightKg", "lengthCm",
-                    "region", "caughtAt", "groupCode", "hasPhoto", "lat", "lon"]
         guard let results = try? await db.records(
-            matching: query, desiredKeys: keys, resultsLimit: limit) else { return [] }
-        return results.matchResults.compactMap { _, res -> LeaderRow? in
-            guard let r = try? res.get() else { return nil }
-            var coord: CLLocationCoordinate2D?
-            if let lat = r["lat"] as? Double, let lon = r["lon"] as? Double {
-                coord = CLLocationCoordinate2D(latitude: lat, longitude: lon)
-            }
-            return LeaderRow(
-                id: r.recordID.recordName,
-                anglerName: r["anglerName"] as? String ?? "Angler",
-                friendCode: r["friendCode"] as? String ?? "",
-                species: r["species"] as? String ?? "Fish",
-                weightKg: r["weightKg"] as? Double,
-                lengthCm: r["lengthCm"] as? Double,
-                catchCount: nil,
-                region: r["region"] as? String ?? "",
-                date: r["caughtAt"] as? Date ?? .now,
-                hasRemotePhoto: (r["hasPhoto"] as? Int ?? 0) == 1,
-                coordinate: coord
-            )
+            matching: query, desiredKeys: Self.leaderCatchKeys, resultsLimit: limit) else {
+            // Offline: last-seen rows beat an empty board.
+            return (CommunityDiskCache.load([LeaderRowDTO].self, key: cacheKey) ?? []).map(\.row)
         }
+        let rows = results.matchResults.compactMap { _, res -> LeaderRow? in
+            guard let r = try? res.get() else { return nil }
+            return leaderRow(from: r)
+        }
+        CommunityDiskCache.save(rows.map(LeaderRowDTO.init), key: cacheKey)
+        return rows
     }
 
     /// Download a single published catch's photo asset by its record id. Cached
@@ -624,11 +706,18 @@ final class CommunityService: ObservableObject {
     private let photoCache = NSCache<NSString, UIImage>()
     func catchPhoto(recordName: String) async -> UIImage? {
         if let cached = photoCache.object(forKey: recordName as NSString) { return cached }
+        // Disk second: survives relaunch, so a friend's catch photo downloads
+        // once ever instead of once per session.
+        if let disk = CommunityDiskCache.loadImage(key: "catchphoto-\(recordName)") {
+            photoCache.setObject(disk, forKey: recordName as NSString)
+            return disk
+        }
         let id = CKRecord.ID(recordName: recordName)
         guard let r = try? await db.record(for: id),
               let asset = r["photo"] as? CKAsset, let url = asset.fileURL,
               let data = try? Data(contentsOf: url), let image = UIImage(data: data) else { return nil }
         photoCache.setObject(image, forKey: recordName as NSString)
+        CommunityDiskCache.saveImage(image, key: "catchphoto-\(recordName)")
         return image
     }
 
@@ -787,30 +876,94 @@ final class CommunityService: ObservableObject {
     /// (leaderboard bests stay public; the full list is friends-only, gated).
     private func updateCatchGrant(for code: String, share: Bool) async {
         let id = CKRecord.ID(recordName: "catchgrant-\(friendCode)-\(code)")
+        let ok: Bool
         if share {
-            let rec = (try? await db.record(for: id)) ?? CKRecord(recordType: catchGrantType, recordID: id)
+            let rec = CKRecord(recordType: catchGrantType, recordID: id)
             rec["ownerCode"] = friendCode as CKRecordValue
             rec["viewerCode"] = code as CKRecordValue
-            _ = try? await db.save(rec)
+            ok = (try? await db.modifyRecords(saving: [rec], deleting: [],
+                                              savePolicy: .allKeys, atomically: false)) != nil
         } else {
-            _ = try? await db.deleteRecord(withID: id)
+            ok = (try? await db.deleteRecord(withID: id)) != nil
+        }
+        // Keep the sync pass's memory in step so it doesn't re-write this.
+        if ok {
+            var state = (UserDefaults.standard.dictionary(forKey: "catchGrantState") as? [String: Bool]) ?? [:]
+            state[code] = share
+            UserDefaults.standard.set(state, forKey: "catchGrantState")
         }
     }
 
-    /// Whether a given angler has shared their catches with me.
+    /// Whether a given angler has shared their catches with me. The result is
+    /// remembered so screens can render the last-known answer instantly.
     func hasCatchAccess(to code: String) async -> Bool {
         if code == Self.demoCode { return true }
         let id = CKRecord.ID(recordName: "catchgrant-\(code)-\(friendCode)")
-        return (try? await db.record(for: id)) != nil
+        let granted = (try? await db.record(for: id)) != nil
+        UserDefaults.standard.set(granted, forKey: "catchaccess-\(code.uppercased())")
+        return granted
+    }
+
+    /// Last-known grant answer, for instant rendering while the check refreshes.
+    func cachedCatchAccess(_ code: String) -> Bool {
+        code == Self.demoCode || UserDefaults.standard.bool(forKey: "catchaccess-\(code.uppercased())")
+    }
+
+    /// Grant checks for MANY anglers in one round trip (grant record ids are
+    /// deterministic, so a single batched fetch replaces N sequential ones).
+    func catchAccess(for codes: [String]) async -> [String: Bool] {
+        var out: [String: Bool] = [:]
+        var ids: [CKRecord.ID] = []
+        for code in Set(codes) {
+            if code == Self.demoCode { out[code] = true; continue }
+            ids.append(CKRecord.ID(recordName: "catchgrant-\(code)-\(friendCode)"))
+        }
+        guard !ids.isEmpty else { return out }
+        guard let results = try? await db.records(for: ids) else {
+            // Offline: last-known answers.
+            for code in codes where out[code] == nil { out[code] = cachedCatchAccess(code) }
+            return out
+        }
+        for (id, res) in results {
+            // recordName is "catchgrant-<theirCode>-<myCode>".
+            let parts = id.recordName.split(separator: "-")
+            guard parts.count >= 3 else { continue }
+            let code = String(parts[1])
+            let granted = (try? res.get()) != nil
+            out[code] = granted
+            UserDefaults.standard.set(granted, forKey: "catchaccess-\(code.uppercased())")
+        }
+        return out
     }
 
     var isFriend: (String) -> Bool { { [friends] code in friends.contains(code.uppercased()) } }
 
-    /// A specific angler's individual catches (from the published catch data).
+    /// A specific angler's individual catches — a direct indexed query for
+    /// just that angler (not a scan of every friend's catches), disk-cached so
+    /// their profile page fills instantly on reopen.
     func anglerCatches(code: String, limit: Int = 60) async -> [LeaderRow] {
         if code == Self.demoCode { return demoCatchRows }
-        let all = await fetchAllLeaderCatches(limit: 400)
-        return Array(all.filter { $0.friendCode == code }.prefix(limit))
+        let query = CKQuery(recordType: catchType,
+                            predicate: NSPredicate(format: "friendCode == %@", code))
+        guard let results = try? await db.records(
+            matching: query, desiredKeys: Self.leaderCatchKeys, resultsLimit: 200) else {
+            return cachedAnglerCatches(code: code)
+        }
+        let rows = results.matchResults
+            .compactMap { _, res -> LeaderRow? in
+                guard let r = try? res.get() else { return nil }
+                return leaderRow(from: r)
+            }
+            .sorted { $0.date > $1.date }
+            .prefix(limit)
+        CommunityDiskCache.save(rows.map(LeaderRowDTO.init), key: "angler-catches-\(code)")
+        return Array(rows)
+    }
+
+    /// Last-seen catches for an angler, for instant rendering.
+    func cachedAnglerCatches(code: String) -> [LeaderRow] {
+        if code == Self.demoCode { return demoCatchRows }
+        return (CommunityDiskCache.load([LeaderRowDTO].self, key: "angler-catches-\(code)") ?? []).map(\.row)
     }
 
     // MARK: - Shared spots (per-friend, spot-protective)
@@ -824,61 +977,76 @@ final class CommunityService: ObservableObject {
         // No isEmpty guard: with zero spots the retraction pass below must
         // still run, or deleting your last spot would leave it shared forever.
         guard joined else { return }
+        // State-diffed and batched: each (spot, friend) record carries a local
+        // content signature; only records whose content actually changed are
+        // written, in ONE modify op. The old pass did a fetch + save round trip
+        // per pair on every Community visit — with 20 spots and 5 friends that
+        // was 200 sequential network calls for a no-op.
+        let previousSigs = (UserDefaults.standard.dictionary(forKey: "spotShareSigs") as? [String: String]) ?? [:]
         var live = Set<String>()
+        var sigs: [String: String] = [:]
+        var toSave: [CKRecord] = []
         for spot in spots {
             for code in friends {
                 let p = privacy(for: code)
-                let id = CKRecord.ID(recordName: "spot-\(friendCode)-\(spot.id)-\(code)")
-                if !p.shareSpots {
-                    _ = try? await db.deleteRecord(withID: id)
-                    continue
+                guard p.shareSpots else { continue }
+                let key = "\(spot.id)|\(code)"
+                live.insert(key)
+                var lat = spot.latitude, lon = spot.longitude, approx = 0
+                if !p.shareExactLocations {
+                    // Share an obfuscated area instead of nothing, so the friend
+                    // still sees roughly where it is — never the exact honey hole.
+                    (lat, lon) = obfuscated(spot.latitude, spot.longitude, seed: spot.id,
+                                            radiusKm: spotApproxRadiusKm)
+                    approx = 1
                 }
-                live.insert("\(spot.id)|\(code)")
-                let record = (try? await db.record(for: id)) ?? CKRecord(recordType: sharedSpotType, recordID: id)
+                let sig = "\(spot.name)|\(spot.spotType ?? "General")|\(spot.notes ?? "")|\(lat)|\(lon)|\(approx)"
+                sigs[key] = sig
+                guard previousSigs[key] != sig else { continue }
+                let id = CKRecord.ID(recordName: "spot-\(friendCode)-\(spot.id)-\(code)")
+                let record = CKRecord(recordType: sharedSpotType, recordID: id)
                 record["ownerCode"] = friendCode as CKRecordValue
                 record["toCode"] = code as CKRecordValue
                 record["name"] = spot.name as CKRecordValue
                 record["type"] = (spot.spotType ?? "General") as CKRecordValue
                 record["notes"] = (spot.notes ?? "") as CKRecordValue
-                if p.shareExactLocations {
-                    record["lat"] = spot.latitude as CKRecordValue
-                    record["lon"] = spot.longitude as CKRecordValue
-                    record["approx"] = 0 as CKRecordValue
-                } else {
-                    // Share an obfuscated area instead of nothing, so the friend
-                    // still sees roughly where it is — never the exact honey hole.
-                    let (oLat, oLon) = obfuscated(spot.latitude, spot.longitude, seed: spot.id,
-                                                  radiusKm: spotApproxRadiusKm)
-                    record["lat"] = oLat as CKRecordValue
-                    record["lon"] = oLon as CKRecordValue
-                    record["approx"] = 1 as CKRecordValue
-                }
-                _ = try? await db.save(record)
+                record["lat"] = lat as CKRecordValue
+                record["lon"] = lon as CKRecordValue
+                record["approx"] = approx as CKRecordValue
+                toSave.append(record)
             }
         }
-        // Retract shares whose spot was deleted (or whose friend was removed)
-        // since the last pass — the loop above only sees spots that still exist.
+        // Retract shares whose spot was deleted, whose friend was removed, or
+        // whose sharing was turned off since the last pass.
         let previous = Set(UserDefaults.standard.stringArray(forKey: "publishedSpotShares") ?? [])
-        for stale in previous.subtracting(live) {
-            guard let sep = stale.lastIndex(of: "|") else { continue }
+        let toDelete: [CKRecord.ID] = previous.subtracting(live).compactMap { stale in
+            guard let sep = stale.lastIndex(of: "|") else { return nil }
             let spotId = String(stale[..<sep]), code = String(stale[stale.index(after: sep)...])
-            let id = CKRecord.ID(recordName: "spot-\(friendCode)-\(spotId)-\(code)")
-            _ = try? await db.deleteRecord(withID: id)
+            return CKRecord.ID(recordName: "spot-\(friendCode)-\(spotId)-\(code)")
+        }
+        if !toSave.isEmpty || !toDelete.isEmpty {
+            guard (try? await db.modifyRecords(saving: toSave, deleting: toDelete,
+                                               savePolicy: .allKeys, atomically: false)) != nil else {
+                return   // offline — keep the old state so the next pass retries
+            }
         }
         UserDefaults.standard.set(Array(live), forKey: "publishedSpotShares")
+        UserDefaults.standard.set(sigs, forKey: "spotShareSigs")
     }
 
     /// Spots a friend has shared with me. Coordinates are present only when they
     /// granted exact locations (the record simply won't contain them otherwise).
     func sharedSpots(fromFriend code: String) async -> [SharedSpot] {
         if code == Self.demoCode { return demoSharedSpots }
-        let query = CKQuery(recordType: sharedSpotType, predicate: NSPredicate(value: true))
-        query.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
+        // Both codes are indexed: ask the server for exactly this friend's
+        // spots-for-me. The old TRUEPREDICATE scan (plus a server-side sort)
+        // dragged the whole record type down and got slower as the app grew.
+        let query = CKQuery(recordType: sharedSpotType,
+                            predicate: NSPredicate(format: "ownerCode == %@ AND toCode == %@",
+                                                   code, friendCode))
         guard let results = try? await db.records(matching: query, resultsLimit: 200) else { return [] }
         return results.matchResults.compactMap { _, res -> SharedSpot? in
-            guard let r = try? res.get(),
-                  (r["ownerCode"] as? String) == code,
-                  (r["toCode"] as? String) == friendCode else { return nil }
+            guard let r = try? res.get() else { return nil }
             var coord: CLLocationCoordinate2D?
             if let lat = r["lat"] as? Double, let lon = r["lon"] as? Double {
                 coord = CLLocationCoordinate2D(latitude: lat, longitude: lon)

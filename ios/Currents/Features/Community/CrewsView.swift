@@ -247,16 +247,25 @@ struct CrewDetailView: View {
     }
 
     private func refresh() async {
-        if let fresh = await svc.fetchCrew(code: code) { crew = fresh }
-        members = await svc.crewMembers(code: code)
-        let art = await svc.crewArt(code: code)
-        banner = art.banner
-        iconImage = art.icon
-        let firstPage = await svc.crewFeedPage(code: code)
-        mergeFirstPage(firstPage)
-        canLoadMore = firstPage.count == pageSize
-        liveTrips = await svc.liveCrewTrips(crewCode: code)
-        tournament = await svc.activeTournament(crewCode: code)
+        // Everything independent goes out in parallel — the crew page used to
+        // stack seven round trips end to end.
+        async let freshCrew = svc.fetchCrew(code: code)
+        async let freshMembers = svc.crewMembers(code: code)
+        async let art = svc.crewArt(code: code)
+        async let firstPage = svc.crewFeedPage(code: code)
+        async let trips = svc.liveCrewTrips(crewCode: code)
+        async let tourney = svc.activeTournament(crewCode: code)
+
+        if let fresh = await freshCrew { crew = fresh }
+        members = await freshMembers
+        let a = await art
+        banner = a.banner
+        iconImage = a.icon
+        let page = await firstPage
+        mergeFirstPage(page)
+        canLoadMore = page.count == pageSize
+        liveTrips = await trips
+        tournament = await tourney
         if let t = tournament {
             standings = await svc.teamStandings(tournament: t)
         } else {
