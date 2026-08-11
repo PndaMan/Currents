@@ -216,7 +216,11 @@ struct CrewDetailView: View {
                 }
             }
         }
-        .refreshable { await refresh() }
+        // No pull-to-refresh: the 20s poll below plus push-driven revision
+        // bumps keep the page current on their own.
+        .onChange(of: svc.revision) { _, _ in
+            Task { mergeFirstPage(await svc.crewFeedPage(code: code)) }
+        }
         .task {
             // Instant from cache, then refresh.
             crew = svc.crew(withCode: code)

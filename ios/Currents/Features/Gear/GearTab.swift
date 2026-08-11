@@ -108,7 +108,6 @@ struct GearTab: View {
                     .presentationBackground(.ultraThinMaterial)
             }
             .task { await refresh() }
-            .refreshable { await refresh() }
         }
     }
 
@@ -721,10 +720,10 @@ struct GearCatalogBrowser: View {
                     }
                 }
                 .listStyle(.insetGrouped)
-                .refreshable {
-                    // Pull the latest published catalog; once synced it's
-                    // stored locally, so everything here works offline.
-                    await GearCatalogSync.syncIfDue(db: appState.db, force: true)
+                .task {
+                    // Pull the latest published catalog in the background; once
+                    // synced it's stored locally, so browsing works offline.
+                    await GearCatalogSync.syncIfDue(db: appState.db)
                     items = (try? appState.gearCatalogRepository.fetchAll()) ?? []
                 }
             }

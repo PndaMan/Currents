@@ -1243,9 +1243,17 @@ final class CommunityService: ObservableObject {
     private func rememberCrew(_ crew: Crew) {
         var list = myCrews
         if let i = list.firstIndex(where: { $0.code == crew.code }) {
+            // No-op when nothing changed: writing bumps the revision every
+            // community screen reloads on, so a routine poll re-fetching the
+            // same crew must not trigger an app-wide refresh cascade.
+            guard list[i].name != crew.name || list[i].emoji != crew.emoji
+                    || list[i].createdByName != crew.createdByName
+                    || list[i].mates != crew.mates || list[i].admins != crew.admins else { return }
             list[i].name = crew.name
             list[i].emoji = crew.emoji
             list[i].createdByName = crew.createdByName
+            list[i].mates = crew.mates
+            list[i].admins = crew.admins
         } else {
             list.append(crew)
         }
@@ -1575,6 +1583,8 @@ final class CommunityService: ObservableObject {
     private func rememberGroup(_ ref: GroupRef) {
         var groups = myGroups
         if let i = groups.firstIndex(where: { $0.code == ref.code }) {
+            // Same no-op rule as rememberCrew — see the note there.
+            guard groups[i].name != ref.name || groups[i].hostName != ref.hostName else { return }
             groups[i].name = ref.name
             groups[i].hostName = ref.hostName
         } else {

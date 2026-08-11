@@ -124,8 +124,27 @@ struct PlanSessionSheet: View {
                 }
 
                 Section {
-                    ForEach($checklist) { $item in Toggle(item.name, isOn: $item.checked) }
-                        .onDelete { checklist.remove(atOffsets: $0) }
+                    // Checkbox rows, not switches — a packing list ticks off.
+                    ForEach($checklist) { $item in
+                        Button {
+                            withAnimation(.snappy(duration: 0.15)) { item.checked.toggle() }
+                            Haptics.tap()
+                        } label: {
+                            HStack(spacing: 12) {
+                                Image(systemName: item.checked ? "checkmark.circle.fill" : "circle")
+                                    .font(.title3)
+                                    .foregroundStyle(item.checked ? CurrentsTheme.accent : .secondary)
+                                    .contentTransition(.symbolEffect(.replace))
+                                Text(item.name)
+                                    .strikethrough(item.checked, color: .secondary)
+                                    .foregroundStyle(item.checked ? .secondary : .primary)
+                                Spacer()
+                            }
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .onDelete { checklist.remove(atOffsets: $0) }
                     HStack {
                         Image(systemName: "plus.circle.fill").foregroundStyle(CurrentsTheme.accent)
                         TextField("Add an item", text: $newItem)

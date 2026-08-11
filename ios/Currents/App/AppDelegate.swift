@@ -43,6 +43,9 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
             }
             await CommunityService.shared.refreshTripInvites()
             await CommunityService.shared.refreshFriendRequests()
+            // Every community screen watches the revision — a push means
+            // something changed, so whatever is open refreshes itself.
+            CommunityService.shared.bumpRevision()
             completionHandler(.newData)
         }
     }
@@ -89,6 +92,8 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
             }
             await CommunityService.shared.refreshTripInvites()
             await CommunityService.shared.refreshFriendRequests()
+            // Refresh whatever community screen is open right now.
+            CommunityService.shared.bumpRevision()
         }
     }
 

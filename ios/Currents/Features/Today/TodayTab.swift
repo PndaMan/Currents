@@ -78,7 +78,6 @@ struct TodayTab: View {
                     Button { showSettings = true } label: { Image(systemName: "gearshape") }
                 }
             }
-            .refreshable { await load(force: true) }
             .task {
                 allSpecies = (try? appState.speciesRepository.fetchAll()) ?? []
                 await load()

@@ -100,10 +100,12 @@ struct TournamentSetupView: View {
 struct TournamentView: View {
     let crew: CommunityService.Crew
 
+    @Environment(AppState.self) private var appState
     @StateObject private var svc = CommunityService.shared
     @State private var tournament: CommunityService.Tournament
     @State private var standings: [CommunityService.TeamStanding] = []
     @State private var profiles: [String: CommunityService.Profile] = [:]
+    @State private var crewMembers: [CommunityService.GroupMember] = []
     @State private var loading = true
     @State private var showingInfo = false
     @State private var showingEnd = false
@@ -156,7 +158,6 @@ struct TournamentView: View {
                 Task { await refresh() }
             }
         }
-        .refreshable { await refresh() }
         .task {
             await refresh()
             await pollLoop()
@@ -172,15 +173,27 @@ struct TournamentView: View {
     }
 
     private func refresh() async {
-        if let fresh = await svc.activeTournament(crewCode: crew.code), fresh.id == tournament.id {
+        async let freshTournament = svc.activeTournament(crewCode: crew.code)
+        async let members = svc.crewMembers(code: crew.code)
+        if let fresh = await freshTournament, fresh.id == tournament.id {
             tournament = fresh
         }
+        crewMembers = await members
         standings = await svc.teamStandings(tournament: tournament)
         let codes = Array(Set(standings.flatMap(\.memberCodes)))
         if !codes.isEmpty {
             profiles = await svc.profiles(for: codes)
         }
         loading = false
+    }
+
+    /// Crewmates not yet on any team — the pool an admin can assign from.
+    private var unassignedMembers: [CommunityService.GroupMember] {
+        crewMembers.filter { m in !standings.contains { $0.memberCodes.contains(m.id) } }
+    }
+
+    private var canAssign: Bool {
+        svc.myRole(in: crew).canRunTournaments && !tournament.isEnded
     }
 
     // MARK: Hero
@@ -264,52 +277,90 @@ struct TournamentView: View {
 
     private func teamCard(rank: Int, _ s: CommunityService.TeamStanding) -> some View {
         let isMyTeam = s.memberCodes.contains(svc.friendCode)
-        return NavigationLink {
-            GroupTripView(tripId: svc.tripId(forGroupCode: s.id),
-                          tripName: s.teamName, initialCode: s.id)
-        } label: {
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(spacing: 8) {
-                    rankBadge(rank)
-                    Text(s.teamName).font(.headline)
-                        .foregroundStyle(teamColor(s.id))
-                    if isMyTeam {
-                        Text("YOUR TEAM")
-                            .font(.system(size: 9, weight: .heavy))
-                            .padding(.horizontal, 5).padding(.vertical, 1)
-                            .background(CurrentsTheme.accent, in: Capsule())
-                            .foregroundStyle(.white)
+        return VStack(alignment: .leading, spacing: 8) {
+            // The card body opens the team's live session (GPS, feed, log-to-
+            // trip); the admin assign control sits below it, outside the link.
+            NavigationLink {
+                GroupTripView(tripId: svc.tripId(forGroupCode: s.id),
+                              tripName: s.teamName, initialCode: s.id)
+            } label: {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 8) {
+                        rankBadge(rank)
+                        Text(s.teamName).font(.headline)
+                            .foregroundStyle(teamColor(s.id))
+                        if isMyTeam {
+                            Text("YOUR TEAM")
+                                .font(.system(size: 9, weight: .heavy))
+                                .padding(.horizontal, 5).padding(.vertical, 1)
+                                .background(CurrentsTheme.accent, in: Capsule())
+                                .foregroundStyle(.white)
+                        }
+                        if s.isEnded {
+                            Text("Ended").font(.system(size: 9, weight: .bold))
+                                .padding(.horizontal, 5).padding(.vertical, 1)
+                                .background(Color.secondary.opacity(0.2), in: Capsule())
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Text("\(s.points)")
+                            .font(.title3.bold().monospacedDigit())
+                            .foregroundStyle(CurrentsTheme.accent)
+                        Text("pts").font(.caption2).foregroundStyle(.secondary)
                     }
-                    if s.isEnded {
-                        Text("Ended").font(.system(size: 9, weight: .bold))
-                            .padding(.horizontal, 5).padding(.vertical, 1)
-                            .background(Color.secondary.opacity(0.2), in: Capsule())
-                            .foregroundStyle(.secondary)
+                    HStack(spacing: 6) {
+                        statChip("\(s.fishCount) fish")
+                        statChip(Units.weight(kg: s.totalWeightKg))
+                        statChip("\(s.speciesCount) species")
+                        Spacer()
+                        facepile(s.memberCodes)
                     }
-                    Spacer()
-                    Text("\(s.points)")
-                        .font(.title3.bold().monospacedDigit())
-                        .foregroundStyle(CurrentsTheme.accent)
-                    Text("pts").font(.caption2).foregroundStyle(.secondary)
                 }
-                HStack(spacing: 6) {
-                    statChip("\(s.fishCount) fish")
-                    statChip(Units.weight(kg: s.totalWeightKg))
-                    statChip("\(s.speciesCount) species")
-                    Spacer()
-                    facepile(s.memberCodes)
-                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .glassCard()
-            .overlay {
-                if rank == 1 {
-                    RoundedRectangle(cornerRadius: CurrentsTheme.cornerRadius)
-                        .strokeBorder(CurrentsTheme.accent.opacity(0.55), lineWidth: 1.5)
+            .buttonStyle(.plain)
+
+            if canAssign && !s.isEnded {
+                Menu {
+                    if unassignedMembers.isEmpty {
+                        Button("Everyone's on a team") {}.disabled(true)
+                    } else {
+                        ForEach(unassignedMembers, id: \.id) { m in
+                            Button(m.id == svc.friendCode ? "You (\(m.name))" : m.name) {
+                                assign(m, to: s)
+                            }
+                        }
+                    }
+                } label: {
+                    Label("Add teammate", systemImage: "person.badge.plus")
+                        .font(.caption.bold())
+                        .foregroundStyle(CurrentsTheme.accent)
                 }
             }
         }
-        .buttonStyle(.plain)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassCard()
+        .overlay {
+            if rank == 1 {
+                RoundedRectangle(cornerRadius: CurrentsTheme.cornerRadius)
+                    .strokeBorder(CurrentsTheme.accent.opacity(0.55), lineWidth: 1.5)
+            }
+        }
+    }
+
+    /// Admin: put a crewmate on this team. Their device picks the trip up on
+    /// its next membership reconcile (and from the team page itself).
+    private func assign(_ m: CommunityService.GroupMember, to team: CommunityService.TeamStanding) {
+        Task {
+            if await svc.assignMember(code: m.id, name: m.name, toTeam: team.id) {
+                Haptics.success()
+                ToastCenter.shared.show("\(m.name) added to \(team.teamName)", style: .success)
+                await refresh()
+            } else {
+                ToastCenter.shared.show("Couldn't add \(m.name)", style: .error)
+            }
+        }
     }
 
     @ViewBuilder private func rankBadge(_ rank: Int) -> some View {
@@ -377,12 +428,17 @@ struct TournamentView: View {
         creatingTeam = true
         let teamName = newTeamName.trimmingCharacters(in: .whitespaces)
         Task {
+            // A team IS a live session: start (or adopt) a real GPS-tracked
+            // trip locally, then share it as the team — so tracking, log-to-
+            // trip and the session strip all work exactly like any live trip.
+            let trip = appState.tripTracker.activeTrip
+                ?? appState.tripTracker.start(name: teamName, spotId: nil)
             let code = await svc.createTeam(named: teamName, tournament: tournament,
-                                            localTripId: UUID().uuidString)
+                                            localTripId: trip.id)
             creatingTeam = false
             if code != nil {
                 Haptics.success()
-                ToastCenter.shared.show("Team created — tight lines!", style: .success)
+                ToastCenter.shared.show("Team created — session live, tight lines!", style: .success)
                 newTeamName = ""
                 await refresh()
             } else {

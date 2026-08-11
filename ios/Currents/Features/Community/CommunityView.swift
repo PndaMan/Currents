@@ -105,6 +105,14 @@ struct CommunityView: View {
                 await syncCatches()
                 await svc.reconcileMemberships()
             }
+            // Light poll while Community is open — fills the gaps CloudKit
+            // subscriptions can't cover (there's no pull-to-refresh anymore).
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 45_000_000_000)
+                guard !Task.isCancelled, svc.joined else { continue }
+                await loadMergedFeed()
+                await loadNotifications()
+            }
         }
         .onChange(of: svc.revision) { _, _ in refreshStats() }
         // A crew push tap lands directly in that crew.
@@ -240,18 +248,18 @@ struct CommunityView: View {
                 FriendsSection()
             }
         }
-        .refreshable {
-            // bumpRevision re-runs every section's reload (they all watch it).
-            svc.bumpRevision()
-            refreshStats()
-            await loadMergedFeed()
-            await loadNotifications()
-            // Uploads and share-healing refresh in the background — pulling
-            // down shouldn't pin the spinner on maintenance work.
-            Task { await syncCatches() }
-        }
         .task(id: tab) {
             if tab == .feed { await loadMergedFeed() }
+        }
+        // No pull-to-refresh anywhere in Community — changes arrive on their
+        // own: pushes bump the revision (below) and a light poll fills the
+        // gaps CloudKit subscriptions can't cover.
+        .onChange(of: svc.revision) { _, _ in
+            Task {
+                refreshStats()
+                await loadMergedFeed()
+                await loadNotifications()
+            }
         }
         .sensoryFeedback(.selection, trigger: tab)
     }

@@ -402,6 +402,26 @@ extension CommunityService {
         return code
     }
 
+    /// Admin: put a crewmate on a team by creating their membership record.
+    /// Their device rebuilds its trip list from memberCode on the next
+    /// reconcile, so the assignment shows up without them doing anything.
+    func assignMember(code memberCode: String, name: String, toTeam groupCode: String) async -> Bool {
+        let id = CKRecord.ID(recordName: "member-\(groupCode)-\(memberCode)")
+        let record = CKRecord(recordType: groupMemberType, recordID: id)
+        record["groupCode"] = groupCode as CKRecordValue
+        record["memberCode"] = memberCode as CKRecordValue
+        record["memberName"] = name as CKRecordValue
+        record["joinedAt"] = Date() as CKRecordValue
+        let ok = (try? await db.modifyRecords(saving: [record], deleting: [],
+                                              savePolicy: .allKeys, atomically: false)) != nil
+        // Assigning yourself registers locally right away (real trip name and
+        // host via the normal join path — the membership save is idempotent).
+        if ok, memberCode == friendCode {
+            _ = await joinGroupTrip(code: groupCode)
+        }
+        return ok
+    }
+
     /// All the tournament's teams with live points. One query for the teams,
     /// then their catches concurrently.
     func teamStandings(tournament: Tournament) async -> [TeamStanding] {

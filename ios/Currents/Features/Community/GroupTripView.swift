@@ -624,9 +624,8 @@ struct GroupTripView: View {
 
         standingsCard(ended: ended)
         feedCard
-        if amMember, let linkedId = service.tripId(forGroupCode: code) {
-            TripChecklistCard(tripId: linkedId)
-        }
+        // The gear checklist lives in the planned-trip editor only — a live
+        // session isn't the place to be packing.
         if amMember { sessionStrip(code, ended: ended) }
     }
 
