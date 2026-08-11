@@ -90,7 +90,8 @@ DEFINE SCHEMA
 
     RECORD TYPE GroupMember (
         groupCode   STRING QUERYABLE,
-        memberCode  STRING,
+        -- Queryable so a reinstalled device can rebuild its trip list.
+        memberCode  STRING QUERYABLE,
         memberName  STRING,
         joinedAt    TIMESTAMP,
         "___createTime" TIMESTAMP,
@@ -188,7 +189,8 @@ DEFINE SCHEMA
     -- One row per angler per crew. Queried by crewCode to list a crew's members.
     RECORD TYPE CrewMember (
         crewCode    STRING QUERYABLE,
-        memberCode  STRING,
+        -- Queryable so a reinstalled device can rebuild its crew list.
+        memberCode  STRING QUERYABLE,
         memberName  STRING,
         joinedAt    TIMESTAMP,
         "___createTime" TIMESTAMP,

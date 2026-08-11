@@ -1578,17 +1578,64 @@ final class CommunityService: ObservableObject {
         let wasHost = myGroups.first(where: { $0.code == code })?.isHost ?? false
         let id = CKRecord.ID(recordName: "member-\(code)-\(friendCode)")
         _ = try? await db.deleteRecord(withID: id)
-        // When the HOST leaves, the trip no longer exists — delete the group
-        // record so members detect it's gone and any pending invites to it drop
-        // (invitees clean those up in pendingInvites()).
+        // When the HOST leaves, END the trip rather than deleting it. A
+        // deleted record left members staring at a live-looking trip that no
+        // longer existed and could never resolve (endedAt was only ever set
+        // on a record that still exists).
         if wasHost {
-            _ = try? await db.deleteRecord(withID: CKRecord.ID(recordName: "grouptrip-\(code)"))
+            if let r = try? await db.record(for: CKRecord.ID(recordName: "grouptrip-\(code)")) {
+                r["endedAt"] = Date() as CKRecordValue
+                _ = try? await db.save(r)
+            }
         }
         groupCatchCache[code] = nil
         groupMemberCache[code] = nil
         let linked = tripId ?? self.tripId(forGroupCode: code)
         if let linked { setGroupCode(nil, forTripId: linked) }
         forgetGroup(code: code)
+    }
+
+    /// If this local session was linked to a group trip I host, end the shared
+    /// trip too. Hosts used to have to remember a separate "End trip for
+    /// everyone" step that nothing prompted — ending the session is the
+    /// natural end of the trip.
+    func endLinkedGroupTrip(forLocalTripId id: String) async {
+        guard joined,
+              let code = groupCode(forTripId: id),
+              let ref = myGroups.first(where: { $0.code == code }),
+              ref.isHost, ref.endedAt == nil else { return }
+        await endGroupTrip(code: code)
+    }
+
+    /// Rebuild crew/trip membership from the server. `myCrews`/`myGroups` are
+    /// local caches, so a reinstall or new device showed no memberships while
+    /// the server still counted (and pushed to) this angler. Once per launch.
+    private var reconciledThisLaunch = false
+    func reconcileMemberships() async {
+        guard joined, !reconciledThisLaunch else { return }
+        reconciledThisLaunch = true
+        let cq = CKQuery(recordType: crewMemberType,
+                         predicate: NSPredicate(format: "memberCode == %@", friendCode))
+        if let res = try? await db.records(matching: cq, resultsLimit: 100) {
+            for (_, r) in res.matchResults {
+                guard let rec = try? r.get(), let code = rec["crewCode"] as? String,
+                      !myCrews.contains(where: { $0.code == code }),
+                      let crew = await fetchCrew(code: code) else { continue }
+                rememberCrew(crew)
+            }
+        }
+        let gq = CKQuery(recordType: groupMemberType,
+                         predicate: NSPredicate(format: "memberCode == %@", friendCode))
+        if let res = try? await db.records(matching: gq, resultsLimit: 100) {
+            for (_, r) in res.matchResults {
+                guard let rec = try? r.get(), let code = rec["groupCode"] as? String,
+                      !myGroups.contains(where: { $0.code == code }),
+                      let trip = await groupTrip(code: code) else { continue }
+                rememberGroup(GroupRef(code: code, name: trip.name, hostName: trip.hostName,
+                                       isHost: trip.isHost, joinedAt: Date(),
+                                       endedAt: trip.endedAt, crewCode: trip.crewCode))
+            }
+        }
     }
 
     /// Publish a catch straight into a group's live feed even when it isn't tied

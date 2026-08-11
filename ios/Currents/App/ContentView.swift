@@ -173,6 +173,12 @@ struct ContentView: View {
             // Community is a first-class tab now, not a Settings screen.
             selectedTab = .community
             return
+        case "crewfeed":
+            // A crew push tap: straight into that crew, not the Community root.
+            selectedTab = .community
+            let code = url.lastPathComponent.uppercased()
+            if code.count == 6 { appState.openCrewCode = code }
+            return
         case "gear":
             settingsDestination = .gear
             return

@@ -103,6 +103,9 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         Task { @MainActor in
             if let link = userInfo["deepLink"] as? String, let url = URL(string: link) {
                 AppState.shared?.pendingDeepLink = url
+            } else if let crewCode = Self.queryFields(userInfo)?["crewCode"] as? String {
+                // A crew event push: land in that crew, not the Community root.
+                AppState.shared?.pendingDeepLink = URL(string: "currents://crewfeed/\(crewCode)")
             } else if userInfo["ck"] != nil || userInfo["aps"] != nil {
                 // A CloudKit community push (friend request / trip invite).
                 AppState.shared?.pendingDeepLink = URL(string: "currents://community")

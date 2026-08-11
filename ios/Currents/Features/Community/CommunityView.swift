@@ -11,6 +11,7 @@ struct CommunityView: View {
     @State private var name = ""
     @State private var showingEdit = false
     @State private var confirmLeave = false
+    @State private var pushedCrew: CrewRoute?
     @State private var showingInbox = false
     @State private var pendingRequests: [CommunityService.FriendRequest] = []
     @State private var pendingInvites: [CommunityService.TripInvite] = []
@@ -44,9 +45,29 @@ struct CommunityView: View {
         .sheet(isPresented: $showingInbox, onDismiss: { Task { await loadNotifications() } }) {
             NotificationInboxView()
         }
-        .task(id: svc.joined) { refreshStats(); await syncCatches(); await loadNotifications() }
+        .task(id: svc.joined) {
+            refreshStats(); await syncCatches(); await loadNotifications()
+            // Rebuild membership from the server once per launch — a
+            // reinstall used to show zero crews/trips while the server still
+            // counted (and pushed to) this angler.
+            await svc.reconcileMemberships()
+        }
         .onChange(of: svc.revision) { _, _ in refreshStats() }
+        // A crew push tap lands directly in that crew.
+        .navigationDestination(item: $pushedCrew) { route in
+            CrewDetailView(code: route.id)
+        }
+        .onChange(of: appState.openCrewCode) { _, code in
+            if let code { pushedCrew = CrewRoute(id: code); appState.openCrewCode = nil }
+        }
+        .onAppear {
+            if let code = appState.openCrewCode {
+                pushedCrew = CrewRoute(id: code); appState.openCrewCode = nil
+            }
+        }
     }
+
+    private struct CrewRoute: Identifiable, Hashable { let id: String }
 
     private func refreshStats() {
         myCatches = (try? appState.catchRepository.fetchAll(limit: 100000)) ?? []
@@ -322,6 +343,8 @@ private struct LeaderboardSection: View {
     @State private var metric: CommunityService.Metric = .count
     @State private var rows: [CommunityService.LeaderRow] = []
     @State private var myStanding: (rank: Int, row: CommunityService.LeaderRow)?
+    /// friendCode → may I open their individual catches (their grant to me).
+    @State private var catchAccess: [String: Bool] = [:]
     @State private var loading = false
 
     var body: some View {
@@ -388,7 +411,7 @@ private struct LeaderboardSection: View {
         let isFriend = svc.isFriend(row.friendCode)
         if metric == .count, isFriend {
             NavigationLink { FriendProfileView(code: row.friendCode) } label: { rowBody(i, row) }
-        } else if metric != .count, isFriend || isSelf {
+        } else if metric != .count, isSelf || (isFriend && (catchAccess[row.friendCode] ?? false)) {
             NavigationLink { CommunityCatchDetailView(row: row) } label: { rowBody(i, row) }
         } else {
             rowBody(i, row)
@@ -461,6 +484,13 @@ private struct LeaderboardSection: View {
         let result = await svc.board(metric: metric, myRows: myLocalRows())
         rows = result.rows
         myStanding = result.mine
+        // Per-friend catch access, so a friend who set "hide my catch history"
+        // isn't still browsable through the Heaviest/Longest rows.
+        var access: [String: Bool] = [:]
+        for code in Set(result.rows.map(\.friendCode)) where code != svc.friendCode {
+            access[code] = await svc.hasCatchAccess(to: code)
+        }
+        catchAccess = access
         loading = false
     }
 }

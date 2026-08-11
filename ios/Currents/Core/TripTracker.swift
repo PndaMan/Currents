@@ -160,6 +160,12 @@ final class TripTracker: NSObject, CLLocationManagerDelegate {
         NotificationManager.shared.cancelColdStreakNudge()
         LiveActivityManager.shared.end()
         WidgetSnapshotWriter.writeActiveSession(name: nil, start: nil, catches: 0)
+        // If this session was linked to a group trip I host, end the shared
+        // trip too — otherwise it stayed "live" for every member forever.
+        let endedId = trip.id
+        Task { @MainActor in
+            await CommunityService.shared.endLinkedGroupTrip(forLocalTripId: endedId)
+        }
         return trip
     }
 

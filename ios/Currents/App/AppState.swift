@@ -30,6 +30,9 @@ final class AppState {
     var openLiveSession = false
     /// Push a screen inside the More tab (Community / Gear / Licences / Sessions).
     var moreDestination: MoreDestination?
+    /// Set by a crew push-notification tap: the Community tab opens this
+    /// crew's detail screen, then clears it.
+    var openCrewCode: String?
 
     let db: AppDatabase
     let locationManager = LocationManager()
