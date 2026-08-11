@@ -14,6 +14,7 @@ struct ContentView: View {
         case map
         case catches
         case fish
+        case community
 
         var title: String {
             switch self {
@@ -21,6 +22,7 @@ struct ContentView: View {
             case .map: "Explore"
             case .catches: "Catches"
             case .fish: "Fish"
+            case .community: "Community"
             }
         }
 
@@ -32,6 +34,7 @@ struct ContentView: View {
             // The fish glyph Catches used to carry — it belongs to the species
             // guide now that Catches shows the angler instead.
             case .fish: "fish.fill"
+            case .community: "person.3.fill"
             }
         }
     }
@@ -59,6 +62,10 @@ struct ContentView: View {
                         CatchesTab()
                     case .fish:
                         FishTab()
+                    case .community:
+                        // CommunityView expects to live inside a stack (it was
+                        // pushed from Settings before it became a tab).
+                        NavigationStack { CommunityView() }
                     }
                 }
             }
@@ -163,7 +170,8 @@ struct ContentView: View {
             settingsDestination = .sessions
             return
         case "community":
-            settingsDestination = .community
+            // Community is a first-class tab now, not a Settings screen.
+            selectedTab = .community
             return
         case "gear":
             settingsDestination = .gear

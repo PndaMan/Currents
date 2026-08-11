@@ -47,14 +47,9 @@ struct SettingsView: View {
                     .listRowInsets(EdgeInsets())
                 }
 
-                // Spots now live on the Map, analytics and sessions on Catches,
-                // and the species guide and calendar on Fish — so only the
-                // community entry point remains here.
-                Section("Community") {
-                    NavigationLink { CommunityView() } label: {
-                        Label("Community & Friends", systemImage: "person.3.fill")
-                    }
-                }
+                // Spots live on the Map, analytics and sessions on Catches, the
+                // species guide on Fish, and Community has its own tab — so
+                // settings is finally just settings, kit and reference.
 
                 // Your kit and the field reference that goes with it.
                 Section("Kit & Reference") {
