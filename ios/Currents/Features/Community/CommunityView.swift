@@ -8,9 +8,37 @@ struct CommunityView: View {
     @Environment(AppState.self) private var appState
     @StateObject private var svc = CommunityService.shared
 
+    enum CommunityTab: String, CaseIterable, Identifiable {
+        case feed, crews, friends
+        var id: String { rawValue }
+        var title: String {
+            switch self {
+            case .feed:    "Feed"
+            case .crews:   "Crews"
+            case .friends: "Friends"
+            }
+        }
+        var icon: String {
+            switch self {
+            case .feed:    "square.stack.fill"
+            case .crews:   "person.3.fill"
+            case .friends: "trophy.fill"
+            }
+        }
+        /// Where this inner tab sits in the smart-swipe continuum.
+        var swipePage: SwipePage {
+            switch self {
+            case .feed:    .communityFeed
+            case .crews:   .communityCrews
+            case .friends: .communityFriends
+            }
+        }
+    }
+
+    @AppStorage("communityTab") private var tab: CommunityTab = .feed
     @State private var name = ""
-    @State private var showingEdit = false
-    @State private var confirmLeave = false
+    @State private var showingSettings = false
+    @State private var showingProfile = false
     @State private var pushedCrew: CrewRoute?
     @State private var showingInbox = false
     @State private var pendingRequests: [CommunityService.FriendRequest] = []
@@ -20,6 +48,9 @@ struct CommunityView: View {
     @State private var cachedStats: CommunityService.MyStats?
     /// Local catches, used to compute achievements shown on the profile.
     @State private var myCatches: [CatchDetail] = []
+    /// The merged cross-crew feed shown on the Feed tab.
+    @State private var mergedFeed: [CommunityService.CrewPost] = []
+    @State private var feedLoading = false
 
     private var region: String { svc.myRegion }
     private var notificationCount: Int { pendingRequests.count + pendingInvites.count }
@@ -28,22 +59,37 @@ struct CommunityView: View {
         Group {
             if svc.joined { joinedBody } else { joinBody }
         }
+        // Rightmost stretch of the swipe continuum: Seasons ← Feed·Crews·Friends.
+        // Before joining there are no inner tabs, so the whole screen sits at
+        // the Feed position (left edge swipes back to Fish).
+        .smartSwipe(svc.joined ? tab.swipePage : .communityFeed)
+        .onChange(of: appState.swipePage) { _, page in applySwipe(page) }
+        .onAppear { applySwipe(appState.swipePage) }
         .navigationTitle("Community")
         .toolbar {
             if svc.joined {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button { showingInbox = true } label: {
-                        NotificationBell(count: notificationCount)
+                ToolbarItem(placement: .topBarLeading) {
+                    Button { showingProfile = true } label: {
+                        AnglerAvatar(image: svc.myAvatar, size: 32)
                     }
-                    .accessibilityLabel("Notifications")
+                    .accessibilityLabel("My profile")
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { showingSettings = true } label: {
+                        Image(systemName: "gearshape")
+                    }
+                    .accessibilityLabel("Settings")
                 }
             }
         }
-        .sheet(isPresented: $showingEdit) {
-            ProfileEditView(stats: stats)
+        .sheet(isPresented: $showingSettings) {
+            SettingsView()
         }
         .sheet(isPresented: $showingInbox, onDismiss: { Task { await loadNotifications() } }) {
             NotificationInboxView()
+        }
+        .navigationDestination(isPresented: $showingProfile) {
+            MyProfileView(stats: stats, catches: myCatches)
         }
         .task(id: svc.joined) {
             refreshStats(); await syncCatches(); await loadNotifications()
@@ -51,6 +97,7 @@ struct CommunityView: View {
             // reinstall used to show zero crews/trips while the server still
             // counted (and pushed to) this angler.
             await svc.reconcileMemberships()
+            await loadMergedFeed()
         }
         .onChange(of: svc.revision) { _, _ in refreshStats() }
         // A crew push tap lands directly in that crew.
@@ -68,6 +115,18 @@ struct CommunityView: View {
     }
 
     private struct CrewRoute: Identifiable, Hashable { let id: String }
+
+    /// A cross-tab swipe landed on Community: pick the inner tab the swipe
+    /// asked for (Feed when arriving from Fish, Friends never — it's interior).
+    private func applySwipe(_ page: SwipePage?) {
+        switch page {
+        case .communityFeed:    tab = .feed
+        case .communityCrews:   tab = .crews
+        case .communityFriends: tab = .friends
+        default: return
+        }
+        appState.swipePage = nil
+    }
 
     private func refreshStats() {
         myCatches = (try? appState.catchRepository.fetchAll(limit: 100000)) ?? []
@@ -151,32 +210,27 @@ struct CommunityView: View {
 
     private var joinedBody: some View {
         List {
+            // Pills are the first element inside the list so they scroll with
+            // the content (the FishTab pattern) instead of colliding with the
+            // large title.
             Section {
-                Button { showingEdit = true } label: { MyProfileHeader(stats: stats) }
-                    .buttonStyle(.plain)
+                SegmentedPills(options: CommunityTab.allCases, selection: $tab,
+                               title: { $0.title }, icon: { $0.icon })
             }
-            Section {
-                AchievementsCard(catches: myCatches)
-            }
-            LeaderboardSection()
-            CrewsSection()
-            // Live/group trips were completely unreachable from Community —
-            // the section existed but nothing ever rendered it, so an accepted
-            // invite dead-ended the moment its sheet closed.
-            GroupTripsSection()
-            FriendsSection()
-            Section {
-                Button("Leave Community", role: .destructive) { confirmLeave = true }
-                    .confirmationDialog("Leave the Community?", isPresented: $confirmLeave,
-                                        titleVisibility: .visible) {
-                        Button("Leave", role: .destructive) {
-                            Haptics.warning()
-                            svc.leave()
-                            ToastCenter.shared.show("Left the Community", style: .info, haptic: false)
-                        }
-                    } message: {
-                        Text("Notifications stop and nothing new is shared. What you've already published stays visible to friends until you delete those catches; rejoining picks everything back up.")
-                    }
+            .listRowBackground(Color.clear)
+            .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
+            .listRowSeparator(.hidden)
+
+            switch tab {
+            case .feed:
+                feedSections
+            case .crews:
+                CrewsSection()
+                // Live/group trips stay reachable from the Crews tab.
+                GroupTripsSection()
+            case .friends:
+                LeaderboardSection()
+                FriendsSection()
             }
         }
         .refreshable {
@@ -185,7 +239,104 @@ struct CommunityView: View {
             refreshStats()
             await syncCatches()
             await loadNotifications()
+            await loadMergedFeed()
         }
+        .task(id: tab) {
+            if tab == .feed { await loadMergedFeed() }
+        }
+        .sensoryFeedback(.selection, trigger: tab)
+    }
+
+    // MARK: Feed tab
+
+    @ViewBuilder private var feedSections: some View {
+        if notificationCount > 0 {
+            Section {
+                Button { showingInbox = true } label: {
+                    HStack(spacing: 12) {
+                        NotificationBell(count: notificationCount)
+                        Text(inboxSummary).font(.subheadline.bold())
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.caption).foregroundStyle(.tertiary)
+                    }
+                }
+                .buttonStyle(.plain)
+            }
+        }
+
+        Section {
+            if mergedFeed.isEmpty && feedLoading {
+                FishLoader(message: "Reeling in the feed…")
+                    .frame(height: 90).frame(maxWidth: .infinity)
+                    .listRowBackground(Color.clear)
+            } else if mergedFeed.isEmpty {
+                VStack(spacing: 10) {
+                    ContentUnavailableView(
+                        svc.myCrews.isEmpty ? "No crew yet" : "Nothing in the feed yet",
+                        systemImage: "square.stack.3d.up.slash",
+                        description: Text(svc.myCrews.isEmpty
+                            ? "Join or start a crew and everyone's catches land in one feed."
+                            : "When you or a crewmate log a catch, it shows up here."))
+                    Button {
+                        withAnimation(.snappy) { tab = .crews }
+                    } label: {
+                        Label("Find your crew", systemImage: "person.3.fill")
+                    }
+                    .buttonStyle(.borderedProminent).tint(CurrentsTheme.accent)
+                    .padding(.bottom, 8)
+                }
+                .frame(maxWidth: .infinity)
+                .listRowBackground(Color.clear)
+            } else {
+                ForEach(mergedFeed) { post in
+                    VStack(alignment: .leading, spacing: 8) {
+                        crewTag(for: post)
+                        CrewPostCard(post: post, crewCode: post.crewCode,
+                                     crew: svc.crew(withCode: post.crewCode)) {
+                            await loadMergedFeed()
+                        }
+                    }
+                    .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
+                }
+            }
+        }
+    }
+
+    /// Tiny chip naming the crew a post came from — tap to open the crew.
+    private func crewTag(for post: CommunityService.CrewPost) -> some View {
+        let crew = svc.crew(withCode: post.crewCode)
+        return Button {
+            pushedCrew = CrewRoute(id: post.crewCode)
+        } label: {
+            HStack(spacing: 4) {
+                Text(crew?.emoji ?? "🎣").font(.caption)
+                Text(crew?.name ?? post.crewCode).font(.caption2.bold())
+                Image(systemName: "chevron.right").font(.system(size: 8, weight: .bold))
+            }
+            .padding(.horizontal, 8).padding(.vertical, 3)
+            .background(CurrentsTheme.accent.opacity(0.12), in: Capsule())
+            .foregroundStyle(CurrentsTheme.accent)
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// One page from every crew, fetched concurrently and merged newest-first.
+    private func loadMergedFeed() async {
+        guard svc.joined else { return }
+        let crews = svc.myCrews
+        guard !crews.isEmpty else { mergedFeed = []; return }
+        feedLoading = true
+        var all: [CommunityService.CrewPost] = []
+        await withTaskGroup(of: [CommunityService.CrewPost].self) { group in
+            for crew in crews {
+                let code = crew.code
+                group.addTask { await CommunityService.shared.crewFeedPage(code: code) }
+            }
+            for await page in group { all.append(contentsOf: page) }
+        }
+        mergedFeed = all.sorted { $0.caughtAt > $1.caughtAt }
+        feedLoading = false
     }
 
     // MARK: Stats from local data
@@ -207,27 +358,98 @@ struct CommunityView: View {
     }
 }
 
-// MARK: - My profile header
+// MARK: - My profile
 
-private struct MyProfileHeader: View {
+/// Your own profile page: avatar, bio, stats and achievements — plus the
+/// leave-community escape hatch, moved out of the main Community flow.
+struct MyProfileView: View {
     let stats: CommunityService.MyStats
-    private var svc: CommunityService { .shared }
+    let catches: [CatchDetail]
+
+    @Environment(\.dismiss) private var dismiss
+    @StateObject private var svc = CommunityService.shared
+    @AppStorage("units") private var units = "metric"
+    private var imperial: Bool { units == "imperial" }
+
+    @State private var showingEdit = false
+    @State private var confirmLeave = false
 
     var body: some View {
-        HStack(spacing: 14) {
-            AnglerAvatar(image: svc.myAvatar, size: 64)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(svc.myName).font(.headline)
-                if !svc.myBio.isEmpty {
-                    Text(svc.myBio).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+        List {
+            Section {
+                VStack(spacing: 8) {
+                    AnglerAvatar(image: svc.myAvatar, size: 96)
+                    Text(svc.myName).font(.title2.bold())
+                    if !svc.myBio.isEmpty {
+                        Text(svc.myBio).font(.subheadline).foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                    }
+                    if !svc.myRegion.isEmpty {
+                        Label(svc.myRegion, systemImage: "globe")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    Button { showingEdit = true } label: {
+                        Label("Edit Profile", systemImage: "square.and.pencil")
+                            .font(.subheadline.bold())
+                    }
+                    .buttonStyle(.bordered)
+                    .padding(.top, 4)
                 }
-                Text("\(stats.totalCatches) catches · \(stats.speciesCount) species")
-                    .font(.caption2).foregroundStyle(CurrentsTheme.accent)
+                .frame(maxWidth: .infinity).padding(.vertical, 6)
             }
-            Spacer()
-            Image(systemName: "square.and.pencil").foregroundStyle(.secondary)
+            .listRowBackground(Color.clear)
+
+            Section {
+                HStack(spacing: 10) {
+                    statTile("\(stats.totalCatches)", "Catches", "fish.fill")
+                    statTile("\(stats.speciesCount)", "Species", "square.grid.2x2")
+                    if stats.bestWeightKg > 0 {
+                        statTile(Units.weight(kg: stats.bestWeightKg, imperial: imperial), "Heaviest", "scalemass")
+                    }
+                    if stats.bestLengthCm > 0 {
+                        statTile(Units.length(cm: stats.bestLengthCm, imperial: imperial), "Longest", "ruler")
+                    }
+                }
+                if !stats.favoriteSpecies.isEmpty {
+                    Label("Favourite: \(stats.favoriteSpecies)", systemImage: "star.fill")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            .listRowBackground(Color.clear)
+
+            Section {
+                AchievementsCard(catches: catches)
+            }
+
+            Section {
+                Button("Leave Community", role: .destructive) { confirmLeave = true }
+                    .confirmationDialog("Leave the Community?", isPresented: $confirmLeave,
+                                        titleVisibility: .visible) {
+                        Button("Leave", role: .destructive) {
+                            Haptics.warning()
+                            svc.leave()
+                            ToastCenter.shared.show("Left the Community", style: .info, haptic: false)
+                            dismiss()
+                        }
+                    } message: {
+                        Text("Notifications stop and nothing new is shared. What you've already published stays visible to friends until you delete those catches; rejoining picks everything back up.")
+                    }
+            }
         }
-        .padding(.vertical, 4)
+        .navigationTitle("My Profile")
+        .navigationBarTitleDisplayMode(.inline)
+        .sheet(isPresented: $showingEdit) { ProfileEditView(stats: stats) }
+    }
+
+    private func statTile(_ value: String, _ label: String, _ icon: String) -> some View {
+        VStack(spacing: 3) {
+            Image(systemName: icon).font(.caption).foregroundStyle(CurrentsTheme.accent)
+            Text(value).font(.subheadline.bold()).lineLimit(1).minimumScaleFactor(0.6)
+            Text(label).font(.caption2).foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 10)
+        .background(CurrentsTheme.accent.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
     }
 }
 

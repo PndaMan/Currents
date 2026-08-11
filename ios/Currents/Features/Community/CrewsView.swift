@@ -1,4 +1,5 @@
 import SwiftUI
+import PhotosUI
 
 // MARK: - Community section: my Crews
 
@@ -21,10 +22,7 @@ struct CrewsSection: View {
                     CrewDetailView(code: crew.code)
                 } label: {
                     HStack(spacing: 12) {
-                        Text(crew.emoji)
-                            .font(.title3)
-                            .frame(width: 34, height: 34)
-                            .background(CurrentsTheme.accent.opacity(0.15), in: Circle())
+                        CrewIconView(code: crew.code, emoji: crew.emoji, size: 34)
                         VStack(alignment: .leading, spacing: 1) {
                             Text(crew.name).font(.subheadline.bold())
                             Text(crew.createdByCode == svc.friendCode
@@ -40,6 +38,36 @@ struct CrewsSection: View {
             } label: {
                 Label("New crew", systemImage: "plus.circle.fill")
                     .foregroundStyle(CurrentsTheme.accent)
+            }
+        }
+    }
+}
+
+/// A crew's round icon: its icon photo when one is set (disk-cached, refreshed
+/// lazily), otherwise its emoji on a tinted circle.
+private struct CrewIconView: View {
+    let code: String
+    let emoji: String
+    var size: CGFloat = 34
+    @State private var icon: UIImage?
+
+    var body: some View {
+        Group {
+            if let icon {
+                Image(uiImage: icon).resizable().scaledToFill()
+            } else {
+                ZStack {
+                    Circle().fill(CurrentsTheme.accent.opacity(0.15))
+                    Text(emoji).font(.system(size: size * 0.5))
+                }
+            }
+        }
+        .frame(width: size, height: size)
+        .clipShape(Circle())
+        .task {
+            icon = CommunityDiskCache.loadImage(key: "crewicon-\(code)")
+            if icon == nil {
+                icon = await CommunityService.shared.crewArt(code: code).icon
             }
         }
     }
@@ -143,29 +171,48 @@ struct CrewDetailView: View {
     @State private var memberAvatars: [String: UIImage] = [:]
     @State private var feed: [CommunityService.CrewPost] = []
     @State private var isLoading = true
-    @State private var showingLeave = false
+    @State private var canLoadMore = false
+    @State private var loadingMore = false
+    @State private var banner: UIImage?
+    @State private var iconImage: UIImage?
+    @State private var liveTrips: [CommunityService.GroupTrip] = []
+    @State private var tournament: CommunityService.Tournament?
+    @State private var standings: [CommunityService.TeamStanding] = []
+    @State private var showingSettings = false
+    @State private var showingTournamentSetup = false
 
-    private var isMine: Bool { crew?.createdByCode == svc.friendCode }
-    private var liveTrip: CommunityService.GroupRef? { svc.activeTrip(forCrew: code) }
-    /// The live trip as the server sees it — covers crewmates who haven't
-    /// joined yet, for whom the local `activeTrip` lookup knows nothing.
-    @State private var serverLiveTrip: CommunityService.GroupTrip?
+    private let pageSize = 30
 
     var body: some View {
         List {
             headerSection
-            if liveTrip != nil { liveTripBanner }
-            controlsSection
+            membersSection
+            if let tournament, let crew { tournamentHero(tournament, crew: crew) }
+            sessionsSection
             feedSection
         }
         .navigationTitle(crew?.name ?? "Crew")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                if let crew {
-                    ShareLink(item: svc.crewInviteMessage(code: code, name: crew.name)) {
-                        Image(systemName: "person.crop.circle.badge.plus")
-                    }
+                Button { showingSettings = true } label: {
+                    Image(systemName: "gearshape")
+                }
+                .accessibilityLabel("Crew settings")
+            }
+        }
+        .sheet(isPresented: $showingSettings) {
+            if let crew {
+                CrewSettingsView(crew: crew, members: members,
+                                 onChange: { Task { await refresh() } },
+                                 onLeave: { dismiss() })
+            }
+        }
+        .sheet(isPresented: $showingTournamentSetup) {
+            if let crew {
+                TournamentSetupView(crew: crew) { t in
+                    tournament = t
+                    Task { await refresh() }
                 }
             }
         }
@@ -174,36 +221,69 @@ struct CrewDetailView: View {
             // Instant from cache, then refresh.
             crew = svc.crew(withCode: code)
             members = svc.cachedCrewMembers(code)
-            feed = svc.cachedCrewFeed(code)
+            let cached = CommunityDiskCache.loadFeed(code)
+            if !cached.isEmpty { feed = cached }
+            banner = CommunityDiskCache.loadImage(key: "crewbanner-\(code)")
+            iconImage = CommunityDiskCache.loadImage(key: "crewicon-\(code)")
             if !feed.isEmpty || !members.isEmpty { isLoading = false }
             await refresh()
             await pollLoop()
         }
     }
 
+    /// Every 20s: re-fetch only the first feed page (merged into what's
+    /// loaded) plus the live-session/tournament state.
     private func pollLoop() async {
         while !Task.isCancelled {
             try? await Task.sleep(nanoseconds: 20_000_000_000)
-            if !Task.isCancelled { await refresh() }
+            guard !Task.isCancelled else { return }
+            mergeFirstPage(await svc.crewFeedPage(code: code))
+            liveTrips = await svc.liveCrewTrips(crewCode: code)
+            tournament = await svc.activeTournament(crewCode: code)
+            if let t = tournament, !t.isEnded {
+                standings = await svc.teamStandings(tournament: t)
+            }
         }
     }
 
     private func refresh() async {
         if let fresh = await svc.fetchCrew(code: code) { crew = fresh }
         members = await svc.crewMembers(code: code)
-        feed = await svc.crewFeed(code: code)
-        // Re-read the linked live trip too — groupTrip() records endedAt
-        // locally, which is what clears the "is live" banner after the host
-        // ends the trip. Without this the banner pulsed forever.
-        if let live = svc.activeTrip(forCrew: code) {
-            _ = await svc.groupTrip(code: live.code)
+        let art = await svc.crewArt(code: code)
+        banner = art.banner
+        iconImage = art.icon
+        let firstPage = await svc.crewFeedPage(code: code)
+        mergeFirstPage(firstPage)
+        canLoadMore = firstPage.count == pageSize
+        liveTrips = await svc.liveCrewTrips(crewCode: code)
+        tournament = await svc.activeTournament(crewCode: code)
+        if let t = tournament {
+            standings = await svc.teamStandings(tournament: t)
+        } else {
+            standings = []
         }
-        // And ask the server: a crewmate who never joined the trip has no
-        // local ref at all, so this is what makes "join an ongoing trip"
-        // discoverable to the rest of the crew.
-        serverLiveTrip = await svc.liveCrewTrip(crewCode: code)
         isLoading = false
         await loadAvatars()
+    }
+
+    /// Replace the newest page in place, keeping any older pages already
+    /// loaded (dropping posts the server no longer returns for that window).
+    private func mergeFirstPage(_ page: [CommunityService.CrewPost]) {
+        let oldest = page.last?.caughtAt ?? .distantPast
+        let ids = Set(page.map(\.id))
+        feed = page + feed.filter { !ids.contains($0.id) && $0.caughtAt < oldest }
+    }
+
+    private func loadMoreIfNeeded(after post: CommunityService.CrewPost) {
+        guard canLoadMore, !loadingMore, post.id == feed.last?.id else { return }
+        loadingMore = true
+        Task {
+            let page = await svc.crewFeedPage(code: code, before: feed.last?.caughtAt)
+            let ids = Set(feed.map(\.id))
+            feed.append(contentsOf: page.filter { !ids.contains($0.id) })
+            canLoadMore = page.count == pageSize
+            loadingMore = false
+        }
     }
 
     /// Fetch each member's profile picture (concurrently) so the roster shows
@@ -213,150 +293,225 @@ struct CrewDetailView: View {
         for m in members where memberAvatars[m.id] == nil {
             if let a = svc.cachedProfiles(for: [m.id]).first?.avatar { memberAvatars[m.id] = a }
         }
-        // Fresh: fetch any we still don't have.
+        // Fresh: batch-fetch any we still don't have.
         let missing = members.map(\.id).filter { memberAvatars[$0] == nil }
-        let tasks = missing.map { c in Task { (c, await svc.fetchProfile(code: c)?.avatar) } }
-        for t in tasks {
-            let (c, avatar) = await t.value
-            if let avatar { memberAvatars[c] = avatar }
-        }
+        guard !missing.isEmpty else { return }
+        let profiles = await svc.profiles(for: missing)
+        for (c, p) in profiles where p.avatar != nil { memberAvatars[c] = p.avatar }
     }
 
-    // MARK: Header
+    // MARK: Header (banner + identity)
 
     private var headerSection: some View {
         Section {
-            VStack(spacing: 10) {
-                Text(crew?.emoji ?? "🎣").font(.system(size: 46))
-                Text(crew?.name ?? "Crew").font(.title2.bold())
-                Text("\(members.count) member\(members.count == 1 ? "" : "s")\(isMine ? " · you started this" : "")")
-                    .font(.caption).foregroundStyle(.secondary)
-                if !members.isEmpty {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 10) {
-                            ForEach(members) { m in
-                                memberChip(m)
-                            }
-                        }
-                        .padding(.horizontal, 2)
+            VStack(alignment: .leading, spacing: 8) {
+                Group {
+                    if let banner {
+                        Image(uiImage: banner).resizable().scaledToFill()
+                    } else {
+                        LinearGradient(colors: [CurrentsTheme.accent.opacity(0.55),
+                                                CurrentsTheme.accent.opacity(0.25)],
+                                       startPoint: .topLeading, endPoint: .bottomTrailing)
                     }
                 }
+                .frame(height: 140)
+                .frame(maxWidth: .infinity)
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+
+                HStack(spacing: 12) {
+                    crewIcon(size: 56)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(crew?.name ?? "Crew").font(.title2.bold())
+                        Text("\(members.count) member\(members.count == 1 ? "" : "s")")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                }
+                .padding(.leading, 12)
+                .padding(.top, -32)
             }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 6)
         }
         .listRowBackground(Color.clear)
+        .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 0, trailing: 0))
+        .listRowSeparator(.hidden)
     }
 
-    @ViewBuilder
-    private func memberChip(_ m: CommunityService.GroupMember) -> some View {
-        let chip = VStack(spacing: 4) {
-            AnglerAvatar(image: memberAvatars[m.id], size: 48)
-            Text(m.id == svc.friendCode ? "You" : m.name)
-                .font(.caption2).lineLimit(1).frame(maxWidth: 64)
-                .foregroundStyle(.primary)
-        }
-        // Tapping a crewmate opens their profile; you can't open your own.
-        if m.id == svc.friendCode {
-            chip
-        } else {
-            NavigationLink { FriendProfileView(code: m.id) } label: { chip }
-                .buttonStyle(.plain)
-        }
-    }
-
-    // MARK: Live trip banner
-
-    private var liveTripBanner: some View {
-        // Prefer my own ref (knows isHost); fall back to the server's view so
-        // crewmates who haven't joined still get the banner.
-        let mine = liveTrip
-        let tripCode = mine?.code ?? serverLiveTrip?.id
-        let tripName = mine?.name ?? serverLiveTrip?.name ?? "Live trip"
-        let hostName = mine?.hostName ?? serverLiveTrip?.hostName ?? ""
-        let amIn = mine != nil
-
-        return Section {
-            if let tripCode {
-                NavigationLink {
-                    GroupTripView(tripId: svc.tripId(forGroupCode: tripCode),
-                                  tripName: tripName, initialCode: tripCode)
-                } label: {
-                    HStack(spacing: 12) {
-                        Image(systemName: "dot.radiowaves.left.and.right")
-                            .foregroundStyle(.white)
-                            .frame(width: 34, height: 34)
-                            .background(Color.red, in: Circle())
-                            .symbolEffect(.variableColor.iterative, options: .repeating)
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text("\(tripName) is live").font(.subheadline.bold())
-                            Text(mine?.isHost == true ? "You're hosting · tap to open"
-                                 : amIn ? "You're in · tap to open"
-                                 : "Hosted by \(hostName) · tap to join")
-                                .font(.caption2).foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                        if !amIn {
-                            Text("JOIN")
-                                .font(.system(size: 10, weight: .heavy))
-                                .padding(.horizontal, 8).padding(.vertical, 3)
-                                .background(Color.red, in: Capsule())
-                                .foregroundStyle(.white)
-                        }
-                    }
+    private func crewIcon(size: CGFloat) -> some View {
+        Group {
+            if let iconImage {
+                Image(uiImage: iconImage).resizable().scaledToFill()
+            } else {
+                ZStack {
+                    Circle().fill(CurrentsTheme.accent.opacity(0.18))
+                    Text(crew?.emoji ?? "🎣").font(.system(size: size * 0.5))
                 }
             }
         }
+        .frame(width: size, height: size)
+        .clipShape(Circle())
+        .overlay(Circle().stroke(.background, lineWidth: 3))
     }
 
-    // MARK: Controls
+    // MARK: Members strip
 
-    private var controlsSection: some View {
+    private var membersSection: some View {
         Section {
-            Toggle(isOn: Binding(
-                get: { crew?.autoPost ?? true },
-                set: { on in
-                    svc.setAutoPost(on, forCrew: code)
-                    crew?.autoPost = on
-                    Haptics.tap()
-                    ToastCenter.shared.show(on ? "Auto-posting to this crew" : "Auto-post off for this crew",
-                                            style: .info, haptic: false)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 14) {
+                    ForEach(members) { m in memberChip(m) }
                 }
-            )) {
-                Label("Post my catches here", systemImage: "arrow.up.circle.fill")
+                .padding(.vertical, 4)
             }
-            .tint(CurrentsTheme.accent)
+        }
+        .listRowBackground(Color.clear)
+        .listRowSeparator(.hidden)
+    }
 
-            NavigationLink {
-                GroupTripSetupView(crewCode: code)
-            } label: {
-                Label(liveTrip == nil && serverLiveTrip == nil ? "Start a live trip" : "Start another trip",
-                      systemImage: "dot.radiowaves.left.and.right")
+    private func memberChip(_ m: CommunityService.GroupMember) -> some View {
+        let role = crew.map { svc.role(of: m.id, in: $0) } ?? .member
+        return NavigationLink {
+            FriendProfileView(code: m.id)
+        } label: {
+            VStack(spacing: 4) {
+                AnglerAvatar(image: memberAvatars[m.id], size: 44)
+                    .overlay(alignment: .bottomTrailing) { roleBadge(role) }
+                Text(m.id == svc.friendCode ? "You" : m.name)
+                    .font(.caption2).lineLimit(1).frame(maxWidth: 64)
+                    .foregroundStyle(.primary)
             }
+        }
+        .buttonStyle(.plain)
+    }
 
-            Button(role: .destructive) {
-                showingLeave = true
-            } label: {
-                Label("Leave crew", systemImage: "rectangle.portrait.and.arrow.right")
-            }
-            .confirmationDialog("Leave this crew?", isPresented: $showingLeave, titleVisibility: .visible) {
-                Button("Leave", role: .destructive) {
-                    Task {
-                        await svc.leaveCrew(code: code)
-                        Haptics.warning()
-                        ToastCenter.shared.show("Left the crew", style: .info, haptic: false)
-                        dismiss()
-                    }
-                }
-            } message: {
-                Text("You'll stop seeing this crew's feed. You can re-join with the code.")
-            }
-        } footer: {
-            Text("A live trip is optional — start one when you're fishing together and everyone's catches post here in real time.")
+    @ViewBuilder private func roleBadge(_ role: CrewRole) -> some View {
+        if role != .member {
+            Image(systemName: role.icon)
+                .font(.system(size: 8, weight: .bold))
+                .foregroundStyle(.white)
+                .frame(width: 16, height: 16)
+                .background(Self.roleColor(role), in: Circle())
+                .overlay(Circle().stroke(.background, lineWidth: 1.5))
         }
     }
 
-    // MARK: Feed
+    static func roleColor(_ role: CrewRole) -> Color {
+        switch role {
+        case .captain: .yellow
+        case .mate:    .orange
+        case .admin:   .blue
+        case .member:  .clear
+        }
+    }
+
+    // MARK: Tournament hero
+
+    private func tournamentHero(_ t: CommunityService.Tournament,
+                                crew: CommunityService.Crew) -> some View {
+        Section {
+            NavigationLink {
+                TournamentView(tournament: t, crew: crew)
+            } label: {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "trophy.fill").foregroundStyle(.yellow)
+                        Text(t.name).font(.headline)
+                        Spacer()
+                        Text(t.isEnded ? "ENDED" : "LIVE")
+                            .font(.system(size: 10, weight: .heavy))
+                            .padding(.horizontal, 8).padding(.vertical, 3)
+                            .background(t.isEnded ? Color.secondary.opacity(0.25) : Color.red,
+                                        in: Capsule())
+                            .foregroundStyle(t.isEnded ? .secondary : .white)
+                    }
+                    if t.isEnded, let winner = t.winnerTeam {
+                        Text("🏆 \(winner) won").font(.subheadline.bold())
+                    } else if let ends = t.endsAt {
+                        TimelineView(.periodic(from: .now, by: 60)) { ctx in
+                            Label(crewCountdownLabel(to: ends, now: ctx.date), systemImage: "clock")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                    ForEach(standings.prefix(2)) { s in
+                        HStack {
+                            Text(s.teamName).font(.caption.bold())
+                            Spacer()
+                            Text("\(s.points) pts")
+                                .font(.caption.bold().monospacedDigit())
+                                .foregroundStyle(CurrentsTheme.accent)
+                        }
+                    }
+                }
+                .padding(.vertical, 2)
+            }
+        }
+    }
+
+    // MARK: Live sessions
+
+    private var sessionsSection: some View {
+        Section("Live sessions") {
+            if liveTrips.isEmpty {
+                Text("No live sessions right now — start one when you're fishing together.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            ForEach(liveTrips) { trip in liveTripRow(trip) }
+            HStack(spacing: 10) {
+                NavigationLink {
+                    GroupTripSetupView(crewCode: code)
+                } label: {
+                    Label("Start live session", systemImage: "dot.radiowaves.left.and.right")
+                        .font(.subheadline.bold())
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                if let crew, svc.myRole(in: crew).canRunTournaments,
+                   tournament == nil || tournament?.isEnded == true {
+                    Button {
+                        Haptics.tap()
+                        showingTournamentSetup = true
+                    } label: {
+                        Label("Tournament", systemImage: "trophy.fill")
+                            .font(.subheadline.bold())
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent).tint(CurrentsTheme.accent)
+                }
+            }
+        }
+    }
+
+    private func liveTripRow(_ trip: CommunityService.GroupTrip) -> some View {
+        let amIn = svc.myGroups.contains { $0.code == trip.id }
+        return NavigationLink {
+            GroupTripView(tripId: svc.tripId(forGroupCode: trip.id),
+                          tripName: trip.name, initialCode: trip.id)
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "dot.radiowaves.left.and.right")
+                    .foregroundStyle(.white)
+                    .frame(width: 34, height: 34)
+                    .background(Color.red, in: Circle())
+                    .symbolEffect(.variableColor.iterative, options: .repeating)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("\(trip.name) is live").font(.subheadline.bold())
+                    Text(trip.hostCode == svc.friendCode ? "You're hosting · tap to open"
+                         : amIn ? "You're in · tap to open"
+                         : "Hosted by \(trip.hostName) · tap to join")
+                        .font(.caption2).foregroundStyle(.secondary)
+                }
+                Spacer()
+                if !amIn {
+                    Text("JOIN")
+                        .font(.system(size: 10, weight: .heavy))
+                        .padding(.horizontal, 8).padding(.vertical, 3)
+                        .background(Color.red, in: Capsule())
+                        .foregroundStyle(.white)
+                }
+            }
+        }
+    }
+
+    // MARK: Feed (paginated)
 
     @ViewBuilder
     private var feedSection: some View {
@@ -375,9 +530,328 @@ struct CrewDetailView: View {
                 }
             } else {
                 ForEach(feed) { post in
-                    CrewPostCard(post: post, crewCode: code) { await refresh() }
+                    CrewPostCard(post: post, crewCode: code, crew: crew) { await refresh() }
                         .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
+                        .onAppear { loadMoreIfNeeded(after: post) }
                 }
+                if loadingMore {
+                    ProgressView()
+                        .frame(maxWidth: .infinity)
+                        .listRowBackground(Color.clear)
+                }
+            }
+        }
+    }
+}
+
+/// "Ends in 3h 12m" / "Overtime" once past due.
+private func crewCountdownLabel(to end: Date, now: Date) -> String {
+    let s = end.timeIntervalSince(now)
+    guard s > 0 else { return "Overtime" }
+    let h = Int(s) / 3600, m = (Int(s) % 3600) / 60
+    return h > 0 ? "Ends in \(h)h \(m)m" : "Ends in \(m)m"
+}
+
+// MARK: - Crew settings (identity, posting, members, invite, leave)
+
+struct CrewSettingsView: View {
+    let crew: CommunityService.Crew
+    let members: [CommunityService.GroupMember]
+    let onChange: () -> Void
+    var onLeave: () -> Void = {}
+
+    @Environment(\.dismiss) private var dismiss
+    @StateObject private var svc = CommunityService.shared
+
+    @State private var currentCrew: CommunityService.Crew
+    @State private var name: String
+    @State private var emoji: String
+    @State private var iconItem: PhotosPickerItem?
+    @State private var bannerItem: PhotosPickerItem?
+    @State private var newIcon: UIImage?
+    @State private var newBanner: UIImage?
+    @State private var removeIcon = false
+    @State private var removeBanner = false
+    @State private var hasIcon: Bool
+    @State private var hasBanner: Bool
+    @State private var saving = false
+    @State private var confirmingRemove: CommunityService.GroupMember?
+    @State private var confirmLeave = false
+
+    init(crew: CommunityService.Crew, members: [CommunityService.GroupMember],
+         onChange: @escaping () -> Void, onLeave: @escaping () -> Void = {}) {
+        self.crew = crew
+        self.members = members
+        self.onChange = onChange
+        self.onLeave = onLeave
+        _currentCrew = State(initialValue: crew)
+        _name = State(initialValue: crew.name)
+        _emoji = State(initialValue: crew.emoji)
+        _hasIcon = State(initialValue: CommunityDiskCache.loadImage(key: "crewicon-\(crew.code)") != nil)
+        _hasBanner = State(initialValue: CommunityDiskCache.loadImage(key: "crewbanner-\(crew.code)") != nil)
+    }
+
+    private var myRole: CrewRole { svc.myRole(in: currentCrew) }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                if myRole.canManage { identitySection }
+                postingSection
+                membersSection
+                inviteSection
+                dangerSection
+            }
+            .navigationTitle("Crew Settings")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
+            }
+            .onChange(of: iconItem) { _, item in
+                Task {
+                    if let data = try? await item?.loadTransferable(type: Data.self),
+                       let img = UIImage(data: data) {
+                        newIcon = img
+                        removeIcon = false
+                    }
+                }
+            }
+            .onChange(of: bannerItem) { _, item in
+                Task {
+                    if let data = try? await item?.loadTransferable(type: Data.self),
+                       let img = UIImage(data: data) {
+                        newBanner = img
+                        removeBanner = false
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: Identity
+
+    private var identitySection: some View {
+        Section {
+            TextField("Crew name", text: $name)
+            TextField("Emoji", text: $emoji)
+                .onChange(of: emoji) { _, v in
+                    if v.count > 2 { emoji = String(v.prefix(2)) }
+                }
+            PhotosPicker(selection: $iconItem, matching: .images) {
+                Label(newIcon != nil ? "Icon photo selected" : "Choose icon photo",
+                      systemImage: "person.crop.circle.badge.plus")
+            }
+            if (hasIcon || newIcon != nil) && !removeIcon {
+                Button(role: .destructive) {
+                    removeIcon = true
+                    newIcon = nil
+                    iconItem = nil
+                } label: {
+                    Label("Remove icon photo", systemImage: "trash")
+                }
+            }
+            PhotosPicker(selection: $bannerItem, matching: .images) {
+                Label(newBanner != nil ? "Banner selected" : "Choose banner",
+                      systemImage: "photo.on.rectangle.angled")
+            }
+            if (hasBanner || newBanner != nil) && !removeBanner {
+                Button(role: .destructive) {
+                    removeBanner = true
+                    newBanner = nil
+                    bannerItem = nil
+                } label: {
+                    Label("Remove banner", systemImage: "trash")
+                }
+            }
+            Button {
+                save()
+            } label: {
+                HStack {
+                    if saving { ProgressView() }
+                    Label("Save changes", systemImage: "checkmark.circle.fill")
+                        .frame(maxWidth: .infinity)
+                }
+            }
+            .buttonStyle(.borderedProminent).tint(CurrentsTheme.accent)
+            .disabled(saving || name.trimmingCharacters(in: .whitespaces).isEmpty)
+        } header: {
+            Text("Identity")
+        } footer: {
+            Text("Only the captain and mates can change the crew's name and look.")
+        }
+    }
+
+    private func save() {
+        saving = true
+        let trimmedName = name.trimmingCharacters(in: .whitespaces)
+        Task {
+            let ok = await svc.updateCrewIdentity(
+                currentCrew,
+                name: trimmedName != currentCrew.name ? trimmedName : nil,
+                emoji: emoji != currentCrew.emoji && !emoji.isEmpty ? emoji : nil,
+                banner: newBanner, iconPhoto: newIcon,
+                removeBanner: removeBanner, removeIcon: removeIcon)
+            saving = false
+            if ok {
+                Haptics.success()
+                ToastCenter.shared.show("Crew updated", style: .success)
+                currentCrew.name = trimmedName
+                if !emoji.isEmpty { currentCrew.emoji = emoji }
+                if newIcon != nil { hasIcon = true }
+                if removeIcon { hasIcon = false; removeIcon = false }
+                if newBanner != nil { hasBanner = true }
+                if removeBanner { hasBanner = false; removeBanner = false }
+                newIcon = nil; newBanner = nil
+                onChange()
+            } else {
+                ToastCenter.shared.show("Couldn't update the crew", style: .error)
+            }
+        }
+    }
+
+    // MARK: Posting
+
+    private var postingSection: some View {
+        Section("Posting") {
+            Toggle(isOn: Binding(
+                get: { svc.crew(withCode: currentCrew.code)?.autoPost ?? currentCrew.autoPost },
+                set: { on in
+                    svc.setAutoPost(on, forCrew: currentCrew.code)
+                    currentCrew.autoPost = on
+                    Haptics.tap()
+                    ToastCenter.shared.show(on ? "Auto-posting to this crew" : "Auto-post off for this crew",
+                                            style: .info, haptic: false)
+                }
+            )) {
+                Label("Post my catches here", systemImage: "arrow.up.circle.fill")
+            }
+            .tint(CurrentsTheme.accent)
+        }
+    }
+
+    // MARK: Members
+
+    private var membersSection: some View {
+        Section("Members") {
+            ForEach(members) { m in memberRow(m) }
+        }
+        .confirmationDialog(
+            "Remove from crew?",
+            isPresented: Binding(get: { confirmingRemove != nil },
+                                 set: { if !$0 { confirmingRemove = nil } }),
+            titleVisibility: .visible,
+            presenting: confirmingRemove
+        ) { m in
+            Button("Remove \(m.name)", role: .destructive) {
+                Task {
+                    if await svc.removeMember(m.id, fromCrew: currentCrew) {
+                        Haptics.warning()
+                        ToastCenter.shared.show("Removed from the crew", style: .info, haptic: false)
+                        onChange()
+                    } else {
+                        ToastCenter.shared.show("Couldn't remove them", style: .error)
+                    }
+                }
+            }
+        } message: { m in
+            Text("\(m.name) can re-join with the crew code.")
+        }
+    }
+
+    @ViewBuilder private func memberRow(_ m: CommunityService.GroupMember) -> some View {
+        let role = svc.role(of: m.id, in: currentCrew)
+        let isSelf = m.id == svc.friendCode
+        let isCaptain = m.id == currentCrew.createdByCode
+        HStack(spacing: 12) {
+            AnglerAvatar(image: svc.cachedProfiles(for: [m.id]).first?.avatar, size: 36)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(isSelf ? "You" : m.name).font(.subheadline.bold())
+                Text(role.label).font(.caption2)
+                    .foregroundStyle(role == .member ? Color.secondary : CrewDetailView.roleColor(role))
+            }
+            Spacer()
+            if !isSelf, !isCaptain, myRole.canModerate {
+                Menu {
+                    if myRole.canManage {
+                        if myRole == .captain, role != .mate {
+                            Button { apply(.mate, to: m) } label: {
+                                Label("Make Mate", systemImage: CrewRole.mate.icon)
+                            }
+                        }
+                        if role != .admin {
+                            Button { apply(.admin, to: m) } label: {
+                                Label("Make Admin", systemImage: CrewRole.admin.icon)
+                            }
+                        }
+                        if role != .member {
+                            Button { apply(.member, to: m) } label: {
+                                Label("Remove role", systemImage: "person.fill")
+                            }
+                        }
+                        Divider()
+                    }
+                    Button(role: .destructive) { confirmingRemove = m } label: {
+                        Label("Remove from crew", systemImage: "person.fill.xmark")
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle").foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    private func apply(_ role: CrewRole, to m: CommunityService.GroupMember) {
+        Task {
+            if let updated = await svc.setRole(role, for: m.id, in: currentCrew) {
+                currentCrew = updated
+                Haptics.success()
+                ToastCenter.shared.show(role == .member ? "\(m.name) is a member again"
+                                                        : "\(m.name) is now \(role.label)",
+                                        style: .success)
+                onChange()
+            } else {
+                ToastCenter.shared.show("Couldn't change that role", style: .error)
+            }
+        }
+    }
+
+    // MARK: Invite
+
+    private var inviteSection: some View {
+        Section("Invite") {
+            HStack {
+                Text("Crew code")
+                Spacer()
+                CopyableCode(code: currentCrew.code)
+            }
+            ShareLink(item: svc.crewInviteMessage(code: currentCrew.code, name: currentCrew.name)) {
+                Label("Share invite", systemImage: "square.and.arrow.up")
+            }
+        }
+    }
+
+    // MARK: Danger
+
+    private var dangerSection: some View {
+        Section {
+            Button(role: .destructive) {
+                confirmLeave = true
+            } label: {
+                Label("Leave crew", systemImage: "rectangle.portrait.and.arrow.right")
+            }
+            .confirmationDialog("Leave this crew?", isPresented: $confirmLeave,
+                                titleVisibility: .visible) {
+                Button("Leave", role: .destructive) {
+                    Task {
+                        await svc.leaveCrew(code: currentCrew.code)
+                        Haptics.warning()
+                        ToastCenter.shared.show("Left the crew", style: .info, haptic: false)
+                        dismiss()
+                        onLeave()
+                    }
+                }
+            } message: {
+                Text("You'll stop seeing this crew's feed. You can re-join with the code.")
             }
         }
     }
@@ -390,17 +864,22 @@ struct CrewDetailView: View {
 struct CrewPostCard: View {
     let post: CommunityService.CrewPost
     let crewCode: String
+    /// The crew this post lives in, when known — needed for moderation
+    /// (delete-others'-posts) checks and the delete call itself.
+    var crew: CommunityService.Crew? = nil
     let reload: () async -> Void
 
     private var svc: CommunityService { .shared }
     @State private var photo: UIImage?
     @State private var editingCaption = false
     @State private var captionDraft = ""
+    @State private var confirmingDelete = false
     /// Optimistic reactions, shown the instant you tap and replaced by the
     /// server's truth on the next reload.
     @State private var localReactions: [CommunityService.CrewReaction]?
 
     private var isMine: Bool { post.authorCode == svc.friendCode }
+    private var canModerate: Bool { crew.map { svc.myRole(in: $0).canModerate } ?? false }
     private var reactions: [CommunityService.CrewReaction] { localReactions ?? post.reactions }
 
     var body: some View {
@@ -419,7 +898,7 @@ struct CrewPostCard: View {
         .padding(.vertical, 4)
         .task(id: post.id) {
             if post.hasPhoto, photo == nil {
-                photo = await svc.crewPostPhoto(recordName: post.id)
+                photo = await svc.crewPostImage(recordName: post.id)
             }
         }
         .onChange(of: post.reactions) { _, _ in localReactions = nil }
@@ -430,6 +909,22 @@ struct CrewPostCard: View {
                 Task { await svc.setCrewCaption(text, postId: post.id); await reload() }
             }
             Button("Cancel", role: .cancel) {}
+        }
+        .confirmationDialog("Delete this post?", isPresented: $confirmingDelete,
+                            titleVisibility: .visible) {
+            Button("Delete", role: .destructive) {
+                Task {
+                    if let crew, await svc.deleteCrewPost(post, in: crew) {
+                        Haptics.warning()
+                        ToastCenter.shared.show("Post deleted", style: .info, haptic: false)
+                        await reload()
+                    } else {
+                        ToastCenter.shared.show("Couldn't delete the post", style: .error)
+                    }
+                }
+            }
+        } message: {
+            Text("The post disappears from the crew's feed for everyone.")
         }
     }
 
@@ -442,19 +937,28 @@ struct CrewPostCard: View {
                     .font(.caption2).foregroundStyle(.secondary)
             }
             Spacer()
-            if isMine {
-                Menu {
+            Menu {
+                if isMine {
                     Button { startEditingCaption() } label: {
                         Label(post.caption.isEmpty ? "Add caption" : "Edit caption",
                               systemImage: "pencil")
                     }
-                } label: {
-                    Image(systemName: "ellipsis")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .frame(width: 28, height: 28)
-                        .contentShape(Rectangle())
                 }
+                ShareLink(item: "🎣 \(isMine ? svc.myName : post.authorName) caught a \(post.species)!") {
+                    Label("Share", systemImage: "square.and.arrow.up")
+                }
+                if (isMine || canModerate), crew != nil {
+                    Divider()
+                    Button(role: .destructive) { confirmingDelete = true } label: {
+                        Label("Delete post", systemImage: "trash")
+                    }
+                }
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 28, height: 28)
+                    .contentShape(Rectangle())
             }
         }
     }
