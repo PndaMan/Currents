@@ -187,7 +187,7 @@ struct CrewDetailView: View {
         List {
             headerSection
             membersSection
-            if let tournament, let crew { tournamentHero(tournament, crew: crew) }
+            if let crew { tournamentsSection(crew) }
             sessionsSection
             feedSection
         }
@@ -418,9 +418,53 @@ struct CrewDetailView: View {
 
     // MARK: Tournament hero
 
+    /// The crew's dedicated tournament area: the active tournament front and
+    /// centre, a create action for admins, and the full history behind one
+    /// link — fifty past tournaments never pile up on this screen.
+    private func tournamentsSection(_ crew: CommunityService.Crew) -> some View {
+        Section("Tournaments") {
+            if let tournament {
+                tournamentHero(tournament, crew: crew)
+            }
+            if tournament == nil || tournament?.isEnded == true {
+                if svc.myRole(in: crew).canRunTournaments {
+                    newTournamentRow
+                } else if tournament == nil {
+                    Text("No tournament running — a crew admin can start one.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            NavigationLink {
+                TournamentHistoryView(crew: crew)
+            } label: {
+                Label("All tournaments", systemImage: "clock.arrow.circlepath")
+                    .font(.subheadline)
+            }
+        }
+    }
+
+    private var newTournamentRow: some View {
+        Button {
+            Haptics.tap()
+            showingTournamentSetup = true
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "trophy.fill")
+                    .foregroundStyle(.yellow)
+                    .frame(width: 34, height: 34)
+                    .background(Color.yellow.opacity(0.15), in: Circle())
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Start a tournament").font(.subheadline.bold())
+                    Text("Teams are live sessions — every catch scores points.")
+                        .font(.caption2).foregroundStyle(.secondary)
+                }
+            }
+        }
+        .buttonStyle(.plain)
+    }
+
     private func tournamentHero(_ t: CommunityService.Tournament,
                                 crew: CommunityService.Crew) -> some View {
-        Section {
             NavigationLink {
                 TournamentView(tournament: t, crew: crew)
             } label: {
@@ -456,7 +500,6 @@ struct CrewDetailView: View {
                 }
                 .padding(.vertical, 2)
             }
-        }
     }
 
     // MARK: Live sessions
@@ -468,28 +511,16 @@ struct CrewDetailView: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
             ForEach(liveTrips) { trip in liveTripRow(trip) }
-            HStack(spacing: 10) {
-                NavigationLink {
-                    GroupTripSetupView(crewCode: code)
-                } label: {
-                    Label("Start live session", systemImage: "dot.radiowaves.left.and.right")
-                        .font(.subheadline.bold())
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.bordered)
-                if let crew, svc.myRole(in: crew).canRunTournaments,
-                   tournament == nil || tournament?.isEnded == true {
-                    Button {
-                        Haptics.tap()
-                        showingTournamentSetup = true
-                    } label: {
-                        Label("Tournament", systemImage: "trophy.fill")
-                            .font(.subheadline.bold())
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.borderedProminent).labelStyle(.prominentButton).tint(CurrentsTheme.accent)
-                }
+            // Tournaments have their own section now — this strip is purely
+            // for casual live sessions.
+            NavigationLink {
+                GroupTripSetupView(crewCode: code)
+            } label: {
+                Label("Start live session", systemImage: "dot.radiowaves.left.and.right")
+                    .font(.subheadline.bold())
+                    .frame(maxWidth: .infinity)
             }
+            .buttonStyle(.bordered)
         }
     }
 
@@ -590,6 +621,11 @@ struct CrewSettingsView: View {
     @State private var saving = false
     @State private var confirmingRemove: CommunityService.GroupMember?
     @State private var confirmLeave = false
+    @State private var showingIconPicker = false
+    @State private var showingBannerPicker = false
+    @State private var showingEmojiRow = false
+
+    private let emojis = ["🎣", "🐟", "🐠", "🦈", "🌊", "⚓️", "🛥️", "🏆"]
 
     init(crew: CommunityService.Crew, members: [CommunityService.GroupMember],
          onChange: @escaping () -> Void, onLeave: @escaping () -> Void = {}) {
@@ -620,6 +656,8 @@ struct CrewSettingsView: View {
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
             }
+            .photosPicker(isPresented: $showingBannerPicker, selection: $bannerItem, matching: .images)
+            .photosPicker(isPresented: $showingIconPicker, selection: $iconItem, matching: .images)
             .onChange(of: iconItem) { _, item in
                 Task {
                     if let data = try? await item?.loadTransferable(type: Data.self),
@@ -643,54 +681,170 @@ struct CrewSettingsView: View {
 
     // MARK: Identity
 
+    /// What the banner/avatar currently look like, folding in pending picks
+    /// and removals so the header is always a live preview of what Save does.
+    private var currentBanner: UIImage? {
+        newBanner ?? (removeBanner || !hasBanner ? nil
+                      : CommunityDiskCache.loadImage(key: "crewbanner-\(crew.code)"))
+    }
+    private var currentIcon: UIImage? {
+        newIcon ?? (removeIcon || !hasIcon ? nil
+                    : CommunityDiskCache.loadImage(key: "crewicon-\(crew.code)"))
+    }
+
+    /// One visual header instead of six stacked rows: the banner IS the
+    /// banner control, the avatar IS the icon control (photo or emoji), and
+    /// the name sits beneath — edit what you're looking at.
     private var identitySection: some View {
         Section {
-            TextField("Crew name", text: $name)
-            TextField("Emoji", text: $emoji)
-                .onChange(of: emoji) { _, v in
-                    if v.count > 2 { emoji = String(v.prefix(2)) }
+            VStack(alignment: .leading, spacing: 12) {
+                ZStack(alignment: .bottomLeading) {
+                    bannerCanvas
+                    avatarCircle
+                        .padding(.leading, 14)
+                        .offset(y: 32)
                 }
-            PhotosPicker(selection: $iconItem, matching: .images) {
-                Label(newIcon != nil ? "Icon photo selected" : "Choose icon photo",
-                      systemImage: "person.crop.circle.badge.plus")
+                .padding(.bottom, 34)
+
+                TextField("Crew name", text: $name)
+                    .font(.headline)
+                    .padding(.horizontal, 12).padding(.vertical, 10)
+                    .background(Color(.tertiarySystemFill),
+                                in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+
+                if showingEmojiRow { emojiRow }
+
+                Button {
+                    save()
+                } label: {
+                    HStack {
+                        if saving { ProgressView().tint(.white) }
+                        Label("Save changes", systemImage: "checkmark.circle.fill")
+                            .frame(maxWidth: .infinity)
+                    }
+                }
+                .buttonStyle(.borderedProminent).labelStyle(.prominentButton).tint(CurrentsTheme.accent)
+                .disabled(saving || name.trimmingCharacters(in: .whitespaces).isEmpty)
             }
-            if (hasIcon || newIcon != nil) && !removeIcon {
+            .listRowInsets(EdgeInsets(top: 10, leading: 12, bottom: 10, trailing: 12))
+        } header: {
+            Text("Identity")
+        } footer: {
+            Text("Tap the banner or the avatar to change them. Only the captain and mates can change the crew's name and look.")
+        }
+    }
+
+    private var bannerCanvas: some View {
+        ZStack(alignment: .topTrailing) {
+            Group {
+                if let banner = currentBanner {
+                    Image(uiImage: banner).resizable().scaledToFill()
+                } else {
+                    LinearGradient(colors: [CurrentsTheme.accent.opacity(0.45),
+                                            CurrentsTheme.accent.opacity(0.12)],
+                                   startPoint: .topLeading, endPoint: .bottomTrailing)
+                        .overlay {
+                            Label("Add a banner", systemImage: "photo.badge.plus")
+                                .font(.caption.bold())
+                                .foregroundStyle(.secondary)
+                        }
+                }
+            }
+            .frame(height: 110)
+            .frame(maxWidth: .infinity)
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .onTapGesture { showingBannerPicker = true }
+
+            Menu {
+                Button {
+                    showingBannerPicker = true
+                } label: {
+                    Label(currentBanner == nil ? "Choose banner" : "Change banner",
+                          systemImage: "photo")
+                }
+                if currentBanner != nil {
+                    Button(role: .destructive) {
+                        removeBanner = true
+                        newBanner = nil
+                        bannerItem = nil
+                    } label: {
+                        Label("Remove banner", systemImage: "trash")
+                    }
+                }
+            } label: {
+                Image(systemName: "camera.fill")
+                    .font(.caption)
+                    .foregroundStyle(.primary)
+                    .padding(8)
+                    .background(.ultraThinMaterial, in: Circle())
+            }
+            .padding(8)
+        }
+    }
+
+    private var avatarCircle: some View {
+        Menu {
+            Button {
+                showingIconPicker = true
+            } label: {
+                Label(currentIcon == nil ? "Choose a photo" : "Change photo", systemImage: "photo")
+            }
+            Button {
+                withAnimation(.snappy(duration: 0.2)) { showingEmojiRow.toggle() }
+            } label: {
+                Label("Pick an emoji", systemImage: "face.smiling")
+            }
+            if currentIcon != nil {
                 Button(role: .destructive) {
                     removeIcon = true
                     newIcon = nil
                     iconItem = nil
                 } label: {
-                    Label("Remove icon photo", systemImage: "trash")
+                    Label("Remove photo (use emoji)", systemImage: "trash")
                 }
             }
-            PhotosPicker(selection: $bannerItem, matching: .images) {
-                Label(newBanner != nil ? "Banner selected" : "Choose banner",
-                      systemImage: "photo.on.rectangle.angled")
+        } label: {
+            ZStack(alignment: .bottomTrailing) {
+                Group {
+                    if let icon = currentIcon {
+                        Image(uiImage: icon).resizable().scaledToFill()
+                    } else {
+                        ZStack {
+                            Circle().fill(CurrentsTheme.accent.opacity(0.18))
+                            Text(emoji).font(.system(size: 30))
+                        }
+                    }
+                }
+                .frame(width: 66, height: 66)
+                .clipShape(Circle())
+                .overlay(Circle().stroke(Color(.systemBackground), lineWidth: 3))
+
+                Image(systemName: "plus")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(.white)
+                    .padding(5)
+                    .background(CurrentsTheme.accent, in: Circle())
             }
-            if (hasBanner || newBanner != nil) && !removeBanner {
-                Button(role: .destructive) {
-                    removeBanner = true
-                    newBanner = nil
-                    bannerItem = nil
-                } label: {
-                    Label("Remove banner", systemImage: "trash")
+        }
+    }
+
+    private var emojiRow: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 10) {
+                ForEach(emojis, id: \.self) { e in
+                    Text(e)
+                        .font(.title2)
+                        .frame(width: 44, height: 44)
+                        .background(emoji == e ? CurrentsTheme.accent.opacity(0.2)
+                                               : Color(.secondarySystemBackground),
+                                    in: Circle())
+                        .overlay(Circle().stroke(emoji == e ? CurrentsTheme.accent : .clear,
+                                                 lineWidth: 2))
+                        .onTapGesture { Haptics.tap(); emoji = e }
                 }
             }
-            Button {
-                save()
-            } label: {
-                HStack {
-                    if saving { ProgressView() }
-                    Label("Save changes", systemImage: "checkmark.circle.fill")
-                        .frame(maxWidth: .infinity)
-                }
-            }
-            .buttonStyle(.borderedProminent).labelStyle(.prominentButton).tint(CurrentsTheme.accent)
-            .disabled(saving || name.trimmingCharacters(in: .whitespaces).isEmpty)
-        } header: {
-            Text("Identity")
-        } footer: {
-            Text("Only the captain and mates can change the crew's name and look.")
+            .padding(.vertical, 2)
         }
     }
 
@@ -874,6 +1028,25 @@ struct CrewSettingsView: View {
 
 /// A crew catch as a social card: the photo IS the card, species and size on
 /// a scrim, and a plain always-visible emoji row for reactions — no menus.
+/// Species-by-name lookup for feed cards — a CrewPost only carries the name,
+/// and 1,500 species are too many to re-scan per card, so the index builds
+/// once and sticks around.
+@MainActor
+private enum SpeciesArtLookup {
+    private static var byName: [String: Species] = [:]
+    private static var loaded = false
+
+    static func species(named name: String, appState: AppState) -> Species? {
+        if !loaded {
+            for s in (try? appState.speciesRepository.fetchAll()) ?? [] {
+                byName[s.commonName.lowercased()] = s
+            }
+            loaded = true
+        }
+        return byName[name.lowercased()]
+    }
+}
+
 struct CrewPostCard: View {
     let post: CommunityService.CrewPost
     let crewCode: String
@@ -883,6 +1056,7 @@ struct CrewPostCard: View {
     let reload: () async -> Void
 
     private var svc: CommunityService { .shared }
+    @Environment(AppState.self) private var appState
     @State private var photo: UIImage?
     @State private var editingCaption = false
     @State private var captionDraft = ""
@@ -1018,14 +1192,22 @@ struct CrewPostCard: View {
         }
     }
 
-    /// Photo-less posts still get a proper hero, not a bare text line.
+    /// Photo-less posts still get a proper hero, not a bare text line — the
+    /// species' own artwork where we have it, never the generic fish glyph.
     private var textHero: some View {
         HStack(spacing: 10) {
-            Image(systemName: "fish.fill")
-                .foregroundStyle(CurrentsTheme.accent)
-                .frame(width: 40, height: 40)
-                .background(CurrentsTheme.accent.opacity(0.12),
-                            in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            Group {
+                if let sp = SpeciesArtLookup.species(named: post.species, appState: appState) {
+                    SpeciesArtworkView(species: sp, caught: true, size: 34)
+                        .frame(width: 40, height: 40)
+                } else {
+                    Image(systemName: "fish.fill")
+                        .foregroundStyle(CurrentsTheme.accent)
+                        .frame(width: 40, height: 40)
+                }
+            }
+            .background(CurrentsTheme.accent.opacity(0.12),
+                        in: RoundedRectangle(cornerRadius: 10, style: .continuous))
             VStack(alignment: .leading, spacing: 1) {
                 Text(post.species).font(.headline)
                 if let size = sizeText {

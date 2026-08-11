@@ -337,6 +337,77 @@ extension CommunityService {
         var speciesCount: Int
         var memberCodes: [String]
         var isEnded: Bool
+        /// Who started the team's session — shown on the team card.
+        var hostCode: String = ""
+        var hostName: String = ""
+        /// Every catch the team has logged, newest first — powers the
+        /// tournament highlights without a second fetch.
+        var catches: [GroupCatch] = []
+    }
+
+    /// A headline moment (most fish / biggest / first), computed from every
+    /// team's catches for the tournament page.
+    struct TournamentHighlight: Identifiable {
+        let id: String
+        let title: String
+        let icon: String
+        let anglerCode: String
+        let anglerName: String
+        let teamName: String
+        let detail: String
+    }
+
+    /// The three headline moments, when there are catches to headline.
+    static func tournamentHighlights(from standings: [TeamStanding]) -> [TournamentHighlight] {
+        let all: [(team: String, c: GroupCatch)] = standings.flatMap { s in
+            s.catches.map { (s.teamName, $0) }
+        }
+        guard !all.isEmpty else { return [] }
+        var out: [TournamentHighlight] = []
+        let byAngler = Dictionary(grouping: all, by: { $0.c.friendCode })
+        if let top = byAngler.values.max(by: { $0.count < $1.count }), let first = top.first {
+            out.append(.init(id: "most-fish", title: "Most fish", icon: "fish.fill",
+                             anglerCode: first.c.friendCode, anglerName: first.c.anglerName,
+                             teamName: first.team, detail: "\(top.count) fish"))
+        }
+        if let big = all.max(by: { ($0.c.weightKg ?? 0) < ($1.c.weightKg ?? 0) }),
+           let kg = big.c.weightKg, kg > 0 {
+            out.append(.init(id: "biggest", title: "Biggest fish", icon: "scalemass.fill",
+                             anglerCode: big.c.friendCode, anglerName: big.c.anglerName,
+                             teamName: big.team, detail: "\(big.c.species) · \(Units.weight(kg: kg))"))
+        }
+        if let first = all.min(by: { $0.c.date < $1.c.date }) {
+            out.append(.init(id: "first", title: "First fish", icon: "bolt.fill",
+                             anglerCode: first.c.friendCode, anglerName: first.c.anglerName,
+                             teamName: first.team,
+                             detail: "\(first.c.species) · \(first.c.date.formatted(date: .omitted, time: .shortened))"))
+        }
+        return out
+    }
+
+    /// Every tournament the crew has run, newest first — the history hub, so
+    /// the crew page itself only ever carries the active one. Client-sorted
+    /// (the record type has no sortable index) and disk-cached.
+    func tournaments(crewCode: String, limit: Int = 200) async -> [Tournament] {
+        let q = CKQuery(recordType: Self.tournamentType,
+                        predicate: NSPredicate(format: "crewCode == %@", crewCode))
+        guard let res = try? await db.records(matching: q, resultsLimit: limit) else {
+            return CommunityDiskCache.load([Tournament].self, key: "tournaments-\(crewCode)") ?? []
+        }
+        let list: [Tournament] = res.matchResults.compactMap { _, r in
+            guard let rec = try? r.get(), let code = rec["code"] as? String else { return nil }
+            return Tournament(id: code,
+                              name: rec["name"] as? String ?? "Tournament",
+                              crewCode: crewCode,
+                              hostCode: rec["hostCode"] as? String ?? "",
+                              hostName: rec["hostName"] as? String ?? "",
+                              createdAt: rec["createdAt"] as? Date ?? .distantPast,
+                              endsAt: rec["endsAt"] as? Date,
+                              endedAt: rec["endedAt"] as? Date,
+                              winnerTeam: rec["winnerTeam"] as? String)
+        }.sorted { $0.createdAt > $1.createdAt }
+        CommunityDiskCache.save(list, key: "tournaments-\(crewCode)")
+        return list
     }
 
     /// Admins only. Teams are created as members join.
@@ -428,11 +499,13 @@ extension CommunityService {
         let q = CKQuery(recordType: groupTripType,
                         predicate: NSPredicate(format: "tournamentCode == %@", tournament.id))
         guard let res = try? await db.records(matching: q, resultsLimit: 50) else { return [] }
-        let teams: [(code: String, name: String, ended: Bool)] = res.matchResults.compactMap { _, r in
+        let teams: [(code: String, name: String, ended: Bool, hostCode: String, hostName: String)] = res.matchResults.compactMap { _, r in
             guard let rec = try? r.get(), let code = rec["code"] as? String else { return nil }
             return (code,
                     rec["teamName"] as? String ?? (rec["name"] as? String ?? "Team"),
-                    rec["endedAt"] != nil)
+                    rec["endedAt"] != nil,
+                    rec["hostCode"] as? String ?? "",
+                    rec["hostName"] as? String ?? "")
         }
         var out: [TeamStanding] = []
         await withTaskGroup(of: TeamStanding.self) { group in
@@ -446,7 +519,9 @@ extension CommunityService {
                                         points: score.points, fishCount: score.fish,
                                         totalWeightKg: score.weightKg,
                                         speciesCount: score.species,
-                                        memberCodes: members, isEnded: team.ended)
+                                        memberCodes: members, isEnded: team.ended,
+                                        hostCode: team.hostCode, hostName: team.hostName,
+                                        catches: catches)
                 }
             }
             for await standing in group { out.append(standing) }

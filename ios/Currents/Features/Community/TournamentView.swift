@@ -128,6 +128,7 @@ struct TournamentView: View {
                     winnerBanner(winner)
                 }
                 hero
+                highlightsSection
                 standingsSection
                 if myTeam == nil && !tournament.isEnded { joinArea }
                 if svc.myRole(in: crew).canRunTournaments && !tournament.isEnded {
@@ -239,6 +240,49 @@ struct TournamentView: View {
         .glassCard()
     }
 
+    // MARK: Highlights
+
+    /// The tournament's headline moments — most fish, biggest, first — each
+    /// pinned to the angler (avatar + name) and their team.
+    @ViewBuilder private var highlightsSection: some View {
+        let highlights = CommunityService.tournamentHighlights(from: standings)
+        if !highlights.isEmpty {
+            VStack(alignment: .leading, spacing: 12) {
+                Label("Highlights", systemImage: "sparkles").font(.headline)
+                ForEach(highlights) { h in
+                    HStack(spacing: 10) {
+                        Image(systemName: h.icon)
+                            .font(.subheadline)
+                            .foregroundStyle(CurrentsTheme.accent)
+                            .frame(width: 34, height: 34)
+                            .background(CurrentsTheme.accent.opacity(0.12), in: Circle())
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(h.title).font(.caption).foregroundStyle(.secondary)
+                            Text(h.detail).font(.subheadline.bold())
+                        }
+                        Spacer()
+                        VStack(alignment: .trailing, spacing: 2) {
+                            HStack(spacing: 6) {
+                                Text(h.anglerCode == svc.friendCode ? "You" : h.anglerName)
+                                    .font(.caption.bold())
+                                AnglerAvatar(image: profiles[h.anglerCode]?.avatar, size: 24)
+                            }
+                            Text(h.teamName)
+                                .font(.caption2.bold())
+                                .foregroundStyle(teamColor(teamId(named: h.teamName) ?? h.teamName))
+                        }
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .glassCard()
+        }
+    }
+
+    private func teamId(named name: String) -> String? {
+        standings.first { $0.teamName == name }?.id
+    }
+
     private func winnerBanner(_ winner: String) -> some View {
         VStack(spacing: 6) {
             Text("🏆").font(.system(size: 44))
@@ -314,6 +358,13 @@ struct TournamentView: View {
                         statChip("\(s.speciesCount) species")
                         Spacer()
                         facepile(s.memberCodes)
+                    }
+                    if !s.hostName.isEmpty {
+                        HStack(spacing: 5) {
+                            AnglerAvatar(image: profiles[s.hostCode]?.avatar, size: 16)
+                            Text("Started by \(s.hostCode == svc.friendCode ? "you" : s.hostName) · session & GPS inside")
+                                .font(.caption2).foregroundStyle(.secondary)
+                        }
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -580,5 +631,77 @@ private struct EndTournamentSheet: View {
                 ToastCenter.shared.show("Couldn't end the tournament", style: .error)
             }
         }
+    }
+}
+
+// MARK: - Tournament history
+
+/// Every tournament the crew has run, newest first — its own page, so fifty
+/// tournaments never pile up on the crew screen.
+struct TournamentHistoryView: View {
+    let crew: CommunityService.Crew
+
+    @StateObject private var svc = CommunityService.shared
+    @State private var list: [CommunityService.Tournament] = []
+    @State private var loading = true
+
+    var body: some View {
+        List {
+            if list.isEmpty {
+                if loading {
+                    FishLoader(message: "Loading tournaments…")
+                        .frame(maxWidth: .infinity)
+                        .listRowBackground(Color.clear)
+                } else {
+                    ContentUnavailableView(
+                        "No tournaments yet",
+                        systemImage: "trophy",
+                        description: Text("When the crew runs a tournament it lands here, results and all."))
+                        .listRowBackground(Color.clear)
+                }
+            }
+            ForEach(list) { t in
+                NavigationLink {
+                    TournamentView(tournament: t, crew: crew)
+                } label: {
+                    row(t)
+                }
+            }
+        }
+        .navigationTitle("Tournaments")
+        .navigationBarTitleDisplayMode(.inline)
+        .task {
+            list = await svc.tournaments(crewCode: crew.code)
+            loading = false
+        }
+    }
+
+    private func row(_ t: CommunityService.Tournament) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: t.isEnded ? "flag.checkered" : "trophy.fill")
+                .foregroundStyle(t.isEnded ? Color.secondary : .yellow)
+                .frame(width: 34, height: 34)
+                .background((t.isEnded ? Color.secondary.opacity(0.12)
+                                       : Color.yellow.opacity(0.15)), in: Circle())
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(t.name).font(.subheadline.bold())
+                    if !t.isEnded {
+                        Text("LIVE")
+                            .font(.system(size: 9, weight: .heavy))
+                            .padding(.horizontal, 5).padding(.vertical, 1)
+                            .background(Color.red.opacity(0.14), in: Capsule())
+                            .foregroundStyle(.red)
+                    }
+                }
+                if let winner = t.winnerTeam {
+                    Text("🏆 \(winner)")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                Text("\(t.createdAt.formatted(date: .abbreviated, time: .omitted)) · hosted by \(t.hostName)")
+                    .font(.caption2).foregroundStyle(.tertiary)
+            }
+        }
+        .padding(.vertical, 2)
     }
 }
