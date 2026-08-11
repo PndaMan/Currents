@@ -385,6 +385,8 @@ struct CrewDetailView: View {
 
 // MARK: - Feed post card
 
+/// A crew catch as a social card: the photo IS the card, species and size on
+/// a scrim, and a plain always-visible emoji row for reactions — no menus.
 struct CrewPostCard: View {
     let post: CommunityService.CrewPost
     let crewCode: String
@@ -394,35 +396,33 @@ struct CrewPostCard: View {
     @State private var photo: UIImage?
     @State private var editingCaption = false
     @State private var captionDraft = ""
+    /// Optimistic reactions, shown the instant you tap and replaced by the
+    /// server's truth on the next reload.
+    @State private var localReactions: [CommunityService.CrewReaction]?
 
     private var isMine: Bool { post.authorCode == svc.friendCode }
+    private var reactions: [CommunityService.CrewReaction] { localReactions ?? post.reactions }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             header
-            if post.hasPhoto {
-                photoView
-            }
-            if !post.tripName.isEmpty {
-                Label("on \(post.tripName)", systemImage: "dot.radiowaves.left.and.right")
-                    .font(.caption2.bold())
-                    .foregroundStyle(CurrentsTheme.accent)
-            }
-            sizeLine
+            if post.hasPhoto { photoHero } else { textHero }
             if !post.caption.isEmpty {
                 Text(post.caption).font(.subheadline)
             } else if isMine {
                 Button("Add a caption…") { startEditingCaption() }
                     .font(.caption).foregroundStyle(CurrentsTheme.accent)
+                    .buttonStyle(.plain)
             }
-            reactionBar
+            reactionRow
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, 4)
         .task(id: post.id) {
             if post.hasPhoto, photo == nil {
                 photo = await svc.crewPostPhoto(recordName: post.id)
             }
         }
+        .onChange(of: post.reactions) { _, _ in localReactions = nil }
         .alert("Caption", isPresented: $editingCaption) {
             TextField("Say something…", text: $captionDraft)
             Button("Save") {
@@ -435,92 +435,157 @@ struct CrewPostCard: View {
 
     private var header: some View {
         HStack(spacing: 10) {
-            AnglerAvatar(image: svc.cachedProfiles(for: [post.authorCode]).first?.avatar, size: 34)
+            AnglerAvatar(image: svc.cachedProfiles(for: [post.authorCode]).first?.avatar, size: 36)
             VStack(alignment: .leading, spacing: 1) {
                 Text(isMine ? "You" : post.authorName).font(.subheadline.bold())
                 Text(post.caughtAt.formatted(.relative(presentation: .named)))
                     .font(.caption2).foregroundStyle(.secondary)
             }
             Spacer()
-            Text(post.species).font(.caption.bold())
-                .padding(.horizontal, 8).padding(.vertical, 3)
-                .background(CurrentsTheme.accent.opacity(0.15), in: Capsule())
-                .foregroundStyle(CurrentsTheme.accent)
-        }
-    }
-
-    @ViewBuilder
-    private var photoView: some View {
-        if let photo {
-            Image(uiImage: photo)
-                .resizable().scaledToFill()
-                .frame(maxWidth: .infinity)
-                .frame(height: 200)
-                .clipShape(RoundedRectangle(cornerRadius: 12))
-        } else {
-            RoundedRectangle(cornerRadius: 12)
-                .fill(Color(.secondarySystemBackground))
-                .frame(height: 200)
-                .overlay(ProgressView())
-        }
-    }
-
-    @ViewBuilder
-    private var sizeLine: some View {
-        let parts = [
-            post.weightKg.map { Units.weight(kg: $0) },
-            post.lengthCm.map { Units.length(cm: $0) }
-        ].compactMap { $0 }
-        if !parts.isEmpty {
-            Text(parts.joined(separator: " · "))
-                .font(.footnote).foregroundStyle(.secondary)
-        }
-    }
-
-    // Reaction summary chips + a menu to add/toggle mine.
-    private var reactionBar: some View {
-        let grouped = Dictionary(grouping: post.reactions, by: { $0.emoji })
-        let mine = post.reactions.first { $0.reactorCode == svc.friendCode }?.emoji
-        return HStack(spacing: 6) {
-            ForEach(CommunityService.crewReactionEmojis.filter { grouped[$0] != nil }, id: \.self) { emoji in
-                let count = grouped[emoji]?.count ?? 0
-                Button {
-                    Task { await svc.toggleCrewReaction(emoji: emoji, postId: post.id, crewCode: crewCode, postAuthorCode: post.authorCode); await reload() }
-                    Haptics.tap()
+            if isMine {
+                Menu {
+                    Button { startEditingCaption() } label: {
+                        Label(post.caption.isEmpty ? "Add caption" : "Edit caption",
+                              systemImage: "pencil")
+                    }
                 } label: {
-                    HStack(spacing: 3) {
-                        Text(emoji)
-                        Text("\(count)").font(.caption2.monospacedDigit())
-                    }
-                    .padding(.horizontal, 8).padding(.vertical, 4)
-                    .background(mine == emoji ? CurrentsTheme.accent.opacity(0.2) : Color(.secondarySystemBackground),
-                                in: Capsule())
-                    .overlay(Capsule().stroke(mine == emoji ? CurrentsTheme.accent : .clear, lineWidth: 1))
+                    Image(systemName: "ellipsis")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .frame(width: 28, height: 28)
+                        .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
             }
-            Menu {
-                ForEach(CommunityService.crewReactionEmojis, id: \.self) { emoji in
-                    Button {
-                        Task { await svc.toggleCrewReaction(emoji: emoji, postId: post.id, crewCode: crewCode, postAuthorCode: post.authorCode); await reload() }
-                        Haptics.tap()
-                    } label: {
-                        Text("\(emoji)  \(mine == emoji ? "Remove" : "React")")
-                    }
+        }
+    }
+
+    /// Full-bleed photo with the species and size on a bottom scrim, trip tag
+    /// floating top-right — the catch is the hero, not a row of metadata.
+    private var photoHero: some View {
+        ZStack(alignment: .bottomLeading) {
+            Group {
+                if let photo {
+                    Image(uiImage: photo).resizable().scaledToFill()
+                } else {
+                    Rectangle().fill(.gray.opacity(0.15)).overlay(ProgressView())
                 }
-            } label: {
-                Image(systemName: "face.smiling")
-                    .font(.subheadline)
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 230)
+            .clipped()
+
+            LinearGradient(colors: [.clear, .black.opacity(0.78)],
+                           startPoint: .top, endPoint: .bottom)
+                .frame(height: 110)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(post.species).font(.title3.bold()).foregroundStyle(.white)
+                if let size = sizeText {
+                    Text(size).font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.white.opacity(0.9))
+                }
+            }
+            .padding(12)
+        }
+        .frame(height: 230)
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(alignment: .topTrailing) {
+            if !post.tripName.isEmpty {
+                Label(post.tripName, systemImage: "dot.radiowaves.left.and.right")
+                    .font(.caption2.bold())
                     .padding(.horizontal, 8).padding(.vertical, 4)
-                    .background(Color(.secondarySystemBackground), in: Capsule())
+                    .background(.black.opacity(0.55), in: Capsule())
+                    .foregroundStyle(.white)
+                    .padding(8)
+            }
+        }
+    }
+
+    /// Photo-less posts still get a proper hero, not a bare text line.
+    private var textHero: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "fish.fill")
+                .foregroundStyle(CurrentsTheme.accent)
+                .frame(width: 40, height: 40)
+                .background(CurrentsTheme.accent.opacity(0.12),
+                            in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            VStack(alignment: .leading, spacing: 1) {
+                Text(post.species).font(.headline)
+                if let size = sizeText {
+                    Text(size).font(.caption).foregroundStyle(.secondary)
+                }
             }
             Spacer()
-            if isMine, !post.caption.isEmpty {
-                Button {
-                    startEditingCaption()
-                } label: { Image(systemName: "pencil").font(.caption).foregroundStyle(.secondary) }
+            if !post.tripName.isEmpty {
+                Label(post.tripName, systemImage: "dot.radiowaves.left.and.right")
+                    .font(.caption2.bold()).foregroundStyle(CurrentsTheme.accent)
+            }
+        }
+    }
+
+    private var sizeText: String? {
+        let parts = [post.weightKg.map { Units.weight(kg: $0) },
+                     post.lengthCm.map { Units.length(cm: $0) }].compactMap { $0 }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    /// All five emojis, always visible, tap to toggle. Counts appear beside an
+    /// emoji once someone's used it; yours gets the tinted capsule. No menus,
+    /// no "React" labels.
+    private var reactionRow: some View {
+        let grouped = Dictionary(grouping: reactions, by: \.emoji)
+        let mine = reactions.first { $0.reactorCode == svc.friendCode }?.emoji
+        return HStack(spacing: 6) {
+            ForEach(CommunityService.crewReactionEmojis, id: \.self) { emoji in
+                let count = grouped[emoji]?.count ?? 0
+                let selected = mine == emoji
+                Button { toggle(emoji) } label: {
+                    HStack(spacing: 4) {
+                        Text(emoji).font(.system(size: 16))
+                        if count > 0 {
+                            Text("\(count)")
+                                .font(.caption.bold().monospacedDigit())
+                                .foregroundStyle(selected ? CurrentsTheme.accent : .secondary)
+                        }
+                    }
+                    .padding(.horizontal, count > 0 ? 10 : 8)
+                    .padding(.vertical, 6)
+                    .background(selected ? AnyShapeStyle(CurrentsTheme.accent.opacity(0.18))
+                                         : AnyShapeStyle(.gray.opacity(0.12)),
+                                in: Capsule())
+                    .overlay {
+                        Capsule().strokeBorder(selected ? CurrentsTheme.accent.opacity(0.6) : .clear,
+                                               lineWidth: 1)
+                    }
+                    .opacity(count > 0 || selected ? 1 : 0.65)
+                }
                 .buttonStyle(.plain)
             }
+            Spacer(minLength: 0)
+        }
+    }
+
+    private func toggle(_ emoji: String) {
+        Haptics.tap()
+        // Optimistic: the tap shows immediately; the reload swaps in truth.
+        var rs = reactions
+        if let i = rs.firstIndex(where: { $0.reactorCode == svc.friendCode }) {
+            let had = rs[i].emoji
+            rs.remove(at: i)
+            if had != emoji {
+                rs.append(.init(id: "local-\(emoji)", reactorCode: svc.friendCode,
+                                reactorName: svc.myName, emoji: emoji))
+            }
+        } else {
+            rs.append(.init(id: "local-\(emoji)", reactorCode: svc.friendCode,
+                            reactorName: svc.myName, emoji: emoji))
+        }
+        localReactions = rs
+        Task {
+            await svc.toggleCrewReaction(emoji: emoji, postId: post.id,
+                                         crewCode: crewCode, postAuthorCode: post.authorCode)
+            await reload()
+            localReactions = nil
         }
     }
 

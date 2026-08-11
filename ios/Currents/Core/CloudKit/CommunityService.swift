@@ -1294,7 +1294,13 @@ final class CommunityService: ObservableObject {
         record["reactorName"] = myName as CKRecordValue
         record["emoji"] = emoji as CKRecordValue
         record["createdAt"] = Date() as CKRecordValue
-        _ = try? await db.save(record)
+        if (try? await db.save(record)) == nil {
+            // Production rejects undeclared fields until the schema import
+            // deploys postAuthorCode — retry without it so reacting still
+            // works today (only the reaction *push* needs the new field).
+            record["postAuthorCode"] = nil
+            _ = try? await db.save(record)
+        }
     }
 
     func crewInviteLink(code: String, name: String) -> URL {
