@@ -392,7 +392,7 @@ struct GearTab: View {
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 24)
             Button(primaryLabel, action: primaryAction)
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.borderedProminent).labelStyle(.prominentButton)
                 .tint(CurrentsTheme.accent)
             if let secondaryLabel, let secondaryAction {
                 Button(secondaryLabel, action: secondaryAction)

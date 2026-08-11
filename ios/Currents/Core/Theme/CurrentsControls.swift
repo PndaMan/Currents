@@ -489,3 +489,22 @@ struct GearFieldPicker: View {
         _customText = State(initialValue: isKnown ? "" : value)
     }
 }
+
+// MARK: - Prominent button labels
+
+/// Label style for filled accent buttons. Inside a List or Form the default
+/// label style tints SF-symbol icons with the accent colour — invisible on a
+/// borderedProminent accent fill — so this pins both glyph and title white.
+struct ProminentButtonLabelStyle: LabelStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(spacing: 6) {
+            configuration.icon
+            configuration.title
+        }
+        .foregroundStyle(.white)
+    }
+}
+
+extension LabelStyle where Self == ProminentButtonLabelStyle {
+    static var prominentButton: ProminentButtonLabelStyle { ProminentButtonLabelStyle() }
+}

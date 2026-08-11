@@ -19,7 +19,7 @@ struct LicenseWalletView: View {
                     Text("Add your fishing licence or permit — Currents reads the expiry and reminds you before it lapses.")
                 } actions: {
                     Button("Add Licence") { showingAdd = true }
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(.borderedProminent).labelStyle(.prominentButton)
                         .tint(CurrentsTheme.accent)
                 }
             } else {

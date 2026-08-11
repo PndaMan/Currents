@@ -414,7 +414,7 @@ struct BadgeDetailView: View {
             Button { dismiss() } label: {
                 Text("Done").frame(maxWidth: .infinity)
             }
-            .buttonStyle(.borderedProminent).tint(CurrentsTheme.accent)
+            .buttonStyle(.borderedProminent).labelStyle(.prominentButton).tint(CurrentsTheme.accent)
             .padding(.horizontal, 24).padding(.bottom, 20)
         }
     }

@@ -293,7 +293,7 @@ struct TodayTab: View {
                 } label: {
                     Label("Start Session", systemImage: "play.fill").frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.borderedProminent).labelStyle(.prominentButton)
             }
             Button {
                 appState.siriRequestedLogCatch = true

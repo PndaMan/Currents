@@ -197,7 +197,7 @@ struct CommunityView: View {
                 } label: {
                     Label("Join the Community", systemImage: "person.3.fill").frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.borderedProminent).tint(CurrentsTheme.accent)
+                .buttonStyle(.borderedProminent).labelStyle(.prominentButton).tint(CurrentsTheme.accent)
                 // Without this you silently became "Angler XXXXXX".
                 .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
             } footer: {
@@ -283,7 +283,7 @@ struct CommunityView: View {
                     } label: {
                         Label("Find your crew", systemImage: "person.3.fill")
                     }
-                    .buttonStyle(.borderedProminent).tint(CurrentsTheme.accent)
+                    .buttonStyle(.borderedProminent).labelStyle(.prominentButton).tint(CurrentsTheme.accent)
                     .padding(.bottom, 8)
                 }
                 .frame(maxWidth: .infinity)
@@ -754,7 +754,7 @@ private struct FriendsSection: View {
                 } label: {
                     Label("Send Request", systemImage: "person.badge.plus").frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.borderedProminent).tint(CurrentsTheme.accent)
+                .buttonStyle(.borderedProminent).labelStyle(.prominentButton).tint(CurrentsTheme.accent)
                 .disabled(addCode.trimmingCharacters(in: .whitespaces).count != 6)
             }
             .padding(.vertical, 4)
@@ -1631,7 +1631,7 @@ struct AddFriendConfirmView: View {
                         Label("Join & Continue", systemImage: "arrow.right.circle.fill").frame(maxWidth: .infinity)
                     }
                 }
-                .buttonStyle(.borderedProminent).tint(CurrentsTheme.accent)
+                .buttonStyle(.borderedProminent).labelStyle(.prominentButton).tint(CurrentsTheme.accent)
                 .disabled(joinName.trimmingCharacters(in: .whitespaces).isEmpty || joining)
             }
         }
@@ -1681,7 +1681,7 @@ struct AddFriendConfirmView: View {
                         } label: {
                             Label("Send Friend Request", systemImage: "person.badge.plus").frame(maxWidth: .infinity)
                         }
-                        .buttonStyle(.borderedProminent).tint(CurrentsTheme.accent)
+                        .buttonStyle(.borderedProminent).labelStyle(.prominentButton).tint(CurrentsTheme.accent)
                     }
                 } footer: {
                     Text("They'll get your request in Community and can accept it. Your spots stay private unless you choose to share them, per friend.")

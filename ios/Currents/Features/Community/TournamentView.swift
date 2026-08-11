@@ -62,7 +62,7 @@ struct TournamentSetupView: View {
                                 .frame(maxWidth: .infinity)
                         }
                     }
-                    .buttonStyle(.borderedProminent).tint(CurrentsTheme.accent)
+                    .buttonStyle(.borderedProminent).labelStyle(.prominentButton).tint(CurrentsTheme.accent)
                     .disabled(busy || name.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
             }
@@ -366,7 +366,7 @@ struct TournamentView: View {
                         .frame(maxWidth: .infinity)
                 }
             }
-            .buttonStyle(.borderedProminent).tint(CurrentsTheme.accent)
+            .buttonStyle(.borderedProminent).labelStyle(.prominentButton).tint(CurrentsTheme.accent)
             .disabled(creatingTeam || newTeamName.trimmingCharacters(in: .whitespaces).isEmpty)
         }
         .frame(maxWidth: .infinity, alignment: .leading)

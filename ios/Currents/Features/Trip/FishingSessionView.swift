@@ -214,7 +214,7 @@ struct PlannedRow: View {
             }
             .buttonStyle(.plain)
             Button("Start", action: onStart)
-                .buttonStyle(.borderedProminent).tint(CurrentsTheme.accent)
+                .buttonStyle(.borderedProminent).labelStyle(.prominentButton).tint(CurrentsTheme.accent)
                 .disabled(!canStart)
         }
     }
@@ -392,7 +392,7 @@ struct ActiveSessionView: View {
                             .font(.headline)
                             .frame(maxWidth: .infinity).padding(.vertical, 4)
                     }
-                    .buttonStyle(.borderedProminent).tint(CurrentsTheme.accent)
+                    .buttonStyle(.borderedProminent).labelStyle(.prominentButton).tint(CurrentsTheme.accent)
 
                     if !catches.isEmpty {
                         VStack(alignment: .leading, spacing: 8) {
@@ -479,7 +479,7 @@ struct ActiveSessionView: View {
             HStack(spacing: 10) {
                 Button { Haptics.success(); tracker.startNextDay(); Task { await refreshBite() } } label: {
                     Label("Start Day \(trip.decodedDays.count + 1)", systemImage: "sun.max.fill").frame(maxWidth: .infinity)
-                }.buttonStyle(.borderedProminent).tint(CurrentsTheme.accent)
+                }.buttonStyle(.borderedProminent).labelStyle(.prominentButton).tint(CurrentsTheme.accent)
                 controlButton("End Trip", icon: "stop.circle", tint: .red) { showingEndConfirm = true }
             }
         }
@@ -672,7 +672,7 @@ struct SessionDetailView: View {
                         Label(generatingRecap ? "Building Recap…" : "Share Recap",
                               systemImage: "square.and.arrow.up")
                     }.frame(maxWidth: .infinity)
-                }.buttonStyle(.borderedProminent).tint(CurrentsTheme.accent)
+                }.buttonStyle(.borderedProminent).labelStyle(.prominentButton).tint(CurrentsTheme.accent)
                     .disabled(generatingRecap)
 
                 Button(role: .destructive) { showingDeleteConfirm = true } label: {

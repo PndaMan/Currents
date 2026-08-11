@@ -120,7 +120,7 @@ struct CrewSetupView: View {
                 } label: {
                     Label("Create crew", systemImage: "person.3.fill").frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.borderedProminent).tint(CurrentsTheme.accent)
+                .buttonStyle(.borderedProminent).labelStyle(.prominentButton).tint(CurrentsTheme.accent)
                 .disabled(busy || name.trimmingCharacters(in: .whitespaces).isEmpty)
             } header: {
                 Text("Start a crew")
@@ -474,7 +474,7 @@ struct CrewDetailView: View {
                             .font(.subheadline.bold())
                             .frame(maxWidth: .infinity)
                     }
-                    .buttonStyle(.borderedProminent).tint(CurrentsTheme.accent)
+                    .buttonStyle(.borderedProminent).labelStyle(.prominentButton).tint(CurrentsTheme.accent)
                 }
             }
         }
@@ -672,7 +672,7 @@ struct CrewSettingsView: View {
                         .frame(maxWidth: .infinity)
                 }
             }
-            .buttonStyle(.borderedProminent).tint(CurrentsTheme.accent)
+            .buttonStyle(.borderedProminent).labelStyle(.prominentButton).tint(CurrentsTheme.accent)
             .disabled(saving || name.trimmingCharacters(in: .whitespaces).isEmpty)
         } header: {
             Text("Identity")
@@ -1162,7 +1162,7 @@ struct JoinCrewConfirmView: View {
                         Label("Join & Continue", systemImage: "arrow.right.circle.fill").frame(maxWidth: .infinity)
                     }
                 }
-                .buttonStyle(.borderedProminent).tint(CurrentsTheme.accent)
+                .buttonStyle(.borderedProminent).labelStyle(.prominentButton).tint(CurrentsTheme.accent)
                 .disabled(joining || joinName.trimmingCharacters(in: .whitespaces).isEmpty)
             }
         }
@@ -1210,7 +1210,7 @@ struct JoinCrewConfirmView: View {
                             Label("Join crew", systemImage: "person.3.fill").frame(maxWidth: .infinity)
                         }
                     }
-                    .buttonStyle(.borderedProminent).tint(CurrentsTheme.accent)
+                    .buttonStyle(.borderedProminent).labelStyle(.prominentButton).tint(CurrentsTheme.accent)
                     .disabled(joining || crew == nil)
                 }
             } footer: {

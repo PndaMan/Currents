@@ -111,7 +111,7 @@ struct GroupTripSetupView: View {
                         .foregroundStyle(.white)
                         .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.borderedProminent).tint(CurrentsTheme.accent)
+                .buttonStyle(.borderedProminent).labelStyle(.prominentButton).tint(CurrentsTheme.accent)
                 .disabled(busy)
 
                 Button {
@@ -154,19 +154,19 @@ struct GroupTripSetupView: View {
                                 // Begin the planned session live now (+ share to crew).
                                 Button { Task { await beginLive(planned: t) } } label: {
                                     Label("Start", systemImage: "play.fill")
-                                        .labelStyle(.titleAndIcon)
+                                        .labelStyle(.prominentButton)
                                         .font(.caption.bold())
                                 }
-                                .buttonStyle(.borderedProminent).tint(CurrentsTheme.accent)
+                                .buttonStyle(.borderedProminent).labelStyle(.prominentButton).tint(CurrentsTheme.accent)
                                 .disabled(busy)
                             } else {
                                 // Already a live session — just share it.
                                 Button { Task { await startTrip(from: t) } } label: {
                                     Label("Share", systemImage: "person.2.badge.plus")
-                                        .labelStyle(.titleAndIcon)
+                                        .labelStyle(.prominentButton)
                                         .font(.caption.bold())
                                 }
-                                .buttonStyle(.borderedProminent).tint(CurrentsTheme.accent)
+                                .buttonStyle(.borderedProminent).labelStyle(.prominentButton).tint(CurrentsTheme.accent)
                                 .disabled(busy)
                             }
                         }
@@ -183,7 +183,7 @@ struct GroupTripSetupView: View {
                 Button { Task { await joinTrip() } } label: {
                     Label("Join Trip", systemImage: "person.fill.badge.plus").frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.borderedProminent).tint(CurrentsTheme.accent)
+                .buttonStyle(.borderedProminent).labelStyle(.prominentButton).tint(CurrentsTheme.accent)
                 .disabled(busy || joinCode.trimmingCharacters(in: .whitespaces).count != 6)
             } header: {
                 Text("Join a friend's trip")
@@ -486,7 +486,7 @@ struct GroupTripView: View {
                     Label("Join & Continue", systemImage: "arrow.right.circle.fill").frame(maxWidth: .infinity)
                 }
             }
-            .buttonStyle(.borderedProminent).tint(CurrentsTheme.accent)
+            .buttonStyle(.borderedProminent).labelStyle(.prominentButton).tint(CurrentsTheme.accent)
             .disabled(joinName.trimmingCharacters(in: .whitespaces).isEmpty || busy)
         }
         .glassCard()
@@ -519,7 +519,7 @@ struct GroupTripView: View {
                     Label("Start a shared trip", systemImage: "plus.circle.fill")
                 }.frame(maxWidth: .infinity)
             }
-            .buttonStyle(.borderedProminent).tint(CurrentsTheme.accent)
+            .buttonStyle(.borderedProminent).labelStyle(.prominentButton).tint(CurrentsTheme.accent)
             .disabled(busy)
 
             VStack(alignment: .leading, spacing: 10) {
@@ -538,7 +538,7 @@ struct GroupTripView: View {
                 } label: {
                     Label("Join Trip", systemImage: "person.fill.badge.plus").frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.borderedProminent).tint(CurrentsTheme.accent)
+                .buttonStyle(.borderedProminent).labelStyle(.prominentButton).tint(CurrentsTheme.accent)
                 .disabled(joinCode.trimmingCharacters(in: .whitespaces).count != 6 || busy)
             }
             .glassCard()
@@ -579,7 +579,7 @@ struct GroupTripView: View {
                     Label("Join Trip", systemImage: "person.fill.badge.plus")
                 }.frame(maxWidth: .infinity)
             }
-            .buttonStyle(.borderedProminent).tint(CurrentsTheme.accent)
+            .buttonStyle(.borderedProminent).labelStyle(.prominentButton).tint(CurrentsTheme.accent)
             .disabled(busy)
         }
         .glassCard()
@@ -615,7 +615,7 @@ struct GroupTripView: View {
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 6)
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.borderedProminent).labelStyle(.prominentButton)
                 .tint(CurrentsTheme.accent)
             } else {
                 joinBanner(code)
@@ -748,7 +748,7 @@ struct GroupTripView: View {
                         .frame(maxWidth: .infinity)
                 }
             }
-            .buttonStyle(.borderedProminent).tint(CurrentsTheme.accent)
+            .buttonStyle(.borderedProminent).labelStyle(.prominentButton).tint(CurrentsTheme.accent)
             .disabled(busy)
         }
         .frame(maxWidth: .infinity)
@@ -1058,7 +1058,7 @@ struct GroupTripView: View {
                     tracker.startNextDay()
                 } label: {
                     Label("Start next day", systemImage: "sun.max.fill").frame(maxWidth: .infinity)
-                }.buttonStyle(.borderedProminent).tint(CurrentsTheme.accent)
+                }.buttonStyle(.borderedProminent).labelStyle(.prominentButton).tint(CurrentsTheme.accent)
                 Button(role: .destructive) {
                     Haptics.warning()
                     _ = appState.tripTracker.end()

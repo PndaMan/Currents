@@ -1243,7 +1243,7 @@ struct SpotDetailSheet: View {
                                 .frame(maxWidth: .infinity)
                         }
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.borderedProminent).labelStyle(.prominentButton)
                     .tint(CurrentsTheme.accent)
                     .disabled(isGeneratingShare)
 

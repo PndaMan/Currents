@@ -63,7 +63,7 @@ struct OnboardingView: View {
                 Button(action: advance) {
                     Text(pages[page].cta).frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.borderedProminent).tint(CurrentsTheme.accent)
+                .buttonStyle(.borderedProminent).labelStyle(.prominentButton).tint(CurrentsTheme.accent)
                 .controlSize(.large)
                 .padding(.horizontal, 28)
 
