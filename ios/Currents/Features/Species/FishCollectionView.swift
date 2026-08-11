@@ -18,6 +18,7 @@ struct FishCollectionView: View {
     @State private var species: [Species] = []
     @State private var caughtIds: Set<Int64> = []
     @State private var searchText = ""
+    @FocusState private var searchFocused: Bool
     @AppStorage("collectionSortMode") private var sort: SortMode = .rarest
     @State private var rarityFilter: SpeciesRarity?
     @State private var showCaughtOnly = false
@@ -89,6 +90,17 @@ struct FishCollectionView: View {
             }
             .navigationTitle(embedded ? "" : "Collection")
             .searchable(text: $searchText, prompt: "Search species")
+            .searchFocused($searchFocused)
+            // Pulling past the top opens search with the keyboard up, so the
+            // overscroll gesture does something instead of bouncing on air.
+            .onScrollGeometryChange(for: Bool.self) { geo in
+                geo.contentOffset.y + geo.contentInsets.top < -60
+            } action: { wasPulled, isPulled in
+                if isPulled, !wasPulled, !searchFocused {
+                    Haptics.tap()
+                    searchFocused = true
+                }
+            }
             .sensoryFeedback(.selection, trigger: sort)
             .sensoryFeedback(.selection, trigger: rarityFilter)
             .sensoryFeedback(.selection, trigger: showCaughtOnly)

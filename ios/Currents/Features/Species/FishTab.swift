@@ -20,6 +20,7 @@ struct FishTab: View {
     }
 
     @AppStorage("fishTabSection") private var section: Segment = .guide
+    @Environment(AppState.self) private var appState
 
     var body: some View {
         NavigationStack {
@@ -34,9 +35,26 @@ struct FishTab: View {
                     SeasonalCalendarView(header: AnyView(pills))
                 }
             }
+            // The two segments are neighbours in the swipe continuum, with
+            // Catches to the guide's left and Community to the seasons' right.
+            .smartSwipe(section == .guide ? .fishGuide : .fishSeasons)
             .navigationTitle(section.rawValue)
             .sensoryFeedback(.selection, trigger: section)
+            .onChange(of: appState.swipePage) { _, page in applySwipe(page) }
+            .onAppear { applySwipe(appState.swipePage) }
         }
+    }
+
+    /// A cross-tab swipe landed here: pick the segment nearest the direction
+    /// of travel (guide when coming from Catches, seasons from Community),
+    /// overriding whatever segment was last open.
+    private func applySwipe(_ page: SwipePage?) {
+        switch page {
+        case .fishGuide: section = .guide
+        case .fishSeasons: section = .seasons
+        default: return
+        }
+        appState.swipePage = nil
     }
 
     private var pills: some View {

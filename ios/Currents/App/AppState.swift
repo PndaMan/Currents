@@ -34,6 +34,18 @@ final class AppState {
     /// crew's detail screen, then clears it.
     var openCrewCode: String?
 
+    /// Smart edge-swipe navigation: the page a swipe wants to land on.
+    /// ContentView switches tabs off this; tabs with inner segments (Fish,
+    /// Community) apply the right segment themselves, then clear it.
+    var swipePage: SwipePage?
+
+    /// Move one step through the swipe continuum from `page`. Ends of the
+    /// continuum are hard stops, not wrap-around.
+    func smartSwipe(from page: SwipePage, toward direction: Int) {
+        guard let target = SwipePage(rawValue: page.rawValue + direction) else { return }
+        swipePage = target
+    }
+
     let db: AppDatabase
     let locationManager = LocationManager()
     let fishModelDownloader = FishModelDownloader()

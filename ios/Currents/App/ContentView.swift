@@ -82,6 +82,14 @@ struct ContentView: View {
             await CommunityService.shared.refreshFriendRequests()
         }
         .sensoryFeedback(.selection, trigger: selectedTab)
+        .onChange(of: appState.swipePage) { _, page in
+            // An edge swipe landed on another tab. Segmented tabs (Fish,
+            // Community) read the same value to pick their segment and clear
+            // it themselves once applied.
+            guard let page else { return }
+            selectedTab = page.tab
+            if page.isPlainTab { appState.swipePage = nil }
+        }
         .toastHost()
         .fullScreenCover(isPresented: Binding(get: { !hasOnboarded && !ScreenshotSupport.isActive },
                                               set: { if $0 == false { hasOnboarded = true } })) {

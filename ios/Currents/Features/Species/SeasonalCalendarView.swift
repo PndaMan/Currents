@@ -13,6 +13,7 @@ struct SeasonalCalendarView: View {
     @State private var scoreById: [Int64: Int] = [:]
     @State private var selectedMonth: Int = Calendar.current.component(.month, from: .now)
     @State private var searchText = ""
+    @FocusState private var searchFocused: Bool
     @State private var habitatFilter: Species.Habitat?
     @AppStorage("seasonalSortOrder") private var sortOrder: SortOrder = .match
 
@@ -175,6 +176,16 @@ struct SeasonalCalendarView: View {
             .padding()
         }
         .navigationTitle(header == nil ? "Seasonal Calendar" : "")
+        // Pulling past the top drops focus into the inline search field, so
+        // the overscroll gesture does something instead of bouncing on air.
+        .onScrollGeometryChange(for: Bool.self) { geo in
+            geo.contentOffset.y + geo.contentInsets.top < -60
+        } action: { wasPulled, isPulled in
+            if isPulled, !wasPulled, !searchFocused {
+                Haptics.tap()
+                searchFocused = true
+            }
+        }
         .sensoryFeedback(.selection, trigger: selectedMonth)
         .sensoryFeedback(.selection, trigger: sortOrder)
         .sensoryFeedback(.selection, trigger: habitatFilter)
@@ -225,6 +236,7 @@ struct SeasonalCalendarView: View {
                     .foregroundStyle(.secondary)
                 TextField("Search species...", text: $searchText)
                     .textFieldStyle(.plain)
+                    .focused($searchFocused)
                 if !searchText.isEmpty {
                     Button { searchText = "" } label: {
                         Image(systemName: "xmark.circle.fill")

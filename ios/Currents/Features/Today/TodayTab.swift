@@ -70,6 +70,8 @@ struct TodayTab: View {
                 }
                 .padding()
             }
+            // Left end of the swipe continuum — only travels right, to Explore.
+            .smartSwipe(.today)
             .navigationTitle("Today")
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {

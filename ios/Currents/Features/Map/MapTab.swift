@@ -390,6 +390,9 @@ struct MapTab: View {
                 }
             }
             .mapScope(mapScope)
+            // The whole surface pans, so the swipe strips are extra narrow —
+            // a sliver on each edge, everything else belongs to the map.
+            .smartSwipe(.map, edgeWidth: 10)
             // Discrete map-style / overlay / pin toggles get a light selection
             // tick. Bound to the stored values so only real changes fire (never
             // pan/zoom). Camera + search changes are deliberately excluded.

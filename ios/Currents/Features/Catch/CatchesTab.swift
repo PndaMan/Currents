@@ -7,6 +7,7 @@ struct CatchesTab: View {
     @State private var searchText = ""
     @AppStorage("catchesSortOrder") private var sortOrder: SortOrder = .recent
     @State private var filter: CatchFilter = .all
+    @FocusState private var searchFocused: Bool
 
     enum CatchFilter: String, CaseIterable {
         case all = "All"
@@ -118,17 +119,19 @@ struct CatchesTab: View {
                             .listRowBackground(Color.clear)
                             .listRowSeparator(.hidden)
                             .listRowInsets(EdgeInsets(top: 5, leading: 16, bottom: 5, trailing: 16))
-                        }
-                        .onDelete { offsets in
-                            let toDelete = offsets.map { filteredCatches[$0] }
-                            let ids = toDelete.map { $0.catchRecord.id }
-                            for detail in toDelete {
-                                PhotoManager.deleteAll(detail.catchRecord.allPhotoPaths)
-                                try? appState.catchRepository.delete(detail.catchRecord)
-                            }
-                            Task {
-                                for id in ids { await CommunityService.shared.removeCatch(id: id) }
-                                await loadCatches()
+                            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                Button(role: .destructive) {
+                                    delete(detail)
+                                } label: {
+                                    Label("Delete", systemImage: "trash")
+                                }
+                                Button {
+                                    toggleFavourite(detail)
+                                } label: {
+                                    Label(detail.catchRecord.isFavorite ? "Unfavourite" : "Favourite",
+                                          systemImage: detail.catchRecord.isFavorite ? "star.slash.fill" : "star.fill")
+                                }
+                                .tint(.yellow)
                             }
                         }
 
@@ -144,8 +147,20 @@ struct CatchesTab: View {
                     }
                     .listStyle(.plain)
                     .searchable(text: $searchText, prompt: "Search catches")
+                    .searchFocused($searchFocused)
+                    // Pull-to-refresh is gone (the list reloads itself); the
+                    // pull-down gesture now opens search with the keyboard up.
+                    .onScrollGeometryChange(for: Bool.self) { geo in
+                        geo.contentOffset.y + geo.contentInsets.top < -60
+                    } action: { wasPulled, isPulled in
+                        if isPulled, !wasPulled, !searchFocused {
+                            Haptics.tap()
+                            searchFocused = true
+                        }
+                    }
                 }
             }
+            .smartSwipe(.catches)
             .navigationTitle("Catches")
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
@@ -228,9 +243,6 @@ struct CatchesTab: View {
             .task {
                 await loadCatches()
             }
-            .refreshable {
-                await loadCatches()
-            }
             .sensoryFeedback(.selection, trigger: filter)
             .sensoryFeedback(.selection, trigger: sortOrder)
         }
@@ -238,6 +250,24 @@ struct CatchesTab: View {
 
     private func loadCatches() async {
         catches = (try? appState.catchRepository.fetchAll()) ?? []
+    }
+
+    private func delete(_ detail: CatchDetail) {
+        PhotoManager.deleteAll(detail.catchRecord.allPhotoPaths)
+        try? appState.catchRepository.delete(detail.catchRecord)
+        let id = detail.catchRecord.id
+        Task {
+            await CommunityService.shared.removeCatch(id: id)
+            await loadCatches()
+        }
+    }
+
+    private func toggleFavourite(_ detail: CatchDetail) {
+        var record = detail.catchRecord
+        record.isFavorite.toggle()
+        try? appState.catchRepository.save(&record)
+        Haptics.tap()
+        Task { await loadCatches() }
     }
 }
 
