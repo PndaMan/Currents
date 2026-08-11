@@ -1507,7 +1507,7 @@ final class CommunityService: ObservableObject {
     // MARK: - Group trips (serverless, invite by link)
 
     let groupTripType = "GroupTrip"
-    private let groupMemberType = "GroupMember"
+    let groupMemberType = "GroupMember"
 
     // Last-seen group feed/members, so reopening a trip shows content instantly
     // instead of a blank page while the network refresh runs.
