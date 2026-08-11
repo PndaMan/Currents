@@ -421,7 +421,7 @@ struct CrewDetailView: View {
                             .padding(.horizontal, 8).padding(.vertical, 3)
                             .background(t.isEnded ? Color.secondary.opacity(0.25) : Color.red,
                                         in: Capsule())
-                            .foregroundStyle(t.isEnded ? .secondary : .white)
+                            .foregroundStyle(t.isEnded ? Color.secondary : Color.white)
                     }
                     if t.isEnded, let winner = t.winnerTeam {
                         Text("🏆 \(winner) won").font(.subheadline.bold())
