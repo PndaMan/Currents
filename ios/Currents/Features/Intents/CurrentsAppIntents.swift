@@ -130,6 +130,8 @@ struct QuickLogCatchIntent: AppIntent {
             notes: "Quick-logged via Siri"
         )
         try? app.catchRepository.save(&record)
+        let published = record
+        Task { await CommunityService.shared.publishLoggedCatch(published, speciesName: nil) }
         if app.tripTracker.isTracking {
             await NotificationManager.shared.scheduleColdStreakNudge()
             return .result(dialog: "Logged a catch on your session. Fill in the details later. Tight lines!")
@@ -164,6 +166,9 @@ struct LogSpeciesCatchIntent: AppIntent {
             tripId: app.tripTracker.activeTrip?.id,
             notes: match == nil ? "Siri: \"\(species)\"" : "Logged via Siri")
         try? app.catchRepository.save(&record)
+        let published = record
+        let publishedName = match?.commonName
+        Task { await CommunityService.shared.publishLoggedCatch(published, speciesName: publishedName) }
         if app.tripTracker.isTracking { await NotificationManager.shared.scheduleColdStreakNudge() }
         if let match {
             return .result(dialog: "Logged a \(match.commonName). Tight lines!")

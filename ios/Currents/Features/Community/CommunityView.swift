@@ -10,6 +10,7 @@ struct CommunityView: View {
 
     @State private var name = ""
     @State private var showingEdit = false
+    @State private var confirmLeave = false
     @State private var showingInbox = false
     @State private var pendingRequests: [CommunityService.FriendRequest] = []
     @State private var pendingInvites: [CommunityService.TripInvite] = []
@@ -43,7 +44,7 @@ struct CommunityView: View {
         .sheet(isPresented: $showingInbox, onDismiss: { Task { await loadNotifications() } }) {
             NotificationInboxView()
         }
-        .task { refreshStats(); await syncCatches(); await loadNotifications() }
+        .task(id: svc.joined) { refreshStats(); await syncCatches(); await loadNotifications() }
         .onChange(of: svc.revision) { _, _ in refreshStats() }
     }
 
@@ -85,6 +86,10 @@ struct CommunityView: View {
         // Keep catch-visibility grants in step with the global sharing setting
         // and current friend list.
         await svc.syncCatchGrants()
+        // And spot shares: creating/editing/deleting a spot doesn't republish
+        // on its own, so heal the shared set on every Community visit.
+        let spots = (try? appState.spotRepository.fetchAll()) ?? []
+        await svc.republishSharedSpots(spots: spots)
     }
 
     // MARK: Join gate
@@ -111,7 +116,10 @@ struct CommunityView: View {
                     }
                 } label: {
                     Label("Join the Community", systemImage: "person.3.fill").frame(maxWidth: .infinity)
-                }.buttonStyle(.borderedProminent).tint(CurrentsTheme.accent)
+                }
+                .buttonStyle(.borderedProminent).tint(CurrentsTheme.accent)
+                // Without this you silently became "Angler XXXXXX".
+                .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
             } footer: {
                 Text("The Community is optional. Until you join, everything stays on your device. When you join, your best catches (species, size, broad region), your angler profile, and spots you explicitly share sync through Apple's CloudKit so friends can see them. Coordinates are never shared unless you turn on location sharing — and even then they're offset by your honey-hole radius.")
             }
@@ -131,14 +139,31 @@ struct CommunityView: View {
             }
             LeaderboardSection()
             CrewsSection()
+            // Live/group trips were completely unreachable from Community —
+            // the section existed but nothing ever rendered it, so an accepted
+            // invite dead-ended the moment its sheet closed.
+            GroupTripsSection()
             FriendsSection()
             Section {
-                Button("Leave Community", role: .destructive) {
-                    Haptics.warning()
-                    svc.leave()
-                    ToastCenter.shared.show("Left the Community", style: .info, haptic: false)
-                }
+                Button("Leave Community", role: .destructive) { confirmLeave = true }
+                    .confirmationDialog("Leave the Community?", isPresented: $confirmLeave,
+                                        titleVisibility: .visible) {
+                        Button("Leave", role: .destructive) {
+                            Haptics.warning()
+                            svc.leave()
+                            ToastCenter.shared.show("Left the Community", style: .info, haptic: false)
+                        }
+                    } message: {
+                        Text("Notifications stop and nothing new is shared. What you've already published stays visible to friends until you delete those catches; rejoining picks everything back up.")
+                    }
             }
+        }
+        .refreshable {
+            // bumpRevision re-runs every section's reload (they all watch it).
+            svc.bumpRevision()
+            refreshStats()
+            await syncCatches()
+            await loadNotifications()
         }
     }
 
@@ -313,9 +338,25 @@ private struct LeaderboardSection: View {
                     .padding(.vertical, 12)
                     .listRowBackground(Color.clear)
             } else if rows.isEmpty {
-                ContentUnavailableView("No entries yet", systemImage: "trophy",
-                    description: Text("Add friends and log catches to fill the board."))
-                    .listRowBackground(Color.clear)
+                VStack(spacing: 10) {
+                    ContentUnavailableView("No entries yet", systemImage: "trophy",
+                        description: Text("Add friends and log catches to fill the board."))
+                    // The demo angler existed in the service all along ("so
+                    // there's always something to see") but no UI mentioned it.
+                    Button {
+                        Task {
+                            _ = await svc.sendFriendRequest(to: CommunityService.demoCode)
+                            svc.bumpRevision()
+                            await reload()
+                        }
+                    } label: {
+                        Label("Add Marlin, the demo angler", systemImage: "sparkles")
+                    }
+                    .buttonStyle(.bordered)
+                    .padding(.bottom, 8)
+                }
+                .frame(maxWidth: .infinity)
+                .listRowBackground(Color.clear)
             } else {
                 ForEach(Array(rows.enumerated()), id: \.element.id) { i, row in
                     leaderRow(i, row)
@@ -334,6 +375,9 @@ private struct LeaderboardSection: View {
         }
         .task { await reload() }
         .onChange(of: metric) { _, _ in Task { await reload() } }
+        // Reload when friends/catches change (accepting a request, removing a
+        // friend, logging a catch) — the board otherwise froze at first render.
+        .onChange(of: svc.revision) { _, _ in Task { await reload() } }
         .sensoryFeedback(.selection, trigger: metric)
     }
 
@@ -444,6 +488,7 @@ private struct FriendsSection: View {
             }
             VStack(spacing: 10) {
                 CodeField(text: $addCode, placeholder: "FRIEND CODE")
+                    .onChange(of: addCode) { _, _ in requestSent = false }
                 Button {
                     let code = addCode
                     addCode = ""
@@ -537,12 +582,28 @@ private struct FriendsSection: View {
 
         // 2) Background: refresh from iCloud (all friends concurrently) and
         //    quietly swap in the fresh data.
-        let tasks = codes.map { code in Task { await svc.fetchProfile(code: code) } }
+        let tasks = codes.map { code in Task { (code, await svc.fetchProfile(code: code)) } }
         var result: [CommunityService.Profile] = []
+        var resolved = 0
         for t in tasks {
-            if let p = await t.value { result.append(p) }
+            let (code, p) = await t.value
+            if let p {
+                result.append(p)
+                resolved += 1
+            } else {
+                // Keep a placeholder row: a friend whose profile can't be
+                // fetched used to vanish from the list entirely — while still
+                // counting against grants — with no way left to remove them.
+                result.append(.init(id: code, name: "Angler \(code)", bio: "",
+                                    region: "", homeWater: "", avatar: nil,
+                                    memberSince: .now, totalCatches: 0,
+                                    speciesCount: 0, bestWeightKg: 0,
+                                    bestLengthCm: 0, favoriteSpecies: ""))
+            }
         }
-        if !result.isEmpty {
+        // Fully offline (nothing resolved) with cached names on screen: keep
+        // the cache rather than replacing every row with placeholders.
+        if resolved > 0 || cached.isEmpty {
             friends = ordered(result)
         }
         isLoading = false
@@ -778,6 +839,9 @@ struct FriendProfileView: View {
     @State private var profile: CommunityService.Profile?
     @State private var privacy = CommunityService.FriendPrivacy()
     @State private var override = CommunityService.FriendPrivacyOverride()
+    /// Set once the initial .task assignment has landed, so onChange(of:
+    /// override) only reacts to edits the user actually made.
+    @State private var overrideLoaded = false
     @State private var sharedSpots: [CommunityService.SharedSpot] = []
     @State private var catches: [CommunityService.LeaderRow] = []
     @State private var catchAccess = false
@@ -854,9 +918,8 @@ struct FriendProfileView: View {
             } header: {
                 Text("Nickname")
             }
-            .onChange(of: privacy.nickname) { _, name in
-                svc.setNickname(name, for: code)
-            }
+            .onSubmit { svc.setNickname(privacy.nickname, for: code) }
+            .onDisappear { svc.setNickname(privacy.nickname, for: code) }
 
             if svc.isFriend(code) {
                 Section {
@@ -875,6 +938,9 @@ struct FriendProfileView: View {
                     Text("“Default” follows your global Privacy settings. Override any of these to share more (or less) with just this friend — e.g. share your exact spots with a trusted friend while everyone else sees an approximate area. Your honey-hole radius stays global.")
                 }
                 .onChange(of: override) { _, o in
+                    // The initial .task assignment lands here too — only react
+                    // to changes the user actually made.
+                    guard overrideLoaded else { return }
                     svc.setOverride(o, for: code)
                     ToastCenter.shared.show("Sharing updated", style: .info, haptic: false)
                     let spots = (try? appState.spotRepository.fetchAll()) ?? []
@@ -891,6 +957,7 @@ struct FriendProfileView: View {
         .task {
             privacy = svc.privacy(for: code)
             override = svc.override(for: code)
+            overrideLoaded = true
             // Show the cached profile instantly, then refresh from iCloud.
             if profile == nil { profile = svc.cachedProfiles(for: [code]).first }
             if let fresh = await svc.fetchProfile(code: code) { profile = fresh }
@@ -1061,6 +1128,17 @@ struct SharedSpotDetailView: View {
 
     private func copySpot() {
         guard let coord = spot.coordinate else { return }
+        // Already saved on a previous visit? The disable flag resets with the
+        // sheet, so re-check against the actual spot list.
+        if let existing = try? appState.spotRepository.fetchAll(),
+           existing.contains(where: {
+               abs($0.latitude - coord.latitude) < 0.0005 &&
+               abs($0.longitude - coord.longitude) < 0.0005
+           }) {
+            copied = true
+            ToastCenter.shared.show("Already in My Spots", style: .info)
+            return
+        }
         var newSpot = Spot(
             name: spot.isApproximate ? "\(spot.name) (approx)" : spot.name,
             latitude: coord.latitude,

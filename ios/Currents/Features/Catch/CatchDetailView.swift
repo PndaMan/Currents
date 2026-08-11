@@ -248,6 +248,28 @@ struct CatchDetailView: View {
                         } label: {
                             Label("Edit Catch", systemImage: "pencil")
                         }
+                        // Manual crew share: without this, a crew feed could
+                        // only ever contain fish caught AFTER the crew existed
+                        // (auto-post fires at log time only), and turning
+                        // auto-post off made posting impossible entirely.
+                        let svc = CommunityService.shared
+                        if svc.joined, !svc.myCrews.isEmpty {
+                            Menu {
+                                ForEach(svc.myCrews) { crew in
+                                    Button("\(crew.emoji) \(crew.name)") {
+                                        let record = detail.catchRecord
+                                        let name = detail.species?.commonName ?? "Fish"
+                                        Task {
+                                            await svc.postCatch(record, speciesName: name,
+                                                                toCrew: crew.code, caption: "")
+                                            ToastCenter.shared.show("Shared to \(crew.name)")
+                                        }
+                                    }
+                                }
+                            } label: {
+                                Label("Share to Crew", systemImage: "person.3")
+                            }
+                        }
                         Button(role: .destructive) {
                             showingDeleteConfirm = true
                         } label: {
@@ -275,6 +297,11 @@ struct CatchDetailView: View {
                     var record = updated
                     try? appState.catchRepository.save(&record)
                     reload(with: record)
+                    // Re-publish: the edit is how a quick-logged catch gets its
+                    // species/size, and the public record must follow.
+                    let published = record
+                    let name = detail.species?.commonName
+                    Task { await CommunityService.shared.publishLoggedCatch(published, speciesName: name) }
                 }
             )
         }

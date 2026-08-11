@@ -273,6 +273,21 @@ final class CommunityService: ObservableObject {
     func leave() {
         UserDefaults.standard.set(false, forKey: "communityJoined")
         joined = false
+        // Stop community push for a user who left — the subscriptions would
+        // happily keep delivering crew/friend alerts forever otherwise. The
+        // published records stay (rejoining restores them); the UI says so.
+        Task {
+            if let subs = try? await db.allSubscriptions() {
+                let mine = subs.map(\.subscriptionID).filter {
+                    $0.hasPrefix("ev-") || $0.hasPrefix("friendreq-") || $0.hasPrefix("tripinvite-")
+                }
+                if !mine.isEmpty {
+                    _ = try? await db.modifySubscriptions(saving: [], deleting: mine)
+                }
+            }
+            UserDefaults.standard.removeObject(forKey: "pushSubsForCode")
+            UserDefaults.standard.removeObject(forKey: "eventSubsFingerprint")
+        }
     }
 
     // MARK: - My profile
@@ -441,12 +456,31 @@ final class CommunityService: ObservableObject {
                        seed: catchRecord.id, to: record)
         // Tag the catch to a shared trip so the whole group sees it in real time.
         if let groupCode { record["groupCode"] = groupCode as CKRecordValue }
-        if (try? await db.save(record)) != nil, joined {
+        // .allKeys so re-publishing after an edit overwrites the existing
+        // record instead of failing on the change tag.
+        let saved = (try? await db.modifyRecords(saving: [record], deleting: [],
+                                                 savePolicy: .allKeys, atomically: false)) != nil
+        if saved, joined {
             // Remember we've sent it so the full-history sync doesn't re-upload it.
             var published = Set(UserDefaults.standard.stringArray(forKey: "publishedCatchIds") ?? [])
             published.insert(catchRecord.id)
             UserDefaults.standard.set(Array(published), forKey: "publishedCatchIds")
         }
+    }
+
+    /// One entry point for "a catch was saved outside the log sheet" — the
+    /// watch, Siri, and the edit screen. Mirrors the log sheet's contract:
+    /// measured catches go to the leaderboard (and the live group trip if the
+    /// catch's trip is linked to one); every catch auto-posts to crews. The
+    /// leaderboard write is idempotent, so edits simply overwrite.
+    func publishLoggedCatch(_ c: Catch, speciesName: String?) async {
+        guard joined else { return }
+        let name = speciesName ?? "Fish"
+        if c.weightKg != nil || c.lengthCm != nil {
+            let group = c.tripId.flatMap { groupCode(forTripId: $0) }
+            await publish(catchRecord: c, speciesName: name, region: myRegion, groupCode: group)
+        }
+        await autoPostCatch(c, speciesName: name)
     }
 
     /// Attach a catch photo as a CKAsset (and a `hasPhoto` flag so leaderboard
@@ -475,7 +509,12 @@ final class CommunityService: ObservableObject {
             record["lon"] = nil
             return
         }
-        let (oLat, oLon) = obfuscated(lat, lon, seed: seed)
+        // Never publish the exact spot: at the default honey-hole radius (0)
+        // the offset was a no-op while the viewer UI promised "Approximate
+        // area". Floor of 3 km keeps the promise without the user configuring
+        // anything.
+        let (oLat, oLon) = obfuscated(lat, lon, seed: seed,
+                                      radiusKm: max(privacyRadiusKm, 3))
         record["lat"] = oLat as CKRecordValue
         record["lon"] = oLon as CKRecordValue
     }
@@ -545,7 +584,12 @@ final class CommunityService: ObservableObject {
     /// All published catches. No server-side sort (we rank client-side), so the
     /// query needs no custom Sortable index — one less CloudKit setup step.
     private func fetchAllLeaderCatches(limit: Int = 400) async -> [LeaderRow] {
-        let query = CKQuery(recordType: catchType, predicate: NSPredicate(value: true))
+        // Server-side filter on the indexed friendCode: a TRUEPREDICATE scan
+        // capped at `limit` would silently drop friends' catches once the
+        // whole public DB outgrew it.
+        let codes = friends + [friendCode]
+        let query = CKQuery(recordType: catchType,
+                            predicate: NSPredicate(format: "friendCode IN %@", codes))
         // Fetch everything EXCEPT the photo asset — the leaderboard only needs to
         // know a photo exists (`hasPhoto`); the asset itself is downloaded on
         // demand when a catch is opened, so lists stay fast.
@@ -642,9 +686,16 @@ final class CommunityService: ObservableObject {
     /// call even if the catch was never published. The record name is shared by
     /// the leaderboard and group feed, so a single delete covers both.
     func removeCatch(id catchId: String) async {
-        guard joined else { return }
+        // Deliberately NOT gated on `joined` — deleting a catch must retract
+        // it even if the user has since left the community.
         let recordID = CKRecord.ID(recordName: "catch-\(friendCode)-\(catchId)")
         _ = try? await db.deleteRecord(withID: recordID)
+        // Crew posts are separate records; take them down too so the photo
+        // doesn't outlive the catch in every crew feed.
+        for crew in myCrews {
+            let postID = CKRecord.ID(recordName: "crewpost-\(crew.code)-\(catchId)")
+            _ = try? await db.deleteRecord(withID: postID)
+        }
         // Forget it locally so a same-id re-log would re-publish, and refresh
         // any open community/leaderboard view.
         var published = Set(UserDefaults.standard.stringArray(forKey: "publishedCatchIds") ?? [])
@@ -770,7 +821,10 @@ final class CommunityService: ObservableObject {
     /// shareExactLocations (previously exact coords leaked into a shared record
     /// that non-exact friends could read).
     func republishSharedSpots(spots: [Spot] = []) async {
-        guard joined, !spots.isEmpty else { return }
+        // No isEmpty guard: with zero spots the retraction pass below must
+        // still run, or deleting your last spot would leave it shared forever.
+        guard joined else { return }
+        var live = Set<String>()
         for spot in spots {
             for code in friends {
                 let p = privacy(for: code)
@@ -779,6 +833,7 @@ final class CommunityService: ObservableObject {
                     _ = try? await db.deleteRecord(withID: id)
                     continue
                 }
+                live.insert("\(spot.id)|\(code)")
                 let record = (try? await db.record(for: id)) ?? CKRecord(recordType: sharedSpotType, recordID: id)
                 record["ownerCode"] = friendCode as CKRecordValue
                 record["toCode"] = code as CKRecordValue
@@ -801,6 +856,16 @@ final class CommunityService: ObservableObject {
                 _ = try? await db.save(record)
             }
         }
+        // Retract shares whose spot was deleted (or whose friend was removed)
+        // since the last pass — the loop above only sees spots that still exist.
+        let previous = Set(UserDefaults.standard.stringArray(forKey: "publishedSpotShares") ?? [])
+        for stale in previous.subtracting(live) {
+            guard let sep = stale.lastIndex(of: "|") else { continue }
+            let spotId = String(stale[..<sep]), code = String(stale[stale.index(after: sep)...])
+            let id = CKRecord.ID(recordName: "spot-\(friendCode)-\(spotId)-\(code)")
+            _ = try? await db.deleteRecord(withID: id)
+        }
+        UserDefaults.standard.set(Array(live), forKey: "publishedSpotShares")
     }
 
     /// Spots a friend has shared with me. Coordinates are present only when they
@@ -1037,7 +1102,7 @@ final class CommunityService: ObservableObject {
 
     @discardableResult
     func createCrew(name: String, emoji: String) async -> Crew? {
-        await ensureJoined()
+        guard joined else { return nil }
         let chars = Array("ABCDEFGHJKLMNPQRSTUVWXYZ23456789")
         let code = String((0..<6).map { _ in chars[Int.random(in: 0..<chars.count)] })
         let id = CKRecord.ID(recordName: "crew-\(code)")
@@ -1058,7 +1123,7 @@ final class CommunityService: ObservableObject {
 
     @discardableResult
     func joinCrew(code raw: String) async -> Crew? {
-        await ensureJoined()
+        guard joined else { return nil }
         let code = raw.uppercased().trimmingCharacters(in: .whitespaces)
         guard code.count == 6, let crew = await fetchCrew(code: code) else { return nil }
         await addCrewMembership(code: code)
@@ -1171,8 +1236,7 @@ final class CommunityService: ObservableObject {
     /// Auto-post a freshly-logged catch into every crew that has auto-post on.
     func autoPostCatch(_ c: Catch, speciesName: String) async {
         let targets = myCrews.filter { $0.autoPost }
-        guard !targets.isEmpty else { return }
-        await ensureJoined()
+        guard !targets.isEmpty, joined else { return }
         for crew in targets {
             // Tag the post with the crew's live trip, if one is running.
             let trip = activeTrip(forCrew: crew.code)?.name ?? ""
@@ -1182,7 +1246,7 @@ final class CommunityService: ObservableObject {
 
     /// Create/update a crew post for a catch (used by auto-post and manual share).
     func postCatch(_ c: Catch, speciesName: String, toCrew code: String, caption: String, tripName: String = "") async {
-        await ensureJoined()
+        guard joined else { return }
         let id = CKRecord.ID(recordName: "crewpost-\(code)-\(c.id)")
         let record = (try? await db.record(for: id)) ?? CKRecord(recordType: crewPostType, recordID: id)
         record["crewCode"] = code as CKRecordValue
@@ -1371,21 +1435,16 @@ final class CommunityService: ObservableObject {
         """
         Join my fishing trip “\(tripName)” on Currents 🎣
         \(inviteLink(forGroup: code, tripName: tripName).absoluteString)
-        …or open Currents › Community › Join a Trip and enter code \(code).
+        …or open Currents › Community › Group Trips › Start or join a trip and enter code \(code).
         """
     }
 
     /// Ensure the angler has a community identity so group records carry a name.
-    private func ensureJoined() async {
-        guard !joined else { return }
-        await join(name: myName, region: myRegion)
-    }
-
     /// Host creates a shared trip and returns its join code. Pass `crewCode` to
     /// tie the trip to a Crew (its live banner + trip-tagged feed posts).
     @discardableResult
     func createGroupTrip(name: String, tripId: String, crewCode: String? = nil) async -> String? {
-        await ensureJoined()
+        guard joined else { return nil }
         let chars = Array("ABCDEFGHJKLMNPQRSTUVWXYZ23456789")
         let code = String((0..<6).map { _ in chars[Int.random(in: 0..<chars.count)] })
         let id = CKRecord.ID(recordName: "grouptrip-\(code)")
@@ -1408,7 +1467,7 @@ final class CommunityService: ObservableObject {
     /// trip if it exists. Optionally links it to a local trip id.
     @discardableResult
     func joinGroupTrip(code raw: String, tripId: String? = nil) async -> GroupTrip? {
-        await ensureJoined()
+        guard joined else { return nil }
         let code = raw.uppercased().trimmingCharacters(in: .whitespaces)
         guard code.count == 6, let trip = await groupTrip(code: code) else { return nil }
         await addMembership(code: code)
@@ -1537,7 +1596,7 @@ final class CommunityService: ObservableObject {
     /// member's catch always reaches the group.
     func publishGroupCatch(species: String, weightKg: Double?, lengthCm: Double?,
                            catchId: String, groupCode: String) async {
-        await ensureJoined()
+        guard joined else { return }
         let id = CKRecord.ID(recordName: "catch-\(friendCode)-\(catchId)")
         // Update the existing catch record (adding the group tag) if it's already
         // been published to the leaderboard, so its photo/fields are preserved;
@@ -1659,6 +1718,9 @@ final class CommunityService: ObservableObject {
             return true
         }
         if friends.contains(toCode) { return true } // already friends
+        // Verify the code belongs to a real angler before claiming success —
+        // the failure copy promises "Couldn't find that code", so keep it true.
+        guard await fetchProfile(code: toCode) != nil else { return false }
         let id = CKRecord.ID(recordName: "friendreq-\(friendCode)-\(toCode)")
         let rec = (try? await db.record(for: id)) ?? CKRecord(recordType: friendReqType, recordID: id)
         rec["fromCode"] = friendCode as CKRecordValue

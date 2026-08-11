@@ -108,5 +108,10 @@ final class PhoneConnectivity: NSObject, WCSessionDelegate, @unchecked Sendable 
             notes: note
         )
         try? app.catchRepository.save(&record)
+        // Watch catches reach the community exactly like log-sheet catches —
+        // this was the hole where voice-logged fish never hit crew feeds.
+        let published = record
+        let name = species?.commonName
+        Task { await CommunityService.shared.publishLoggedCatch(published, speciesName: name) }
     }
 }

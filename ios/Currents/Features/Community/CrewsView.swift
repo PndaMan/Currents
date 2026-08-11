@@ -136,6 +136,7 @@ struct CrewSetupView: View {
 struct CrewDetailView: View {
     let code: String
 
+    @Environment(\.dismiss) private var dismiss
     @StateObject private var svc = CommunityService.shared
     @State private var crew: CommunityService.Crew?
     @State private var members: [CommunityService.GroupMember] = []
@@ -188,6 +189,12 @@ struct CrewDetailView: View {
         if let fresh = await svc.fetchCrew(code: code) { crew = fresh }
         members = await svc.crewMembers(code: code)
         feed = await svc.crewFeed(code: code)
+        // Re-read the linked live trip too — groupTrip() records endedAt
+        // locally, which is what clears the "is live" banner after the host
+        // ends the trip. Without this the banner pulsed forever.
+        if let live = svc.activeTrip(forCrew: code) {
+            _ = await svc.groupTrip(code: live.code)
+        }
         isLoading = false
         await loadAvatars()
     }
@@ -315,6 +322,7 @@ struct CrewDetailView: View {
                         await svc.leaveCrew(code: code)
                         Haptics.warning()
                         ToastCenter.shared.show("Left the crew", style: .info, haptic: false)
+                        dismiss()
                     }
                 }
             } message: {
