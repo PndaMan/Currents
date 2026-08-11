@@ -147,6 +147,9 @@ struct CrewDetailView: View {
 
     private var isMine: Bool { crew?.createdByCode == svc.friendCode }
     private var liveTrip: CommunityService.GroupRef? { svc.activeTrip(forCrew: code) }
+    /// The live trip as the server sees it — covers crewmates who haven't
+    /// joined yet, for whom the local `activeTrip` lookup knows nothing.
+    @State private var serverLiveTrip: CommunityService.GroupTrip?
 
     var body: some View {
         List {
@@ -195,6 +198,10 @@ struct CrewDetailView: View {
         if let live = svc.activeTrip(forCrew: code) {
             _ = await svc.groupTrip(code: live.code)
         }
+        // And ask the server: a crewmate who never joined the trip has no
+        // local ref at all, so this is what makes "join an ongoing trip"
+        // discoverable to the rest of the crew.
+        serverLiveTrip = await svc.liveCrewTrip(crewCode: code)
         isLoading = false
         await loadAvatars()
     }
@@ -261,11 +268,19 @@ struct CrewDetailView: View {
     // MARK: Live trip banner
 
     private var liveTripBanner: some View {
-        Section {
-            if let trip = liveTrip {
+        // Prefer my own ref (knows isHost); fall back to the server's view so
+        // crewmates who haven't joined still get the banner.
+        let mine = liveTrip
+        let tripCode = mine?.code ?? serverLiveTrip?.id
+        let tripName = mine?.name ?? serverLiveTrip?.name ?? "Live trip"
+        let hostName = mine?.hostName ?? serverLiveTrip?.hostName ?? ""
+        let amIn = mine != nil
+
+        return Section {
+            if let tripCode {
                 NavigationLink {
-                    GroupTripView(tripId: svc.tripId(forGroupCode: trip.code),
-                                  tripName: trip.name, initialCode: trip.code)
+                    GroupTripView(tripId: svc.tripId(forGroupCode: tripCode),
+                                  tripName: tripName, initialCode: tripCode)
                 } label: {
                     HStack(spacing: 12) {
                         Image(systemName: "dot.radiowaves.left.and.right")
@@ -274,12 +289,20 @@ struct CrewDetailView: View {
                             .background(Color.red, in: Circle())
                             .symbolEffect(.variableColor.iterative, options: .repeating)
                         VStack(alignment: .leading, spacing: 1) {
-                            Text("\(trip.name) is live").font(.subheadline.bold())
-                            Text(trip.isHost ? "You're hosting · tap to open"
-                                             : "Hosted by \(trip.hostName) · tap to join")
+                            Text("\(tripName) is live").font(.subheadline.bold())
+                            Text(mine?.isHost == true ? "You're hosting · tap to open"
+                                 : amIn ? "You're in · tap to open"
+                                 : "Hosted by \(hostName) · tap to join")
                                 .font(.caption2).foregroundStyle(.secondary)
                         }
                         Spacer()
+                        if !amIn {
+                            Text("JOIN")
+                                .font(.system(size: 10, weight: .heavy))
+                                .padding(.horizontal, 8).padding(.vertical, 3)
+                                .background(Color.red, in: Capsule())
+                                .foregroundStyle(.white)
+                        }
                     }
                 }
             }
@@ -307,7 +330,7 @@ struct CrewDetailView: View {
             NavigationLink {
                 GroupTripSetupView(crewCode: code)
             } label: {
-                Label(liveTrip == nil ? "Start a live trip" : "Start another trip",
+                Label(liveTrip == nil && serverLiveTrip == nil ? "Start a live trip" : "Start another trip",
                       systemImage: "dot.radiowaves.left.and.right")
             }
 

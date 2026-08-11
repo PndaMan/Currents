@@ -317,6 +317,7 @@ struct GroupTripView: View {
     @State private var invited: Set<String> = []
     @State private var showAddByCode = false
     @State private var showingLog = false
+    @State private var showingInvite = false
 
     private let autoJoin: Bool
     private var service: CommunityService { .shared }
@@ -345,14 +346,72 @@ struct GroupTripView: View {
         }
         .navigationTitle(trip?.name ?? tripName)
         .navigationBarTitleDisplayMode(.inline)
+        // Lifecycle + invites live in the toolbar so the screen itself is all
+        // trip: who's here, who's winning, what's being caught.
+        .toolbar {
+            if let code, !confirming, svc.joined {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu {
+                        Button { showingInvite = true } label: {
+                            Label("Invite friends", systemImage: "person.badge.plus")
+                        }
+                        ShareLink(item: service.inviteMessage(forGroup: code, tripName: trip?.name ?? tripName)) {
+                            Label("Share invite link", systemImage: "square.and.arrow.up")
+                        }
+                        Divider()
+                        if trip?.isHost == true, !(trip?.isEnded ?? false) {
+                            Button(role: .destructive) {
+                                Haptics.warning()
+                                Task {
+                                    await service.endGroupTrip(code: code)
+                                    ToastCenter.shared.show("Trip ended for everyone", style: .info, haptic: false)
+                                    await refresh()
+                                }
+                            } label: {
+                                Label("End trip for everyone", systemImage: "flag.slash")
+                            }
+                        }
+                        Button(role: .destructive) {
+                            Task {
+                                await leaveGroupAndCleanup(code: code, tripId: tripId, appState: appState)
+                                self.code = nil
+                                trip = nil; members = []; feed = []
+                            }
+                        } label: {
+                            Label(trip?.isEnded == true ? "Remove from my trips" : "Leave trip",
+                                  systemImage: "person.fill.xmark")
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                    }
+                }
+            }
+        }
         // No pull-to-refresh: it would swallow the sheet's pull-down-to-collapse
-        // gesture. The feed auto-polls every 15s and has a manual Refresh button.
+        // gesture. The feed auto-polls every 15s.
         .sheet(isPresented: $showingLog, onDismiss: {
-            Task { await publishLatestToGroup(); await refresh() }
+            Task { await refresh() }
         }) {
-            LogCatchView()
+            // The override tags the catch to this trip directly — no linked GPS
+            // session required, so members who joined mid-trip can log too.
+            LogCatchView(groupCodeOverride: code)
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
+        }
+        .sheet(isPresented: $showingInvite) {
+            NavigationStack {
+                ScrollView {
+                    if let code { invitePanel(code).padding() }
+                }
+                .navigationTitle("Invite")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Done") { showingInvite = false }
+                    }
+                }
+            }
+            .presentationDetents([.medium, .large])
         }
         .task {
             if code == nil, let tripId { code = service.groupCode(forTripId: tripId) }
@@ -526,18 +585,337 @@ struct GroupTripView: View {
         .glassCard()
     }
 
+    // MARK: - Member colours
+
+    /// A stable colour per angler, so everything of theirs — feed rows,
+    /// standings bars, avatar rings — reads as theirs at a glance.
+    private func color(_ code: String) -> Color {
+        let palette: [Color] = [.blue, .orange, .green, .purple, .pink, .teal, .red, .indigo]
+        var h = 5381
+        for u in code.unicodeScalars { h = (h &* 33) &+ Int(u.value) }
+        return palette[abs(h) % palette.count]
+    }
+
     // MARK: - Active group
 
     @ViewBuilder private func activeGroup(_ code: String) -> some View {
-        // Header + your session controls.
-        yourSessionCard(code)
+        let ended = trip?.isEnded ?? false
+        let amMember = members.contains { $0.id == service.friendCode }
 
-        // Your gear checklist for this trip (editable any time).
-        if let linkedId = service.tripId(forGroupCode: code) {
-            TripChecklistCard(tripId: linkedId)
+        tripHero(code, ended: ended)
+
+        if !ended {
+            if amMember {
+                Button {
+                    Haptics.tap()
+                    showingLog = true
+                } label: {
+                    Label("Log a Catch to the Trip", systemImage: "plus.circle.fill")
+                        .font(.headline)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 6)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(CurrentsTheme.accent)
+            } else {
+                joinBanner(code)
+            }
         }
 
-        // Invite: pick friends (primary), share link / add-by-code (secondary).
+        standingsCard(ended: ended)
+        feedCard
+        if amMember, let linkedId = service.tripId(forGroupCode: code) {
+            TripChecklistCard(tripId: linkedId)
+        }
+        if amMember { sessionStrip(code, ended: ended) }
+    }
+
+    // MARK: - Hero
+
+    private func tripHero(_ code: String, ended: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                if ended {
+                    Label("Ended", systemImage: "flag.checkered")
+                        .font(.caption.bold())
+                        .padding(.horizontal, 10).padding(.vertical, 4)
+                        .background(.gray.opacity(0.2), in: Capsule())
+                        .foregroundStyle(.secondary)
+                } else {
+                    HStack(spacing: 6) {
+                        PulseDot()
+                        Text("LIVE").font(.caption.weight(.heavy)).foregroundStyle(.red)
+                    }
+                    .padding(.horizontal, 10).padding(.vertical, 4)
+                    .background(.red.opacity(0.12), in: Capsule())
+                }
+                Spacer()
+                if let start = trip?.createdAt {
+                    TimelineView(.periodic(from: .now, by: 60)) { _ in
+                        Label(elapsedLabel(from: start, to: trip?.endedAt), systemImage: "clock")
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+
+            Text(trip?.name ?? tripName).font(.title2.bold())
+
+            HStack(spacing: 6) {
+                Text("Hosted by \(trip?.hostName ?? "…")")
+                    .font(.caption).foregroundStyle(.secondary)
+                if let crewCode = trip?.crewCode, let crew = svc.crew(withCode: crewCode) {
+                    Text("\(crew.emoji) \(crew.name)")
+                        .font(.caption2.bold())
+                        .padding(.horizontal, 7).padding(.vertical, 2)
+                        .background(CurrentsTheme.accent.opacity(0.15), in: Capsule())
+                }
+            }
+
+            facepile
+
+            HStack {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Trip code").font(.caption2).foregroundStyle(.secondary)
+                    CopyableCode(code: code, font: .system(.subheadline, design: .monospaced).bold())
+                }
+                Spacer()
+                Button {
+                    showingInvite = true
+                } label: {
+                    Label("Invite", systemImage: "person.badge.plus").font(.caption.bold())
+                }
+                .buttonStyle(.bordered)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassCard()
+    }
+
+    /// Everyone on the trip: colour-ringed avatars with live catch-count
+    /// badges, so "who's here and who's scoring" reads in one glance.
+    private var facepile: some View {
+        let counts = Dictionary(grouping: feed, by: \.friendCode).mapValues(\.count)
+        return ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 12) {
+                ForEach(members) { m in
+                    VStack(spacing: 3) {
+                        ZStack(alignment: .topTrailing) {
+                            AnglerAvatar(image: memberAvatars[m.id], size: 42)
+                                .overlay(Circle().strokeBorder(color(m.id), lineWidth: 2.5))
+                            if let n = counts[m.id], n > 0 {
+                                Text("\(n)")
+                                    .font(.system(size: 10, weight: .heavy)).monospacedDigit()
+                                    .foregroundStyle(.white)
+                                    .frame(width: 17, height: 17)
+                                    .background(color(m.id), in: Circle())
+                                    .offset(x: 5, y: -3)
+                            }
+                        }
+                        Text(m.id == service.friendCode ? "You" : m.name)
+                            .font(.system(size: 10))
+                            .lineLimit(1)
+                            .foregroundStyle(m.id == service.friendCode ? CurrentsTheme.accent : .secondary)
+                    }
+                    .frame(width: 52)
+                }
+            }
+            .padding(.vertical, 2)
+        }
+    }
+
+    /// A crewmate viewing a live trip they haven't joined — one tap in.
+    private func joinBanner(_ code: String) -> some View {
+        VStack(spacing: 10) {
+            Text("You're watching this trip").font(.subheadline.bold())
+            Text("Join to log your catches onto the board with everyone else's.")
+                .font(.caption).foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+            Button {
+                Task {
+                    busy = true
+                    _ = await service.joinGroupTrip(code: code)
+                    ensureLinkedTrip(code: code, name: trip?.name ?? tripName)
+                    Haptics.success()
+                    ToastCenter.shared.show("You're in — tight lines!", style: .success)
+                    busy = false
+                    await refresh()
+                }
+            } label: {
+                HStack {
+                    if busy { ProgressView().tint(.white) }
+                    Label("Join this trip", systemImage: "person.fill.badge.plus")
+                        .frame(maxWidth: .infinity)
+                }
+            }
+            .buttonStyle(.borderedProminent).tint(CurrentsTheme.accent)
+            .disabled(busy)
+        }
+        .frame(maxWidth: .infinity)
+        .glassCard()
+    }
+
+    // MARK: - Standings (podium)
+
+    private func standingsCard(ended: Bool) -> some View {
+        let stats = standings()
+        let biggest = feed.compactMap { c -> (Double, String, String)? in
+            guard let w = c.weightKg else { return nil }
+            return (w, c.species, c.anglerName)
+        }.max(by: { $0.0 < $1.0 })
+
+        return VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Label(ended ? "Final results" : "Standings",
+                      systemImage: ended ? "flag.checkered" : "trophy.fill")
+                    .font(.headline)
+                Spacer()
+                Text("\(feed.count) fish · \(Set(feed.map(\.species)).count) species")
+                    .font(.caption2).foregroundStyle(.secondary)
+            }
+
+            if stats.allSatisfy({ $0.count == 0 }) {
+                Text("No fish on the board yet — first catch takes the lead.")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.vertical, 10)
+            } else {
+                podium(Array(stats.prefix(3)))
+                ForEach(Array(stats.dropFirst(3).enumerated()), id: \.element.code) { i, s in
+                    standingRow(rank: i + 4, s)
+                }
+            }
+
+            if let biggest {
+                Label("Biggest: \(biggest.1) · \(Units.weight(kg: biggest.0)) — \(biggest.2)",
+                      systemImage: "crown.fill")
+                    .font(.caption).foregroundStyle(.orange)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassCard()
+    }
+
+    /// 2nd · 1st · 3rd, bars scaled to catch counts and tinted per member.
+    private func podium(_ top: [MemberStat]) -> some View {
+        var slots: [(stat: MemberStat, place: Int)] = []
+        if top.count > 1 { slots.append((top[1], 2)) }
+        if !top.isEmpty { slots.append((top[0], 1)) }
+        if top.count > 2 { slots.append((top[2], 3)) }
+        let maxCount = max(top.first?.count ?? 1, 1)
+
+        return HStack(alignment: .bottom, spacing: 10) {
+            ForEach(slots, id: \.stat.code) { entry in
+                let s = entry.stat
+                VStack(spacing: 6) {
+                    AnglerAvatar(image: memberAvatars[s.code], size: entry.place == 1 ? 46 : 38)
+                        .overlay(Circle().strokeBorder(color(s.code), lineWidth: 2.5))
+                    Text(s.code == service.friendCode ? "You" : s.name)
+                        .font(.caption2.bold())
+                        .lineLimit(1).minimumScaleFactor(0.7)
+                    ZStack(alignment: .top) {
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(color(s.code).opacity(entry.place == 1 ? 1 : 0.75).gradient)
+                            .frame(height: 40 + 44 * CGFloat(s.count) / CGFloat(maxCount))
+                        VStack(spacing: 0) {
+                            Text(entry.place == 1 ? "🥇" : entry.place == 2 ? "🥈" : "🥉")
+                                .font(.system(size: 13))
+                            Text("\(s.count)")
+                                .font(.headline.monospacedDigit())
+                                .foregroundStyle(.white)
+                        }
+                        .padding(.top, 6)
+                    }
+                }
+                .frame(maxWidth: .infinity)
+            }
+        }
+    }
+
+    private func standingRow(rank: Int, _ s: MemberStat) -> some View {
+        NavigationLink { FriendProfileView(code: s.code) } label: {
+            HStack(spacing: 10) {
+                Text("\(rank)")
+                    .font(.caption.bold().monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .frame(width: 20)
+                AnglerAvatar(image: memberAvatars[s.code], size: 28)
+                    .overlay(Circle().strokeBorder(color(s.code), lineWidth: 2))
+                Text(s.code == service.friendCode ? "You" : s.name)
+                    .font(.subheadline).foregroundStyle(.primary)
+                Spacer()
+                Text("\(s.count)")
+                    .font(.subheadline.bold().monospacedDigit())
+                    .foregroundStyle(color(s.code))
+            }
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: - Live feed (per-member coloured timeline)
+
+    private var feedCard: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Label("Live feed", systemImage: "dot.radiowaves.left.and.right")
+                .font(.headline)
+                .padding(.bottom, 10)
+            if feed.isEmpty {
+                Text("Catches land here the moment anyone logs one.")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.vertical, 14)
+            } else {
+                ForEach(Array(feed.enumerated()), id: \.element.id) { i, c in
+                    feedRow(c, isLast: i == feed.count - 1)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassCard()
+    }
+
+    private func feedRow(_ c: CommunityService.GroupCatch, isLast: Bool) -> some View {
+        NavigationLink { CommunityCatchDetailView(row: leaderRow(from: c)) } label: {
+            HStack(alignment: .top, spacing: 10) {
+                // The member's colour runs down the spine, so scanning "who's
+                // been catching" needs no reading at all.
+                VStack(spacing: 0) {
+                    Circle().fill(color(c.friendCode)).frame(width: 10, height: 10)
+                        .padding(.top, 17)
+                    if !isLast {
+                        Rectangle()
+                            .fill(color(c.friendCode).opacity(0.25))
+                            .frame(width: 2)
+                            .frame(maxHeight: .infinity)
+                    }
+                }
+                .frame(width: 10)
+                CommunityCatchThumb(row: leaderRow(from: c), size: 44)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(c.species).font(.subheadline.bold()).foregroundStyle(.primary)
+                    HStack(spacing: 6) {
+                        Text(c.friendCode == service.friendCode ? "You" : c.anglerName)
+                            .font(.caption2.bold())
+                            .padding(.horizontal, 7).padding(.vertical, 2)
+                            .background(color(c.friendCode).opacity(0.18), in: Capsule())
+                            .foregroundStyle(color(c.friendCode))
+                        Text(c.date, style: .relative)
+                            .font(.caption2).foregroundStyle(.tertiary)
+                    }
+                }
+                Spacer()
+                Text(sizeLabel(c))
+                    .font(.subheadline.bold())
+                    .foregroundStyle(CurrentsTheme.accent)
+            }
+            .padding(.bottom, isLast ? 0 : 12)
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: - Invite (sheet content)
+
+    @ViewBuilder private func invitePanel(_ code: String) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             let memberCodes = Set(members.map(\.id))
             let invitable = friendProfiles.filter { !memberCodes.contains($0.id) }
@@ -613,127 +991,19 @@ struct GroupTripView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .glassCard()
-
-        // Group totals
-        groupTotalsCard
-
-        // Standings — anglers ranked by catches, with each one's stats.
-        VStack(alignment: .leading, spacing: 10) {
-            Label("Standings", systemImage: "trophy.fill").font(.headline)
-            let stats = standings()
-            ForEach(Array(stats.enumerated()), id: \.element.code) { i, s in
-                NavigationLink {
-                    FriendProfileView(code: s.code)
-                } label: {
-                    HStack(spacing: 10) {
-                        Text("\(i + 1)").font(.subheadline.bold().monospacedDigit())
-                            .foregroundStyle(i < 3 ? .white : .secondary)
-                            .frame(width: 24, height: 24)
-                            .background(i < 3 ? CurrentsTheme.accent : Color.secondary.opacity(0.15), in: Circle())
-                        AnglerAvatar(image: memberAvatars[s.code], size: 30)
-                        VStack(alignment: .leading, spacing: 1) {
-                            HStack(spacing: 6) {
-                                Text(s.name).font(.subheadline.bold()).foregroundStyle(.primary)
-                                if s.code == trip?.hostCode {
-                                    Text("Host").font(.system(size: 9, weight: .bold))
-                                        .padding(.horizontal, 5).padding(.vertical, 1)
-                                        .background(CurrentsTheme.accent.opacity(0.2), in: Capsule())
-                                }
-                                if s.code == service.friendCode {
-                                    Text("YOU").font(.system(size: 9, weight: .heavy))
-                                        .padding(.horizontal, 5).padding(.vertical, 1)
-                                        .background(CurrentsTheme.accent, in: Capsule())
-                                        .foregroundStyle(.white)
-                                }
-                            }
-                            Text(s.subtitle).font(.caption2).foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                        Text("\(s.count)").font(.headline.monospacedDigit()).foregroundStyle(CurrentsTheme.accent)
-                            + Text(s.count == 1 ? " fish" : " fish").font(.caption2).foregroundStyle(.secondary)
-                        Image(systemName: "chevron.right").font(.caption2).foregroundStyle(.tertiary)
-                    }
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .glassCard()
-
-        // Live catch feed
-        VStack(alignment: .leading, spacing: 10) {
-            Label("Group catches", systemImage: "fish.fill").font(.headline)
-            if feed.isEmpty {
-                ContentUnavailableView("No catches yet", systemImage: "fish",
-                    description: Text("Be the first to put a fish on the board!"))
-            } else {
-                ForEach(feed) { c in
-                    NavigationLink { CommunityCatchDetailView(row: leaderRow(from: c)) } label: {
-                        HStack(spacing: 10) {
-                            CommunityCatchThumb(row: leaderRow(from: c), size: 40)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(c.species).font(.subheadline.bold()).foregroundStyle(.primary)
-                                Text("\(c.anglerName) · \(c.date.formatted(date: .omitted, time: .shortened))")
-                                    .font(.caption).foregroundStyle(.secondary)
-                            }
-                            Spacer()
-                            Text(sizeLabel(c)).font(.subheadline.bold()).foregroundStyle(CurrentsTheme.accent)
-                            Image(systemName: "chevron.right").font(.caption2).foregroundStyle(.tertiary)
-                        }
-                    }
-                    .buttonStyle(.plain)
-                    .padding(.vertical, 2)
-                }
-            }
-            Button { Task { await refresh() } } label: {
-                Label("Refresh", systemImage: "arrow.clockwise").font(.caption)
-            }
-            .buttonStyle(.borderless)
-            .padding(.top, 2)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .glassCard()
-
-        // Host-only: end the whole trip for everyone (doesn't touch anyone's
-        // personal GPS session). Members can only end their own session.
-        if trip?.isHost == true, !(trip?.isEnded ?? false) {
-            Button(role: .destructive) {
-                Haptics.warning()
-                Task { await service.endGroupTrip(code: code); ToastCenter.shared.show("Trip ended", style: .info, haptic: false); await refresh() }
-            } label: {
-                Label("End trip for everyone", systemImage: "flag.slash").frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.bordered)
-        }
-
-        Button(role: .destructive) {
-            Task {
-                await leaveGroupAndCleanup(code: code, tripId: tripId, appState: appState)
-                self.code = nil
-                trip = nil; members = []; feed = []
-            }
-        } label: {
-            Label(trip?.isEnded == true ? "Remove from my trips" : "Leave group", systemImage: "person.fill.xmark").frame(maxWidth: .infinity)
-        }
-        .buttonStyle(.bordered)
     }
 
-    // MARK: - Your session card (start / pause GPS / log)
+    // MARK: - Your GPS session (compact)
 
-    @ViewBuilder private func yourSessionCard(_ code: String) -> some View {
+    @ViewBuilder private func sessionStrip(_ code: String, ended: Bool) -> some View {
         let tracker = appState.tripTracker
         let linkedId = service.tripId(forGroupCode: code)
         let isThisActive = tracker.isTracking && tracker.activeTrip?.id == linkedId && linkedId != nil
 
-        let ended = trip?.isEnded ?? false
-
         VStack(alignment: .leading, spacing: 10) {
-            Label("Your session", systemImage: "figure.fishing").font(.headline)
+            Label("Your GPS session", systemImage: "figure.fishing").font(.headline)
 
             if ended {
-                // Host ended the shared trip. Standings + catches stay visible as
-                // history; you can still wrap up your own session if it's running.
                 Label("This trip has ended", systemImage: "flag.checkered")
                     .font(.subheadline.bold()).foregroundStyle(.secondary)
                 if isThisActive {
@@ -748,10 +1018,9 @@ struct GroupTripView: View {
                 if tracker.manualPaused {
                     Label("GPS paused", systemImage: "pause.circle.fill").font(.caption).foregroundStyle(.orange)
                 } else {
-                    Label("Fishing — tracking live", systemImage: "dot.radiowaves.left.and.right")
+                    Label("Tracking live", systemImage: "dot.radiowaves.left.and.right")
                         .font(.caption.bold()).foregroundStyle(.green)
                 }
-                // Live session stats.
                 TimelineView(.periodic(from: .now, by: 1)) { _ in
                     let start = tracker.activeTrip?.currentDayStart ?? tracker.activeTrip?.startDate ?? .now
                     HStack(spacing: 10) {
@@ -760,13 +1029,6 @@ struct GroupTripView: View {
                         sessionStat("\(myCatchCount())", "Your fish", "fish.fill")
                     }
                 }
-                // Logging is only available WHILE fishing, so catches can't be
-                // added before the trip starts or after it ends — and they're
-                // always tagged to the group.
-                Button { Haptics.tap(); showingLog = true } label: {
-                    Label("Log a Catch", systemImage: "plus.circle.fill").frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent).tint(CurrentsTheme.accent)
                 HStack(spacing: 10) {
                     Button {
                         Haptics.selection()
@@ -790,8 +1052,6 @@ struct GroupTripView: View {
                     }.buttonStyle(.bordered)
                 }
             } else if isThisActive {
-                // Day ended but the trip is still open — pick back up tomorrow
-                // or finish the whole trip. No logging between days.
                 Label("Day ended — trip still open", systemImage: "pause.circle").font(.caption).foregroundStyle(.secondary)
                 Button {
                     Haptics.success()
@@ -806,23 +1066,22 @@ struct GroupTripView: View {
                     Label("End trip", systemImage: "stop.circle").frame(maxWidth: .infinity)
                 }.buttonStyle(.bordered)
             } else if tracker.isTracking {
-                Text("Another session is active. End it and start this trip's session to log catches here.")
+                Text("Another session is active. End it and start this trip's session to record your GPS track here.")
                     .font(.caption).foregroundStyle(.secondary)
             } else if let linkedId, let lt = (try? appState.tripRepository.fetch(linkedId)) ?? nil {
                 if lt.isCompleted {
-                    // Ending a session is final — no restarting it, no logging.
-                    Label("Your session has ended. You can still see the group's catches.",
+                    Label("Your session has ended. Catches you log still count for the trip.",
                           systemImage: "flag.checkered")
                         .font(.caption).foregroundStyle(.secondary)
                 } else {
-                    Text("Start your session to record your GPS track and log catches toward the group.")
+                    Text("Optional: start a GPS session to record your track alongside the trip.")
                         .font(.caption).foregroundStyle(.secondary)
                     Button {
                         Haptics.success()
                         _ = appState.tripTracker.startPlanned(lt)
                     } label: {
-                        Label("Start Fishing", systemImage: "play.circle.fill").frame(maxWidth: .infinity)
-                    }.buttonStyle(.borderedProminent).tint(CurrentsTheme.accent)
+                        Label("Start GPS session", systemImage: "play.circle.fill").frame(maxWidth: .infinity)
+                    }.buttonStyle(.bordered)
                 }
             }
         }
@@ -830,30 +1089,10 @@ struct GroupTripView: View {
         .glassCard()
     }
 
-    // MARK: - Group stats
-
-    private var groupTotalsCard: some View {
-        let biggest = feed.compactMap { c -> (Double, String, String)? in
-            guard let w = c.weightKg else { return nil }
-            return (w, c.species, c.anglerName)
-        }.max(by: { $0.0 < $1.0 })
-        let speciesCount = Set(feed.map(\.species)).count
-        let activeAnglers = Set(feed.map(\.friendCode)).count
-        return VStack(alignment: .leading, spacing: 10) {
-            Label("Group totals", systemImage: "chart.bar.fill").font(.headline)
-            HStack(spacing: 10) {
-                sessionStat("\(feed.count)", "Catches", "fish.fill")
-                sessionStat("\(speciesCount)", "Species", "square.grid.2x2")
-                sessionStat("\(activeAnglers)/\(members.count)", "Scored", "person.2.fill")
-            }
-            if let biggest {
-                Label("Biggest: \(biggest.1) · \(Units.weight(kg: biggest.0)) by \(biggest.2)",
-                      systemImage: "trophy.fill")
-                    .font(.caption).foregroundStyle(CurrentsTheme.accent)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .glassCard()
+    private func elapsedLabel(from start: Date, to end: Date?) -> String {
+        let seconds = (end ?? .now).timeIntervalSince(start)
+        let h = Int(seconds) / 3600, m = (Int(seconds) % 3600) / 60
+        return h > 0 ? "\(h)h \(m)m" : "\(m)m"
     }
 
     private struct MemberStat {
@@ -935,22 +1174,6 @@ struct GroupTripView: View {
         service.setGroupCode(code, forTripId: t.id)
     }
 
-    /// After logging a catch from the group view, make sure it reaches the group
-    /// feed even if no linked session was actively tracking.
-    private func publishLatestToGroup() async {
-        guard let code else { return }
-        let recent = (try? appState.catchRepository.fetchAll(limit: 10)) ?? []
-        guard let latest = recent.max(by: { $0.catchRecord.createdAt < $1.catchRecord.createdAt }),
-              latest.catchRecord.createdAt.timeIntervalSinceNow > -180,
-              latest.catchRecord.weightKg != nil || latest.catchRecord.lengthCm != nil else { return }
-        await service.publishGroupCatch(
-            species: latest.species?.commonName ?? "Fish",
-            weightKg: latest.catchRecord.weightKg,
-            lengthCm: latest.catchRecord.lengthCm,
-            catchId: latest.catchRecord.id,
-            groupCode: code)
-    }
-
     private func refresh() async {
         guard let code else { return }
         trip = await service.groupTrip(code: code)
@@ -999,5 +1222,19 @@ struct GroupTripView: View {
         if let w = c.weightKg { return Units.weight(kg: w) }
         if let l = c.lengthCm { return Units.length(cm: l) }
         return "—"
+    }
+}
+
+/// The pulsing red dot in the LIVE badge.
+private struct PulseDot: View {
+    @State private var on = false
+    var body: some View {
+        Circle()
+            .fill(.red)
+            .frame(width: 8, height: 8)
+            .scaleEffect(on ? 1.0 : 0.6)
+            .opacity(on ? 1 : 0.55)
+            .animation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true), value: on)
+            .onAppear { on = true }
     }
 }

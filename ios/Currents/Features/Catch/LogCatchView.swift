@@ -4,6 +4,11 @@ import MapKit
 import ImageIO
 
 struct LogCatchView: View {
+    /// When set, the saved catch publishes into this group trip's live feed —
+    /// used by the group screen so members who joined mid-trip (no linked GPS
+    /// session) still put fish on the board. Replaces the old "re-read the
+    /// latest catch and guess" hack.
+    var groupCodeOverride: String? = nil
     @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss
     @AppStorage("units") private var units = "metric"
@@ -880,10 +885,14 @@ struct LogCatchView: View {
         // Publish a measured catch to the community leaderboard / group feed in
         // the BACKGROUND — never block the save + dismiss on a CloudKit round
         // trip (that's what made saving a catch feel slow). No-op unless joined.
-        if catchRecord.weightKg != nil || catchRecord.lengthCm != nil {
+        // Group-tagged catches publish even unmeasured, so a quick "fish on"
+        // still lands in the trip feed.
+        let resolvedGroup = tripId.flatMap { CommunityService.shared.groupCode(forTripId: $0) }
+            ?? groupCodeOverride
+        if catchRecord.weightKg != nil || catchRecord.lengthCm != nil || resolvedGroup != nil {
             let name = species?.commonName ?? "Fish"
             let region = CommunityService.shared.myRegion
-            let groupCode = tripId.flatMap { CommunityService.shared.groupCode(forTripId: $0) }
+            let groupCode = resolvedGroup
             let rec = catchRecord
             Task { await CommunityService.shared.publish(
                 catchRecord: rec, speciesName: name, region: region, groupCode: groupCode) }

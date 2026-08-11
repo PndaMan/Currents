@@ -1595,6 +1595,27 @@ final class CommunityService: ObservableObject {
         forgetGroup(code: code)
     }
 
+    /// The crew's live trip as the SERVER sees it. `activeTrip(forCrew:)` only
+    /// knows trips this device joined, so crewmates who hadn't joined yet never
+    /// saw the "live" banner — the whole join-mid-trip flow was invisible.
+    func liveCrewTrip(crewCode: String) async -> GroupTrip? {
+        let q = CKQuery(recordType: groupTripType,
+                        predicate: NSPredicate(format: "crewCode == %@", crewCode))
+        guard let res = try? await db.records(matching: q, resultsLimit: 25) else { return nil }
+        let trips: [GroupTrip] = res.matchResults.compactMap { _, r in
+            guard let rec = try? r.get(), let code = rec["code"] as? String else { return nil }
+            return GroupTrip(id: code,
+                             name: rec["name"] as? String ?? "Group Trip",
+                             hostCode: rec["hostCode"] as? String ?? "",
+                             hostName: rec["hostName"] as? String ?? "",
+                             createdAt: rec["createdAt"] as? Date ?? .distantPast,
+                             isHost: (rec["hostCode"] as? String) == friendCode,
+                             endedAt: rec["endedAt"] as? Date,
+                             crewCode: crewCode)
+        }
+        return trips.filter { !$0.isEnded }.max { $0.createdAt < $1.createdAt }
+    }
+
     /// If this local session was linked to a group trip I host, end the shared
     /// trip too. Hosts used to have to remember a separate "End trip for
     /// everyone" step that nothing prompted — ending the session is the
