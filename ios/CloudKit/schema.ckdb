@@ -80,6 +80,9 @@ DEFINE SCHEMA
         -- CRITICAL: endGroupTrip always wrote this, but production rejects
         -- writes to undeclared fields — so no trip ever actually ended.
         endedAt     TIMESTAMP,
+        -- Set when this session is a team inside a crew tournament.
+        tournamentCode STRING QUERYABLE,
+        teamName    STRING,
         "___createTime" TIMESTAMP,
         "___createdBy"  REFERENCE,
         "___etag"       STRING,
@@ -171,43 +174,53 @@ DEFINE SCHEMA
     );
 
     -- A "Crew": a persistent circle of friends with a shared catch feed.
+    -- WRITE is _icloud (not _creator) so Mates can edit identity and manage
+    -- roles; the app enforces who may, by role.
     RECORD TYPE Crew (
         code          STRING QUERYABLE,
         name          STRING,
-        emoji         STRING,
+        emoji        STRING,
         createdByCode STRING,
         createdByName STRING,
         createdAt     TIMESTAMP,
+        banner        ASSET,
+        iconPhoto     ASSET,
+        mates         STRING,
+        admins        STRING,
         "___createTime" TIMESTAMP,
         "___createdBy"  REFERENCE,
         "___etag"       STRING,
         "___modTime"    TIMESTAMP,
         "___modifiedBy" REFERENCE,
         "___recordID"   REFERENCE QUERYABLE,
-        GRANT WRITE TO "_creator",
+        GRANT WRITE TO "_icloud",
         GRANT CREATE TO "_icloud",
         GRANT READ TO "_world"
     );
 
     -- One row per angler per crew. Queried by crewCode to list a crew's members.
+    -- WRITE is _icloud so admins can remove members (app-enforced by role).
     RECORD TYPE CrewMember (
         crewCode    STRING QUERYABLE,
         -- Queryable so a reinstalled device can rebuild its crew list.
         memberCode  STRING QUERYABLE,
         memberName  STRING,
         joinedAt    TIMESTAMP,
+        role        STRING,
         "___createTime" TIMESTAMP,
         "___createdBy"  REFERENCE,
         "___etag"       STRING,
         "___modTime"    TIMESTAMP,
         "___modifiedBy" REFERENCE,
         "___recordID"   REFERENCE QUERYABLE,
-        GRANT WRITE TO "_creator",
+        GRANT WRITE TO "_icloud",
         GRANT CREATE TO "_icloud",
         GRANT READ TO "_world"
     );
 
-    -- A catch shared into a crew's feed. Queried by crewCode.
+    -- A catch shared into a crew's feed. Queried by crewCode; caughtAt is
+    -- sortable+queryable so the feed paginates instead of loading everything.
+    -- WRITE is _icloud so admins can delete posts (app-enforced by role).
     RECORD TYPE CrewPost (
         crewCode    STRING QUERYABLE,
         authorCode  STRING,
@@ -215,7 +228,7 @@ DEFINE SCHEMA
         species     STRING,
         weightKg    DOUBLE,
         lengthCm    DOUBLE,
-        caughtAt    TIMESTAMP,
+        caughtAt    TIMESTAMP QUERYABLE SORTABLE,
         caption     STRING,
         hasPhoto    INT64,
         photo       ASSET,
@@ -226,7 +239,7 @@ DEFINE SCHEMA
         "___modTime"    TIMESTAMP,
         "___modifiedBy" REFERENCE,
         "___recordID"   REFERENCE QUERYABLE,
-        GRANT WRITE TO "_creator",
+        GRANT WRITE TO "_icloud",
         GRANT CREATE TO "_icloud",
         GRANT READ TO "_world"
     );
@@ -250,6 +263,29 @@ DEFINE SCHEMA
         "___modifiedBy" REFERENCE,
         "___recordID"   REFERENCE QUERYABLE,
         GRANT WRITE TO "_creator",
+        GRANT CREATE TO "_icloud",
+        GRANT READ TO "_world"
+    );
+
+    -- A crew tournament: teams (live sessions with a team name) compete on
+    -- points. Created by crew admins; winner declared by an admin at the end.
+    RECORD TYPE Tournament (
+        code        STRING QUERYABLE,
+        crewCode    STRING QUERYABLE,
+        name        STRING,
+        hostCode    STRING,
+        hostName    STRING,
+        createdAt   TIMESTAMP,
+        endsAt      TIMESTAMP,
+        endedAt     TIMESTAMP,
+        winnerTeam  STRING,
+        "___createTime" TIMESTAMP,
+        "___createdBy"  REFERENCE,
+        "___etag"       STRING,
+        "___modTime"    TIMESTAMP,
+        "___modifiedBy" REFERENCE,
+        "___recordID"   REFERENCE QUERYABLE,
+        GRANT WRITE TO "_icloud",
         GRANT CREATE TO "_icloud",
         GRANT READ TO "_world"
     );

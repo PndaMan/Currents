@@ -25,10 +25,10 @@ final class CommunityService: ObservableObject {
     // entitlement, and touching CloudKit at launch crashes the app before the
     // test harness connects.
     private lazy var container = CKContainer(identifier: "iCloud.com.aidanmcconnon.currents")
-    private var db: CKDatabase { container.publicCloudDatabase }
+    var db: CKDatabase { container.publicCloudDatabase }
 
     private let profileType = "AnglerProfile"
-    private let catchType = "LeaderCatch"
+    let catchType = "LeaderCatch"
     private let sharedSpotType = "SharedSpot"
 
     @Published var joined = UserDefaults.standard.bool(forKey: "communityJoined")
@@ -1002,10 +1002,10 @@ final class CommunityService: ObservableObject {
 
     // MARK: - Crews (persistent shared catch-feeds for a circle of friends)
 
-    private let crewType = "Crew"
-    private let crewMemberType = "CrewMember"
-    private let crewPostType = "CrewPost"
-    private let crewReactionType = "CrewReaction"
+    let crewType = "Crew"
+    let crewMemberType = "CrewMember"
+    let crewPostType = "CrewPost"
+    let crewReactionType = "CrewReaction"
 
     /// Emoji offered as one-tap reactions in a crew feed.
     static let crewReactionEmojis = ["🔥", "🎣", "👏", "😮", "🐟"]
@@ -1017,19 +1017,22 @@ final class CommunityService: ObservableObject {
         var createdByCode: String
         var createdByName: String
         var joinedAt: Date
+        /// Role lists managed by the captain/mates (see CrewRole).
+        var mates: [String] = []
+        var admins: [String] = []
         /// Per-crew, per-device: auto-post my new catches into this crew's feed.
         var autoPost: Bool = true
         var id: String { code }
     }
 
-    struct CrewReaction: Identifiable, Equatable {
+    struct CrewReaction: Identifiable, Equatable, Codable {
         let id: String            // crewreact-<postId>-<reactorCode>
         let reactorCode: String
         let reactorName: String
         let emoji: String
     }
 
-    struct CrewPost: Identifiable, Equatable {
+    struct CrewPost: Identifiable, Equatable, Codable {
         let id: String            // crewpost-<crewCode>-<catchId>
         let crewCode: String
         let authorCode: String
@@ -1152,7 +1155,14 @@ final class CommunityService: ObservableObject {
             createdByCode: r["createdByCode"] as? String ?? "",
             createdByName: r["createdByName"] as? String ?? "Angler",
             joinedAt: existing?.joinedAt ?? Date(),
+            mates: Self.decodeCodes(r["mates"] as? String),
+            admins: Self.decodeCodes(r["admins"] as? String),
             autoPost: existing?.autoPost ?? true)
+    }
+
+    static func decodeCodes(_ json: String?) -> [String] {
+        guard let json, let data = json.data(using: .utf8) else { return [] }
+        return (try? JSONDecoder().decode([String].self, from: data)) ?? []
     }
 
     func leaveCrew(code: String) async {
@@ -1320,7 +1330,7 @@ final class CommunityService: ObservableObject {
 
     // MARK: - Group trips (serverless, invite by link)
 
-    private let groupTripType = "GroupTrip"
+    let groupTripType = "GroupTrip"
     private let groupMemberType = "GroupMember"
 
     // Last-seen group feed/members, so reopening a trip shows content instantly
