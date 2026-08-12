@@ -51,6 +51,10 @@ struct CommunityView: View {
     /// The merged cross-crew feed shown on the Feed tab.
     @State private var mergedFeed: [CommunityService.CrewPost] = []
     @State private var feedLoading = false
+    /// Per-crew "older pages exist" flags + the in-flight guard for the
+    /// feed's infinite scroll.
+    @State private var feedHasMore: [String: Bool] = [:]
+    @State private var feedLoadingMore = false
 
     private var region: String { svc.myRegion }
     private var notificationCount: Int { pendingRequests.count + pendingInvites.count }
@@ -306,6 +310,8 @@ struct CommunityView: View {
                 .frame(maxWidth: .infinity)
                 .listRowBackground(Color.clear)
             } else {
+                // Each post is its own card. Rows are lazy — the List only
+                // builds what's on screen, so a long feed stays smooth.
                 ForEach(mergedFeed) { post in
                     VStack(alignment: .leading, spacing: 8) {
                         crewTag(for: post)
@@ -314,7 +320,36 @@ struct CommunityView: View {
                             await loadMergedFeed()
                         }
                     }
-                    .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
+                    .padding(12)
+                    .background(.ultraThinMaterial,
+                                in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .stroke(.secondary.opacity(0.10), lineWidth: 1))
+                    .listRowInsets(EdgeInsets(top: 6, leading: 14, bottom: 6, trailing: 14))
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color.clear)
+                    .onAppear {
+                        // Infinite scroll: nearing the bottom pulls the next
+                        // 30-post page from every crew that still has more.
+                        if post.id == mergedFeed.suffix(5).first?.id {
+                            Task { await loadMoreFeed() }
+                        }
+                    }
+                }
+                if feedLoadingMore {
+                    HStack {
+                        Spacer()
+                        ProgressView()
+                        Spacer()
+                    }
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+                } else if !feedHasMore.values.contains(true), mergedFeed.count > 20 {
+                    Text("You're all caught up 🎣")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity)
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
                 }
             }
         }
@@ -354,15 +389,40 @@ struct CommunityView: View {
         if ScreenshotSupport.isActive { feedLoading = false; return }
         feedLoading = true
         var all: [CommunityService.CrewPost] = []
-        await withTaskGroup(of: [CommunityService.CrewPost].self) { group in
+        var hasMore: [String: Bool] = [:]
+        await withTaskGroup(of: (String, [CommunityService.CrewPost]).self) { group in
             for crew in crews {
                 let code = crew.code
-                group.addTask { await CommunityService.shared.crewFeedPage(code: code) }
+                group.addTask { (code, await CommunityService.shared.crewFeedPage(code: code)) }
             }
-            for await page in group { all.append(contentsOf: page) }
+            for await (code, page) in group {
+                all.append(contentsOf: page)
+                // A full page means older posts likely exist behind it.
+                hasMore[code] = page.count >= 30
+            }
         }
         mergedFeed = all.sorted { $0.caughtAt > $1.caughtAt }
+        feedHasMore = hasMore
         feedLoading = false
+    }
+
+    /// Pull the next page of older posts from every crew that still has more,
+    /// merge, and keep going until each crew's history runs dry — so a crew
+    /// with 1,000 posts is reachable, but only ever 30-at-a-time per crew.
+    private func loadMoreFeed() async {
+        guard !feedLoadingMore, feedHasMore.values.contains(true) else { return }
+        feedLoadingMore = true
+        var appended: [CommunityService.CrewPost] = []
+        for crew in svc.myCrews where feedHasMore[crew.code] == true {
+            let oldest = mergedFeed.filter { $0.crewCode == crew.code }.map(\.caughtAt).min()
+            let page = await svc.crewFeedPage(code: crew.code, before: oldest)
+            feedHasMore[crew.code] = page.count >= 30
+            appended.append(contentsOf: page)
+        }
+        let ids = Set(mergedFeed.map(\.id))
+        mergedFeed.append(contentsOf: appended.filter { !ids.contains($0.id) })
+        mergedFeed.sort { $0.caughtAt > $1.caughtAt }
+        feedLoadingMore = false
     }
 
     // MARK: Stats from local data
