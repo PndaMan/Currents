@@ -112,6 +112,66 @@ enum ScreenshotSupport {
             }
             try? appState.catchRepository.save(&record)
         }
+
+        seedDemoCommunity()
+    }
+
+    /// Seed a joined Community with one crew and a lively feed — entirely from
+    /// local storage (UserDefaults + the disk feed cache), so the Community
+    /// tab photographs populated without any CloudKit round trip. All names
+    /// are fictional and every fish is the app's own artwork.
+    @MainActor
+    private static func seedDemoCommunity() {
+        let d = UserDefaults.standard
+        let me = "KOGEL1"
+        let crewCode = "DAWN01"
+        d.set(true, forKey: "communityJoined")
+        d.set("Aidan", forKey: "communityName")
+        d.set(me, forKey: "communityFriendCode")
+        d.set(true, forKey: "communityDemoAdded")
+        d.set([CommunityService.demoCode], forKey: "communityFriends")
+
+        let crew = CommunityService.Crew(
+            code: crewCode, name: "Dawn Patrol", emoji: "🌊",
+            createdByCode: me, createdByName: "Aidan", joinedAt: .now)
+        if let data = try? JSONEncoder().encode([crew]) {
+            d.set(data, forKey: "myCrews")
+        }
+
+        func post(_ id: Int, _ author: (code: String, name: String),
+                  _ species: String, kg: Double?, cm: Double?,
+                  hoursAgo: Double, caption: String,
+                  reactions: [(String, String, String)]) -> CommunityService.CrewPost {
+            CommunityService.CrewPost(
+                id: "crewpost-\(crewCode)-demo\(id)",
+                crewCode: crewCode,
+                authorCode: author.code, authorName: author.name,
+                species: species, weightKg: kg, lengthCm: cm,
+                caughtAt: Date().addingTimeInterval(-hoursAgo * 3600),
+                caption: caption, hasPhoto: false, tripName: "",
+                reactions: reactions.map {
+                    CommunityService.CrewReaction(
+                        id: "crewreact-demo\(id)-\($0.0)",
+                        reactorCode: $0.0, reactorName: $0.1, emoji: $0.2)
+                })
+        }
+        let sipho = (code: "REEF07", name: "Sipho")
+        let megan = (code: "TIDE22", name: "Megan")
+        let feed = [
+            post(1, (code: me, name: "Aidan"), "Largemouth Bass", kg: 2.4, cm: 48,
+                 hoursAgo: 1.2, caption: "Topwater at first light 🌅",
+                 reactions: [(sipho.code, sipho.name, "🔥"), (megan.code, megan.name, "🎣")]),
+            post(2, sipho, "Dusky Kob", kg: 8.9, cm: 96,
+                 hoursAgo: 3.5, caption: "The estuary finally paid off",
+                 reactions: [(me, "Aidan", "😮"), (megan.code, megan.name, "🔥")]),
+            post(3, megan, "Yellowtail", kg: 5.2, cm: 73,
+                 hoursAgo: 6, caption: "",
+                 reactions: [(me, "Aidan", "👏")]),
+            post(4, sipho, "Common Carp", kg: 3.1, cm: 58,
+                 hoursAgo: 26, caption: "Sunset session at the dam",
+                 reactions: []),
+        ]
+        CommunityDiskCache.saveFeed(feed, for: crewCode)
     }
 
     /// A few dam/lake waterbodies near the demo map camera (Kogel Bay coast),

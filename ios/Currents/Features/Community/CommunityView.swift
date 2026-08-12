@@ -349,6 +349,9 @@ struct CommunityView: View {
             let cached = crews.flatMap { CommunityDiskCache.loadFeed($0.code) }
             if !cached.isEmpty { mergedFeed = cached.sorted { $0.caughtAt > $1.caughtAt } }
         }
+        // Screenshot mode: the seeded disk feed IS the feed — a network
+        // refresh would come back empty and wipe it mid-capture.
+        if ScreenshotSupport.isActive { feedLoading = false; return }
         feedLoading = true
         var all: [CommunityService.CrewPost] = []
         await withTaskGroup(of: [CommunityService.CrewPost].self) { group in

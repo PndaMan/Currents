@@ -116,7 +116,7 @@ jobs:
 
           # First launch seeds the demo data; later launches reuse it.
           i=1
-          for TAB in today map catches fish; do
+          for TAB in today map catches fish community; do
             xcrun simctl terminate "$UDID" "$BUNDLE_ID" 2>/dev/null || true
             sleep 1
             SIMCTL_CHILD_SCREENSHOT_MODE=1 \
