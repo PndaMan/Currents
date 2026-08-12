@@ -132,6 +132,19 @@ jobs:
 
           ls -la "$OUT"
 
+      - name: Collect diagnostics (crash logs + app oslog)
+        if: always()
+        run: |
+          mkdir -p screenshots/diagnostics
+          # Simulator app crashes land in the host's DiagnosticReports.
+          cp ~/Library/Logs/DiagnosticReports/Currents* screenshots/diagnostics/ 2>/dev/null || true
+          # The app's own log output for the capture window.
+          xcrun simctl spawn "$UDID" log show --last 15m \
+            --predicate 'processImagePath CONTAINS "Currents"' \
+            --style compact > screenshots/diagnostics/oslog.txt 2>/dev/null || true
+          echo "--- diagnostics ---"; ls -la screenshots/diagnostics || true
+          tail -40 screenshots/diagnostics/oslog.txt 2>/dev/null || true
+
       - name: Upload Screenshots (artifact)
         uses: actions/upload-artifact@v4
         with:
