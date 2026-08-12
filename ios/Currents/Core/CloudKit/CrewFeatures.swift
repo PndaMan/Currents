@@ -434,7 +434,7 @@ extension CommunityService {
 
     /// Admins only. Teams are created as members join.
     func createTournament(name: String, crew: Crew, endsAt: Date?) async -> Tournament? {
-        guard joined, myRole(in: crew).canRunTournaments else { return nil }
+        guard cloudAllowed, myRole(in: crew).canRunTournaments else { return nil }
         let chars = Array("ABCDEFGHJKLMNPQRSTUVWXYZ23456789")
         let code = String((0..<6).map { _ in chars[Int.random(in: 0..<chars.count)] })
         let record = CKRecord(recordType: Self.tournamentType,

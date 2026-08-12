@@ -20,7 +20,11 @@ struct CurrentsApp: App {
             // Only when the user has actually joined — reading the flag from
             // UserDefaults avoids touching CloudKit (and the singleton) at
             // launch, which crashes the unsigned simulator test build.
-            if phase == .active, UserDefaults.standard.bool(forKey: "communityJoined") {
+            // Never in screenshot mode: the demo seed marks the account as
+            // joined, but the unsigned simulator build has no iCloud
+            // entitlement — any CloudKit op is an uncatchable crash.
+            if phase == .active, UserDefaults.standard.bool(forKey: "communityJoined"),
+               !ScreenshotSupport.isActive {
                 Task {
                     // Ensure APNs registration + CloudKit push subscriptions are
                     // in place, then reconcile the in-app lists.

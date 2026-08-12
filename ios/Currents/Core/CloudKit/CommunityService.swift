@@ -33,6 +33,13 @@ final class CommunityService: ObservableObject {
 
     @Published var joined = UserDefaults.standard.bool(forKey: "communityJoined")
 
+    /// True when CloudKit may actually be called. Screenshot mode seeds a
+    /// "joined" account so the UI photographs populated, but the unsigned
+    /// simulator build has no iCloud entitlement — any real CloudKit
+    /// operation is an uncatchable CKException, so every network entry point
+    /// guards on this instead of `joined` alone.
+    var cloudAllowed: Bool { joined && !ScreenshotSupport.isActive }
+
     /// Bumped whenever the local profile (name/bio/avatar) or friend list
     /// changes, so SwiftUI views observing this service refresh immediately —
     /// the underlying values live in UserDefaults/files and aren't observable
@@ -128,7 +135,7 @@ final class CommunityService: ObservableObject {
     /// records (so they can/can't see my catch history). Call after the toggle
     /// flips or a new friend is added.
     func syncCatchGrants() async {
-        guard joined else { return }
+        guard cloudAllowed else { return }
         // State-diffed and batched: remember what was last written per friend
         // and only touch CloudKit when the desired state changed. The old pass
         // did fetch + save round trips per friend on every Community visit.
@@ -513,7 +520,7 @@ final class CommunityService: ObservableObject {
     /// catch's trip is linked to one); every catch auto-posts to crews. The
     /// leaderboard write is idempotent, so edits simply overwrite.
     func publishLoggedCatch(_ c: Catch, speciesName: String?) async {
-        guard joined else { return }
+        guard cloudAllowed else { return }
         let name = speciesName ?? "Fish"
         if c.weightKg != nil || c.lengthCm != nil {
             let group = c.tripId.flatMap { groupCode(forTripId: $0) }
@@ -725,7 +732,7 @@ final class CommunityService: ObservableObject {
     /// not just catches logged after joining. Idempotent (deterministic record
     /// ids, force-overwrite) and throttled so it isn't re-run constantly.
     func syncAllCatches(_ details: [(id: String, species: String, weightKg: Double?, lengthCm: Double?, caughtAt: Date, latitude: Double, longitude: Double, photoPath: String?)]) async {
-        guard joined else { return }
+        guard cloudAllowed else { return }
         await claimFriendCode()   // no-op once claimed; retries if a prior claim failed offline
         // Re-run when the location-sharing preference flips, not just on a timer,
         // so turning it on/off updates existing catches promptly.
@@ -857,7 +864,7 @@ final class CommunityService: ObservableObject {
     /// Re-apply this friend's effective sharing after their overrides change, so
     /// grants + shared spots reflect the new choice immediately.
     func applyPrivacy(for code: String, spots: [Spot]) async {
-        guard joined else { return }
+        guard cloudAllowed else { return }
         await updateCatchGrant(for: code, share: privacy(for: code).shareCatches)
         await republishSharedSpots(spots: spots)
     }
@@ -976,7 +983,7 @@ final class CommunityService: ObservableObject {
     func republishSharedSpots(spots: [Spot] = []) async {
         // No isEmpty guard: with zero spots the retraction pass below must
         // still run, or deleting your last spot would leave it shared forever.
-        guard joined else { return }
+        guard cloudAllowed else { return }
         // State-diffed and batched: each (spot, friend) record carries a local
         // content signature; only records whose content actually changed are
         // written, in ONE modify op. The old pass did a fetch + save round trip
@@ -1283,7 +1290,7 @@ final class CommunityService: ObservableObject {
 
     @discardableResult
     func createCrew(name: String, emoji: String) async -> Crew? {
-        guard joined else { return nil }
+        guard cloudAllowed else { return nil }
         let chars = Array("ABCDEFGHJKLMNPQRSTUVWXYZ23456789")
         let code = String((0..<6).map { _ in chars[Int.random(in: 0..<chars.count)] })
         let id = CKRecord.ID(recordName: "crew-\(code)")
@@ -1304,7 +1311,7 @@ final class CommunityService: ObservableObject {
 
     @discardableResult
     func joinCrew(code raw: String) async -> Crew? {
-        guard joined else { return nil }
+        guard cloudAllowed else { return nil }
         let code = raw.uppercased().trimmingCharacters(in: .whitespaces)
         guard code.count == 6, let crew = await fetchCrew(code: code) else { return nil }
         await addCrewMembership(code: code)
@@ -1434,7 +1441,7 @@ final class CommunityService: ObservableObject {
 
     /// Create/update a crew post for a catch (used by auto-post and manual share).
     func postCatch(_ c: Catch, speciesName: String, toCrew code: String, caption: String, tripName: String = "") async {
-        guard joined else { return }
+        guard cloudAllowed else { return }
         let id = CKRecord.ID(recordName: "crewpost-\(code)-\(c.id)")
         let record = (try? await db.record(for: id)) ?? CKRecord(recordType: crewPostType, recordID: id)
         record["crewCode"] = code as CKRecordValue
@@ -1660,7 +1667,7 @@ final class CommunityService: ObservableObject {
     /// tie the trip to a Crew (its live banner + trip-tagged feed posts).
     @discardableResult
     func createGroupTrip(name: String, tripId: String, crewCode: String? = nil) async -> String? {
-        guard joined else { return nil }
+        guard cloudAllowed else { return nil }
         let chars = Array("ABCDEFGHJKLMNPQRSTUVWXYZ23456789")
         let code = String((0..<6).map { _ in chars[Int.random(in: 0..<chars.count)] })
         let id = CKRecord.ID(recordName: "grouptrip-\(code)")
@@ -1683,7 +1690,7 @@ final class CommunityService: ObservableObject {
     /// trip if it exists. Optionally links it to a local trip id.
     @discardableResult
     func joinGroupTrip(code raw: String, tripId: String? = nil) async -> GroupTrip? {
-        guard joined else { return nil }
+        guard cloudAllowed else { return nil }
         let code = raw.uppercased().trimmingCharacters(in: .whitespaces)
         guard code.count == 6, let trip = await groupTrip(code: code) else { return nil }
         await addMembership(code: code)
@@ -1843,7 +1850,7 @@ final class CommunityService: ObservableObject {
     /// everyone" step that nothing prompted — ending the session is the
     /// natural end of the trip.
     func endLinkedGroupTrip(forLocalTripId id: String) async {
-        guard joined,
+        guard cloudAllowed,
               let code = groupCode(forTripId: id),
               let ref = myGroups.first(where: { $0.code == code }),
               ref.isHost, ref.endedAt == nil else { return }
@@ -1855,7 +1862,7 @@ final class CommunityService: ObservableObject {
     /// the server still counted (and pushed to) this angler. Once per launch.
     private var reconciledThisLaunch = false
     func reconcileMemberships() async {
-        guard joined, !reconciledThisLaunch else { return }
+        guard cloudAllowed, !reconciledThisLaunch else { return }
         reconciledThisLaunch = true
         let cq = CKQuery(recordType: crewMemberType,
                          predicate: NSPredicate(format: "memberCode == %@", friendCode))
@@ -1886,7 +1893,7 @@ final class CommunityService: ObservableObject {
     /// member's catch always reaches the group.
     func publishGroupCatch(species: String, weightKg: Double?, lengthCm: Double?,
                            catchId: String, groupCode: String) async {
-        guard joined else { return }
+        guard cloudAllowed else { return }
         let id = CKRecord.ID(recordName: "catch-\(friendCode)-\(catchId)")
         // Update the existing catch record (adding the group tag) if it's already
         // been published to the leaderboard, so its photo/fields are preserved;
@@ -1980,7 +1987,7 @@ final class CommunityService: ObservableObject {
     /// push (CloudKit subscription) — no local "on open" notification.
     @discardableResult
     func refreshTripInvites() async -> [TripInvite] {
-        guard joined else { return [] }
+        guard cloudAllowed else { return [] }
         return await pendingInvites()
     }
 
@@ -2078,7 +2085,7 @@ final class CommunityService: ObservableObject {
     /// were accepted. Alerts arrive as instant push (CloudKit subscription).
     @discardableResult
     func refreshFriendRequests() async -> [FriendRequest] {
-        guard joined else { return [] }
+        guard cloudAllowed else { return [] }
         await reconcileSentRequests()
         return await pendingFriendRequests()
     }
@@ -2090,7 +2097,7 @@ final class CommunityService: ObservableObject {
     /// even when the app is closed (not "when you next open the app").
     func enablePush() async {
         // Never in screenshot mode: the permission dialog covers captures.
-        guard joined, !ScreenshotSupport.isActive else { return }
+        guard cloudAllowed, !ScreenshotSupport.isActive else { return }
         let granted = (try? await UNUserNotificationCenter.current()
             .requestAuthorization(options: [.alert, .sound, .badge])) ?? false
         UserDefaults.standard.set(granted, forKey: "notifAuthorized")
@@ -2204,7 +2211,7 @@ final class CommunityService: ObservableObject {
 
     /// The dynamic subscriptions this device should hold right now.
     private func desiredEventSubscriptions() -> [CKQuerySubscription] {
-        guard joined else { return [] }
+        guard cloudAllowed else { return [] }
 
         func info(title: String, key: String, args: [String],
                   desiredKeys: [CKRecord.FieldKey]) -> CKSubscription.NotificationInfo {
@@ -2292,7 +2299,7 @@ final class CommunityService: ObservableObject {
     /// no-op when membership hasn't changed since the last successful sync.
     /// `force` rebuilds everything — also refreshes baked-in crew names.
     func syncEventSubscriptions(force: Bool = false) async {
-        guard joined else { return }
+        guard cloudAllowed else { return }
         let desired = desiredEventSubscriptions()
         let fingerprint = desired.map(\.subscriptionID).sorted().joined(separator: ",")
         if !force, UserDefaults.standard.string(forKey: "eventSubsFingerprint") == fingerprint {
