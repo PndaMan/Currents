@@ -232,35 +232,36 @@ struct FilterChip: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 5) {
-                if let systemImage {
-                    Image(systemName: systemImage)
-                        .font(.system(size: 11, weight: .semibold))
+            // No capsules at all any more: filter rows are plain labels with
+            // an accent underline on the selection — quiet, uniform, and the
+            // active choice reads instantly across every screen.
+            VStack(spacing: 6) {
+                HStack(spacing: 5) {
+                    if let systemImage {
+                        Image(systemName: systemImage)
+                            .font(.system(size: 11, weight: .semibold))
+                    }
+                    Text(title)
+                        .font(.subheadline.weight(isSelected ? .bold : .medium))
+                        .lineLimit(1)
                 }
-                Text(title)
-                    .font(.subheadline.weight(isSelected ? .semibold : .regular))
-                    .lineLimit(1)
+                .foregroundStyle(isSelected ? accent : Color.secondary)
+                Capsule()
+                    .fill(isSelected ? accent : Color.clear)
+                    .frame(height: 3)
+                    .padding(.horizontal, 2)
             }
-            // Only the selected chip gets a fill. Giving every chip a
-            // background turned a filter row into a wall of identical grey
-            // blobs — with eight or twelve of them the row read as noise and
-            // the actual selection was hard to pick out. Unselected chips are
-            // now plain text, so the row is quiet and the choice is obvious.
-            .padding(.horizontal, isSelected ? 14 : 10)
-            .padding(.vertical, 6)
-            .background {
-                if isSelected { Capsule().fill(accent) }
-            }
-            .foregroundStyle(isSelected ? .white : .secondary)
-            .contentShape(Capsule())
-            .animation(.snappy(duration: 0.2), value: isSelected)
+            .padding(.horizontal, 6)
+            .padding(.top, 4)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .animation(.snappy(duration: 0.2), value: isSelected)
     }
 }
 
-/// A horizontal, scrollable row of filter chips backed by any `CaseIterable`
-/// enum-like collection. Keeps the bubble UI identical across every tab.
+/// A horizontal, scrollable row of underline tabs backed by any `CaseIterable`
+/// enum-like collection. Keeps the tab UI identical across every screen.
 struct FilterChipRow<Item: Hashable>: View {
     let items: [Item]
     let title: (Item) -> String
@@ -268,9 +269,7 @@ struct FilterChipRow<Item: Hashable>: View {
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            // Tighter than before: unselected chips carry no fill now, so wide
-            // gaps left the row looking sparse and disconnected.
-            HStack(spacing: 4) {
+            HStack(spacing: 8) {
                 ForEach(items, id: \.self) { item in
                     FilterChip(title: title(item), isSelected: selection == item) {
                         withAnimation(.easeInOut(duration: 0.15)) { selection = item }
@@ -280,7 +279,7 @@ struct FilterChipRow<Item: Hashable>: View {
             .padding(.horizontal, 2)
             .padding(.vertical, 2)
         }
-        // Chips are a fixed strip — no vertical rubber-banding.
+        // Tabs are a fixed strip — no vertical rubber-banding.
         .scrollBounceBehavior(.basedOnSize, axes: [.vertical, .horizontal])
     }
 }

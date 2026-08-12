@@ -3,45 +3,56 @@ import PhotosUI
 
 // MARK: - Segmented pills
 
-/// A segmented control that doesn't look like the system one: full-height
-/// pills with icons, an accent fill that slides between them, and enough
-/// tap target to use with cold hands. Used wherever a screen has two or
-/// three peer views.
+/// Segment switcher for a screen's two-or-three peer views: plain labels
+/// with icons over a hairline, and an accent underline that slides to the
+/// selection — the same underline language as every filter row, no pills.
 struct SegmentedPills<T: Hashable & Identifiable>: View {
     let options: [T]
     @Binding var selection: T
     let title: (T) -> String
     let icon: (T) -> String
 
+    @Namespace private var ns
+    // Observed so the underline re-tints the moment the theme changes.
+    @AppStorage("selectedTheme") private var selectedTheme = ThemeOption.ocean.rawValue
+    private var accent: Color { (ThemeOption(rawValue: selectedTheme) ?? .ocean).primary }
+
     var body: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 0) {
             ForEach(options) { option in
                 let isSelected = option == selection
                 Button {
                     withAnimation(.snappy(duration: 0.22)) { selection = option }
                 } label: {
-                    HStack(spacing: 5) {
-                        Image(systemName: icon(option))
-                            .font(.caption2.weight(.semibold))
-                        Text(title(option))
-                            .font(.subheadline.weight(isSelected ? .semibold : .regular))
-                            .lineLimit(1)
+                    VStack(spacing: 7) {
+                        HStack(spacing: 5) {
+                            Image(systemName: icon(option))
+                                .font(.caption.weight(.semibold))
+                            Text(title(option))
+                                .font(.subheadline.weight(isSelected ? .bold : .medium))
+                                .lineLimit(1)
+                        }
+                        .foregroundStyle(isSelected ? accent : Color.secondary)
+                        ZStack {
+                            Capsule().fill(Color.clear).frame(height: 3)
+                            if isSelected {
+                                Capsule().fill(accent).frame(height: 3)
+                                    .matchedGeometryEffect(id: "segment-underline", in: ns)
+                            }
+                        }
+                        .padding(.horizontal, 22)
                     }
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 9)
-                    .foregroundStyle(isSelected ? .white : Color.secondary)
-                    .background {
-                        if isSelected {
-                            Capsule().fill(CurrentsTheme.accent)
-                        }
-                    }
-                    .contentShape(Capsule())
+                    .padding(.top, 6)
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
             }
         }
-        .padding(3)
-        .background(.gray.opacity(0.14), in: Capsule())
+        // A hairline base the underline sits on, so the row reads as tabs.
+        .background(alignment: .bottom) {
+            Rectangle().fill(Color.secondary.opacity(0.18)).frame(height: 1)
+        }
     }
 }
 

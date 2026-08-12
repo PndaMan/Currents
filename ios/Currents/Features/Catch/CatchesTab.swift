@@ -8,6 +8,13 @@ struct CatchesTab: View {
     @AppStorage("catchesSortOrder") private var sortOrder: SortOrder = .recent
     @State private var filter: CatchFilter = .all
     @FocusState private var searchFocused: Bool
+    /// List (rows) or gallery (photo-first 2-up grid); the choice sticks.
+    @AppStorage("catchesLayout") private var layoutRaw = LayoutMode.list.rawValue
+    private var layout: LayoutMode { LayoutMode(rawValue: layoutRaw) ?? .list }
+
+    enum LayoutMode: String {
+        case list, gallery
+    }
 
     enum CatchFilter: String, CaseIterable {
         case all = "All"
@@ -105,33 +112,65 @@ struct CatchesTab: View {
                         .listRowInsets(EdgeInsets())
                         .listRowSeparator(.hidden)
 
-                        ForEach(filteredCatches, id: \.catchRecord.id) { detail in
-                            ZStack {
-                                // Invisible NavigationLink so the row keeps
-                                // swipe-to-delete but the card draws its own
-                                // chevron-free glass styling.
-                                NavigationLink(value: detail.catchRecord.id) {
-                                    EmptyView()
+                        if layout == .gallery {
+                            // Photo-first 2-up gallery: the image IS the cell,
+                            // info on a scrim. Long-press for favourite/delete
+                            // (grids have no swipe actions).
+                            LazyVGrid(columns: [GridItem(.flexible(), spacing: 10),
+                                                GridItem(.flexible(), spacing: 10)],
+                                      spacing: 10) {
+                                ForEach(filteredCatches, id: \.catchRecord.id) { detail in
+                                    NavigationLink(value: detail.catchRecord.id) {
+                                        CatchGalleryCell(detail: detail)
+                                    }
+                                    .buttonStyle(.plain)
+                                    .contextMenu {
+                                        Button {
+                                            toggleFavourite(detail)
+                                        } label: {
+                                            Label(detail.catchRecord.isFavorite ? "Unfavourite" : "Favourite",
+                                                  systemImage: detail.catchRecord.isFavorite ? "star.slash.fill" : "star.fill")
+                                        }
+                                        Button(role: .destructive) {
+                                            delete(detail)
+                                        } label: {
+                                            Label("Delete", systemImage: "trash")
+                                        }
+                                    }
                                 }
-                                .opacity(0)
-                                CatchRow(detail: detail, style: .card)
                             }
                             .listRowBackground(Color.clear)
                             .listRowSeparator(.hidden)
                             .listRowInsets(EdgeInsets(top: 5, leading: 16, bottom: 5, trailing: 16))
-                            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                                Button(role: .destructive) {
-                                    delete(detail)
-                                } label: {
-                                    Label("Delete", systemImage: "trash")
+                        } else {
+                            ForEach(filteredCatches, id: \.catchRecord.id) { detail in
+                                ZStack {
+                                    // Invisible NavigationLink so the row keeps
+                                    // swipe-to-delete but the card draws its own
+                                    // chevron-free glass styling.
+                                    NavigationLink(value: detail.catchRecord.id) {
+                                        EmptyView()
+                                    }
+                                    .opacity(0)
+                                    CatchRow(detail: detail, style: .card)
                                 }
-                                Button {
-                                    toggleFavourite(detail)
-                                } label: {
-                                    Label(detail.catchRecord.isFavorite ? "Unfavourite" : "Favourite",
-                                          systemImage: detail.catchRecord.isFavorite ? "star.slash.fill" : "star.fill")
+                                .listRowBackground(Color.clear)
+                                .listRowSeparator(.hidden)
+                                .listRowInsets(EdgeInsets(top: 5, leading: 16, bottom: 5, trailing: 16))
+                                .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                    Button(role: .destructive) {
+                                        delete(detail)
+                                    } label: {
+                                        Label("Delete", systemImage: "trash")
+                                    }
+                                    Button {
+                                        toggleFavourite(detail)
+                                    } label: {
+                                        Label(detail.catchRecord.isFavorite ? "Unfavourite" : "Favourite",
+                                              systemImage: detail.catchRecord.isFavorite ? "star.slash.fill" : "star.fill")
+                                    }
+                                    .tint(.yellow)
                                 }
-                                .tint(.yellow)
                             }
                         }
 
@@ -190,6 +229,18 @@ struct CatchesTab: View {
                     } label: {
                         Image(systemName: "ellipsis.circle")
                     }
+                }
+                // Gallery ↔ list, one tap, sticky.
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        Haptics.tap()
+                        withAnimation(.snappy(duration: 0.25)) {
+                            layoutRaw = (layout == .list ? LayoutMode.gallery : .list).rawValue
+                        }
+                    } label: {
+                        Image(systemName: layout == .list ? "square.grid.2x2" : "list.bullet")
+                    }
+                    .accessibilityLabel(layout == .list ? "Gallery view" : "List view")
                 }
                 // Sort was the only thing behind the overflow "..." — a menu
                 // wrapping a menu. It's a direct control with a sort glyph now.
@@ -320,6 +371,102 @@ struct StatCard: View {
         // Flexible width so any number of cards tile evenly on one row.
         .frame(maxWidth: .infinity)
         .glassCard()
+    }
+}
+
+// MARK: - Gallery cell
+
+/// A photo-first catch card for the 2-up gallery: the image (or the species'
+/// artwork when there's no photo) IS the cell, species and size on a bottom
+/// scrim, status icons floating top-right.
+struct CatchGalleryCell: View {
+    let detail: CatchDetail
+    @Environment(\.displayScale) private var displayScale
+    @State private var photo: UIImage?
+    @AppStorage("selectedTheme") private var selectedTheme = ""
+
+    private static let height: CGFloat = 208
+
+    var body: some View {
+        ZStack(alignment: .bottomLeading) {
+            background
+                .frame(height: Self.height)
+                .frame(maxWidth: .infinity)
+                .clipped()
+
+            LinearGradient(colors: [.clear, .black.opacity(photo == nil ? 0.55 : 0.78)],
+                           startPoint: .top, endPoint: .bottom)
+                .frame(height: 96)
+                .frame(maxWidth: .infinity, alignment: .bottom)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(detail.species?.commonName ?? "Unknown Species")
+                    .font(.subheadline.bold())
+                    .foregroundStyle(.white)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+                HStack(spacing: 6) {
+                    if let w = detail.catchRecord.weightKg {
+                        Text(Units.weight(kg: w))
+                    }
+                    if let l = detail.catchRecord.lengthCm {
+                        Text(Units.length(cm: l))
+                    }
+                    Text(detail.catchRecord.caughtAt.formatted(.dateTime.day().month()))
+                }
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.white.opacity(0.85))
+            }
+            .padding(10)
+        }
+        .frame(height: Self.height)
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(alignment: .topTrailing) {
+            HStack(spacing: 4) {
+                if detail.catchRecord.isFavorite {
+                    statusIcon("star.fill", tint: .yellow)
+                }
+                if detail.catchRecord.released {
+                    statusIcon("arrow.uturn.backward", tint: CurrentsTheme.accent)
+                }
+            }
+            .padding(6)
+        }
+        .task(id: detail.catchRecord.id) {
+            guard photo == nil, let path = detail.catchRecord.allPhotoPaths.first else { return }
+            let px = Self.height * displayScale
+            let scale = displayScale
+            photo = await Task.detached { PhotoManager.thumbnail(path, maxPixel: px, scale: scale) }.value
+        }
+    }
+
+    @ViewBuilder private var background: some View {
+        if let photo {
+            Image(uiImage: photo).resizable().scaledToFill()
+        } else if let species = detail.species {
+            ZStack {
+                LinearGradient(colors: [CurrentsTheme.accent.opacity(0.30),
+                                        CurrentsTheme.accent.opacity(0.10)],
+                               startPoint: .topLeading, endPoint: .bottomTrailing)
+                SpeciesArtworkView(species: species, caught: true, size: 96)
+                    .padding(.bottom, 26)
+            }
+        } else {
+            ZStack {
+                CurrentsTheme.accent.opacity(0.15)
+                Image(systemName: "fish.fill")
+                    .font(.largeTitle)
+                    .foregroundStyle(CurrentsTheme.accent)
+            }
+        }
+    }
+
+    private func statusIcon(_ name: String, tint: Color) -> some View {
+        Image(systemName: name)
+            .font(.system(size: 10, weight: .bold))
+            .foregroundStyle(tint)
+            .frame(width: 22, height: 22)
+            .background(.ultraThinMaterial, in: Circle())
     }
 }
 
