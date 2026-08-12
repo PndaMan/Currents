@@ -10,6 +10,8 @@ struct CatchesTab: View {
     @FocusState private var searchFocused: Bool
     /// List (rows) or gallery (photo-first 2-up grid); the choice sticks.
     @AppStorage("catchesLayout") private var layoutRaw = LayoutMode.list.rawValue
+    /// Programmatic push target for gallery cells (see the Button note there).
+    @State private var openCatchId: String?
     private var layout: LayoutMode { LayoutMode(rawValue: layoutRaw) ?? .list }
 
     enum LayoutMode: String {
@@ -120,7 +122,14 @@ struct CatchesTab: View {
                                                 GridItem(.flexible(), spacing: 10)],
                                       spacing: 10) {
                                 ForEach(filteredCatches, id: \.catchRecord.id) { detail in
-                                    NavigationLink(value: detail.catchRecord.id) {
+                                    // Buttons + programmatic push, NOT
+                                    // NavigationLinks: a List fires every
+                                    // link in a row at once (one tap pushed
+                                    // a whole stack of catches) and pins a
+                                    // chevron on each.
+                                    Button {
+                                        openCatchId = detail.catchRecord.id
+                                    } label: {
                                         CatchGalleryCell(detail: detail)
                                     }
                                     .buttonStyle(.plain)
@@ -291,6 +300,11 @@ struct CatchesTab: View {
                     CatchDetailView(detail: detail)
                 }
             }
+            .navigationDestination(item: $openCatchId) { catchId in
+                if let detail = filteredCatches.first(where: { $0.catchRecord.id == catchId }) {
+                    CatchDetailView(detail: detail)
+                }
+            }
             .task {
                 await loadCatches()
             }
@@ -441,24 +455,32 @@ struct CatchGalleryCell: View {
     }
 
     @ViewBuilder private var background: some View {
-        if let photo {
-            Image(uiImage: photo).resizable().scaledToFill()
-        } else if let species = detail.species {
-            ZStack {
-                LinearGradient(colors: [CurrentsTheme.accent.opacity(0.30),
-                                        CurrentsTheme.accent.opacity(0.10)],
-                               startPoint: .topLeading, endPoint: .bottomTrailing)
-                SpeciesArtworkView(species: species, caught: true, size: 96)
-                    .padding(.bottom, 26)
+        // Color.clear owns the cell's size; the photo is an overlay cropped
+        // to it. Letting scaledToFill size the cell directly stretched the
+        // layout to whatever aspect the photo happened to have.
+        Color.clear
+            .overlay {
+                if let photo {
+                    Image(uiImage: photo)
+                        .resizable()
+                        .scaledToFill()
+                } else if let species = detail.species {
+                    ZStack {
+                        LinearGradient(colors: [CurrentsTheme.accent.opacity(0.30),
+                                                CurrentsTheme.accent.opacity(0.10)],
+                                       startPoint: .topLeading, endPoint: .bottomTrailing)
+                        SpeciesArtworkView(species: species, caught: true, size: 96)
+                            .padding(.bottom, 26)
+                    }
+                } else {
+                    ZStack {
+                        CurrentsTheme.accent.opacity(0.15)
+                        Image(systemName: "fish.fill")
+                            .font(.largeTitle)
+                            .foregroundStyle(CurrentsTheme.accent)
+                    }
+                }
             }
-        } else {
-            ZStack {
-                CurrentsTheme.accent.opacity(0.15)
-                Image(systemName: "fish.fill")
-                    .font(.largeTitle)
-                    .foregroundStyle(CurrentsTheme.accent)
-            }
-        }
     }
 
     private func statusIcon(_ name: String, tint: Color) -> some View {
