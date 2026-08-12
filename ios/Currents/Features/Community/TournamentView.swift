@@ -331,11 +331,12 @@ struct TournamentView: View {
     private func teamCard(rank: Int, _ s: CommunityService.TeamStanding) -> some View {
         let isMyTeam = s.memberCodes.contains(svc.friendCode)
         return VStack(alignment: .leading, spacing: 8) {
-            // The card body opens the team's live session (GPS, feed, log-to-
-            // trip); the admin assign control sits below it, outside the link.
+            // The card opens the team's tournament summary (points breakdown,
+            // angler contributions, catches); the live session is one row in
+            // there. The admin assign control sits below, outside the link.
             NavigationLink {
-                GroupTripView(tripId: svc.tripId(forGroupCode: s.id),
-                              tripName: s.teamName, initialCode: s.id)
+                TeamTournamentDetailView(tournament: tournament, crew: crew,
+                                         standing: s, rank: rank, profiles: profiles)
             } label: {
                 VStack(alignment: .leading, spacing: 8) {
                     HStack(spacing: 8) {
@@ -712,5 +713,247 @@ struct TournamentHistoryView: View {
             }
         }
         .padding(.vertical, 2)
+    }
+}
+
+// MARK: - Team summary
+
+/// One team's tournament story: points with their breakdown, each angler's
+/// contribution, and every catch — tapping a team lands here, not on the raw
+/// join-a-trip screen. The live session itself is one row at the bottom.
+struct TeamTournamentDetailView: View {
+    let tournament: CommunityService.Tournament
+    let crew: CommunityService.Crew
+    @State var standing: CommunityService.TeamStanding
+    let rank: Int
+    let profiles: [String: CommunityService.Profile]
+
+    @Environment(AppState.self) private var appState
+    @StateObject private var svc = CommunityService.shared
+
+    private var isMember: Bool { standing.memberCodes.contains(svc.friendCode) }
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: CurrentsTheme.paddingM) {
+                hero
+                pointsCard
+                membersCard
+                catchesCard
+                sessionRow
+            }
+            .padding()
+        }
+        .navigationTitle(standing.teamName)
+        .navigationBarTitleDisplayMode(.inline)
+        .task {
+            await refresh()
+            while !Task.isCancelled, !tournament.isEnded, !standing.isEnded {
+                try? await Task.sleep(nanoseconds: 20_000_000_000)
+                guard !Task.isCancelled else { return }
+                await refresh()
+            }
+        }
+    }
+
+    private func refresh() async {
+        if let fresh = await svc.teamStandings(tournament: tournament)
+            .first(where: { $0.id == standing.id }) {
+            standing = fresh
+        }
+    }
+
+    // MARK: Hero
+
+    private var hero: some View {
+        VStack(spacing: 10) {
+            HStack(spacing: 8) {
+                Text(rank == 1 ? "🥇" : rank == 2 ? "🥈" : rank == 3 ? "🥉" : "#\(rank)")
+                    .font(.title3)
+                Text(standing.teamName)
+                    .font(.title2.bold())
+                    .foregroundStyle(teamColor(standing.id))
+                Spacer()
+                if standing.isEnded || tournament.isEnded {
+                    Text("Ended")
+                        .font(.caption.bold())
+                        .padding(.horizontal, 10).padding(.vertical, 4)
+                        .background(Color.secondary.opacity(0.2), in: Capsule())
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text("LIVE")
+                        .font(.caption.weight(.heavy))
+                        .padding(.horizontal, 10).padding(.vertical, 4)
+                        .background(Color.red.opacity(0.12), in: Capsule())
+                        .foregroundStyle(.red)
+                }
+            }
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                Text("\(standing.points)")
+                    .font(.system(size: 44, weight: .bold, design: .rounded).monospacedDigit())
+                    .foregroundStyle(CurrentsTheme.accent)
+                Text("pts").font(.headline).foregroundStyle(.secondary)
+            }
+            HStack(spacing: 8) {
+                heroChip("\(standing.fishCount) fish", icon: "fish.fill")
+                heroChip(Units.weight(kg: standing.totalWeightKg), icon: "scalemass")
+                heroChip("\(standing.speciesCount) species", icon: "leaf.fill")
+            }
+            if !standing.hostName.isEmpty {
+                HStack(spacing: 5) {
+                    AnglerAvatar(image: profiles[standing.hostCode]?.avatar, size: 16)
+                    Text("Started by \(standing.hostCode == svc.friendCode ? "you" : standing.hostName)")
+                        .font(.caption2).foregroundStyle(.secondary)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .glassCard()
+    }
+
+    private func heroChip(_ text: String, icon: String) -> some View {
+        Label(text, systemImage: icon)
+            .font(.caption.bold())
+            .padding(.horizontal, 10).padding(.vertical, 5)
+            .background(CurrentsTheme.accent.opacity(0.10), in: Capsule())
+            .foregroundStyle(.secondary)
+    }
+
+    // MARK: Points breakdown
+
+    private var pointsCard: some View {
+        let fishPts = standing.fishCount * TournamentPoints.perFish
+        let speciesPts = standing.speciesCount * TournamentPoints.newSpeciesBonus
+        let weightPts = standing.points - fishPts - speciesPts
+        return VStack(alignment: .leading, spacing: 8) {
+            Label("Where the points came from", systemImage: "sum").font(.headline)
+            breakdownRow("\(standing.fishCount) fish × \(TournamentPoints.perFish)", fishPts)
+            breakdownRow("Weight (+\(TournamentPoints.perKg)/kg)", weightPts)
+            breakdownRow("\(standing.speciesCount) new species × \(TournamentPoints.newSpeciesBonus)", speciesPts)
+            Divider()
+            breakdownRow("Total", standing.points, bold: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassCard()
+    }
+
+    private func breakdownRow(_ label: String, _ pts: Int, bold: Bool = false) -> some View {
+        HStack {
+            Text(label).font(bold ? .subheadline.bold() : .subheadline)
+                .foregroundStyle(bold ? .primary : .secondary)
+            Spacer()
+            Text("\(pts)")
+                .font(.subheadline.bold().monospacedDigit())
+                .foregroundStyle(bold ? CurrentsTheme.accent : .primary)
+        }
+    }
+
+    // MARK: Members
+
+    private var membersCard: some View {
+        // Each angler's contribution, biggest haul first. Members who haven't
+        // landed anything yet still show, so the roster is complete.
+        let byAngler = Dictionary(grouping: standing.catches, by: \.friendCode)
+        let rows: [(code: String, name: String, fish: Int, kg: Double)] =
+            standing.memberCodes.map { code in
+                let cs = byAngler[code] ?? []
+                let name = profiles[code]?.name ?? cs.first?.anglerName ?? code
+                return (code, name, cs.count, cs.compactMap(\.weightKg).reduce(0, +))
+            }
+            .sorted { $0.fish > $1.fish }
+        return VStack(alignment: .leading, spacing: 10) {
+            Label("Anglers", systemImage: "person.2.fill").font(.headline)
+            ForEach(rows, id: \.code) { row in
+                HStack(spacing: 10) {
+                    AnglerAvatar(image: profiles[row.code]?.avatar, size: 32)
+                    Text(row.code == svc.friendCode ? "You" : row.name)
+                        .font(.subheadline.bold())
+                    Spacer()
+                    Text(row.fish == 0 ? "No catches yet"
+                         : "\(row.fish) fish · \(Units.weight(kg: row.kg))")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassCard()
+    }
+
+    // MARK: Catches
+
+    private var catchesCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Label("Catches", systemImage: "fish.fill").font(.headline)
+                Spacer()
+                if !standing.catches.isEmpty {
+                    Text("\(standing.catches.count)")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            if standing.catches.isEmpty {
+                Text("Nothing landed yet — first fish scores \(TournamentPoints.perFish + TournamentPoints.newSpeciesBonus) points.")
+                    .font(.caption).foregroundStyle(.secondary)
+            } else {
+                VStack(spacing: 0) {
+                    ForEach(standing.catches) { c in
+                        HStack(spacing: 10) {
+                            Group {
+                                if let sp = SpeciesArtLookup.species(named: c.species, appState: appState) {
+                                    SpeciesArtworkView(species: sp, caught: true, size: 30)
+                                } else {
+                                    Image(systemName: "fish.fill")
+                                        .foregroundStyle(CurrentsTheme.accent)
+                                }
+                            }
+                            .frame(width: 36, height: 36)
+                            .background(CurrentsTheme.accent.opacity(0.10),
+                                        in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(c.species).font(.subheadline.bold())
+                                Text("\(c.friendCode == svc.friendCode ? "You" : c.anglerName) · \(c.date.formatted(date: .omitted, time: .shortened))")
+                                    .font(.caption2).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Text(c.weightKg.map { Units.weight(kg: $0) } ?? "")
+                                .font(.caption.bold())
+                                .foregroundStyle(CurrentsTheme.accent)
+                        }
+                        .padding(.vertical, 6)
+                        if c.id != standing.catches.last?.id { Divider() }
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassCard()
+    }
+
+    // MARK: Session
+
+    private var sessionRow: some View {
+        NavigationLink {
+            GroupTripView(tripId: svc.tripId(forGroupCode: standing.id),
+                          tripName: standing.teamName, initialCode: standing.id)
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "dot.radiowaves.left.and.right")
+                    .foregroundStyle(standing.isEnded ? Color.secondary : .red)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(isMember ? "Open the team session" : "View the live session")
+                        .font(.subheadline.bold())
+                    Text(isMember ? "Log to the trip, GPS, member standings"
+                         : "Watch the feed — or join the team from there")
+                        .font(.caption2).foregroundStyle(.secondary)
+                }
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.caption).foregroundStyle(.tertiary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .glassCard()
+        }
+        .buttonStyle(.plain)
     }
 }
