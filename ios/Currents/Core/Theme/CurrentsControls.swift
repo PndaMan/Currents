@@ -524,16 +524,26 @@ extension LabelStyle where Self == ProminentButtonLabelStyle {
 
 /// Tap-to-fullscreen for any already-loaded image — avatars, crew banners,
 /// post photos. Tapping opens the pinch-zoomable viewer; no image, no-op.
+/// A real Button (not onTapGesture): inside a List row a bare tap gesture
+/// becomes the ROW's primary action, so tapping anywhere on the post —
+/// the crew chip, the ⋯ menu — opened the photo. Buttons hit-test exactly.
 private struct ZoomableOnTap: ViewModifier {
     let image: UIImage?
     @State private var showing = false
 
     func body(content: Content) -> some View {
-        content
-            .onTapGesture { if image != nil { Haptics.tap(); showing = true } }
-            .fullScreenCover(isPresented: $showing) {
-                if let image { FullscreenImageViewer(image: image) }
+        Button {
+            if image != nil {
+                Haptics.tap()
+                showing = true
             }
+        } label: {
+            content
+        }
+        .buttonStyle(.plain)
+        .fullScreenCover(isPresented: $showing) {
+            if let image { FullscreenImageViewer(image: image) }
+        }
     }
 }
 

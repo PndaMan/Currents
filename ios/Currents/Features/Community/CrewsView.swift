@@ -93,13 +93,15 @@ struct CrewSetupView: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 10) {
                         ForEach(emojis, id: \.self) { e in
-                            Text(e)
-                                .font(.title2)
-                                .frame(width: 44, height: 44)
-                                .background(emoji == e ? CurrentsTheme.accent.opacity(0.2) : Color(.secondarySystemBackground),
-                                            in: Circle())
-                                .overlay(Circle().stroke(emoji == e ? CurrentsTheme.accent : .clear, lineWidth: 2))
-                                .onTapGesture { Haptics.tap(); emoji = e }
+                            Button { Haptics.tap(); emoji = e } label: {
+                                Text(e)
+                                    .font(.title2)
+                                    .frame(width: 44, height: 44)
+                                    .background(emoji == e ? CurrentsTheme.accent.opacity(0.2) : Color(.secondarySystemBackground),
+                                                in: Circle())
+                                    .overlay(Circle().stroke(emoji == e ? CurrentsTheme.accent : .clear, lineWidth: 2))
+                            }
+                            .buttonStyle(.plain)
                         }
                     }
                     .padding(.vertical, 2)
@@ -741,25 +743,31 @@ struct CrewSettingsView: View {
 
     private var bannerCanvas: some View {
         ZStack(alignment: .topTrailing) {
-            Group {
-                if let banner = currentBanner {
-                    Image(uiImage: banner).resizable().scaledToFill()
-                } else {
-                    LinearGradient(colors: [CurrentsTheme.accent.opacity(0.45),
-                                            CurrentsTheme.accent.opacity(0.12)],
-                                   startPoint: .topLeading, endPoint: .bottomTrailing)
-                        .overlay {
-                            Label("Add a banner", systemImage: "photo.badge.plus")
-                                .font(.caption.bold())
-                                .foregroundStyle(.secondary)
-                        }
+            // A real Button, not onTapGesture — in a Form row a bare tap
+            // gesture becomes the whole row's primary action.
+            Button {
+                showingBannerPicker = true
+            } label: {
+                Group {
+                    if let banner = currentBanner {
+                        Image(uiImage: banner).resizable().scaledToFill()
+                    } else {
+                        LinearGradient(colors: [CurrentsTheme.accent.opacity(0.45),
+                                                CurrentsTheme.accent.opacity(0.12)],
+                                       startPoint: .topLeading, endPoint: .bottomTrailing)
+                            .overlay {
+                                Label("Add a banner", systemImage: "photo.badge.plus")
+                                    .font(.caption.bold())
+                                    .foregroundStyle(.secondary)
+                            }
+                    }
                 }
+                .frame(height: 110)
+                .frame(maxWidth: .infinity)
+                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             }
-            .frame(height: 110)
-            .frame(maxWidth: .infinity)
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .onTapGesture { showingBannerPicker = true }
+            .buttonStyle(.plain)
 
             Menu {
                 Button {
@@ -838,15 +846,17 @@ struct CrewSettingsView: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 10) {
                 ForEach(emojis, id: \.self) { e in
-                    Text(e)
-                        .font(.title2)
-                        .frame(width: 44, height: 44)
-                        .background(emoji == e ? CurrentsTheme.accent.opacity(0.2)
-                                               : Color(.secondarySystemBackground),
-                                    in: Circle())
-                        .overlay(Circle().stroke(emoji == e ? CurrentsTheme.accent : .clear,
-                                                 lineWidth: 2))
-                        .onTapGesture { Haptics.tap(); emoji = e }
+                    Button { Haptics.tap(); emoji = e } label: {
+                        Text(e)
+                            .font(.title2)
+                            .frame(width: 44, height: 44)
+                            .background(emoji == e ? CurrentsTheme.accent.opacity(0.2)
+                                                   : Color(.secondarySystemBackground),
+                                        in: Circle())
+                            .overlay(Circle().stroke(emoji == e ? CurrentsTheme.accent : .clear,
+                                                     lineWidth: 2))
+                    }
+                    .buttonStyle(.plain)
                 }
             }
             .padding(.vertical, 2)
