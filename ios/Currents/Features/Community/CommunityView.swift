@@ -323,8 +323,11 @@ struct CommunityView: View {
                     .padding(12)
                     .background(.ultraThinMaterial,
                                 in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    // Decorative only — a hit-testable overlay swallows every
+                    // tap meant for the controls underneath it.
                     .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .stroke(.secondary.opacity(0.10), lineWidth: 1))
+                        .stroke(.secondary.opacity(0.10), lineWidth: 1)
+                        .allowsHitTesting(false))
                     .listRowInsets(EdgeInsets(top: 6, leading: 14, bottom: 6, trailing: 14))
                     .listRowSeparator(.hidden)
                     .listRowBackground(Color.clear)

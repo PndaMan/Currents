@@ -577,15 +577,32 @@ struct CrewDetailView: View {
                         .listRowBackground(Color.clear)
                 }
             } else {
+                // Same card language as the Community feed: each post its
+                // own rounded glass card.
                 ForEach(feed) { post in
                     CrewPostCard(post: post, crewCode: code, crew: crew) { await refresh() }
-                        .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
+                        .padding(12)
+                        .background(.ultraThinMaterial,
+                                    in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .stroke(.secondary.opacity(0.10), lineWidth: 1)
+                            .allowsHitTesting(false))
+                        .listRowInsets(EdgeInsets(top: 6, leading: 14, bottom: 6, trailing: 14))
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(Color.clear)
                         .onAppear { loadMoreIfNeeded(after: post) }
                 }
                 if loadingMore {
                     ProgressView()
                         .frame(maxWidth: .infinity)
                         .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
+                } else if !canLoadMore, feed.count > 20 {
+                    Text("You're all caught up 🎣")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity)
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
                 }
             }
         }
@@ -1160,6 +1177,7 @@ struct CrewPostCard: View {
     @State private var editingCaption = false
     @State private var captionDraft = ""
     @State private var confirmingDelete = false
+    @State private var showingAuthor = false
     /// Optimistic reactions, shown the instant you tap and replaced by the
     /// server's truth on the next reload.
     @State private var localReactions: [CommunityService.CrewReaction]?
@@ -1186,6 +1204,10 @@ struct CrewPostCard: View {
             if post.hasPhoto, photo == nil {
                 photo = await svc.crewPostImage(recordName: post.id)
             }
+        }
+        .sheet(isPresented: $showingAuthor) {
+            NavigationStack { FriendProfileView(code: post.authorCode) }
+                .presentationDragIndicator(.visible)
         }
         .onChange(of: post.reactions) { _, _ in localReactions = nil }
         .alert("Caption", isPresented: $editingCaption) {
@@ -1216,13 +1238,22 @@ struct CrewPostCard: View {
 
     private var header: some View {
         HStack(spacing: 10) {
-            AnglerAvatar(image: svc.cachedProfiles(for: [post.authorCode]).first?.avatar, size: 36)
-                .zoomableOnTap(svc.cachedProfiles(for: [post.authorCode]).first?.avatar)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(isMine ? "You" : post.authorName).font(.subheadline.bold())
-                Text(post.caughtAt.formatted(.relative(presentation: .named)))
-                    .font(.caption2).foregroundStyle(.secondary)
+            // Avatar + name open the angler's profile.
+            Button {
+                showingAuthor = true
+            } label: {
+                HStack(spacing: 10) {
+                    AnglerAvatar(image: svc.cachedProfiles(for: [post.authorCode]).first?.avatar, size: 36)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(isMine ? "You" : post.authorName).font(.subheadline.bold())
+                            .foregroundStyle(.primary)
+                        Text(post.caughtAt.formatted(.relative(presentation: .named)))
+                            .font(.caption2).foregroundStyle(.secondary)
+                    }
+                }
+                .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
             Spacer()
             Menu {
                 if isMine {
