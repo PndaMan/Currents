@@ -620,6 +620,7 @@ struct CrewSettingsView: View {
     @State private var hasBanner: Bool
     @State private var saving = false
     @State private var confirmingRemove: CommunityService.GroupMember?
+    @State private var confirmingTransfer: CommunityService.GroupMember?
     @State private var confirmLeave = false
     @State private var showingIconPicker = false
     @State private var showingBannerPicker = false
@@ -645,9 +646,11 @@ struct CrewSettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
+                yourRoleSection
                 if myRole.canManage { identitySection }
                 postingSection
                 membersSection
+                rolesGuideSection
                 inviteSection
                 dangerSection
             }
@@ -898,8 +901,64 @@ struct CrewSettingsView: View {
 
     // MARK: Members
 
+    /// What YOU are in this crew and what that lets you do — the role system
+    /// was invisible until a second member joined.
+    private var yourRoleSection: some View {
+        Section {
+            HStack(spacing: 12) {
+                Image(systemName: myRole.icon)
+                    .font(.headline)
+                    .foregroundStyle(myRole == .member ? Color.secondary : CrewDetailView.roleColor(myRole))
+                    .frame(width: 38, height: 38)
+                    .background((myRole == .member ? Color.secondary : CrewDetailView.roleColor(myRole)).opacity(0.15),
+                                in: Circle())
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("You're \(myRole == .admin ? "an" : myRole == .member ? "a" : "the") \(myRole.label)")
+                        .font(.subheadline.bold())
+                    Text(Self.roleSummary(myRole))
+                        .font(.caption2).foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    static func roleSummary(_ role: CrewRole) -> String {
+        switch role {
+        case .captain: "Full control: identity, roles, members, posts and tournaments — and you can hand the crew over."
+        case .mate:    "Everything but the wheel: edit the crew's look, manage roles, moderate posts and members, run tournaments."
+        case .admin:   "Keeper of the peace: delete any post, remove members, run tournaments."
+        case .member:  "Post catches, react, join sessions and tournaments."
+        }
+    }
+
+    /// The whole ladder, so everyone knows what each badge means.
+    private var rolesGuideSection: some View {
+        Section {
+            DisclosureGroup {
+                ForEach([CrewRole.captain, .mate, .admin, .member], id: \.self) { role in
+                    HStack(alignment: .top, spacing: 10) {
+                        Image(systemName: role.icon)
+                            .font(.caption)
+                            .foregroundStyle(role == .member ? Color.secondary : CrewDetailView.roleColor(role))
+                            .frame(width: 22)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(role.label).font(.caption.bold())
+                            Text(Self.roleSummary(role)).font(.caption2).foregroundStyle(.secondary)
+                        }
+                    }
+                    .padding(.vertical, 2)
+                }
+            } label: {
+                Label("How roles work", systemImage: "person.badge.shield.checkmark")
+                    .font(.subheadline)
+            }
+        } footer: {
+            Text("The Captain and Mates set roles from a member's ⋯ menu. Admins and up can remove members and delete posts.")
+        }
+    }
+
     private var membersSection: some View {
-        Section("Members") {
+        Section("Members · \(members.count)") {
             ForEach(members) { m in memberRow(m) }
         }
         .confirmationDialog(
@@ -923,6 +982,29 @@ struct CrewSettingsView: View {
         } message: { m in
             Text("\(m.name) can re-join with the crew code.")
         }
+        .confirmationDialog(
+            "Hand over the crew?",
+            isPresented: Binding(get: { confirmingTransfer != nil },
+                                 set: { if !$0 { confirmingTransfer = nil } }),
+            titleVisibility: .visible,
+            presenting: confirmingTransfer
+        ) { m in
+            Button("Make \(m.name) Captain", role: .destructive) {
+                Task {
+                    if let updated = await svc.transferCaptaincy(to: m.id, name: m.name, in: currentCrew) {
+                        currentCrew = updated
+                        Haptics.success()
+                        ToastCenter.shared.show("\(m.name) is Captain now — you stay aboard as a Mate",
+                                                style: .success)
+                        onChange()
+                    } else {
+                        ToastCenter.shared.show("Couldn't transfer the crew", style: .error)
+                    }
+                }
+            }
+        } message: { m in
+            Text("\(m.name) becomes the Captain with full control. You stay aboard as a Mate.")
+        }
     }
 
     @ViewBuilder private func memberRow(_ m: CommunityService.GroupMember) -> some View {
@@ -940,6 +1022,11 @@ struct CrewSettingsView: View {
             if !isSelf, !isCaptain, myRole.canModerate {
                 Menu {
                     if myRole.canManage {
+                        if myRole == .captain {
+                            Button { confirmingTransfer = m } label: {
+                                Label("Make Captain", systemImage: CrewRole.captain.icon)
+                            }
+                        }
                         if myRole == .captain, role != .mate {
                             Button { apply(.mate, to: m) } label: {
                                 Label("Make Mate", systemImage: CrewRole.mate.icon)
@@ -1032,7 +1119,7 @@ struct CrewSettingsView: View {
 /// and 1,500 species are too many to re-scan per card, so the index builds
 /// once and sticks around.
 @MainActor
-private enum SpeciesArtLookup {
+enum SpeciesArtLookup {
     private static var byName: [String: Species] = [:]
     private static var loaded = false
 

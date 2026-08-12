@@ -938,6 +938,9 @@ struct LogCatchView: View {
 
 struct LocationPickerSheet: View {
     @Binding var coordinate: CLLocationCoordinate2D?
+    /// What the pin is FOR — "Forecast Location" in the trip planner, "Spot"
+    /// on the map — so the label under the pin never lies about its purpose.
+    let pinLabel: String
     @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss
     @State private var cameraPosition: MapCameraPosition
@@ -947,8 +950,9 @@ struct LocationPickerSheet: View {
     @State private var isSearching = false
     @FocusState private var searchFocused: Bool
 
-    init(coordinate: Binding<CLLocationCoordinate2D?>) {
+    init(coordinate: Binding<CLLocationCoordinate2D?>, pinLabel: String = "Catch Location") {
         _coordinate = coordinate
+        self.pinLabel = pinLabel
         // Open centred on the existing pin when there is one (e.g. editing a
         // spot or catch far from where the user is standing right now),
         // otherwise on the user's current location.
@@ -984,7 +988,7 @@ struct LocationPickerSheet: View {
                 Map(position: $cameraPosition) {
                     UserAnnotation()
                     if let pin = pinPosition {
-                        Annotation("Catch Location", coordinate: pin) {
+                        Annotation(pinLabel, coordinate: pin) {
                             Image(systemName: "mappin.circle.fill")
                                 .font(.title)
                                 .foregroundStyle(CurrentsTheme.accent)

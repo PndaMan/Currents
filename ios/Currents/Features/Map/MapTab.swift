@@ -1444,7 +1444,7 @@ struct AddSpotSheet: View {
                 }
             }
             .sheet(isPresented: $showingLocationPicker) {
-                LocationPickerSheet(coordinate: $pinCoordinate)
+                LocationPickerSheet(coordinate: $pinCoordinate, pinLabel: "Spot")
             }
         }
     }
@@ -1577,7 +1577,7 @@ struct EditSpotSheet: View {
                 }
             }
             .sheet(isPresented: $showingLocationPicker) {
-                LocationPickerSheet(coordinate: $coordinate)
+                LocationPickerSheet(coordinate: $coordinate, pinLabel: "Spot")
             }
             .task {
                 name = spot.name

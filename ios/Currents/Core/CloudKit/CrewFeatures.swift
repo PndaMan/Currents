@@ -77,6 +77,28 @@ extension CommunityService {
         String(data: (try? JSONEncoder().encode(codes)) ?? Data("[]".utf8), encoding: .utf8) ?? "[]"
     }
 
+    /// Captain only: hand the crew to another member. The old captain stays
+    /// aboard as a Mate so nothing they were running breaks mid-trip.
+    func transferCaptaincy(to memberCode: String, name: String, in crew: Crew) async -> Crew? {
+        guard myRole(in: crew) == .captain, memberCode != friendCode else { return nil }
+        let id = CKRecord.ID(recordName: "crew-\(crew.code)")
+        guard let r = try? await db.record(for: id) else { return nil }
+        var mates = crew.mates.filter { $0 != memberCode }
+        let admins = crew.admins.filter { $0 != memberCode }
+        mates.append(friendCode)
+        r["createdByCode"] = memberCode as CKRecordValue
+        r["createdByName"] = name as CKRecordValue
+        r["mates"] = encodeCodes(mates) as CKRecordValue
+        r["admins"] = encodeCodes(admins) as CKRecordValue
+        guard (try? await db.save(r)) != nil else { return nil }
+        var updated = crew
+        updated.createdByCode = memberCode
+        updated.createdByName = name
+        updated.mates = mates
+        updated.admins = admins
+        return updated
+    }
+
     /// Remove a member from the crew (moderator power).
     func removeMember(_ memberCode: String, fromCrew crew: Crew) async -> Bool {
         guard myRole(in: crew).canModerate, memberCode != crew.createdByCode else { return false }
@@ -470,6 +492,7 @@ extension CommunityService {
             r["teamName"] = teamName as CKRecordValue
             _ = try? await db.save(r)
         }
+        markGroupTeam(code: code, teamName: teamName)
         return code
     }
 

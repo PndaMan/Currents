@@ -1120,112 +1120,40 @@ struct FriendProfileView: View {
     @State private var sharedSpots: [CommunityService.SharedSpot] = []
     @State private var catches: [CommunityService.LeaderRow] = []
     @State private var catchAccess = false
+    @State private var catchesLoading = true
     @State private var selectedSpot: CommunityService.SharedSpot?
+    @State private var showingSettings = false
     @AppStorage("units") private var units = "metric"
     private var imperial: Bool { units == "imperial" }
 
     var body: some View {
-        List {
-            if let p = profile {
-                Section {
-                    VStack(spacing: 8) {
-                        AnglerAvatar(image: p.avatar, size: 88)
-                        Text(p.name).font(.title2.bold())
-                        if !p.bio.isEmpty { Text(p.bio).font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center) }
-                        if !p.homeWater.isEmpty {
-                            Label(p.homeWater, systemImage: "water.waves").font(.caption).foregroundStyle(.secondary)
-                        }
-                        Text("Angler since \(p.memberSince.formatted(.dateTime.month().year()))")
-                            .font(.caption2).foregroundStyle(.tertiary)
-                    }
-                    .frame(maxWidth: .infinity).padding(.vertical, 6)
+        ScrollView {
+            VStack(spacing: CurrentsTheme.paddingM) {
+                heroCard
+                if let p = profile {
+                    statsRow(p)
+                    FriendBadgesCard(badges: BadgeDefinition.computeFriend(
+                        totalCatches: p.totalCatches, speciesCount: p.speciesCount,
+                        bestWeightKg: p.bestWeightKg, bestLengthCm: p.bestLengthCm,
+                        rows: catches))
                 }
-                .listRowBackground(Color.clear)
-
-                Section {
-                    HStack(spacing: 10) {
-                        statTile("\(p.totalCatches)", "Catches", "fish.fill")
-                        statTile("\(p.speciesCount)", "Species", "square.grid.2x2")
-                        if p.bestWeightKg > 0 {
-                            statTile(Units.weight(kg: p.bestWeightKg, imperial: imperial), "Heaviest", "scalemass")
-                        }
-                        if p.bestLengthCm > 0 {
-                            statTile(Units.length(cm: p.bestLengthCm, imperial: imperial), "Longest", "ruler")
-                        }
-                    }
-                    if !p.favoriteSpecies.isEmpty {
-                        Label("Favourite: \(p.favoriteSpecies)", systemImage: "star.fill")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-                }
-                .listRowBackground(Color.clear)
-            } else {
-                Section {
-                    FishLoader(message: "Loading profile…")
-                        .padding(.vertical, 8).listRowBackground(Color.clear)
-                }
+                catchesCard
+                if !sharedSpots.isEmpty { spotsCard }
             }
-
-            // Their catches — friends-only, and only if they've shared them.
-            Section("Catches") {
-                if !catchAccess {
-                    Label("This angler hasn't shared their catch history with you.",
-                          systemImage: "lock.fill")
-                        .font(.caption).foregroundStyle(.secondary)
-                } else if catches.isEmpty {
-                    ContentUnavailableView("No catches shared", systemImage: "fish",
-                        description: Text("This angler hasn't shared any catches yet."))
-                } else {
-                    ForEach(catches) { c in
-                        NavigationLink { CommunityCatchDetailView(row: c) } label: { catchRow(c) }
-                    }
-                }
-            }
-
-            if !sharedSpots.isEmpty {
-                Section("Spots they've shared with you") {
-                    ForEach(sharedSpots) { s in sharedSpotRow(s) }
-                }
-            }
-
-            Section {
-                TextField("Nickname (optional)", text: $privacy.nickname)
-            } header: {
-                Text("Nickname")
-            }
-            .onSubmit { svc.setNickname(privacy.nickname, for: code) }
-            .onDisappear { svc.setNickname(privacy.nickname, for: code) }
-
-            if svc.isFriend(code) {
-                Section {
-                    overrideRow("See my catch history",
-                                globalOn: svc.shareCatchesWithFriends,
-                                value: $override.shareCatches)
-                    overrideRow("Share my spots",
-                                globalOn: svc.shareSpotsWithFriends,
-                                value: $override.shareSpots)
-                    overrideRow("Share my exact spot locations",
-                                globalOn: svc.shareSpotExactLocations,
-                                value: $override.shareExactLocations)
-                } header: {
-                    Text("What you share with \(profile?.name ?? "this friend")")
-                } footer: {
-                    Text("“Default” follows your global Privacy settings. Override any of these to share more (or less) with just this friend — e.g. share your exact spots with a trusted friend while everyone else sees an approximate area. Your honey-hole radius stays global.")
-                }
-                .onChange(of: override) { _, o in
-                    // The initial .task assignment lands here too — only react
-                    // to changes the user actually made.
-                    guard overrideLoaded else { return }
-                    svc.setOverride(o, for: code)
-                    ToastCenter.shared.show("Sharing updated", style: .info, haptic: false)
-                    let spots = (try? appState.spotRepository.fetchAll()) ?? []
-                    Task { await svc.applyPrivacy(for: code, spots: spots) }
-                }
-            }
+            .padding()
         }
         .navigationTitle(profile?.name ?? "Angler")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            // Nickname + per-friend sharing live behind one control instead of
+            // stretching the profile out.
+            ToolbarItem(placement: .topBarTrailing) {
+                Button { showingSettings = true } label: { Image(systemName: "slider.horizontal.3") }
+                    .accessibilityLabel("Nickname & sharing")
+            }
+        }
         .sensoryFeedback(.selection, trigger: override)
+        .sheet(isPresented: $showingSettings) { friendSettingsSheet }
         .sheet(item: $selectedSpot) { s in
             NavigationStack { SharedSpotDetailView(spot: s, friendName: profile?.name ?? "a friend") }
         }
@@ -1246,7 +1174,184 @@ struct FriendProfileView: View {
             sharedSpots = await freshSpots
             catchAccess = await freshAccess
             if catchAccess { catches = await svc.anglerCatches(code: code) }
+            catchesLoading = false
         }
+    }
+
+    // MARK: Hero
+
+    private var heroCard: some View {
+        VStack(spacing: 10) {
+            ZStack {
+                Circle().stroke(CurrentsTheme.accent.opacity(0.35), lineWidth: 3)
+                    .frame(width: 104, height: 104)
+                AnglerAvatar(image: profile?.avatar, size: 92)
+            }
+            VStack(spacing: 3) {
+                Text(profile?.name ?? "Angler").font(.title2.bold())
+                if !privacy.nickname.isEmpty {
+                    Text("“\(privacy.nickname)”")
+                        .font(.subheadline).foregroundStyle(CurrentsTheme.accent)
+                }
+                if let p = profile, !p.bio.isEmpty {
+                    Text(p.bio).font(.subheadline).foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                }
+            }
+            if let p = profile {
+                HStack(spacing: 8) {
+                    if !p.homeWater.isEmpty { heroChip(p.homeWater, icon: "water.waves") }
+                    if !p.region.isEmpty { heroChip(p.region, icon: "globe.americas.fill") }
+                }
+                if !p.favoriteSpecies.isEmpty { favouriteRow(p.favoriteSpecies) }
+                Text("Angler since \(p.memberSince.formatted(.dateTime.month().year()))")
+                    .font(.caption2).foregroundStyle(.tertiary)
+            } else {
+                FishLoader(message: "Loading profile…").frame(height: 70)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .glassCard()
+    }
+
+    private func heroChip(_ text: String, icon: String) -> some View {
+        Label(text, systemImage: icon)
+            .font(.caption)
+            .padding(.horizontal, 10).padding(.vertical, 4)
+            .background(Color.secondary.opacity(0.12), in: Capsule())
+            .foregroundStyle(.secondary)
+    }
+
+    private func favouriteRow(_ name: String) -> some View {
+        HStack(spacing: 8) {
+            if let sp = SpeciesArtLookup.species(named: name, appState: appState) {
+                SpeciesArtworkView(species: sp, caught: true, size: 30)
+            } else {
+                Image(systemName: "star.fill").foregroundStyle(.yellow)
+            }
+            VStack(alignment: .leading, spacing: 0) {
+                Text("Favourite species").font(.caption2).foregroundStyle(.secondary)
+                Text(name).font(.caption.bold())
+            }
+        }
+        .padding(.horizontal, 12).padding(.vertical, 5)
+        .background(CurrentsTheme.accent.opacity(0.10), in: Capsule())
+    }
+
+    private func statsRow(_ p: CommunityService.Profile) -> some View {
+        HStack(spacing: 10) {
+            statTile("\(p.totalCatches)", "Catches", "fish.fill")
+            statTile("\(p.speciesCount)", "Species", "square.grid.2x2")
+            if p.bestWeightKg > 0 {
+                statTile(Units.weight(kg: p.bestWeightKg, imperial: imperial), "Heaviest", "scalemass")
+            }
+            if p.bestLengthCm > 0 {
+                statTile(Units.length(cm: p.bestLengthCm, imperial: imperial), "Longest", "ruler")
+            }
+        }
+    }
+
+    // MARK: Catches
+
+    private var catchesCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Label("Catches", systemImage: "fish.fill").font(.headline)
+                Spacer()
+                if catchAccess, !catches.isEmpty {
+                    Text("\(catches.count)").font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            if !catchAccess {
+                Label("This angler hasn't shared their catch history with you.",
+                      systemImage: "lock.fill")
+                    .font(.caption).foregroundStyle(.secondary)
+            } else if catches.isEmpty && catchesLoading {
+                FishLoader(message: "Reeling in their catches…")
+                    .frame(height: 84).frame(maxWidth: .infinity)
+            } else if catches.isEmpty {
+                Text("No catches shared yet.")
+                    .font(.caption).foregroundStyle(.secondary)
+            } else {
+                VStack(spacing: 0) {
+                    ForEach(catches) { c in
+                        NavigationLink { CommunityCatchDetailView(row: c) } label: {
+                            catchRow(c)
+                                .padding(.vertical, 6)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        if c.id != catches.last?.id { Divider() }
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassCard()
+    }
+
+    private var spotsCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label("Spots they've shared with you", systemImage: "mappin.and.ellipse")
+                .font(.headline)
+            VStack(spacing: 0) {
+                ForEach(sharedSpots) { s in
+                    sharedSpotRow(s).padding(.vertical, 6)
+                    if s.id != sharedSpots.last?.id { Divider() }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassCard()
+    }
+
+    // MARK: Nickname + sharing sheet
+
+    private var friendSettingsSheet: some View {
+        NavigationStack {
+            Form {
+                Section("Nickname") {
+                    TextField("Nickname (optional)", text: $privacy.nickname)
+                        .onSubmit { svc.setNickname(privacy.nickname, for: code) }
+                }
+                if svc.isFriend(code) {
+                    Section {
+                        overrideRow("See my catch history",
+                                    globalOn: svc.shareCatchesWithFriends,
+                                    value: $override.shareCatches)
+                        overrideRow("Share my spots",
+                                    globalOn: svc.shareSpotsWithFriends,
+                                    value: $override.shareSpots)
+                        overrideRow("Share my exact spot locations",
+                                    globalOn: svc.shareSpotExactLocations,
+                                    value: $override.shareExactLocations)
+                    } header: {
+                        Text("What you share with \(profile?.name ?? "this friend")")
+                    } footer: {
+                        Text("“Default” follows your global Privacy settings. Override any of these to share more (or less) with just this friend — e.g. share your exact spots with a trusted friend while everyone else sees an approximate area. Your honey-hole radius stays global.")
+                    }
+                }
+            }
+            .navigationTitle(profile?.name ?? "Friend")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { showingSettings = false }
+                }
+            }
+            .onChange(of: override) { _, o in
+                // The initial .task assignment lands here too — only react
+                // to changes the user actually made.
+                guard overrideLoaded else { return }
+                svc.setOverride(o, for: code)
+                ToastCenter.shared.show("Sharing updated", style: .info, haptic: false)
+                let spots = (try? appState.spotRepository.fetchAll()) ?? []
+                Task { await svc.applyPrivacy(for: code, spots: spots) }
+            }
+            .onDisappear { svc.setNickname(privacy.nickname, for: code) }
+        }
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
     }
 
     /// A tri-state per-friend override: Default (follow global) / Share / Hide.
@@ -1317,6 +1422,67 @@ struct FriendProfileView: View {
         .buttonStyle(.plain)
     }
 
+}
+
+/// A friend's achievements, computed from their public stats + published
+/// catches: earned medals up front, the locked remainder counted, every
+/// bubble opening the same explainer modal your own badges use.
+struct FriendBadgesCard: View {
+    let badges: [BadgeDefinition]
+    @State private var selected: BadgeDefinition?
+
+    private var earned: [BadgeDefinition] {
+        badges.filter(\.earned).sorted { $0.rarity.rawValue > $1.rarity.rawValue }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Label("Achievements", systemImage: "trophy.fill").font(.headline)
+                Spacer()
+                Text("\(earned.count)/\(badges.count)")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            if earned.isEmpty {
+                Text("No badges yet — their trophy shelf is waiting.")
+                    .font(.caption).foregroundStyle(.secondary)
+            } else {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 12) {
+                        ForEach(earned) { badge in
+                            Button { selected = badge } label: { bubble(badge) }
+                                .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.vertical, 2)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassCard()
+        .sheet(item: $selected) { badge in
+            BadgeDetailView(badge: badge)
+                .presentationDetents([.medium]).presentationDragIndicator(.visible)
+        }
+        .sensoryFeedback(.selection, trigger: selected?.id)
+    }
+
+    private func bubble(_ badge: BadgeDefinition) -> some View {
+        VStack(spacing: 4) {
+            ZStack {
+                Circle().fill(badge.rarity.color.opacity(0.18)).frame(width: 46, height: 46)
+                Circle().stroke(badge.rarity.color.opacity(0.8), lineWidth: 2).frame(width: 46, height: 46)
+                Image(systemName: badge.icon)
+                    .font(.system(size: 18))
+                    .foregroundStyle(badge.rarity.color)
+                    .symbolRenderingMode(.hierarchical)
+            }
+            Text(badge.title)
+                .font(.system(size: 8, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .lineLimit(1).frame(width: 48)
+        }
+    }
 }
 
 // MARK: - Shared spot detail (map + copy)

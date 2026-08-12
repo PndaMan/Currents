@@ -156,6 +156,15 @@ struct TournamentView: View {
             EndTournamentSheet(tournament: tournament, crew: crew, standings: standings) { winner in
                 tournament.endedAt = .now
                 tournament.winnerTeam = winner
+                // Team sessions are ended server-side with the tournament —
+                // close my own local GPS session too if it was one of them.
+                if let active = appState.tripTracker.activeTrip,
+                   let linked = svc.groupCode(forTripId: active.id),
+                   standings.contains(where: { $0.id == linked }) {
+                    _ = appState.tripTracker.end()
+                    ToastCenter.shared.show("Your team session ended with the tournament",
+                                            style: .info, haptic: false)
+                }
                 Task { await refresh() }
             }
         }

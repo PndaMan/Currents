@@ -25,6 +25,11 @@ struct GroupTripsSection: View {
                         VStack(alignment: .leading, spacing: 1) {
                             HStack(spacing: 6) {
                                 Text(g.name).font(.subheadline.bold())
+                                if let team = g.teamName {
+                                    Text("🏆 \(team)").font(.system(size: 9, weight: .bold))
+                                        .padding(.horizontal, 5).padding(.vertical, 1)
+                                        .background(Color.yellow.opacity(0.18), in: Capsule())
+                                }
                                 if g.endedAt != nil {
                                     Text("Ended").font(.system(size: 9, weight: .bold))
                                         .padding(.horizontal, 5).padding(.vertical, 1)
@@ -669,6 +674,15 @@ struct GroupTripView: View {
                         .padding(.horizontal, 7).padding(.vertical, 2)
                         .background(CurrentsTheme.accent.opacity(0.15), in: Capsule())
                 }
+                // A tournament team session says so — otherwise it's
+                // indistinguishable from a casual shared trip.
+                if let team = trip?.teamName {
+                    Text("🏆 Team \(team)")
+                        .font(.caption2.bold())
+                        .padding(.horizontal, 7).padding(.vertical, 2)
+                        .background(Color.yellow.opacity(0.16), in: Capsule())
+                        .foregroundStyle(.primary)
+                }
             }
 
             facepile
@@ -1175,22 +1189,38 @@ struct GroupTripView: View {
 
     private func refresh() async {
         guard let code else { return }
-        trip = await service.groupTrip(code: code)
-        members = await service.groupMembers(code: code)
-        feed = await service.groupCatches(code: code)
+        async let freshTrip = service.groupTrip(code: code)
+        async let freshMembers = service.groupMembers(code: code)
+        async let freshFeed = service.groupCatches(code: code)
+        trip = await freshTrip
+        members = await freshMembers
+        feed = await freshFeed
+        // The shared trip ended remotely (tournament closed, host ended it):
+        // stop the linked local GPS session too, instead of leaving it
+        // silently running until the angler notices.
+        if let t = trip, t.isEnded,
+           let localId = tripId ?? service.tripId(forGroupCode: code),
+           appState.tripTracker.activeTrip?.id == localId {
+            _ = appState.tripTracker.end()
+            ToastCenter.shared.show("Session ended — the shared trip is over", style: .info)
+        }
         await loadFriendProfiles()
         await loadMemberAvatars()
     }
 
-    /// Fetch each member's profile picture once (cached), so standings + the
-    /// member list show real avatars instead of initials.
+    /// Member avatars: cache-first, then ONE batched fetch for whoever's
+    /// missing (this used to be a sequential network call per member).
     private func loadMemberAvatars() async {
+        if memberAvatars[service.friendCode] == nil, let a = service.myAvatar {
+            memberAvatars[service.friendCode] = a
+        }
         for m in members where memberAvatars[m.id] == nil {
-            if m.id == service.friendCode {
-                if let a = service.myAvatar { memberAvatars[m.id] = a }
-            } else if let p = await service.fetchProfile(code: m.id), let a = p.avatar {
-                memberAvatars[m.id] = a
-            }
+            if let a = service.cachedProfiles(for: [m.id]).first?.avatar { memberAvatars[m.id] = a }
+        }
+        let missing = members.map(\.id).filter { memberAvatars[$0] == nil && $0 != service.friendCode }
+        guard !missing.isEmpty else { return }
+        for (c, p) in await service.profiles(for: missing) where p.avatar != nil {
+            memberAvatars[c] = p.avatar
         }
     }
 

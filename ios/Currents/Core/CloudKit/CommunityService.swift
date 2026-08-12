@@ -1248,10 +1248,12 @@ final class CommunityService: ObservableObject {
             // same crew must not trigger an app-wide refresh cascade.
             guard list[i].name != crew.name || list[i].emoji != crew.emoji
                     || list[i].createdByName != crew.createdByName
+                    || list[i].createdByCode != crew.createdByCode
                     || list[i].mates != crew.mates || list[i].admins != crew.admins else { return }
             list[i].name = crew.name
             list[i].emoji = crew.emoji
             list[i].createdByName = crew.createdByName
+            list[i].createdByCode = crew.createdByCode
             list[i].mates = crew.mates
             list[i].admins = crew.admins
         } else {
@@ -1528,6 +1530,10 @@ final class CommunityService: ObservableObject {
         var endedAt: Date?
         /// The Crew this trip belongs to, if started from one.
         var crewCode: String? = nil
+        /// Set when this session is a TEAM inside a crew tournament — the
+        /// answer to "which of my trips was the tournament one?".
+        var tournamentCode: String? = nil
+        var teamName: String? = nil
         var isEnded: Bool { endedAt != nil }
     }
 
@@ -1562,6 +1568,9 @@ final class CommunityService: ObservableObject {
         /// The Crew this trip belongs to, if it was started from one. Optional so
         /// old stored refs decode fine and standalone trips stay unlinked.
         var crewCode: String? = nil
+        /// The team name when this trip is a tournament team session, so lists
+        /// can label it. Optional so old stored refs decode fine.
+        var teamName: String? = nil
         var id: String { code }
     }
 
@@ -1583,15 +1592,28 @@ final class CommunityService: ObservableObject {
     private func rememberGroup(_ ref: GroupRef) {
         var groups = myGroups
         if let i = groups.firstIndex(where: { $0.code == ref.code }) {
-            // Same no-op rule as rememberCrew — see the note there.
-            guard groups[i].name != ref.name || groups[i].hostName != ref.hostName else { return }
+            // Same no-op rule as rememberCrew — see the note there. A nil
+            // teamName never erases a known one (many callers don't carry it).
+            guard groups[i].name != ref.name || groups[i].hostName != ref.hostName
+                    || (ref.teamName != nil && groups[i].teamName != ref.teamName) else { return }
             groups[i].name = ref.name
             groups[i].hostName = ref.hostName
+            if let team = ref.teamName { groups[i].teamName = team }
         } else {
             groups.append(ref)
         }
         myGroups = groups
         scheduleEventSubSync()
+    }
+
+    /// Tag a locally-remembered group as a tournament team, so trip lists can
+    /// say which session was the tournament one.
+    func markGroupTeam(code: String, teamName: String) {
+        var groups = myGroups
+        guard let i = groups.firstIndex(where: { $0.code == code }),
+              groups[i].teamName != teamName else { return }
+        groups[i].teamName = teamName
+        myGroups = groups
     }
 
     private func forgetGroup(code: String) {
@@ -1667,7 +1689,8 @@ final class CommunityService: ObservableObject {
         await addMembership(code: code)
         if let tripId { setGroupCode(code, forTripId: tripId) }
         rememberGroup(GroupRef(code: code, name: trip.name, hostName: trip.hostName,
-                               isHost: trip.isHost, joinedAt: Date(), crewCode: trip.crewCode))
+                               isHost: trip.isHost, joinedAt: Date(), crewCode: trip.crewCode,
+                               teamName: trip.teamName))
         return trip
     }
 
@@ -1697,7 +1720,9 @@ final class CommunityService: ObservableObject {
             createdAt: r["createdAt"] as? Date ?? .now,
             isHost: hostCode == friendCode,
             endedAt: endedAt,
-            crewCode: r["crewCode"] as? String
+            crewCode: r["crewCode"] as? String,
+            tournamentCode: r["tournamentCode"] as? String,
+            teamName: r["teamName"] as? String
         )
     }
 
@@ -1797,7 +1822,10 @@ final class CommunityService: ObservableObject {
                         predicate: NSPredicate(format: "crewCode == %@", crewCode))
         guard let res = try? await db.records(matching: q, resultsLimit: 25) else { return nil }
         let trips: [GroupTrip] = res.matchResults.compactMap { _, r in
-            guard let rec = try? r.get(), let code = rec["code"] as? String else { return nil }
+            // Tournament team sessions live under the tournament, never the
+            // crew's casual live-trip banner.
+            guard let rec = try? r.get(), let code = rec["code"] as? String,
+                  rec["tournamentCode"] == nil else { return nil }
             return GroupTrip(id: code,
                              name: rec["name"] as? String ?? "Group Trip",
                              hostCode: rec["hostCode"] as? String ?? "",

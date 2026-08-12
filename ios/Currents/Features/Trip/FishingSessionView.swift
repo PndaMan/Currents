@@ -204,10 +204,30 @@ struct ActiveSessionRow: View {
 struct SessionRow: View {
     let trip: Trip
     let catchCount: Int
+
+    /// The shared-trip identity of this local session, if any — so the list
+    /// says which session was a tournament team, a crew trip, or a plain
+    /// shared trip instead of leaving them all indistinguishable.
+    private var sharedRef: CommunityService.GroupRef? {
+        guard let code = CommunityService.shared.groupCode(forTripId: trip.id) else { return nil }
+        return CommunityService.shared.myGroups.first { $0.code == code }
+    }
+
     var body: some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 3) {
-                Text(trip.name).font(.subheadline.bold())
+                HStack(spacing: 6) {
+                    Text(trip.name).font(.subheadline.bold())
+                    if let ref = sharedRef {
+                        if let team = ref.teamName {
+                            badge("🏆 \(team)", tint: .yellow)
+                        } else if ref.crewCode != nil {
+                            badge("Crew trip", tint: CurrentsTheme.accent)
+                        } else {
+                            badge("Shared", tint: CurrentsTheme.accent)
+                        }
+                    }
+                }
                 Text(trip.startDate.formatted(date: .abbreviated, time: .shortened))
                     .font(.caption).foregroundStyle(.secondary)
             }
@@ -218,6 +238,14 @@ struct SessionRow: View {
                     .font(.caption2).foregroundStyle(.secondary)
             }
         }
+    }
+
+    private func badge(_ text: String, tint: Color) -> some View {
+        Text(text)
+            .font(.system(size: 9, weight: .bold))
+            .padding(.horizontal, 5).padding(.vertical, 1)
+            .background(tint.opacity(0.16), in: Capsule())
+            .foregroundStyle(.primary)
     }
 }
 

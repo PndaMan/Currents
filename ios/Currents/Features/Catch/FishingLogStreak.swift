@@ -128,6 +128,40 @@ struct BadgeDefinition: Identifiable {
         ]
     }
 
+    /// The badges computable from an angler's PUBLIC data — their profile
+    /// stats plus published catches — shown on a friend's profile. Spot,
+    /// release and forecast badges need local data, so they're omitted
+    /// rather than shown permanently locked.
+    static func computeFriend(totalCatches: Int, speciesCount: Int,
+                              bestWeightKg: Double, bestLengthCm: Double,
+                              rows: [CommunityService.LeaderRow]) -> [BadgeDefinition] {
+        let photos = rows.filter(\.hasRemotePhoto).count
+        let hours = rows.map { Calendar.current.component(.hour, from: $0.date) }
+        let night = hours.contains { $0 < 5 || $0 >= 22 }
+        let dawn = hours.contains { $0 >= 5 && $0 < 7 }
+        let months = Set(rows.map { Calendar.current.component(.month, from: $0.date) }).count
+
+        return [
+            BadgeDefinition(icon: "fish.fill", title: "First Catch", rarity: .common, earned: totalCatches >= 1),
+            BadgeDefinition(icon: "camera.fill", title: "Snap Happy", rarity: .common, earned: photos >= 3),
+            BadgeDefinition(icon: "trophy.fill", title: "10 Club", rarity: .uncommon, earned: totalCatches >= 10),
+            BadgeDefinition(icon: "leaf.fill", title: "5 Species", rarity: .uncommon, earned: speciesCount >= 5),
+            BadgeDefinition(icon: "camera.fill", title: "Photographer", rarity: .uncommon, earned: photos >= 10),
+            BadgeDefinition(icon: "star.fill", title: "50 Catches", rarity: .rare, earned: totalCatches >= 50),
+            BadgeDefinition(icon: "moon.fill", title: "Night Owl", rarity: .rare, earned: night),
+            BadgeDefinition(icon: "sun.max.fill", title: "Dawn Patrol", rarity: .rare, earned: dawn),
+            BadgeDefinition(icon: "scalemass", title: "Heavy Hitter", rarity: .rare, earned: bestWeightKg >= 5),
+            BadgeDefinition(icon: "ruler", title: "Long One", rarity: .rare, earned: bestLengthCm >= 50),
+            BadgeDefinition(icon: "leaf.fill", title: "Diversified", rarity: .rare, earned: speciesCount >= 10),
+            BadgeDefinition(icon: "crown.fill", title: "Century", rarity: .epic, earned: totalCatches >= 100),
+            BadgeDefinition(icon: "calendar.badge.checkmark", title: "Year-Round", rarity: .epic, earned: months >= 10),
+            BadgeDefinition(icon: "scalemass", title: "Monster", rarity: .epic, earned: bestWeightKg >= 15),
+            BadgeDefinition(icon: "sparkles", title: "500 Club", rarity: .legendary, earned: totalCatches >= 500),
+            BadgeDefinition(icon: "crown.fill", title: "Species Master", rarity: .legendary, earned: speciesCount >= 25),
+            BadgeDefinition(icon: "scalemass", title: "Trophy Hunter", rarity: .legendary, earned: bestWeightKg >= 30),
+        ]
+    }
+
     /// Consecutive-week fishing streak: the number of back-to-back weeks
     /// (each Mon–Sun) in which at least one catch was logged, counting back
     /// from this week. Daily streaks were effectively unreachable — you had to

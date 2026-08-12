@@ -19,7 +19,7 @@ struct FishCollectionView: View {
     @State private var caughtIds: Set<Int64> = []
     @State private var searchText = ""
     @FocusState private var searchFocused: Bool
-    @AppStorage("collectionSortMode") private var sort: SortMode = .rarest
+    @AppStorage("collectionSortMode") private var sort: SortMode = .number
     @State private var rarityFilter: SpeciesRarity?
     @State private var showCaughtOnly = false
     @State private var selected: Species?
@@ -34,7 +34,7 @@ struct FishCollectionView: View {
         case number = "Number"
         case name = "Name"
 
-        static let defaultMode: SortMode = .rarest
+        static let defaultMode: SortMode = .number
     }
 
     private let columns = [GridItem(.adaptive(minimum: 104), spacing: 12)]

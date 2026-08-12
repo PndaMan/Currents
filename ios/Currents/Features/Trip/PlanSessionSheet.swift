@@ -94,32 +94,32 @@ struct PlanSessionSheet: View {
                     Text("Drop a pin to preview the bite forecast anywhere you're thinking of fishing — it only changes the outlook below, not the session. Based on solunar feeding windows, tides, sun and moon for that spot; no internet needed.")
                 }
 
-                ForEach(outlook) { day in
+                // First days in full; the rest fold into one section of
+                // tap-to-expand rows so a two-week trip doesn't become a
+                // scroll marathon.
+                ForEach(outlook.prefix(3)) { day in
                     Section {
-                        HStack {
-                            Label("Bite score", systemImage: "gauge.with.dots.needle.67percent")
-                            Spacer()
-                            Text("\(day.peakScore)").font(.title3.bold())
-                                .foregroundStyle(scoreColor(day.peakScore))
-                            Text("/100").font(.caption).foregroundStyle(.secondary)
-                        }
-                        if day.windows.isEmpty {
-                            Text("No standout windows — fish dawn and dusk.")
-                                .font(.caption).foregroundStyle(.secondary)
-                        } else {
-                            ForEach(day.windows) { w in
+                        dayRows(day)
+                    } header: {
+                        Text(day.date.formatted(.dateTime.weekday(.wide).month().day()))
+                    }
+                }
+                if outlook.count > 3 {
+                    Section("Rest of the trip") {
+                        ForEach(outlook.dropFirst(3)) { day in
+                            DisclosureGroup {
+                                dayRows(day)
+                            } label: {
                                 HStack {
-                                    Image(systemName: w.prime ? "star.fill" : "clock")
-                                        .font(.caption).foregroundStyle(w.prime ? CurrentsTheme.accent : .secondary)
-                                    Text(w.label).font(.subheadline)
+                                    Text(day.date.formatted(.dateTime.weekday(.abbreviated).month().day()))
+                                        .font(.subheadline)
                                     Spacer()
-                                    Text(w.range).font(.subheadline.monospacedDigit())
-                                        .foregroundStyle(w.prime ? .primary : .secondary)
+                                    Text("\(day.peakScore)")
+                                        .font(.subheadline.bold().monospacedDigit())
+                                        .foregroundStyle(scoreColor(day.peakScore))
                                 }
                             }
                         }
-                    } header: {
-                        Text(day.date.formatted(.dateTime.weekday(.wide).month().day()))
                     }
                 }
 
@@ -169,7 +169,7 @@ struct PlanSessionSheet: View {
                 }
             }
             .sheet(isPresented: $showingPinPicker) {
-                LocationPickerSheet(coordinate: $forecastPin)
+                LocationPickerSheet(coordinate: $forecastPin, pinLabel: "Forecast Location")
             }
             .task {
                 if !loaded { loadEditingTrip(); loaded = true }
@@ -219,6 +219,32 @@ struct PlanSessionSheet: View {
 
     private func rangeLabel(_ start: Date, _ end: Date) -> String {
         "\(start.formatted(date: .omitted, time: .shortened))–\(end.formatted(date: .omitted, time: .shortened))"
+    }
+
+    /// One day's outlook rows: peak score + each bite window.
+    @ViewBuilder private func dayRows(_ day: DayOutlook) -> some View {
+        HStack {
+            Label("Bite score", systemImage: "gauge.with.dots.needle.67percent")
+            Spacer()
+            Text("\(day.peakScore)").font(.title3.bold())
+                .foregroundStyle(scoreColor(day.peakScore))
+            Text("/100").font(.caption).foregroundStyle(.secondary)
+        }
+        if day.windows.isEmpty {
+            Text("No standout windows — fish dawn and dusk.")
+                .font(.caption).foregroundStyle(.secondary)
+        } else {
+            ForEach(day.windows) { w in
+                HStack {
+                    Image(systemName: w.prime ? "star.fill" : "clock")
+                        .font(.caption).foregroundStyle(w.prime ? CurrentsTheme.accent : .secondary)
+                    Text(w.label).font(.subheadline)
+                    Spacer()
+                    Text(w.range).font(.subheadline.monospacedDigit())
+                        .foregroundStyle(w.prime ? .primary : .secondary)
+                }
+            }
+        }
     }
 
     private func addChecklistItem() {
