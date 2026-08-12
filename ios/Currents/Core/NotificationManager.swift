@@ -15,13 +15,17 @@ final class NotificationManager: @unchecked Sendable {
 
     // MARK: - Permission
 
+    /// The ONE place the system permission dialog can come from. Screenshot
+    /// mode must never prompt — the dialog covers the capture — so every
+    /// authorization request in the app funnels through here.
+    private func requestAuth(_ options: UNAuthorizationOptions) async -> Bool {
+        guard !ScreenshotSupport.isActive else { return false }
+        return (try? await center.requestAuthorization(options: options)) ?? false
+    }
+
     /// Request notification authorization. Returns `true` if granted.
     func requestPermission() async -> Bool {
-        do {
-            return try await center.requestAuthorization(options: [.alert, .sound, .badge])
-        } catch {
-            return false
-        }
+        await requestAuth([.alert, .sound, .badge])
     }
 
     /// Check current authorization status without prompting.
@@ -178,7 +182,7 @@ final class NotificationManager: @unchecked Sendable {
         guard let planned = trip.plannedDate else { return }
         let fire = planned.addingTimeInterval(-30 * 60)
         guard fire > .now else { return }
-        guard (try? await center.requestAuthorization(options: [.alert, .sound])) == true else { return }
+        guard await requestAuth([.alert, .sound]) else { return }
 
         let content = UNMutableNotificationContent()
         content.title = "Session soon: \(trip.name)"
@@ -200,7 +204,7 @@ final class NotificationManager: @unchecked Sendable {
         center.removePendingNotificationRequests(withIdentifiers: ["cold-streak"])
         if UserDefaults.standard.object(forKey: "coldStreakNudges") != nil,
            !UserDefaults.standard.bool(forKey: "coldStreakNudges") { return }
-        guard (try? await center.requestAuthorization(options: [.alert, .sound])) == true else { return }
+        guard await requestAuth([.alert, .sound]) else { return }
         let content = UNMutableNotificationContent()
         content.title = "Slow bite?"
         content.body = "No catches in a while — try switching lure, changing depth, or moving spots."
@@ -223,7 +227,7 @@ final class NotificationManager: @unchecked Sendable {
         center.removePendingNotificationRequests(withIdentifiers: [id])
         if UserDefaults.standard.object(forKey: "lowStockAlerts") != nil,
            !UserDefaults.standard.bool(forKey: "lowStockAlerts") { return }
-        guard (try? await center.requestAuthorization(options: [.alert, .sound])) == true else { return }
+        guard await requestAuth([.alert, .sound]) else { return }
         let content = UNMutableNotificationContent()
         let remaining = item.stock ?? 0
         content.title = remaining <= 0 ? "Out of stock: \(item.displayName)" : "Running low: \(item.displayName)"
@@ -245,7 +249,7 @@ final class NotificationManager: @unchecked Sendable {
     /// Local alert when a friend invites you to a group trip (surfaced when the
     /// app next checks for invites; see CommunityService.refreshTripInvites).
     func scheduleTripInviteAlert(fromName: String, tripName: String) async {
-        guard (try? await center.requestAuthorization(options: [.alert, .sound])) == true else { return }
+        guard await requestAuth([.alert, .sound]) else { return }
         let content = UNMutableNotificationContent()
         content.title = "Trip invite from \(fromName)"
         content.body = "Join “\(tripName)” on Currents — open the app to accept."
@@ -258,7 +262,7 @@ final class NotificationManager: @unchecked Sendable {
 
     /// Local alert when someone sends you a friend request.
     func scheduleFriendRequestAlert(fromName: String) async {
-        guard (try? await center.requestAuthorization(options: [.alert, .sound])) == true else { return }
+        guard await requestAuth([.alert, .sound]) else { return }
         let content = UNMutableNotificationContent()
         content.title = "New friend request"
         content.body = "\(fromName) wants to connect on Currents — open the app to accept."
@@ -279,7 +283,7 @@ final class NotificationManager: @unchecked Sendable {
         let ids = existing.map(\.identifier).filter { $0.hasPrefix("license-") }
         center.removePendingNotificationRequests(withIdentifiers: ids)
 
-        guard (try? await center.requestAuthorization(options: [.alert, .sound])) == true else { return }
+        guard await requestAuth([.alert, .sound]) else { return }
 
         let calendar = Calendar.current
         let offsets: [(days: Int, label: String)] = [

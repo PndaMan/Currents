@@ -2089,7 +2089,8 @@ final class CommunityService: ObservableObject {
     /// friend requests / trip invites / request-accepted as real push — instant,
     /// even when the app is closed (not "when you next open the app").
     func enablePush() async {
-        guard joined else { return }
+        // Never in screenshot mode: the permission dialog covers captures.
+        guard joined, !ScreenshotSupport.isActive else { return }
         let granted = (try? await UNUserNotificationCenter.current()
             .requestAuthorization(options: [.alert, .sound, .badge])) ?? false
         UserDefaults.standard.set(granted, forKey: "notifAuthorized")
