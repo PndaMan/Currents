@@ -8,8 +8,8 @@ struct CatchesTab: View {
     @AppStorage("catchesSortOrder") private var sortOrder: SortOrder = .recent
     @State private var filter: CatchFilter = .all
     @FocusState private var searchFocused: Bool
-    /// List (rows) or gallery (photo-first 2-up grid); the choice sticks.
-    @AppStorage("catchesLayout") private var layoutRaw = LayoutMode.list.rawValue
+    /// Gallery (photo-first 2-up grid, the default) or list; the choice sticks.
+    @AppStorage("catchesLayout") private var layoutRaw = LayoutMode.gallery.rawValue
     /// Programmatic push target for gallery cells (see the Button note there).
     @State private var openCatchId: String?
     private var layout: LayoutMode { LayoutMode(rawValue: layoutRaw) ?? .list }
