@@ -135,7 +135,7 @@ struct BadgeDefinition: Identifiable {
     static func computeFriend(totalCatches: Int, speciesCount: Int,
                               bestWeightKg: Double, bestLengthCm: Double,
                               rows: [CommunityService.LeaderRow]) -> [BadgeDefinition] {
-        let photos = rows.filter(\.hasRemotePhoto).count
+        let photos = rows.filter { $0.hasRemotePhoto || $0.localPhotoPath != nil }.count
         let hours = rows.map { Calendar.current.component(.hour, from: $0.date) }
         let night = hours.contains { $0 < 5 || $0 >= 22 }
         let dawn = hours.contains { $0 >= 5 && $0 < 7 }

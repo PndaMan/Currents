@@ -508,3 +508,26 @@ struct ProminentButtonLabelStyle: LabelStyle {
 extension LabelStyle where Self == ProminentButtonLabelStyle {
     static var prominentButton: ProminentButtonLabelStyle { ProminentButtonLabelStyle() }
 }
+
+// MARK: - Tap-to-fullscreen images
+
+/// Tap-to-fullscreen for any already-loaded image — avatars, crew banners,
+/// post photos. Tapping opens the pinch-zoomable viewer; no image, no-op.
+private struct ZoomableOnTap: ViewModifier {
+    let image: UIImage?
+    @State private var showing = false
+
+    func body(content: Content) -> some View {
+        content
+            .onTapGesture { if image != nil { Haptics.tap(); showing = true } }
+            .fullScreenCover(isPresented: $showing) {
+                if let image { FullscreenImageViewer(image: image) }
+            }
+    }
+}
+
+extension View {
+    func zoomableOnTap(_ image: UIImage?) -> some View {
+        modifier(ZoomableOnTap(image: image))
+    }
+}

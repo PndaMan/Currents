@@ -176,8 +176,12 @@ struct SeasonalCalendarView: View {
             .padding()
         }
         .navigationTitle(header == nil ? "Seasonal Calendar" : "")
-        // Pulling past the top drops focus into the inline search field, so
-        // the overscroll gesture does something instead of bouncing on air.
+        // Same system search bar as the Field Guide, so the two Fish segments
+        // read as one surface instead of two different apps.
+        .searchable(text: $searchText, prompt: "Search species")
+        .searchFocused($searchFocused)
+        // Pulling past the top opens search with the keyboard up, matching
+        // the Field Guide's pull-to-search.
         .onScrollGeometryChange(for: Bool.self) { geo in
             geo.contentOffset.y + geo.contentInsets.top < -60
         } action: { wasPulled, isPulled in
@@ -227,28 +231,20 @@ struct SeasonalCalendarView: View {
         }
     }
 
-    // MARK: - Search and Filter Bar
+    // MARK: - Filter Bar
 
+    /// Sort + habitat behind one compact menu — search lives in the system
+    /// bar now, same as the Field Guide.
     private var searchAndFilterBar: some View {
-        HStack(spacing: 8) {
-            HStack(spacing: 6) {
-                Image(systemName: "magnifyingglass")
-                    .foregroundStyle(.secondary)
-                TextField("Search species...", text: $searchText)
-                    .textFieldStyle(.plain)
-                    .focused($searchFocused)
-                if !searchText.isEmpty {
-                    Button { searchText = "" } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundStyle(.secondary)
-                    }
-                }
+        HStack {
+            if habitatFilter != nil || sortOrder != SortOrder.defaultOrder {
+                Text([habitatFilter.map { "\($0)".capitalized },
+                      sortOrder != SortOrder.defaultOrder ? sortOrder.rawValue : nil]
+                    .compactMap { $0 }.joined(separator: " · "))
+                    .font(.caption.bold())
+                    .foregroundStyle(CurrentsTheme.accent)
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
-            .background(.ultraThinMaterial)
-            .clipShape(RoundedRectangle(cornerRadius: 10))
-
+            Spacer()
             Menu {
                 Picker("Sort by", selection: $sortOrder) {
                     ForEach(SortOrder.allCases) { order in
@@ -269,8 +265,8 @@ struct SeasonalCalendarView: View {
                 }
                 .disabled(sortOrder == SortOrder.defaultOrder && habitatFilter == nil)
             } label: {
-                Image(systemName: "line.3.horizontal.decrease.circle.fill")
-                    .font(.title3)
+                Label("Filter & sort", systemImage: "line.3.horizontal.decrease.circle.fill")
+                    .font(.caption.bold())
                     .foregroundStyle(CurrentsTheme.accent)
             }
         }

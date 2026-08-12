@@ -330,9 +330,11 @@ struct CrewDetailView: View {
                 .frame(height: 140)
                 .frame(maxWidth: .infinity)
                 .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .zoomableOnTap(banner)
 
                 HStack(spacing: 12) {
                     crewIcon(size: 56)
+                        .zoomableOnTap(iconImage)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(crew?.name ?? "Crew").font(.title2.bold())
                         Text("\(members.count) member\(members.count == 1 ? "" : "s")")
@@ -1205,6 +1207,7 @@ struct CrewPostCard: View {
     private var header: some View {
         HStack(spacing: 10) {
             AnglerAvatar(image: svc.cachedProfiles(for: [post.authorCode]).first?.avatar, size: 36)
+                .zoomableOnTap(svc.cachedProfiles(for: [post.authorCode]).first?.avatar)
             VStack(alignment: .leading, spacing: 1) {
                 Text(isMine ? "You" : post.authorName).font(.subheadline.bold())
                 Text(post.caughtAt.formatted(.relative(presentation: .named)))
@@ -1239,6 +1242,7 @@ struct CrewPostCard: View {
 
     /// Full-bleed photo with the species and size on a bottom scrim, trip tag
     /// floating top-right — the catch is the hero, not a row of metadata.
+    /// Tap it to go fullscreen and zoom.
     private var photoHero: some View {
         ZStack(alignment: .bottomLeading) {
             Group {
@@ -1277,6 +1281,7 @@ struct CrewPostCard: View {
                     .padding(8)
             }
         }
+        .zoomableOnTap(photo)
     }
 
     /// Photo-less posts still get a proper hero, not a bare text line — the

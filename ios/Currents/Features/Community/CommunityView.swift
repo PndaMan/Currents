@@ -402,6 +402,7 @@ struct MyProfileView: View {
             Section {
                 VStack(spacing: 8) {
                     AnglerAvatar(image: svc.myAvatar, size: 96)
+                        .zoomableOnTap(svc.myAvatar)
                     Text(svc.myName).font(.title2.bold())
                     if !svc.myBio.isEmpty {
                         Text(svc.myBio).font(.subheadline).foregroundStyle(.secondary)
@@ -1126,6 +1127,10 @@ struct FriendProfileView: View {
     @AppStorage("units") private var units = "metric"
     private var imperial: Bool { units == "imperial" }
 
+    /// Viewing yourself (from a crew roster, facepile or leaderboard): it's
+    /// your own account, so everything shows — no grant checks against you.
+    private var isSelf: Bool { code == svc.friendCode }
+
     var body: some View {
         ScrollView {
             VStack(spacing: CurrentsTheme.paddingM) {
@@ -1142,14 +1147,16 @@ struct FriendProfileView: View {
             }
             .padding()
         }
-        .navigationTitle(profile?.name ?? "Angler")
+        .navigationTitle(isSelf ? "You" : (profile?.name ?? "Angler"))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             // Nickname + per-friend sharing live behind one control instead of
-            // stretching the profile out.
-            ToolbarItem(placement: .topBarTrailing) {
-                Button { showingSettings = true } label: { Image(systemName: "slider.horizontal.3") }
-                    .accessibilityLabel("Nickname & sharing")
+            // stretching the profile out. Meaningless on your own page.
+            if !isSelf {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { showingSettings = true } label: { Image(systemName: "slider.horizontal.3") }
+                        .accessibilityLabel("Nickname & sharing")
+                }
             }
         }
         .sensoryFeedback(.selection, trigger: override)
@@ -1158,12 +1165,22 @@ struct FriendProfileView: View {
             NavigationStack { SharedSpotDetailView(spot: s, friendName: profile?.name ?? "a friend") }
         }
         .task {
+            if profile == nil { profile = svc.cachedProfiles(for: [code]).first }
+            if isSelf {
+                // Owner sees everything: catches straight from the local log,
+                // profile from the published record (or built locally).
+                catchAccess = true
+                catches = ownLocalRows()
+                if let fresh = await svc.fetchProfile(code: code) { profile = fresh }
+                if profile == nil { profile = ownFallbackProfile() }
+                catchesLoading = false
+                return
+            }
             privacy = svc.privacy(for: code)
             override = svc.override(for: code)
             overrideLoaded = true
             // Instant: last-seen profile, grant answer and catches from disk —
             // the page fills immediately and quietly swaps in fresh data.
-            if profile == nil { profile = svc.cachedProfiles(for: [code]).first }
             catchAccess = svc.cachedCatchAccess(code)
             if catchAccess, catches.isEmpty { catches = svc.cachedAnglerCatches(code: code) }
             // Refresh: everything in parallel, not one round trip after another.
@@ -1178,6 +1195,36 @@ struct FriendProfileView: View {
         }
     }
 
+    /// Your catches, straight from the local log — newest first, photos and
+    /// species art included.
+    private func ownLocalRows() -> [CommunityService.LeaderRow] {
+        let all = (try? appState.catchRepository.fetchAll()) ?? []
+        return all.map {
+            CommunityService.LeaderRow(
+                id: "me-\($0.catchRecord.id)",
+                anglerName: svc.myName,
+                friendCode: svc.friendCode,
+                species: $0.species?.commonName ?? "Fish",
+                weightKg: $0.catchRecord.weightKg,
+                lengthCm: $0.catchRecord.lengthCm,
+                catchCount: nil,
+                region: svc.myRegion,
+                date: $0.catchRecord.caughtAt,
+                localPhotoPath: $0.catchRecord.photoPath)
+        }
+    }
+
+    /// A profile built from local data, for an owner who never published one.
+    private func ownFallbackProfile() -> CommunityService.Profile {
+        .init(id: code, name: svc.myName, bio: svc.myBio, region: svc.myRegion,
+              homeWater: svc.myHomeWater, avatar: svc.myAvatar, memberSince: .now,
+              totalCatches: catches.count,
+              speciesCount: Set(catches.map(\.species)).count,
+              bestWeightKg: catches.compactMap(\.weightKg).max() ?? 0,
+              bestLengthCm: catches.compactMap(\.lengthCm).max() ?? 0,
+              favoriteSpecies: "")
+    }
+
     // MARK: Hero
 
     private var heroCard: some View {
@@ -1187,6 +1234,7 @@ struct FriendProfileView: View {
                     .frame(width: 104, height: 104)
                 AnglerAvatar(image: profile?.avatar, size: 92)
             }
+            .zoomableOnTap(profile?.avatar)
             VStack(spacing: 3) {
                 Text(profile?.name ?? "Angler").font(.title2.bold())
                 if !privacy.nickname.isEmpty {
