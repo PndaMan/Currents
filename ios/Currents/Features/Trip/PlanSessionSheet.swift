@@ -94,30 +94,21 @@ struct PlanSessionSheet: View {
                     Text("Drop a pin to preview the bite forecast anywhere you're thinking of fishing — it only changes the outlook below, not the session. Based on solunar feeding windows, tides, sun and moon for that spot; no internet needed.")
                 }
 
-                // First days in full; the rest fold into one section of
-                // tap-to-expand rows so a two-week trip doesn't become a
-                // scroll marathon.
-                ForEach(outlook.prefix(3)) { day in
-                    Section {
-                        dayRows(day)
-                    } header: {
-                        Text(day.date.formatted(.dateTime.weekday(.wide).month().day()))
-                    }
-                }
-                if outlook.count > 3 {
-                    Section("Rest of the trip") {
-                        ForEach(outlook.dropFirst(3)) { day in
-                            DisclosureGroup {
-                                dayRows(day)
-                            } label: {
-                                HStack {
-                                    Text(day.date.formatted(.dateTime.weekday(.abbreviated).month().day()))
-                                        .font(.subheadline)
-                                    Spacer()
-                                    Text("\(day.peakScore)")
-                                        .font(.subheadline.bold().monospacedDigit())
-                                        .foregroundStyle(scoreColor(day.peakScore))
-                                }
+                // Every day collapsed to one glanceable row (date + peak
+                // score); tap to expand its windows. Adding days just adds
+                // more collapsed rows — a two-week trip stays one screen.
+                Section("Day-by-day outlook") {
+                    ForEach(outlook) { day in
+                        DisclosureGroup {
+                            dayRows(day)
+                        } label: {
+                            HStack {
+                                Text(day.date.formatted(.dateTime.weekday(.abbreviated).month().day()))
+                                    .font(.subheadline)
+                                Spacer()
+                                Text("\(day.peakScore)")
+                                    .font(.subheadline.bold().monospacedDigit())
+                                    .foregroundStyle(scoreColor(day.peakScore))
                             }
                         }
                     }
