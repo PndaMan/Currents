@@ -539,6 +539,12 @@ private struct ZoomableOnTap: ViewModifier {
             }
         } label: {
             content
+                // Clamp the tap target to the VISIBLE frame. scaledToFill
+                // images are laid out far larger than their clipped frame and
+                // .clipped() only clips drawing — without this, the button's
+                // hit area silently covered neighbouring controls (the crew
+                // chip, the author header, the ⋯ menu all opened the photo).
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .fullScreenCover(isPresented: $showing) {

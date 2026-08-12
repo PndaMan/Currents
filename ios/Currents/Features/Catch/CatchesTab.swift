@@ -131,6 +131,11 @@ struct CatchesTab: View {
                                         openCatchId = detail.catchRecord.id
                                     } label: {
                                         CatchGalleryCell(detail: detail)
+                                            // scaledToFill photos hit-test far
+                                            // beyond their clipped frame —
+                                            // without this a tall photo's cell
+                                            // covers its neighbours.
+                                            .contentShape(Rectangle())
                                     }
                                     .buttonStyle(.plain)
                                     .contextMenu {
