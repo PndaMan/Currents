@@ -132,6 +132,49 @@ jobs:
 
           ls -la "$OUT"
 
+      - name: Capture Apple Watch screenshot
+        run: |
+          WATCH_BUNDLE_ID=com.aidanmcconnon.currents.watchkitapp
+          OUT=screenshots/watch
+          mkdir -p "$OUT"
+
+          # Latest available watchOS runtime + an Ultra 2 (49mm = 410x502,
+          # accepted for every App Store watch screenshot slot).
+          WRUNTIME=$(xcrun simctl list runtimes --json | python3 -c "
+          import json, sys
+          data = json.load(sys.stdin)
+          rts = [r for r in data['runtimes'] if 'watchOS' in r.get('name','') and r.get('isAvailable', False)]
+          if rts: print(rts[-1]['identifier'])
+          ")
+          echo "watchOS runtime: $WRUNTIME"
+          WUDID=$(xcrun simctl create "Screenshot-Watch" "com.apple.CoreSimulator.SimDeviceType.Apple-Watch-Ultra-2-49mm" "$WRUNTIME")
+          xcrun simctl boot "$WUDID"
+          sleep 5
+
+          xcrun simctl status_bar "$WUDID" override --time "9:41" || true
+
+          xcodebuild build \
+            -project Currents.xcodeproj \
+            -scheme CurrentsWatch \
+            -destination "generic/platform=watchOS Simulator" \
+            -derivedDataPath DerivedData \
+            -clonedSourcePackagesDirPath .spm-cache \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            2>&1 | tail -3
+
+          WATCH_APP=$(find DerivedData -name "CurrentsWatch.app" -path "*watchsimulator*" -type d | head -1)
+          echo "Watch app: $WATCH_APP"
+          xcrun simctl install "$WUDID" "$WATCH_APP"
+
+          SIMCTL_CHILD_SCREENSHOT_MODE=1 \
+            xcrun simctl launch "$WUDID" "$WATCH_BUNDLE_ID"
+          sleep 8
+          xcrun simctl io "$WUDID" screenshot "$OUT/06_watch.png"
+          echo "Captured $OUT/06_watch.png"
+          ls -la "$OUT"
+
       - name: Collect diagnostics (crash logs + app oslog)
         if: always()
         run: |
@@ -160,6 +203,7 @@ jobs:
         run: |
           TMP=$(mktemp -d)
           cp ios/screenshots/6.9/*.png "$TMP"/ 2>/dev/null || true
+          cp ios/screenshots/watch/*.png "$TMP"/ 2>/dev/null || true
           if ! ls "$TMP"/*.png >/dev/null 2>&1; then
             echo "No screenshots to publish"; exit 0
           fi

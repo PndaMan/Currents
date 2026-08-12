@@ -34,8 +34,27 @@ final class WatchConnector: NSObject, ObservableObject, WCSessionDelegate {
     /// Selected app theme raw value (synced from phone) — tints the in-app logo.
     @Published var theme = UserDefaults.standard.string(forKey: "cx_theme") ?? "ocean"
 
+    /// App Store screenshot mode (SCREENSHOT_MODE=1): pose with a lively demo
+    /// state and never touch WatchConnectivity, so an unpaired simulator
+    /// photographs a working watch app instead of zeros and "open iPhone".
+    private static let isScreenshotMode =
+        ProcessInfo.processInfo.environment["SCREENSHOT_MODE"] == "1"
+
+    override init() {
+        super.init()
+        if Self.isScreenshotMode {
+            biteScore = 84
+            isTracking = true
+            sessionName = "Dawn Session"
+            sessionStart = Date().addingTimeInterval(-47 * 60)
+            catchCount = 3
+            reachable = true
+            recentSpecies = ["Largemouth Bass", "Dusky Kob", "Rainbow Trout"]
+        }
+    }
+
     func activate() {
-        guard WCSession.isSupported() else { return }
+        guard !Self.isScreenshotMode, WCSession.isSupported() else { return }
         WCSession.default.delegate = self
         WCSession.default.activate()
     }
@@ -56,6 +75,9 @@ final class WatchConnector: NSObject, ObservableObject, WCSessionDelegate {
     }
 
     private func send(_ action: String, extra: [String: Any] = [:], confirm: String? = nil) {
+        // Screenshot mode: the posed demo state IS the state — a real send
+        // would flip `reachable` off and stamp "open iPhone" on the capture.
+        guard !Self.isScreenshotMode else { return }
         guard WCSession.default.activationState == .activated, WCSession.default.isReachable else {
             reachable = false
             return
