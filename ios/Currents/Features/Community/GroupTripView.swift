@@ -286,7 +286,10 @@ struct GroupTripSetupView: View {
         guard !busy else { return }
         busy = true; defer { busy = false }
         let code = joinCode.uppercased().trimmingCharacters(in: .whitespaces)
-        guard let trip = await svc.joinGroupTrip(code: code) else { return }
+        guard let trip = await svc.joinGroupTrip(code: code) else {
+            ToastCenter.shared.show("Couldn't join — check the code (the trip may have ended or been deleted)", style: .error)
+            return
+        }
         ToastCenter.shared.show("Joined the trip", style: .success)
         // Give the joiner a local trip so their catches sync + they can track.
         if svc.tripId(forGroupCode: code) == nil {
@@ -325,6 +328,9 @@ struct GroupTripView: View {
     @State private var showingInvite = false
     @State private var confirmingEndForAll = false
     @State private var confirmingLeave = false
+    /// The trip's record is confirmed GONE from the server (deleted, not just
+    /// unreachable) — show the dead-end screen instead of a join form.
+    @State private var tripMissing = false
 
     private let autoJoin: Bool
     private var service: CommunityService { .shared }
@@ -334,7 +340,34 @@ struct GroupTripView: View {
             await leaveGroupAndCleanup(code: code, tripId: tripId, appState: appState)
             self.code = nil
             trip = nil; members = []; feed = []
+            tripMissing = false
         }
+    }
+
+    /// Dead-end state for a deleted session: say so plainly, stop any GPS
+    /// session still ticking against it, and offer one-tap cleanup.
+    private func tripMissingView(_ code: String) -> some View {
+        VStack(spacing: 14) {
+            ContentUnavailableView {
+                Label("This trip no longer exists", systemImage: "flag.slash")
+            } description: {
+                Text("The session was deleted — usually because its tournament was removed. Catches you logged are still in your log.")
+            }
+            Button {
+                Haptics.tap()
+                // End a local GPS session still linked to the dead trip.
+                if let localId = tripId ?? service.tripId(forGroupCode: code),
+                   appState.tripTracker.activeTrip?.id == localId {
+                    _ = appState.tripTracker.end()
+                }
+                leave(code: code)
+            } label: {
+                Label("Remove from my trips", systemImage: "trash")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent).labelStyle(.prominentButton).tint(CurrentsTheme.accent)
+        }
+        .padding(.top, 40)
     }
 
     init(tripId: String?, tripName: String, initialCode: String? = nil) {
@@ -349,6 +382,8 @@ struct GroupTripView: View {
             VStack(spacing: CurrentsTheme.paddingM) {
                 if !svc.joined {
                     joinGate
+                } else if tripMissing, let code {
+                    tripMissingView(code)
                 } else if confirming, let code {
                     confirmJoin(code)
                 } else if let code {
@@ -466,6 +501,10 @@ struct GroupTripView: View {
                     await refresh()
                 } else if trip != nil {
                     confirming = true
+                } else if await service.groupTripExists(code: c) == .missing {
+                    // Opened a link/row for a session that's been deleted —
+                    // dead-end screen, never the join form for a dead code.
+                    tripMissing = true
                 }
             } else {
                 if let c = code { ensureLinkedTrip(code: c, name: trip?.name ?? tripName) }
@@ -568,6 +607,8 @@ struct GroupTripView: View {
                             ToastCenter.shared.show("Joined the trip", style: .success)
                             code = t.id
                             await refresh()
+                        } else {
+                            ToastCenter.shared.show("Couldn't join — check the code (the trip may have ended or been deleted)", style: .error)
                         }
                         busy = false
                     }
@@ -602,10 +643,13 @@ struct GroupTripView: View {
             Button {
                 Task {
                     busy = true
-                    _ = await service.joinGroupTrip(code: code)
-                    ToastCenter.shared.show("Joined the trip", style: .success)
-                    ensureLinkedTrip(code: code, name: trip?.name ?? "Group Trip")
-                    confirming = false
+                    if await service.joinGroupTrip(code: code) != nil {
+                        ToastCenter.shared.show("Joined the trip", style: .success)
+                        ensureLinkedTrip(code: code, name: trip?.name ?? "Group Trip")
+                        confirming = false
+                    } else {
+                        ToastCenter.shared.show("Couldn't join the trip — it may have ended or been deleted", style: .error)
+                    }
                     busy = false
                     await refresh()
                 }
@@ -778,10 +822,13 @@ struct GroupTripView: View {
             Button {
                 Task {
                     busy = true
-                    _ = await service.joinGroupTrip(code: code)
-                    ensureLinkedTrip(code: code, name: trip?.name ?? tripName)
-                    Haptics.success()
-                    ToastCenter.shared.show("You're in — tight lines!", style: .success)
+                    if await service.joinGroupTrip(code: code) != nil {
+                        ensureLinkedTrip(code: code, name: trip?.name ?? tripName)
+                        Haptics.success()
+                        ToastCenter.shared.show("You're in — tight lines!", style: .success)
+                    } else {
+                        ToastCenter.shared.show("Couldn't join the trip — it may have ended or been deleted", style: .error)
+                    }
                     busy = false
                     await refresh()
                 }
@@ -1226,6 +1273,14 @@ struct GroupTripView: View {
         trip = await freshTrip
         members = await freshMembers
         feed = await freshFeed
+        // A nil trip can mean "deleted" (a Mate removed the tournament and its
+        // sessions) or just "offline" — probe before declaring it gone, and
+        // never fall back to the raw join screen for a dead code.
+        if trip == nil {
+            tripMissing = await service.groupTripExists(code: code) == .missing
+        } else {
+            tripMissing = false
+        }
         // The shared trip ended remotely (tournament closed, host ended it):
         // stop the linked local GPS session too, instead of leaving it
         // silently running until the angler notices.

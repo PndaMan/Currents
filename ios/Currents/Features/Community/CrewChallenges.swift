@@ -53,11 +53,37 @@ enum CrewChallengeEngine {
         }
     }
 
-    static func weeklyChallenges(crewCode: String,
-                                 memberCount: Int,
-                                 memberCodes: [String],
-                                 posts: [CommunityService.CrewPost],
-                                 now: Date = .now) -> [CrewChallenge] {
+    /// THE challenge of the week — one per crew, so it's a shared goal rather
+    /// than a checklist. Picked deterministically from the whole pool, so the
+    /// flavour rotates week to week and every member sees the same one.
+    static func weeklyChallenge(crewCode: String,
+                                memberCount: Int,
+                                memberCodes: [String],
+                                posts: [CommunityService.CrewPost],
+                                now: Date = .now) -> CrewChallenge? {
+        var rng = seededRNG(crewCode: crewCode, now: now)
+        let all = allChallenges(crewCode: crewCode, memberCount: memberCount,
+                                memberCodes: memberCodes, posts: posts, now: now)
+        return all.randomElement(using: &rng)
+    }
+
+    private static func seededRNG(crewCode: String, now: Date) -> SeededGenerator {
+        var cal = Calendar(identifier: .iso8601)
+        cal.timeZone = .current
+        let weekOfYear = cal.component(.weekOfYear, from: now)
+        let year = cal.component(.yearForWeekOfYear, from: now)
+        var seed: UInt64 = 5381
+        for u in "\(crewCode)-\(year)-\(weekOfYear)".unicodeScalars {
+            seed = (seed &* 33) &+ UInt64(u.value)
+        }
+        return SeededGenerator(state: seed)
+    }
+
+    private static func allChallenges(crewCode: String,
+                                      memberCount: Int,
+                                      memberCodes: [String],
+                                      posts: [CommunityService.CrewPost],
+                                      now: Date = .now) -> [CrewChallenge] {
         let members = max(1, memberCount)
         let week = currentWeek(now: now)
         let weekPosts = posts.filter { week.contains($0.caughtAt) }
@@ -146,56 +172,43 @@ enum CrewChallengeEngine {
                           target: clamp(members, 2, 10),
                           progress: weekPosts.filter { $0.weightKg != nil || $0.lengthCm != nil }.count))
 
-        let anchor = core.randomElement(using: &rng) ?? core[0]
-        let extras = pool.shuffled(using: &rng).prefix(2)
-        return [anchor] + extras
+        return core + pool
     }
 }
 
-// MARK: - Card
+// MARK: - Row
 
-/// The crew page's weekly challenges: three per week, progress bars fed by the
-/// crew's own feed, resetting every Monday.
-struct CrewChallengesCard: View {
-    let challenges: [CrewChallenge]
+/// The week's crew challenge as an ordinary list row, so it sits in the crew
+/// page's grouped sections looking like it was born there — no floating card.
+struct CrewChallengeRow: View {
+    let challenge: CrewChallenge
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Label("Weekly challenges", systemImage: "flag.checkered")
-                    .font(.headline)
-                Spacer()
-                Text(CrewChallengeEngine.weekLabel())
-                    .font(.caption2).foregroundStyle(.secondary)
+        HStack(spacing: 12) {
+            ZStack {
+                Circle()
+                    .fill(challenge.done ? Color.green.opacity(0.15)
+                                         : CurrentsTheme.accent.opacity(0.12))
+                    .frame(width: 38, height: 38)
+                Image(systemName: challenge.done ? "checkmark" : challenge.icon)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(challenge.done ? .green : CurrentsTheme.accent)
             }
-            ForEach(challenges) { challenge in
-                HStack(spacing: 12) {
-                    ZStack {
-                        Circle()
-                            .fill(challenge.done ? Color.green.opacity(0.15)
-                                                 : CurrentsTheme.accent.opacity(0.12))
-                            .frame(width: 38, height: 38)
-                        Image(systemName: challenge.done ? "checkmark" : challenge.icon)
-                            .font(.system(size: 15, weight: .semibold))
-                            .foregroundStyle(challenge.done ? .green : CurrentsTheme.accent)
-                    }
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack {
-                            Text(challenge.title).font(.subheadline.bold())
-                            Spacer()
-                            Text("\(min(challenge.progress, challenge.target))/\(challenge.target)")
-                                .font(.caption.bold().monospacedDigit())
-                                .foregroundStyle(challenge.done ? .green : .secondary)
-                        }
-                        Text(challenge.detail)
-                            .font(.caption).foregroundStyle(.secondary)
-                        ProgressView(value: challenge.fraction)
-                            .tint(challenge.done ? .green : CurrentsTheme.accent)
-                    }
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text(challenge.title).font(.subheadline.bold())
+                    Spacer()
+                    Text(challenge.done ? "Done!"
+                         : "\(min(challenge.progress, challenge.target))/\(challenge.target)")
+                        .font(.caption.bold().monospacedDigit())
+                        .foregroundStyle(challenge.done ? .green : .secondary)
                 }
+                Text(challenge.detail)
+                    .font(.caption).foregroundStyle(.secondary)
+                ProgressView(value: challenge.fraction)
+                    .tint(challenge.done ? .green : CurrentsTheme.accent)
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .glassCard()
+        .padding(.vertical, 2)
     }
 }

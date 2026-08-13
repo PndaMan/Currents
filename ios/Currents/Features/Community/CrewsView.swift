@@ -188,9 +188,9 @@ struct CrewDetailView: View {
     var body: some View {
         List {
             headerSection
+            challengesSection
             membersSection
             if let crew { tournamentsSection(crew) }
-            challengesSection
             sessionsSection
             feedSection
         }
@@ -513,18 +513,24 @@ struct CrewDetailView: View {
 
     // MARK: Live sessions
 
-    /// Three deterministic weekly challenges scaled to the crew's size, with
-    /// progress measured straight off the feed.
+    /// THE week's challenge — one shared goal, deterministic per crew+week,
+    /// scaled to the crew's size, progress measured straight off the feed.
+    @ViewBuilder
     private var challengesSection: some View {
-        Section {
-            CrewChallengesCard(challenges: CrewChallengeEngine.weeklyChallenges(
-                crewCode: code,
-                memberCount: max(members.count, 1),
-                memberCodes: members.map(\.id),
-                posts: feed))
-            .listRowSeparator(.hidden)
-            .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
-            .listRowBackground(Color.clear)
+        if let challenge = CrewChallengeEngine.weeklyChallenge(
+            crewCode: code,
+            memberCount: max(members.count, 1),
+            memberCodes: members.map(\.id),
+            posts: feed) {
+            Section {
+                CrewChallengeRow(challenge: challenge)
+            } header: {
+                HStack {
+                    Text("Weekly challenge")
+                    Spacer()
+                    Text(CrewChallengeEngine.weekLabel())
+                }
+            }
         }
     }
 

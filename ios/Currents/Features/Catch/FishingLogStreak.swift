@@ -28,6 +28,66 @@ enum BadgeRarity: Int, CaseIterable {
     }
 }
 
+/// A wearable profile title. Each achievement unlocks a title with its OWN
+/// name and emoji ("Century" unlocks "Centurion 💯") — the achievement is the
+/// provenance, shown when the worn title is tapped. Colours follow the
+/// unlocking achievement's rarity.
+struct TitleFlair: Identifiable {
+    let achievement: String   // the BadgeDefinition title that unlocks it
+    let name: String          // what's worn under the profile name
+    let emoji: String
+    let rarity: BadgeRarity
+    let icon: String          // the achievement's symbol, for the detail modal
+    var id: String { achievement }
+
+    /// The unlocking badge, for BadgeDetailView. `earned: true` because a worn
+    /// title is proof of unlock by definition.
+    var badge: BadgeDefinition {
+        BadgeDefinition(icon: icon, title: achievement, rarity: rarity, earned: true)
+    }
+
+    /// Resolve a stored profile title — matches the flair name, and falls back
+    /// to the achievement name so titles saved before the rename still render.
+    static func resolve(_ stored: String) -> TitleFlair? {
+        all.first { $0.name == stored || $0.achievement == stored }
+    }
+
+    static let all: [TitleFlair] = [
+        // Common
+        .init(achievement: "First Catch", name: "First Hook", emoji: "🪝", rarity: .common, icon: "fish.fill"),
+        .init(achievement: "Snap Happy", name: "Shutterbug", emoji: "📸", rarity: .common, icon: "camera.fill"),
+        .init(achievement: "Marked It", name: "Pathfinder", emoji: "🗺️", rarity: .common, icon: "mappin.circle.fill"),
+        .init(achievement: "Good Sport", name: "Good Sport", emoji: "🤝", rarity: .common, icon: "arrow.uturn.backward"),
+        // Uncommon
+        .init(achievement: "10 Club", name: "Rising Angler", emoji: "🎣", rarity: .uncommon, icon: "trophy.fill"),
+        .init(achievement: "5 Species", name: "Species Scout", emoji: "🔍", rarity: .uncommon, icon: "leaf.fill"),
+        .init(achievement: "Explorer", name: "Explorer", emoji: "🧭", rarity: .uncommon, icon: "globe.americas.fill"),
+        .init(achievement: "Photographer", name: "Photographer", emoji: "📷", rarity: .uncommon, icon: "camera.fill"),
+        .init(achievement: "Hot Streak", name: "On a Roll", emoji: "⚡", rarity: .uncommon, icon: "flame.fill"),
+        .init(achievement: "Conservationist", name: "Conservationist", emoji: "🌿", rarity: .uncommon, icon: "arrow.uturn.backward.circle.fill"),
+        // Rare
+        .init(achievement: "50 Catches", name: "Seasoned Angler", emoji: "🐠", rarity: .rare, icon: "star.fill"),
+        .init(achievement: "Night Owl", name: "Night Owl", emoji: "🦉", rarity: .rare, icon: "moon.fill"),
+        .init(achievement: "Dawn Patrol", name: "Early Riser", emoji: "🌅", rarity: .rare, icon: "sun.max.fill"),
+        .init(achievement: "Heavy Hitter", name: "Heavy Hitter", emoji: "💪", rarity: .rare, icon: "scalemass"),
+        .init(achievement: "Long One", name: "Longliner", emoji: "📏", rarity: .rare, icon: "ruler"),
+        .init(achievement: "Diversified", name: "Naturalist", emoji: "🐚", rarity: .rare, icon: "leaf.fill"),
+        .init(achievement: "On Fire", name: "Firebrand", emoji: "🔥", rarity: .rare, icon: "flame.fill"),
+        // Epic
+        .init(achievement: "Century", name: "Centurion", emoji: "💯", rarity: .epic, icon: "crown.fill"),
+        .init(achievement: "Nomad", name: "Nomad", emoji: "🌍", rarity: .epic, icon: "globe.americas.fill"),
+        .init(achievement: "Perfect Read", name: "Water Whisperer", emoji: "🌊", rarity: .epic, icon: "gauge.medium"),
+        .init(achievement: "Year-Round", name: "All-Season Angler", emoji: "🗓️", rarity: .epic, icon: "calendar.badge.checkmark"),
+        .init(achievement: "Monster", name: "Monster Hunter", emoji: "🦑", rarity: .epic, icon: "scalemass"),
+        .init(achievement: "Portfolio", name: "Curator", emoji: "🖼️", rarity: .epic, icon: "camera.fill"),
+        // Legendary
+        .init(achievement: "500 Club", name: "Old Salt", emoji: "🐋", rarity: .legendary, icon: "sparkles"),
+        .init(achievement: "Species Master", name: "Master of Species", emoji: "🐡", rarity: .legendary, icon: "crown.fill"),
+        .init(achievement: "Unstoppable", name: "Unstoppable", emoji: "🚀", rarity: .legendary, icon: "flame.fill"),
+        .init(achievement: "Trophy Hunter", name: "Trophy Hunter", emoji: "🏆", rarity: .legendary, icon: "scalemass"),
+    ]
+}
+
 struct BadgeDefinition: Identifiable {
     let icon: String
     let title: String

@@ -546,17 +546,41 @@ struct MyProfileView: View {
     }
 }
 
-/// The achievement-title flair worn under an angler's name: small, golden,
-/// unmistakably a trophy.
+/// The title flair worn under an angler's name: its own emoji, tinted by the
+/// unlocking achievement's rarity (grey common → gold legendary). Tapping it
+/// opens the achievement that earned it.
 struct TitleFlairChip: View {
     let title: String
+    @State private var showingBadge = false
+
+    private var flair: TitleFlair? { TitleFlair.resolve(title) }
+    private var tint: Color { flair?.rarity.color ?? .gray }
+
     var body: some View {
-        Label(title, systemImage: "trophy.fill")
-            .font(.caption2.weight(.bold))
-            .padding(.horizontal, 9).padding(.vertical, 3)
-            .background(Color.yellow.opacity(0.15), in: Capsule())
-            .overlay(Capsule().strokeBorder(Color.yellow.opacity(0.4), lineWidth: 1))
-            .foregroundStyle(Color.orange)
+        Button {
+            guard flair != nil else { return }
+            Haptics.tap()
+            showingBadge = true
+        } label: {
+            HStack(spacing: 5) {
+                Text(flair?.emoji ?? "🏅")
+                    .font(.system(size: 12))
+                Text(flair?.name ?? title)
+                    .font(.caption.weight(.bold))
+            }
+            .padding(.horizontal, 13).padding(.vertical, 5)
+            .background(tint.opacity(0.14), in: Capsule())
+            .overlay(Capsule().strokeBorder(tint.opacity(0.45), lineWidth: 1))
+            .foregroundStyle(tint)
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .sheet(isPresented: $showingBadge) {
+            if let flair {
+                BadgeDetailView(badge: flair.badge)
+                    .presentationDetents([.medium]).presentationDragIndicator(.visible)
+            }
+        }
     }
 }
 
@@ -1122,7 +1146,8 @@ struct ProfileEditView: View {
     @State private var homeWater = ""
     @State private var region = ""
     @State private var title = ""
-    @State private var earnedTitles: [String] = []
+    @State private var earnedFlairs: [TitleFlair] = []
+    @State private var showingTitlePicker = false
     @State private var avatarItem: PhotosPickerItem?
     @State private var avatar: UIImage?
     @State private var saving = false
@@ -1150,19 +1175,32 @@ struct ProfileEditView: View {
                     TextField("Region", text: $region)
                 }
                 Section {
-                    Picker("Title", selection: $title) {
-                        Text("None").tag("")
-                        ForEach(earnedTitles, id: \.self) { t in
-                            Label(t, systemImage: "trophy.fill").tag(t)
+                    Button {
+                        showingTitlePicker = true
+                    } label: {
+                        HStack {
+                            Text("Title").foregroundStyle(.primary)
+                            Spacer()
+                            if let flair = TitleFlair.resolve(title) {
+                                HStack(spacing: 4) {
+                                    Text(flair.emoji).font(.caption)
+                                    Text(flair.name).font(.subheadline.bold())
+                                        .foregroundStyle(flair.rarity.color)
+                                }
+                            } else {
+                                Text("None").foregroundStyle(.secondary)
+                            }
+                            Image(systemName: "chevron.right")
+                                .font(.caption).foregroundStyle(.tertiary)
                         }
                     }
-                    .pickerStyle(.menu)
+                    .disabled(earnedFlairs.isEmpty)
                 } header: {
                     Text("Title flair")
                 } footer: {
-                    Text(earnedTitles.isEmpty
+                    Text(earnedFlairs.isEmpty
                          ? "Earn achievements to unlock titles you can wear under your name."
-                         : "Worn under your name on your profile — pick any achievement you've earned.")
+                         : "Worn under your name on your profile — each unlocked by an achievement you've earned.")
                 }
                 Section("Your stats (auto)") {
                     LabeledContent("Catches", value: "\(stats.totalCatches)")
@@ -1187,13 +1225,21 @@ struct ProfileEditView: View {
                 // Titles you can wear = achievements you've actually earned.
                 let all = (try? appState.catchRepository.fetchAll(limit: 2000)) ?? []
                 let streak = BadgeDefinition.streakWeeks(from: all)
-                earnedTitles = BadgeDefinition.compute(from: all, streakWeeks: streak)
-                    .filter(\.earned)
+                let earnedAchievements = Set(
+                    BadgeDefinition.compute(from: all, streakWeeks: streak)
+                        .filter(\.earned).map(\.title))
+                earnedFlairs = TitleFlair.all
+                    .filter { earnedAchievements.contains($0.achievement) }
                     .sorted { $0.rarity.rawValue > $1.rarity.rawValue }
-                    .map(\.title)
                 // Keep a previously-picked title selectable even if the log
                 // changed underneath it (e.g. catches deleted).
-                if !title.isEmpty, !earnedTitles.contains(title) { earnedTitles.append(title) }
+                if let current = TitleFlair.resolve(title),
+                   !earnedFlairs.contains(where: { $0.id == current.id }) {
+                    earnedFlairs.append(current)
+                }
+            }
+            .sheet(isPresented: $showingTitlePicker) {
+                TitleFlairPickerSheet(selection: $title, flairs: earnedFlairs)
             }
             .onChange(of: avatarItem) { _, item in
                 Task {
@@ -1213,6 +1259,84 @@ struct ProfileEditView: View {
             ToastCenter.shared.show("Profile updated", style: .success)
             dismiss()
         }
+    }
+}
+
+/// Pick the title you wear: every unlocked title with its emoji, rarity colour
+/// and the achievement that earned it — not a wall of identical trophies.
+struct TitleFlairPickerSheet: View {
+    @Binding var selection: String
+    let flairs: [TitleFlair]
+    @Environment(\.dismiss) private var dismiss
+
+    private var selected: TitleFlair? { TitleFlair.resolve(selection) }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    Button {
+                        Haptics.selection()
+                        selection = ""
+                        dismiss()
+                    } label: {
+                        HStack {
+                            Text("No title").foregroundStyle(.primary)
+                            Spacer()
+                            if selected == nil {
+                                Image(systemName: "checkmark")
+                                    .fontWeight(.semibold)
+                                    .foregroundStyle(CurrentsTheme.accent)
+                            }
+                        }
+                    }
+                }
+                Section("Unlocked titles") {
+                    ForEach(flairs) { flair in
+                        Button {
+                            Haptics.selection()
+                            selection = flair.name
+                            dismiss()
+                        } label: {
+                            HStack(spacing: 12) {
+                                ZStack {
+                                    Circle()
+                                        .fill(flair.rarity.color.opacity(0.15))
+                                        .frame(width: 38, height: 38)
+                                    Text(flair.emoji).font(.system(size: 17))
+                                }
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(flair.name)
+                                        .font(.subheadline.bold())
+                                        .foregroundStyle(flair.rarity.color)
+                                    HStack(spacing: 4) {
+                                        Text(flair.rarity.label.uppercased())
+                                            .font(.system(size: 9, weight: .heavy))
+                                            .foregroundStyle(flair.rarity.color)
+                                        Text("· Unlocked by \(flair.achievement)")
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                                Spacer()
+                                if selected?.id == flair.id {
+                                    Image(systemName: "checkmark")
+                                        .fontWeight(.semibold)
+                                        .foregroundStyle(CurrentsTheme.accent)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Title")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Done") { dismiss() } }
+            }
+        }
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
     }
 }
 

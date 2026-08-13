@@ -151,6 +151,8 @@ struct TournamentView: View {
     @State private var creatingTeam = false
     @State private var shareImage: UIImage?
     @State private var showingShare = false
+    @State private var confirmingDelete = false
+    @Environment(\.dismiss) private var dismiss
 
     init(tournament: CommunityService.Tournament, crew: CommunityService.Crew) {
         self.crew = crew
@@ -176,6 +178,15 @@ struct TournamentView: View {
                         showingEnd = true
                     } label: {
                         Label("End tournament", systemImage: "flag.checkered")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                }
+                if svc.myRole(in: crew).canManage {
+                    Button(role: .destructive) {
+                        confirmingDelete = true
+                    } label: {
+                        Label("Delete tournament", systemImage: "trash")
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.bordered)
@@ -207,6 +218,23 @@ struct TournamentView: View {
                                 caption: TournamentShareCard.caption(tournament: tournament,
                                                                      standings: standings))
             }
+        }
+        .confirmationDialog("Delete this tournament?", isPresented: $confirmingDelete,
+                            titleVisibility: .visible) {
+            Button("Delete", role: .destructive) {
+                Task {
+                    if await svc.deleteTournament(tournament, crew: crew) {
+                        Haptics.warning()
+                        TournamentActivityManager.shared.end()
+                        ToastCenter.shared.show("Tournament deleted", style: .info, haptic: false)
+                        dismiss()
+                    } else {
+                        ToastCenter.shared.show("Couldn't delete the tournament", style: .error)
+                    }
+                }
+            }
+        } message: {
+            Text("The tournament disappears for the whole crew and its history. Team sessions end, but everyone keeps their logged catches.")
         }
         .sheet(isPresented: $showingInfo) { infoSheet }
         .sheet(isPresented: $showingEnd) {
@@ -244,6 +272,12 @@ struct TournamentView: View {
         async let members = svc.crewMembers(code: crew.code)
         if let fresh = await freshTournament, fresh.id == tournament.id {
             tournament = fresh
+        } else if await svc.tournamentExists(code: tournament.id) == .missing {
+            // Deleted under us (a Mate removed it) — don't keep polling a ghost.
+            TournamentActivityManager.shared.end()
+            ToastCenter.shared.show("This tournament was deleted", style: .info)
+            dismiss()
+            return
         }
         crewMembers = await members
         standings = await svc.teamStandings(tournament: tournament)
@@ -715,6 +749,9 @@ struct TournamentHistoryView: View {
     @StateObject private var svc = CommunityService.shared
     @State private var list: [CommunityService.Tournament] = []
     @State private var loading = true
+    @State private var tournamentToDelete: CommunityService.Tournament?
+
+    private var canManage: Bool { svc.myRole(in: crew).canManage }
 
     var body: some View {
         List {
@@ -737,10 +774,39 @@ struct TournamentHistoryView: View {
                 } label: {
                     row(t)
                 }
+                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                    if canManage {
+                        Button(role: .destructive) {
+                            tournamentToDelete = t
+                        } label: {
+                            Label("Delete", systemImage: "trash")
+                        }
+                    }
+                }
             }
         }
         .navigationTitle("Tournaments")
         .navigationBarTitleDisplayMode(.inline)
+        .confirmationDialog("Delete this tournament?",
+                            isPresented: Binding(get: { tournamentToDelete != nil },
+                                                 set: { if !$0 { tournamentToDelete = nil } }),
+                            titleVisibility: .visible) {
+            Button("Delete", role: .destructive) {
+                guard let t = tournamentToDelete else { return }
+                tournamentToDelete = nil
+                Task {
+                    if await svc.deleteTournament(t, crew: crew) {
+                        Haptics.warning()
+                        list.removeAll { $0.id == t.id }
+                        ToastCenter.shared.show("Tournament deleted", style: .info, haptic: false)
+                    } else {
+                        ToastCenter.shared.show("Couldn't delete the tournament", style: .error)
+                    }
+                }
+            }
+        } message: {
+            Text("It disappears for the whole crew and its history. Everyone keeps their logged catches.")
+        }
         .task {
             list = await svc.tournaments(crewCode: crew.code)
             loading = false

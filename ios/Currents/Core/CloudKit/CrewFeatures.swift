@@ -379,6 +379,10 @@ enum CommunityDiskCache {
         try? data.write(to: dir.appendingPathComponent("\(key).json"))
         touch(key: key)
     }
+    static func delete(key: String) {
+        try? FileManager.default.removeItem(at: dir.appendingPathComponent("\(key).json"))
+        UserDefaults.standard.removeObject(forKey: "cdc-\(key)")
+    }
     static func load<T: Decodable>(_ type: T.Type, key: String) -> T? {
         guard let data = try? Data(contentsOf: dir.appendingPathComponent("\(key).json")) else { return nil }
         return try? JSONDecoder().decode(type, from: data)
@@ -688,6 +692,64 @@ extension CommunityService {
                        endedAt: .now, winnerTeam: winnerTeam),
             key: "tournament-\(tournament.crewCode)")
         return true
+    }
+
+    /// Captain/Mates only: delete a tournament outright. The record and its
+    /// cached copies go; any team sessions still running are ENDED (not
+    /// deleted) so members keep their local trip history.
+    func deleteTournament(_ tournament: Tournament, crew: Crew) async -> Bool {
+        guard myRole(in: crew).canManage else { return false }
+        let id = CKRecord.ID(recordName: "tournament-\(tournament.id)")
+        do {
+            _ = try await db.deleteRecord(withID: id)
+        } catch let e as CKError where e.code == .unknownItem {
+            // Already gone (someone else deleted it) — cleaning caches below
+            // is still the right thing to do.
+        } catch {
+            return false
+        }
+        let q = CKQuery(recordType: groupTripType,
+                        predicate: NSPredicate(format: "tournamentCode == %@", tournament.id))
+        if let res = try? await db.records(matching: q, resultsLimit: 50) {
+            for (_, rr) in res.matchResults {
+                if let rec = try? rr.get(), rec["endedAt"] == nil {
+                    rec["endedAt"] = Date() as CKRecordValue
+                    _ = try? await db.save(rec)
+                }
+            }
+        }
+        // Purge caches so the crew page can't resurrect it.
+        CommunityDiskCache.delete(key: "tournament-\(tournament.crewCode)")
+        var history = CommunityDiskCache.load([Tournament].self,
+                                              key: "tournaments-\(tournament.crewCode)") ?? []
+        history.removeAll { $0.id == tournament.id }
+        CommunityDiskCache.save(history, key: "tournaments-\(tournament.crewCode)")
+        return true
+    }
+
+    /// Does this tournament's record still exist? Distinguishes "deleted"
+    /// from "can't reach the server" so callers don't misreport offline as
+    /// deleted.
+    func tournamentExists(code: String) async -> RecordProbe {
+        await probeRecord(name: "tournament-\(code)")
+    }
+
+    /// Same probe for a group trip / team session.
+    func groupTripExists(code: String) async -> RecordProbe {
+        await probeRecord(name: "grouptrip-\(code)")
+    }
+
+    enum RecordProbe { case exists, missing, unreachable }
+
+    private func probeRecord(name: String) async -> RecordProbe {
+        do {
+            _ = try await db.record(for: CKRecord.ID(recordName: name))
+            return .exists
+        } catch let e as CKError where e.code == .unknownItem {
+            return .missing
+        } catch {
+            return .unreachable
+        }
     }
 
     /// All live, NON-tournament sessions in a crew — multiple can run at once;
