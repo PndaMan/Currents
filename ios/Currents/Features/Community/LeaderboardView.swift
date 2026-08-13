@@ -135,11 +135,12 @@ struct LeaderboardView: View {
                         .shadow(color: .yellow.opacity(0.6), radius: 6)
                 }
                 ZStack(alignment: .bottom) {
-                    Circle()
-                        .stroke(ring, lineWidth: rank == 1 ? 3.5 : 2.5)
-                        .frame(width: size + 8, height: size + 8)
-                        .shadow(color: ring.opacity(0.45), radius: rank == 1 ? 10 : 5)
+                    // Ring drawn ON the avatar's edge (not a larger circle
+                    // behind it) so the photo fills flush to the ring with no
+                    // background gap showing through.
                     AnglerAvatar(image: avatars[row.friendCode], size: size)
+                        .overlay(Circle().strokeBorder(ring, lineWidth: rank == 1 ? 3.5 : 2.5))
+                        .shadow(color: ring.opacity(0.45), radius: rank == 1 ? 10 : 5)
                     Text(rank == 1 ? "🥇" : rank == 2 ? "🥈" : "🥉")
                         .font(.system(size: rank == 1 ? 22 : 17))
                         .offset(y: 10)

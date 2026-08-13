@@ -75,6 +75,62 @@ struct CatchesTab: View {
         return result
     }
 
+    /// Stats + streak + filter chips, shared by the list and gallery layouts.
+    @ViewBuilder
+    private var headerBlocks: some View {
+        CatchStatsHeader(catches: catches)
+
+        if BadgeDefinition.streakWeeks(from: catches) > 0 {
+            FishingStreakView(catches: catches)
+                .padding(.horizontal)
+        }
+
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(CatchFilter.allCases, id: \.self) { f in
+                    FilterChip(title: f.rawValue, isSelected: filter == f) {
+                        withAnimation(.easeInOut(duration: 0.15)) {
+                            filter = f
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal)
+            .padding(.vertical, 4)
+        }
+    }
+
+    /// One gallery cell: tap opens the catch (Button + programmatic push, not
+    /// NavigationLink — see the layout notes), long-press for favourite/delete.
+    private func galleryCell(_ detail: CatchDetail) -> some View {
+        Button {
+            openCatchId = detail.catchRecord.id
+        } label: {
+            CatchGalleryCell(detail: detail)
+                // scaledToFill photos hit-test far beyond their clipped
+                // frame — without this a tall photo's cell covers its
+                // neighbours.
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .contextMenu {
+            Button {
+                toggleFavourite(detail)
+            } label: {
+                Label(detail.catchRecord.isFavorite ? "Unfavourite" : "Favourite",
+                      systemImage: detail.catchRecord.isFavorite ? "star.slash.fill" : "star.fill")
+            }
+            Button(role: .destructive) {
+                catchToDelete = detail
+            } label: {
+                Label("Delete", systemImage: "trash")
+            }
+        } preview: {
+            CatchGalleryCell(detail: detail)
+                .frame(width: 250, height: 208)
+        }
+    }
+
     var body: some View {
         NavigationStack {
             Group {
@@ -84,90 +140,42 @@ struct CatchesTab: View {
                         systemImage: "fish.fill",
                         description: Text("Tap + to log your first catch")
                     )
-                } else {
-                    List {
-                        // Stats header
-                        CatchStatsHeader(catches: catches)
-                            .listRowBackground(Color.clear)
-                            .listRowInsets(EdgeInsets())
-
-                        // Streak (only shown when active)
-                        if BadgeDefinition.streakWeeks(from: catches) > 0 {
-                            FishingStreakView(catches: catches)
-                                .listRowBackground(Color.clear)
-                                .listRowInsets(EdgeInsets())
-                                .padding(.horizontal)
-                        }
-
-                        // Filter chips
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: 8) {
-                                ForEach(CatchFilter.allCases, id: \.self) { f in
-                                    FilterChip(title: f.rawValue, isSelected: filter == f) {
-                                        withAnimation(.easeInOut(duration: 0.15)) {
-                                            filter = f
-                                        }
-                                    }
-                                }
-                            }
-                            .padding(.horizontal)
-                            .padding(.vertical, 4)
-                        }
-                        .listRowBackground(Color.clear)
-                        .listRowInsets(EdgeInsets())
-                        .listRowSeparator(.hidden)
-
-                        if layout == .gallery {
-                            // Photo-first 2-up gallery: the image IS the cell,
-                            // info on a scrim. Long-press for favourite/delete
-                            // (grids have no swipe actions).
+                } else if layout == .gallery {
+                    // The gallery lives in a SCROLLVIEW, not a List: inside a
+                    // List the whole grid is one row, so every long-press
+                    // targeted the row — lifting the full grid and always
+                    // opening the FIRST cell's menu. In a ScrollView each cell
+                    // owns its own context menu.
+                    ScrollView {
+                        LazyVStack(spacing: 0) {
+                            headerBlocks
                             LazyVGrid(columns: [GridItem(.flexible(), spacing: 10),
                                                 GridItem(.flexible(), spacing: 10)],
                                       spacing: 10) {
                                 ForEach(filteredCatches, id: \.catchRecord.id) { detail in
-                                    // Buttons + programmatic push, NOT
-                                    // NavigationLinks: a List fires every
-                                    // link in a row at once (one tap pushed
-                                    // a whole stack of catches) and pins a
-                                    // chevron on each.
-                                    Button {
-                                        openCatchId = detail.catchRecord.id
-                                    } label: {
-                                        CatchGalleryCell(detail: detail)
-                                            // scaledToFill photos hit-test far
-                                            // beyond their clipped frame —
-                                            // without this a tall photo's cell
-                                            // covers its neighbours.
-                                            .contentShape(Rectangle())
-                                    }
-                                    .buttonStyle(.plain)
-                                    .contextMenu {
-                                        Button {
-                                            toggleFavourite(detail)
-                                        } label: {
-                                            Label(detail.catchRecord.isFavorite ? "Unfavourite" : "Favourite",
-                                                  systemImage: detail.catchRecord.isFavorite ? "star.slash.fill" : "star.fill")
-                                        }
-                                        Button(role: .destructive) {
-                                            catchToDelete = detail
-                                        } label: {
-                                            Label("Delete", systemImage: "trash")
-                                        }
-                                    } preview: {
-                                        // Without an explicit preview the
-                                        // lift snapshots the whole LIST ROW —
-                                        // and the entire grid is one row, so a
-                                        // long-press hoisted every catch at
-                                        // once. Preview just the pressed cell.
-                                        CatchGalleryCell(detail: detail)
-                                            .frame(width: 250, height: 208)
-                                    }
+                                    galleryCell(detail)
                                 }
                             }
+                            .padding(.horizontal)
+                            .padding(.top, 5)
+                            if filteredCatches.isEmpty {
+                                ContentUnavailableView(
+                                    "Nothing matches",
+                                    systemImage: "line.3.horizontal.decrease.circle",
+                                    description: Text("Try a different search or filter.")
+                                )
+                                .padding(.top, 30)
+                            }
+                        }
+                        .padding(.bottom, 24)
+                    }
+                } else {
+                    List {
+                        headerBlocks
                             .listRowBackground(Color.clear)
+                            .listRowInsets(EdgeInsets())
                             .listRowSeparator(.hidden)
-                            .listRowInsets(EdgeInsets(top: 5, leading: 16, bottom: 5, trailing: 16))
-                        } else {
+
                             ForEach(filteredCatches, id: \.catchRecord.id) { detail in
                                 ZStack {
                                     // Invisible NavigationLink so the row keeps
@@ -197,7 +205,6 @@ struct CatchesTab: View {
                                     .tint(.yellow)
                                 }
                             }
-                        }
 
                         if filteredCatches.isEmpty {
                             ContentUnavailableView(
@@ -210,18 +217,19 @@ struct CatchesTab: View {
                         }
                     }
                     .listStyle(.plain)
-                    .searchable(text: $searchText, prompt: "Search catches")
-                    .searchFocused($searchFocused)
-                    // Pull-to-refresh is gone (the list reloads itself); the
-                    // pull-down gesture now opens search with the keyboard up.
-                    .onScrollGeometryChange(for: Bool.self) { geo in
-                        geo.contentOffset.y + geo.contentInsets.top < -60
-                    } action: { wasPulled, isPulled in
-                        if isPulled, !wasPulled, !searchFocused {
-                            Haptics.tap()
-                            searchFocused = true
-                        }
-                    }
+                }
+            }
+            // Shared across both layouts (List and the gallery ScrollView).
+            .searchable(text: $searchText, prompt: "Search catches")
+            .searchFocused($searchFocused)
+            // Pull-to-refresh is gone (the list reloads itself); the
+            // pull-down gesture now opens search with the keyboard up.
+            .onScrollGeometryChange(for: Bool.self) { geo in
+                geo.contentOffset.y + geo.contentInsets.top < -60
+            } action: { wasPulled, isPulled in
+                if isPulled, !wasPulled, !searchFocused {
+                    Haptics.tap()
+                    searchFocused = true
                 }
             }
             .smartSwipe(.catches)
