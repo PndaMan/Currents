@@ -1245,7 +1245,16 @@ struct CrewPostCard: View {
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
         }
-        .onChange(of: post.reactions) { _, _ in localReactions = nil }
+        .onChange(of: post.reactions) { _, server in
+            // Only hand back to server truth once it AGREES with the optimistic
+            // state about MY reaction. CloudKit's query index lags a few
+            // seconds behind the write — dropping the local state on the first
+            // reload made your own reaction vanish and then pop back.
+            guard let local = localReactions else { return }
+            let mineLocal = local.first { $0.reactorCode == svc.friendCode }?.emoji
+            let mineServer = server.first { $0.reactorCode == svc.friendCode }?.emoji
+            if mineLocal == mineServer { localReactions = nil }
+        }
         .alert("Caption", isPresented: $editingCaption) {
             TextField("Say something…", text: $captionDraft)
             Button("Save") {
@@ -1512,8 +1521,23 @@ struct CrewCommentsSheet: View {
     @State private var draft = ""
     @State private var sending = false
     @FocusState private var composerFocused: Bool
+    /// Composer modes: replying attaches to a thread; editing rewrites in place.
+    @State private var replyingTo: CommunityService.CrewComment?
+    @State private var editing: CommunityService.CrewComment?
 
     private var canModerate: Bool { crew.map { svc.myRole(in: $0).canModerate } ?? false }
+
+    /// Top-level comments with their replies, conversation-ordered. Replies
+    /// whose parent was deleted are promoted to top level rather than lost.
+    private var threads: [(parent: CommunityService.CrewComment, replies: [CommunityService.CrewComment])] {
+        let parentIds = Set(comments.filter { $0.replyToId == nil }.map(\.id))
+        let byParent = Dictionary(grouping: comments.filter {
+            $0.replyToId != nil && parentIds.contains($0.replyToId!)
+        }, by: { $0.replyToId! })
+        return comments
+            .filter { $0.replyToId == nil || !parentIds.contains($0.replyToId!) }
+            .map { ($0, byParent[$0.id] ?? []) }
+    }
 
     var body: some View {
         NavigationStack {
@@ -1536,11 +1560,17 @@ struct CrewCommentsSheet: View {
                 } else {
                     ScrollViewReader { proxy in
                         List {
-                            ForEach(comments) { comment in
-                                commentRow(comment)
-                                    .id(comment.id)
+                            ForEach(threads, id: \.parent.id) { thread in
+                                commentRow(thread.parent, isReply: false)
+                                    .id(thread.parent.id)
                                     .listRowSeparator(.hidden)
-                                    .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
+                                    .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 2, trailing: 16))
+                                ForEach(thread.replies) { reply in
+                                    commentRow(reply, isReply: true)
+                                        .id(reply.id)
+                                        .listRowSeparator(.hidden)
+                                        .listRowInsets(EdgeInsets(top: 2, leading: 44, bottom: 2, trailing: 16))
+                                }
                             }
                         }
                         .listStyle(.plain)
@@ -1566,57 +1596,122 @@ struct CrewCommentsSheet: View {
         }
     }
 
-    private func commentRow(_ comment: CommunityService.CrewComment) -> some View {
+    private func commentRow(_ comment: CommunityService.CrewComment, isReply: Bool) -> some View {
         let mine = comment.authorCode == svc.friendCode
         return HStack(alignment: .top, spacing: 10) {
-            AnglerAvatar(image: svc.cachedProfiles(for: [comment.authorCode]).first?.avatar, size: 30)
+            AnglerAvatar(image: svc.cachedProfiles(for: [comment.authorCode]).first?.avatar,
+                         size: isReply ? 24 : 30)
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
                     Text(mine ? "You" : comment.authorName)
                         .font(.caption.bold())
                     Text(comment.createdAt.formatted(.relative(presentation: .named)))
                         .font(.caption2).foregroundStyle(.tertiary)
+                    if comment.editedAt != nil {
+                        Text("(Edited)")
+                            .font(.caption2).foregroundStyle(.tertiary)
+                    }
                 }
                 Text(comment.text).font(.subheadline)
+                // Reply sits UNDER the comment, always visible — no hidden
+                // gestures to discover.
+                Button {
+                    Haptics.tap()
+                    editing = nil
+                    replyingTo = comment
+                    composerFocused = true
+                } label: {
+                    Text("Reply")
+                        .font(.caption.bold())
+                        .foregroundStyle(CurrentsTheme.accent)
+                }
+                .buttonStyle(.plain)
+                .padding(.top, 1)
             }
             Spacer(minLength: 0)
-        }
-        .contextMenu {
+            // The visible "you can act on this" affordance: edit your own,
+            // delete your own or (as a moderator) anyone's.
             if mine || canModerate {
-                Button(role: .destructive) { delete(comment) } label: {
-                    Label("Delete comment", systemImage: "trash")
-                }
-            }
-        }
-        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-            if mine || canModerate {
-                Button(role: .destructive) { delete(comment) } label: {
-                    Label("Delete", systemImage: "trash")
+                Menu {
+                    if mine {
+                        Button {
+                            replyingTo = nil
+                            editing = comment
+                            draft = comment.text
+                            composerFocused = true
+                        } label: {
+                            Label("Edit", systemImage: "pencil")
+                        }
+                    }
+                    Button(role: .destructive) { delete(comment) } label: {
+                        Label("Delete", systemImage: "trash")
+                    }
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .frame(width: 26, height: 26)
+                        .contentShape(Rectangle())
                 }
             }
         }
     }
 
     private var composer: some View {
-        HStack(spacing: 10) {
-            TextField("Add a comment…", text: $draft, axis: .vertical)
-                .lineLimit(1...4)
-                .focused($composerFocused)
-                .padding(.horizontal, 14).padding(.vertical, 9)
-                .background(.gray.opacity(0.12), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-            Button {
-                send()
-            } label: {
-                Image(systemName: "arrow.up.circle.fill")
-                    .font(.system(size: 30))
-                    .foregroundStyle(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                                     ? AnyShapeStyle(.tertiary) : AnyShapeStyle(CurrentsTheme.accent))
+        VStack(spacing: 0) {
+            // Mode banner: who you're replying to / that you're editing, with
+            // an escape hatch.
+            if replyingTo != nil || editing != nil {
+                HStack(spacing: 6) {
+                    Image(systemName: editing != nil ? "pencil" : "arrowshape.turn.up.left.fill")
+                        .font(.caption2)
+                    if let replyingTo {
+                        Text("Replying to \(replyingTo.authorCode == svc.friendCode ? "yourself" : replyingTo.authorName)")
+                            .font(.caption)
+                    } else if editing != nil {
+                        Text("Editing your comment").font(.caption)
+                    }
+                    Spacer()
+                    Button {
+                        cancelComposerMode()
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.subheadline)
+                            .foregroundStyle(.tertiary)
+                    }
+                    .buttonStyle(.plain)
+                }
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 16).padding(.top, 8)
             }
-            .buttonStyle(.plain)
-            .disabled(sending || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            HStack(spacing: 10) {
+                TextField(editing != nil ? "Edit your comment…"
+                          : replyingTo != nil ? "Write a reply…" : "Add a comment…",
+                          text: $draft, axis: .vertical)
+                    .lineLimit(1...4)
+                    .focused($composerFocused)
+                    .padding(.horizontal, 14).padding(.vertical, 9)
+                    .background(.gray.opacity(0.12), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                Button {
+                    send()
+                } label: {
+                    Image(systemName: editing != nil ? "checkmark.circle.fill" : "arrow.up.circle.fill")
+                        .font(.system(size: 30))
+                        .foregroundStyle(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                                         ? AnyShapeStyle(.tertiary) : AnyShapeStyle(CurrentsTheme.accent))
+                }
+                .buttonStyle(.plain)
+                .disabled(sending || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+            .padding(.horizontal, 16).padding(.vertical, 10)
         }
-        .padding(.horizontal, 16).padding(.vertical, 10)
         .background(.ultraThinMaterial)
+    }
+
+    private func cancelComposerMode() {
+        if editing != nil { draft = "" }
+        replyingTo = nil
+        editing = nil
     }
 
     private func send() {
@@ -1624,12 +1719,32 @@ struct CrewCommentsSheet: View {
         draft = ""
         sending = true
         Haptics.tap()
+        if let editing {
+            let target = editing
+            self.editing = nil
+            Task {
+                if let updated = await svc.editComment(target, text: text) {
+                    if let i = comments.firstIndex(where: { $0.id == updated.id }) {
+                        comments[i] = updated
+                    }
+                } else {
+                    draft = text
+                    self.editing = target
+                    ToastCenter.shared.show("Couldn't save the edit", style: .error)
+                }
+                sending = false
+            }
+            return
+        }
+        let parent = replyingTo
+        replyingTo = nil
         Task {
-            if let added = await svc.addComment(text, post: post) {
+            if let added = await svc.addComment(text, post: post, replyTo: parent) {
                 comments.append(added)
                 onCountChange(comments.count)
             } else {
                 draft = text     // give the words back rather than losing them
+                replyingTo = parent
                 ToastCenter.shared.show("Couldn't post the comment", style: .error)
             }
             sending = false
@@ -1640,6 +1755,8 @@ struct CrewCommentsSheet: View {
         Task {
             if await svc.deleteComment(comment, in: crew) {
                 Haptics.warning()
+                // A deleted parent's replies get promoted by `threads`, so
+                // nothing vanishes silently.
                 comments.removeAll { $0.id == comment.id }
                 onCountChange(comments.count)
             } else {

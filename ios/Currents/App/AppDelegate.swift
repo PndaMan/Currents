@@ -35,6 +35,11 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
                      didReceiveRemoteNotification userInfo: [AnyHashable: Any],
                      fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void) {
         Task { @MainActor in
+            // The willPresent filter below only runs in the FOREGROUND; while
+            // backgrounded the system shows banners directly, including ones
+            // about your own actions (your own crew post echoing back). This
+            // content-available wake is our chance to pull those back down.
+            Self.removeDeliveredSelfNotifications()
             // Crew/trip event pushes carry content-available, so this also runs
             // in the background — pre-warm the crew feed the event landed in,
             // so opening the app (or the notification) shows it instantly.
@@ -59,6 +64,20 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
               let note = CKNotification(fromRemoteNotificationDictionary: dict) as? CKQueryNotification
         else { return nil }
         return note.recordFields
+    }
+
+    /// Pull self-event banners out of Notification Center (best effort — the
+    /// banner may have flashed, but it doesn't linger as unread noise).
+    private static func removeDeliveredSelfNotifications() {
+        let center = UNUserNotificationCenter.current()
+        center.getDeliveredNotifications { notes in
+            let ids = notes
+                .filter { isSelfEvent($0.request.content.userInfo) }
+                .map(\.request.identifier)
+            if !ids.isEmpty {
+                center.removeDeliveredNotifications(withIdentifiers: ids)
+            }
+        }
     }
 
     /// True when the push describes something this user did themself. CloudKit

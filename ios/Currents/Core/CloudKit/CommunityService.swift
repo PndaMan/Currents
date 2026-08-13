@@ -1504,8 +1504,14 @@ final class CommunityService: ObservableObject {
         record["postId"] = postId as CKRecordValue
         record["crewCode"] = crewCode as CKRecordValue
         // Denormalised so the post owner's "someone reacted to your catch"
-        // subscription can match it (CloudKit predicates can't join to the post).
-        record["postAuthorCode"] = postAuthorCode as CKRecordValue
+        // subscription can match it (CloudKit predicates can't join to the
+        // post). OMITTED when reacting to your OWN post — the subscription
+        // never fires, so no push about your own reaction (predicates can't
+        // express !=, and the foreground-only app filter can't stop banners
+        // the system shows while the app is backgrounded).
+        if postAuthorCode != friendCode {
+            record["postAuthorCode"] = postAuthorCode as CKRecordValue
+        }
         record["reactorCode"] = friendCode as CKRecordValue
         record["reactorName"] = myName as CKRecordValue
         record["emoji"] = emoji as CKRecordValue

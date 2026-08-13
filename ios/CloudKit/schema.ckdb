@@ -281,6 +281,10 @@ DEFINE SCHEMA
         authorCode  STRING,
         authorName  STRING,
         text        STRING,
+        -- Set when this comment replies to another (one level deep).
+        replyToId   STRING,
+        -- Set on edit so the thread can show "(Edited)".
+        editedAt    TIMESTAMP,
         createdAt   TIMESTAMP,
         "___createTime" TIMESTAMP,
         "___createdBy"  REFERENCE,

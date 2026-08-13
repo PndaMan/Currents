@@ -248,13 +248,18 @@ extension CommunityService {
     // MARK: - Post comments
 
     struct CrewComment: Identifiable, Equatable, Codable {
-        let id: String            // crewcomment-<postId suffix>-<uuid>
+        let id: String            // crewcomment-<uuid>
         let postId: String
         let crewCode: String
         let authorCode: String
         let authorName: String
         var text: String
         let createdAt: Date
+        /// The comment this one replies to (one level deep). Optional so
+        /// caches from before threading decode.
+        var replyToId: String? = nil
+        /// Set when the author edited it — the thread shows "(Edited)".
+        var editedAt: Date? = nil
     }
 
     var crewCommentType: String { "CrewComment" }
@@ -274,7 +279,9 @@ extension CommunityService {
                                authorCode: rec["authorCode"] as? String ?? "",
                                authorName: rec["authorName"] as? String ?? "Angler",
                                text: rec["text"] as? String ?? "",
-                               createdAt: rec["createdAt"] as? Date ?? .distantPast)
+                               createdAt: rec["createdAt"] as? Date ?? .distantPast,
+                               replyToId: rec["replyToId"] as? String,
+                               editedAt: rec["editedAt"] as? Date)
         }.sorted { $0.createdAt < $1.createdAt }
         CommunityDiskCache.save(list, key: "comments-\(postId)")
         return list
@@ -297,7 +304,8 @@ extension CommunityService {
     }
 
     @discardableResult
-    func addComment(_ text: String, post: CrewPost) async -> CrewComment? {
+    func addComment(_ text: String, post: CrewPost,
+                    replyTo: CrewComment? = nil) async -> CrewComment? {
         let clean = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard cloudAllowed, !clean.isEmpty else { return nil }
         let name = "crewcomment-\(UUID().uuidString)"
@@ -307,21 +315,50 @@ extension CommunityService {
         record["crewCode"] = post.crewCode as CKRecordValue
         // Denormalised so the post owner's "someone commented on your catch"
         // subscription can match (CloudKit predicates can't join to the post).
-        record["postAuthorCode"] = post.authorCode as CKRecordValue
+        // OMITTED for your own posts — the subscription never fires, so you
+        // don't get pushed about your own comment (predicates can't say !=).
+        if post.authorCode != friendCode {
+            record["postAuthorCode"] = post.authorCode as CKRecordValue
+        }
         record["authorCode"] = friendCode as CKRecordValue
         record["authorName"] = myName as CKRecordValue
         record["text"] = clean as CKRecordValue
         record["createdAt"] = Date() as CKRecordValue
+        // Replies always attach to the TOP-LEVEL comment, so threads stay one
+        // level deep however deep the tap chain went.
+        let parentId = replyTo.map { $0.replyToId ?? $0.id }
+        if let parentId { record["replyToId"] = parentId as CKRecordValue }
         if (try? await db.save(record)) == nil {
             // Production rejects undeclared fields until the schema import
-            // deploys postAuthorCode — retry without it so commenting still
-            // works today (only the comment *push* needs the new field).
+            // deploys them — retry without the new ones so commenting still
+            // works today (threading/push degrade, the words still land).
             record["postAuthorCode"] = nil
+            record["replyToId"] = nil
             guard (try? await db.save(record)) != nil else { return nil }
         }
         return CrewComment(id: name, postId: post.id, crewCode: post.crewCode,
                            authorCode: friendCode, authorName: myName,
-                           text: clean, createdAt: .now)
+                           text: clean, createdAt: .now, replyToId: parentId)
+    }
+
+    /// Author-only: rewrite a comment's text. Stamps editedAt so every device
+    /// shows "(Edited)".
+    func editComment(_ comment: CrewComment, text: String) async -> CrewComment? {
+        let clean = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard cloudAllowed, !clean.isEmpty, comment.authorCode == friendCode else { return nil }
+        guard let r = try? await db.record(for: CKRecord.ID(recordName: comment.id)) else { return nil }
+        r["text"] = clean as CKRecordValue
+        r["editedAt"] = Date() as CKRecordValue
+        if (try? await db.save(r)) == nil {
+            // editedAt not deployed yet — the edit itself still matters more
+            // than the marker.
+            r["editedAt"] = nil
+            guard (try? await db.save(r)) != nil else { return nil }
+        }
+        var updated = comment
+        updated.text = clean
+        updated.editedAt = .now
+        return updated
     }
 
     /// Delete a comment — the author always may; moderators may for anyone.
