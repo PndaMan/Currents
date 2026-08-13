@@ -39,6 +39,10 @@ struct FishTab: View {
             // Catches to the guide's left and Community to the seasons' right.
             .smartSwipe(section == .guide ? .fishGuide : .fishSeasons)
             .navigationTitle(section.rawValue)
+            // Inline title: the large title stacked a tall empty band between
+            // the top of the screen and the search bar; the segment pills
+            // already name the surface, so the big heading was pure air.
+            .navigationBarTitleDisplayMode(.inline)
             .sensoryFeedback(.selection, trigger: section)
             .onChange(of: appState.swipePage) { _, page in applySwipe(page) }
             .onAppear { applySwipe(appState.swipePage) }

@@ -22,7 +22,7 @@ struct CommunityView: View {
             switch self {
             case .feed:    "square.stack.fill"
             case .crews:   "person.3.fill"
-            case .friends: "trophy.fill"
+            case .friends: "person.2.fill"
             }
         }
         /// Where this inner tab sits in the smart-swipe continuum.
@@ -39,6 +39,7 @@ struct CommunityView: View {
     @State private var name = ""
     @State private var showingSettings = false
     @State private var showingProfile = false
+    @State private var showingLeaderboard = false
     @State private var pushedCrew: CrewRoute?
     @State private var showingInbox = false
     @State private var pendingRequests: [CommunityService.FriendRequest] = []
@@ -79,6 +80,12 @@ struct CommunityView: View {
                     .accessibilityLabel("My profile")
                 }
                 ToolbarItem(placement: .topBarTrailing) {
+                    Button { showingLeaderboard = true } label: {
+                        Image(systemName: "trophy")
+                    }
+                    .accessibilityLabel("Leaderboard")
+                }
+                ToolbarItem(placement: .topBarTrailing) {
                     Button { showingSettings = true } label: {
                         Image(systemName: "gearshape")
                     }
@@ -94,6 +101,9 @@ struct CommunityView: View {
         }
         .navigationDestination(isPresented: $showingProfile) {
             MyProfileView(stats: stats, catches: myCatches)
+        }
+        .navigationDestination(isPresented: $showingLeaderboard) {
+            LeaderboardView()
         }
         .task(id: svc.joined) {
             refreshStats()
@@ -248,7 +258,6 @@ struct CommunityView: View {
                 // Live/group trips stay reachable from the Crews tab.
                 GroupTripsSection()
             case .friends:
-                LeaderboardSection()
                 FriendsSection()
             }
         }
@@ -685,169 +694,6 @@ struct AcceptDeclineButtons: View {
     }
 }
 
-// MARK: - Leaderboard
-
-private struct LeaderboardSection: View {
-    @Environment(AppState.self) private var appState
-    @StateObject private var svc = CommunityService.shared
-    @AppStorage("units") private var units = "metric"
-    private var imperial: Bool { units == "imperial" }
-
-    @State private var metric: CommunityService.Metric = .count
-    @State private var rows: [CommunityService.LeaderRow] = []
-    @State private var myStanding: (rank: Int, row: CommunityService.LeaderRow)?
-    /// friendCode → may I open their individual catches (their grant to me).
-    @State private var catchAccess: [String: Bool] = [:]
-    @State private var loading = false
-
-    var body: some View {
-        Section {
-            Picker("By", selection: $metric) {
-                Text("Most Fish").tag(CommunityService.Metric.count)
-                Text("Heaviest").tag(CommunityService.Metric.weight)
-                Text("Longest").tag(CommunityService.Metric.length)
-            }.pickerStyle(.segmented)
-
-            if loading && rows.isEmpty {
-                FishLoader(message: "Reeling in the leaderboard…")
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
-                    .listRowBackground(Color.clear)
-            } else if rows.isEmpty {
-                VStack(spacing: 10) {
-                    ContentUnavailableView("No entries yet", systemImage: "trophy",
-                        description: Text("Add friends and log catches to fill the board."))
-                    // The demo angler existed in the service all along ("so
-                    // there's always something to see") but no UI mentioned it.
-                    Button {
-                        Task {
-                            _ = await svc.sendFriendRequest(to: CommunityService.demoCode)
-                            svc.bumpRevision()
-                            await reload()
-                        }
-                    } label: {
-                        Label("Add Marlin, the demo angler", systemImage: "sparkles")
-                    }
-                    .buttonStyle(.bordered)
-                    .padding(.bottom, 8)
-                }
-                .frame(maxWidth: .infinity)
-                .listRowBackground(Color.clear)
-            } else {
-                ForEach(Array(rows.enumerated()), id: \.element.id) { i, row in
-                    leaderRow(i, row)
-                }
-                // Always show where you stand, even outside the visible top.
-                if let mine = myStanding,
-                   !rows.contains(where: { $0.friendCode == svc.friendCode }) {
-                    Divider()
-                    rowBody(mine.rank - 1, mine.row)
-                }
-            }
-        } header: {
-            Text("Leaderboard")
-        } footer: {
-            Text("Among you and your friends only.")
-        }
-        .task { await reload() }
-        .onChange(of: metric) { _, _ in Task { await reload() } }
-        // Reload when friends/catches change (accepting a request, removing a
-        // friend, logging a catch) — the board otherwise froze at first render.
-        .onChange(of: svc.revision) { _, _ in Task { await reload() } }
-        .sensoryFeedback(.selection, trigger: metric)
-    }
-
-    /// Rows are only tappable for friends (and yourself) — individual catches
-    /// and profiles are friends-only; global just shows the ranking.
-    @ViewBuilder private func leaderRow(_ i: Int, _ row: CommunityService.LeaderRow) -> some View {
-        let isSelf = row.friendCode == svc.friendCode
-        let isFriend = svc.isFriend(row.friendCode)
-        if metric == .count, isFriend {
-            NavigationLink { FriendProfileView(code: row.friendCode) } label: { rowBody(i, row) }
-        } else if metric != .count, isSelf || (isFriend && (catchAccess[row.friendCode] ?? false)) {
-            NavigationLink { CommunityCatchDetailView(row: row) } label: { rowBody(i, row) }
-        } else {
-            rowBody(i, row)
-        }
-    }
-
-    private func rowBody(_ i: Int, _ row: CommunityService.LeaderRow) -> some View {
-        let isSelf = row.friendCode == svc.friendCode
-        return HStack(spacing: 10) {
-            Text("\(i + 1)").font(.subheadline.bold().monospacedDigit())
-                .foregroundStyle(i < 3 ? .white : .secondary)
-                .frame(width: 26, height: 26)
-                .background(i < 3 ? CurrentsTheme.accent : Color.secondary.opacity(0.15), in: Circle())
-            if metric != .count {
-                CommunityCatchThumb(row: row, size: 38)
-            }
-            VStack(alignment: .leading, spacing: 1) {
-                HStack(spacing: 6) {
-                    Text(row.anglerName).font(.subheadline.bold())
-                    if isSelf {
-                        Text("YOU").font(.system(size: 9, weight: .heavy))
-                            .padding(.horizontal, 5).padding(.vertical, 1)
-                            .background(CurrentsTheme.accent, in: Capsule())
-                            .foregroundStyle(.white)
-                    }
-                }
-                Text(subtitle(row)).font(.caption2).foregroundStyle(.secondary)
-            }
-            Spacer()
-            Text(value(row)).font(.subheadline.bold()).foregroundStyle(CurrentsTheme.accent)
-        }
-        .listRowBackground(isSelf ? CurrentsTheme.accent.opacity(0.10) : nil)
-    }
-
-    private func subtitle(_ row: CommunityService.LeaderRow) -> String {
-        if metric == .count { return row.region.isEmpty ? "angler" : row.region }
-        return row.region.isEmpty ? row.species : "\(row.species) · \(row.region)"
-    }
-
-    private func value(_ row: CommunityService.LeaderRow) -> String {
-        switch metric {
-        case .count: return "\(row.catchCount ?? 0) fish"
-        case .weight: return row.weightKg.map { Units.weight(kg: $0, imperial: imperial) } ?? "—"
-        case .length: return row.lengthCm.map { Units.length(cm: $0, imperial: imperial) } ?? "—"
-        }
-    }
-
-    /// My own catches, straight from the local database, so I always appear on
-    /// the board (and see my full history) regardless of CloudKit sync state.
-    private func myLocalRows() -> [CommunityService.LeaderRow] {
-        let local = (try? appState.catchRepository.fetchAll(limit: 100000)) ?? []
-        return local.map {
-            CommunityService.LeaderRow(
-                id: "me-\($0.catchRecord.id)",
-                anglerName: svc.myName,
-                friendCode: svc.friendCode,
-                species: $0.species?.commonName ?? "Fish",
-                weightKg: $0.catchRecord.weightKg,
-                lengthCm: $0.catchRecord.lengthCm,
-                catchCount: nil,
-                region: svc.myRegion,
-                date: $0.catchRecord.caughtAt,
-                localPhotoPath: $0.catchRecord.photoPath
-            )
-        }
-    }
-
-    private func reload() async {
-        // Only show the loader when there's nothing on screen yet — refreshes
-        // swap data in place instead of blanking the board.
-        if rows.isEmpty { loading = true }
-        let result = await svc.board(metric: metric, myRows: myLocalRows())
-        rows = result.rows
-        myStanding = result.mine
-        // Per-friend catch access, so a friend who set "hide my catch history"
-        // isn't still browsable through the Heaviest/Longest rows. One batched
-        // round trip for every code (this used to be N sequential fetches).
-        let codes = Set(result.rows.map(\.friendCode)).filter { $0 != svc.friendCode }
-        catchAccess = await svc.catchAccess(for: Array(codes))
-        loading = false
-    }
-}
-
 // MARK: - Friends
 
 private struct FriendsSection: View {
@@ -860,7 +706,9 @@ private struct FriendsSection: View {
     @State private var isLoading = true
 
     var body: some View {
-        Section("Friends") {
+        // Adding a friend and browsing your friends are different jobs — two
+        // separate cards instead of one long mixed section.
+        Section("Add a friend") {
             HStack {
                 Text("Your code")
                 Spacer()
@@ -893,6 +741,9 @@ private struct FriendsSection: View {
                 Label("Friend request sent — they'll get it in Community.", systemImage: "paperplane.fill")
                     .font(.caption).foregroundStyle(.green)
             }
+        }
+
+        Section("Friends") {
             if svc.friends.isEmpty {
                 // You genuinely have no friends yet.
                 ContentUnavailableView("No friends yet", systemImage: "person.2",

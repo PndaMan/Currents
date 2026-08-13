@@ -589,9 +589,11 @@ final class CommunityService: ObservableObject {
     /// returns nothing (e.g. indexes not yet configured, or backfill pending).
     /// The leaderboard is scoped to friends (and yourself) only — there are no
     /// global or regional boards.
-    func board(metric: Metric, myRows: [LeaderRow] = [])
+    /// `among` scopes the board to a specific set of angler codes (a crew's
+    /// members); nil keeps the default friends+me scope.
+    func board(metric: Metric, myRows: [LeaderRow] = [], among: Set<String>? = nil)
         async -> (rows: [LeaderRow], mine: (rank: Int, row: LeaderRow)?) {
-        let ranked = await rankedRows(metric: metric, myRows: myRows)
+        let ranked = await rankedRows(metric: metric, myRows: myRows, among: among)
         let cap = metric == .count ? 50 : 20
         let top = Array(ranked.prefix(cap))
         var mine: (rank: Int, row: LeaderRow)?
@@ -601,20 +603,22 @@ final class CommunityService: ObservableObject {
         return (top, mine)
     }
 
-    /// The full ranked list for a board (no truncation), among friends + me.
-    private func rankedRows(metric: Metric, myRows: [LeaderRow]) async -> [LeaderRow] {
+    /// The full ranked list for a board (no truncation).
+    private func rankedRows(metric: Metric, myRows: [LeaderRow],
+                            among: Set<String>? = nil) async -> [LeaderRow] {
         var catches = await fetchAllLeaderCatches()
         // Local catches are authoritative for me: drop any remote copies of my
         // own catches and use the local ones so I always appear.
         catches.removeAll { $0.friendCode == friendCode }
         catches += myRows
 
-        // Friends-only: keep just my friends and me.
-        let codes = Set(friends + [friendCode])
+        // Scope: an explicit code set (crew members), or my friends and me.
+        let codes = among ?? Set(friends + [friendCode])
         catches = catches.filter { codes.contains($0.friendCode) }
 
-        // Fold in the demo angler (if added) so there's always something to see.
-        catches += demoLeaderCatches()
+        // Fold in the demo angler (if added) so there's always something to
+        // see — friends scope only; a crew board is strictly its members.
+        if among == nil { catches += demoLeaderCatches() }
 
         switch metric {
         case .count:

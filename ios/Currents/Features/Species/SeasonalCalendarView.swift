@@ -148,18 +148,19 @@ struct SeasonalCalendarView: View {
             LazyVStack(spacing: CurrentsTheme.paddingM) {
                 if let header { header }
                 monthSelector
-                searchAndFilterBar
                 tempBanner
 
                 if !inSeason.isEmpty {
-                    sectionHeader(title: "In Season", count: inSeason.count, dimmed: false)
+                    sectionHeader(title: "In Season", count: inSeason.count,
+                                  dimmed: false, showsFilter: true)
                     ForEach(inSeason) { sp in
                         speciesLink(sp, dimmed: false)
                     }
                 }
 
                 if !offSeason.isEmpty {
-                    sectionHeader(title: "Off Season", count: offSeason.count, dimmed: true)
+                    sectionHeader(title: "Off Season", count: offSeason.count,
+                                  dimmed: true, showsFilter: inSeason.isEmpty)
                     ForEach(offSeason) { sp in
                         speciesLink(sp, dimmed: true)
                     }
@@ -173,7 +174,11 @@ struct SeasonalCalendarView: View {
                     )
                 }
             }
-            .padding()
+            // Same insets as the Field Guide (horizontal only, no top) so
+            // switching segments doesn't jolt — both surfaces start their
+            // content at exactly the same y.
+            .padding(.horizontal)
+            .padding(.bottom, 24)
         }
         .navigationTitle(header == nil ? "Seasonal Calendar" : "")
         // Same system search bar as the Field Guide, so the two Fish segments
@@ -231,44 +236,44 @@ struct SeasonalCalendarView: View {
         }
     }
 
-    // MARK: - Filter Bar
+    // MARK: - Filter menu
 
-    /// Sort + habitat behind one compact menu — search lives in the system
-    /// bar now, same as the Field Guide.
-    private var searchAndFilterBar: some View {
-        HStack {
-            if habitatFilter != nil || sortOrder != SortOrder.defaultOrder {
-                Text([habitatFilter.map { "\($0)".capitalized },
-                      sortOrder != SortOrder.defaultOrder ? sortOrder.rawValue : nil]
-                    .compactMap { $0 }.joined(separator: " · "))
-                    .font(.caption.bold())
-                    .foregroundStyle(CurrentsTheme.accent)
+    /// Sort + habitat behind one compact menu, living right-aligned in the
+    /// first section header instead of on its own row.
+    private var filterMenu: some View {
+        Menu {
+            Picker("Sort by", selection: $sortOrder) {
+                ForEach(SortOrder.allCases) { order in
+                    Text(order.rawValue).tag(order)
+                }
             }
-            Spacer()
-            Menu {
-                Picker("Sort by", selection: $sortOrder) {
-                    ForEach(SortOrder.allCases) { order in
-                        Text(order.rawValue).tag(order)
-                    }
-                }
-                Divider()
-                Button("All Habitats") { habitatFilter = nil }
-                Button("Freshwater") { habitatFilter = .freshwater }
-                Button("Marine") { habitatFilter = .marine }
-                Button("Brackish") { habitatFilter = .brackish }
-                Divider()
-                Button {
-                    sortOrder = SortOrder.defaultOrder
-                    habitatFilter = nil
-                } label: {
-                    Label("Default sort (\(SortOrder.defaultOrder.rawValue))", systemImage: "arrow.uturn.backward")
-                }
-                .disabled(sortOrder == SortOrder.defaultOrder && habitatFilter == nil)
+            Divider()
+            Button("All Habitats") { habitatFilter = nil }
+            Button("Freshwater") { habitatFilter = .freshwater }
+            Button("Marine") { habitatFilter = .marine }
+            Button("Brackish") { habitatFilter = .brackish }
+            Divider()
+            Button {
+                sortOrder = SortOrder.defaultOrder
+                habitatFilter = nil
             } label: {
-                Label("Filter & sort", systemImage: "line.3.horizontal.decrease.circle.fill")
-                    .font(.caption.bold())
-                    .foregroundStyle(CurrentsTheme.accent)
+                Label("Default sort (\(SortOrder.defaultOrder.rawValue))", systemImage: "arrow.uturn.backward")
             }
+            .disabled(sortOrder == SortOrder.defaultOrder && habitatFilter == nil)
+        } label: {
+            HStack(spacing: 4) {
+                // Active choices surface in the label so state isn't hidden
+                // behind the menu.
+                if habitatFilter != nil || sortOrder != SortOrder.defaultOrder {
+                    Text([habitatFilter.map { "\($0)".capitalized },
+                          sortOrder != SortOrder.defaultOrder ? sortOrder.rawValue : nil]
+                        .compactMap { $0 }.joined(separator: " · "))
+                        .font(.caption.bold())
+                }
+                Image(systemName: "line.3.horizontal.decrease.circle.fill")
+                    .font(.subheadline)
+            }
+            .foregroundStyle(CurrentsTheme.accent)
         }
     }
 
@@ -302,7 +307,8 @@ struct SeasonalCalendarView: View {
 
     // MARK: - Section Block
 
-    private func sectionHeader(title: String, count: Int, dimmed: Bool) -> some View {
+    private func sectionHeader(title: String, count: Int, dimmed: Bool,
+                               showsFilter: Bool = false) -> some View {
         HStack(spacing: 8) {
             Circle()
                 .fill(dimmed ? Color.secondary.opacity(0.4) : CurrentsTheme.accent)
@@ -313,6 +319,7 @@ struct SeasonalCalendarView: View {
                 .font(.caption.bold())
                 .foregroundStyle(.secondary)
             Spacer()
+            if showsFilter { filterMenu }
         }
     }
 
