@@ -1403,33 +1403,40 @@ struct CrewPostCard: View {
     private var reactionRow: some View {
         let grouped = Dictionary(grouping: reactions, by: \.emoji)
         let mine = reactions.first { $0.reactorCode == svc.friendCode }?.emoji
-        return HStack(spacing: 6) {
-            ForEach(CommunityService.crewReactionEmojis, id: \.self) { emoji in
-                let count = grouped[emoji]?.count ?? 0
-                let selected = mine == emoji
-                Button { toggle(emoji) } label: {
-                    HStack(spacing: 4) {
-                        Text(emoji).font(.system(size: 16))
-                        if count > 0 {
-                            Text("\(count)")
-                                .font(.caption.bold().monospacedDigit())
-                                .foregroundStyle(selected ? CurrentsTheme.accent : .secondary)
+        // The emoji strip scrolls; the comment button is pinned OUTSIDE it so
+        // it can never be pushed off the right edge on narrow cards.
+        return HStack(spacing: 8) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(CommunityService.crewReactionEmojis, id: \.self) { emoji in
+                        let count = grouped[emoji]?.count ?? 0
+                        let selected = mine == emoji
+                        Button { toggle(emoji) } label: {
+                            HStack(spacing: 4) {
+                                Text(emoji).font(.system(size: 16))
+                                if count > 0 {
+                                    Text("\(count)")
+                                        .font(.caption.bold().monospacedDigit())
+                                        .foregroundStyle(selected ? CurrentsTheme.accent : .secondary)
+                                }
+                            }
+                            .padding(.horizontal, count > 0 ? 10 : 8)
+                            .padding(.vertical, 6)
+                            .background(selected ? AnyShapeStyle(CurrentsTheme.accent.opacity(0.18))
+                                                 : AnyShapeStyle(.gray.opacity(0.12)),
+                                        in: Capsule())
+                            .overlay {
+                                Capsule().strokeBorder(selected ? CurrentsTheme.accent.opacity(0.6) : .clear,
+                                                       lineWidth: 1)
+                            }
+                            .opacity(count > 0 || selected ? 1 : 0.65)
                         }
+                        .buttonStyle(.plain)
                     }
-                    .padding(.horizontal, count > 0 ? 10 : 8)
-                    .padding(.vertical, 6)
-                    .background(selected ? AnyShapeStyle(CurrentsTheme.accent.opacity(0.18))
-                                         : AnyShapeStyle(.gray.opacity(0.12)),
-                                in: Capsule())
-                    .overlay {
-                        Capsule().strokeBorder(selected ? CurrentsTheme.accent.opacity(0.6) : .clear,
-                                               lineWidth: 1)
-                    }
-                    .opacity(count > 0 || selected ? 1 : 0.65)
                 }
-                .buttonStyle(.plain)
+                .padding(.vertical, 1)
             }
-            Spacer(minLength: 0)
+            .scrollBounceBehavior(.basedOnSize)
             commentButton
         }
     }

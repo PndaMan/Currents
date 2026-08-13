@@ -2267,6 +2267,20 @@ final class CommunityService: ObservableObject {
             desiredKeys: ["reactorCode", "crewCode"])
         subs.append(react)
 
+        // Comments on my posts — same shape as reactions. Self-comments are
+        // dropped app-side via the authorCode desired key.
+        let comment = CKQuerySubscription(
+            recordType: "CrewComment",
+            predicate: NSPredicate(format: "postAuthorCode == %@", friendCode),
+            subscriptionID: "ev-comment-\(friendCode)",
+            options: [.firesOnRecordCreation])
+        comment.notificationInfo = info(
+            title: "New comment on your catch",
+            key: "%1$@: %2$@",
+            args: ["authorName", "text"],
+            desiredKeys: ["authorCode", "crewCode"])
+        subs.append(comment)
+
         for crew in myCrews {
             // Someone posted a catch to this crew's feed.
             let posts = CKQuerySubscription(

@@ -1582,15 +1582,17 @@ struct FriendProfileView: View {
                 Text("No catches shared yet.")
                     .font(.caption).foregroundStyle(.secondary)
             } else {
-                VStack(spacing: 0) {
+                // Gallery, photo-first — the same 2-up language as the
+                // Catches tab, and the only view here.
+                LazyVGrid(columns: [GridItem(.flexible(), spacing: 10),
+                                    GridItem(.flexible(), spacing: 10)],
+                          spacing: 10) {
                     ForEach(catches) { c in
                         NavigationLink { CommunityCatchDetailView(row: c) } label: {
-                            catchRow(c)
-                                .padding(.vertical, 6)
+                            CommunityCatchGalleryCell(row: c)
                                 .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
-                        if c.id != catches.last?.id { Divider() }
                     }
                 }
             }
@@ -1689,26 +1691,6 @@ struct FriendProfileView: View {
         .frame(maxWidth: .infinity)
         .padding(.vertical, 10)
         .background(CurrentsTheme.accent.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
-    }
-
-    private func catchRow(_ c: CommunityService.LeaderRow) -> some View {
-        HStack(spacing: 12) {
-            CommunityCatchThumb(row: c, size: 46)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(c.species).font(.subheadline.bold())
-                HStack(spacing: 4) {
-                    Text(c.date.formatted(date: .abbreviated, time: .omitted))
-                    if c.coordinate != nil {
-                        Image(systemName: "mappin.and.ellipse")
-                    }
-                }
-                .font(.caption2).foregroundStyle(.secondary)
-            }
-            Spacer()
-            Text(c.weightKg.map { Units.weight(kg: $0, imperial: imperial) }
-                 ?? c.lengthCm.map { Units.length(cm: $0, imperial: imperial) } ?? "")
-                .font(.caption.bold()).foregroundStyle(CurrentsTheme.accent)
-        }
     }
 
     @ViewBuilder private func sharedSpotRow(_ s: CommunityService.SharedSpot) -> some View {
@@ -2141,6 +2123,78 @@ struct CommunityCatchThumb: View {
                 species = (try? appState.speciesRepository.fetchByCommonName(row.species)) ?? nil
             }
         }
+    }
+}
+
+/// A 2-up gallery cell for a profile's catch: the photo is the hero with the
+/// species and size on a bottom scrim — the same language as the Catches tab's
+/// gallery. Photo-less catches get the species artwork on a tinted wash.
+struct CommunityCatchGalleryCell: View {
+    let row: CommunityService.LeaderRow
+    @Environment(AppState.self) private var appState
+    @Environment(\.displayScale) private var displayScale
+    @State private var photo: UIImage?
+    @State private var species: Species?
+
+    var body: some View {
+        Color.clear
+            .frame(height: 170)
+            .overlay {
+                if let photo {
+                    Image(uiImage: photo).resizable().scaledToFill()
+                } else {
+                    ZStack {
+                        CurrentsTheme.accent.opacity(0.10)
+                        if let species {
+                            SpeciesArtworkView(species: species, caught: true, size: 64)
+                        } else {
+                            Image(systemName: "fish.fill")
+                                .font(.system(size: 30))
+                                .foregroundStyle(CurrentsTheme.accent.opacity(0.5))
+                        }
+                    }
+                }
+            }
+            .overlay(alignment: .bottomLeading) {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(row.species)
+                        .font(.footnote.bold())
+                        .lineLimit(1)
+                    Text(sizeLine)
+                        .font(.system(size: 10))
+                        .opacity(0.85)
+                }
+                .foregroundStyle(photo == nil ? AnyShapeStyle(.primary) : AnyShapeStyle(.white))
+                .padding(8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background {
+                    if photo != nil {
+                        LinearGradient(colors: [.clear, .black.opacity(0.72)],
+                                       startPoint: .top, endPoint: .bottom)
+                    }
+                }
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .task(id: row.id) {
+                if let path = row.localPhotoPath {
+                    let px = 240 * displayScale
+                    let scale = displayScale
+                    photo = await Task.detached { PhotoManager.thumbnail(path, maxPixel: px, scale: scale) }.value
+                } else if row.hasRemotePhoto {
+                    photo = await CommunityService.shared.catchPhoto(recordName: row.id)
+                }
+                if photo == nil {
+                    species = (try? appState.speciesRepository.fetchByCommonName(row.species)) ?? nil
+                }
+            }
+    }
+
+    private var sizeLine: String {
+        var parts: [String] = []
+        if let w = row.weightKg { parts.append(Units.weight(kg: w)) }
+        if let l = row.lengthCm { parts.append(Units.length(cm: l)) }
+        parts.append(row.date.formatted(date: .abbreviated, time: .omitted))
+        return parts.joined(separator: " · ")
     }
 }
 

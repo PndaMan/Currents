@@ -271,10 +271,13 @@ DEFINE SCHEMA
     );
 
     -- A comment on a crew post. Queried by postId; crewCode carries the
-    -- moderation scope. WRITE is _icloud so admins can delete comments.
+    -- moderation scope. postAuthorCode is denormalised (like CrewReaction's)
+    -- so a push subscription can target "comments on MY posts".
+    -- WRITE is _icloud so admins can delete comments.
     RECORD TYPE CrewComment (
         postId      STRING QUERYABLE,
         crewCode    STRING QUERYABLE,
+        postAuthorCode STRING QUERYABLE,
         authorCode  STRING,
         authorName  STRING,
         text        STRING,

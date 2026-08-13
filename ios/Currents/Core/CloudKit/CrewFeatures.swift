@@ -305,11 +305,20 @@ extension CommunityService {
                               recordID: CKRecord.ID(recordName: name))
         record["postId"] = post.id as CKRecordValue
         record["crewCode"] = post.crewCode as CKRecordValue
+        // Denormalised so the post owner's "someone commented on your catch"
+        // subscription can match (CloudKit predicates can't join to the post).
+        record["postAuthorCode"] = post.authorCode as CKRecordValue
         record["authorCode"] = friendCode as CKRecordValue
         record["authorName"] = myName as CKRecordValue
         record["text"] = clean as CKRecordValue
         record["createdAt"] = Date() as CKRecordValue
-        guard (try? await db.save(record)) != nil else { return nil }
+        if (try? await db.save(record)) == nil {
+            // Production rejects undeclared fields until the schema import
+            // deploys postAuthorCode — retry without it so commenting still
+            // works today (only the comment *push* needs the new field).
+            record["postAuthorCode"] = nil
+            guard (try? await db.save(record)) != nil else { return nil }
+        }
         return CrewComment(id: name, postId: post.id, crewCode: post.crewCode,
                            authorCode: friendCode, authorName: myName,
                            text: clean, createdAt: .now)
