@@ -470,6 +470,9 @@ struct MyProfileView: View {
                     AnglerAvatar(image: svc.myAvatar, size: 96)
                         .zoomableOnTap(svc.myAvatar)
                     Text(svc.myName).font(.title2.bold())
+                    if !svc.myTitle.isEmpty {
+                        TitleFlairChip(title: svc.myTitle)
+                    }
                     if !svc.myBio.isEmpty {
                         Text(svc.myBio).font(.subheadline).foregroundStyle(.secondary)
                             .multilineTextAlignment(.center)
@@ -540,6 +543,20 @@ struct MyProfileView: View {
         .frame(maxWidth: .infinity)
         .padding(.vertical, 10)
         .background(CurrentsTheme.accent.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+    }
+}
+
+/// The achievement-title flair worn under an angler's name: small, golden,
+/// unmistakably a trophy.
+struct TitleFlairChip: View {
+    let title: String
+    var body: some View {
+        Label(title, systemImage: "trophy.fill")
+            .font(.caption2.weight(.bold))
+            .padding(.horizontal, 9).padding(.vertical, 3)
+            .background(Color.yellow.opacity(0.15), in: Capsule())
+            .overlay(Capsule().strokeBorder(Color.yellow.opacity(0.4), lineWidth: 1))
+            .foregroundStyle(Color.orange)
     }
 }
 
@@ -1104,6 +1121,8 @@ struct ProfileEditView: View {
     @State private var bio = ""
     @State private var homeWater = ""
     @State private var region = ""
+    @State private var title = ""
+    @State private var earnedTitles: [String] = []
     @State private var avatarItem: PhotosPickerItem?
     @State private var avatar: UIImage?
     @State private var saving = false
@@ -1130,6 +1149,21 @@ struct ProfileEditView: View {
                     TextField("Home water (e.g. Theewaterskloof Dam)", text: $homeWater)
                     TextField("Region", text: $region)
                 }
+                Section {
+                    Picker("Title", selection: $title) {
+                        Text("None").tag("")
+                        ForEach(earnedTitles, id: \.self) { t in
+                            Label(t, systemImage: "trophy.fill").tag(t)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                } header: {
+                    Text("Title flair")
+                } footer: {
+                    Text(earnedTitles.isEmpty
+                         ? "Earn achievements to unlock titles you can wear under your name."
+                         : "Worn under your name on your profile — pick any achievement you've earned.")
+                }
                 Section("Your stats (auto)") {
                     LabeledContent("Catches", value: "\(stats.totalCatches)")
                     LabeledContent("Species", value: "\(stats.speciesCount)")
@@ -1148,7 +1182,18 @@ struct ProfileEditView: View {
             }
             .task {
                 name = svc.myName; bio = svc.myBio; homeWater = svc.myHomeWater; region = svc.myRegion
+                title = svc.myTitle
                 avatar = svc.myAvatar
+                // Titles you can wear = achievements you've actually earned.
+                let all = (try? appState.catchRepository.fetchAll(limit: 2000)) ?? []
+                let streak = BadgeDefinition.streakWeeks(from: all)
+                earnedTitles = BadgeDefinition.compute(from: all, streakWeeks: streak)
+                    .filter(\.earned)
+                    .sorted { $0.rarity.rawValue > $1.rarity.rawValue }
+                    .map(\.title)
+                // Keep a previously-picked title selectable even if the log
+                // changed underneath it (e.g. catches deleted).
+                if !title.isEmpty, !earnedTitles.contains(title) { earnedTitles.append(title) }
             }
             .onChange(of: avatarItem) { _, item in
                 Task {
@@ -1161,7 +1206,7 @@ struct ProfileEditView: View {
     private func save() {
         saving = true
         Task {
-            await svc.updateProfile(name: name, bio: bio, homeWater: homeWater, region: region, avatar: avatar, stats: stats)
+            await svc.updateProfile(name: name, bio: bio, homeWater: homeWater, region: region, avatar: avatar, stats: stats, title: title)
             // Refresh shared spots to reflect any privacy changes.
             let spots = (try? appState.spotRepository.fetchAll()) ?? []
             await svc.republishSharedSpots(spots: spots)
@@ -1190,6 +1235,9 @@ struct FriendProfileView: View {
     @State private var catchesLoading = true
     @State private var selectedSpot: CommunityService.SharedSpot?
     @State private var showingSettings = false
+    /// Own catches with full local detail — powers the REAL achievements card
+    /// (the same one as My Profile) when the profile being viewed is yours.
+    @State private var ownDetails: [CatchDetail] = []
     @AppStorage("units") private var units = "metric"
     private var imperial: Bool { units == "imperial" }
 
@@ -1203,10 +1251,19 @@ struct FriendProfileView: View {
                 heroCard
                 if let p = profile {
                     statsRow(p)
-                    FriendBadgesCard(badges: BadgeDefinition.computeFriend(
-                        totalCatches: p.totalCatches, speciesCount: p.speciesCount,
-                        bestWeightKg: p.bestWeightKg, bestLengthCm: p.bestLengthCm,
-                        rows: catches))
+                    if isSelf {
+                        // Your own page shows your REAL achievements (from the
+                        // local log, with Show all) — not the public-data
+                        // approximation other people see.
+                        AchievementsCard(catches: ownDetails)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .glassCard()
+                    } else {
+                        FriendBadgesCard(badges: BadgeDefinition.computeFriend(
+                            totalCatches: p.totalCatches, speciesCount: p.speciesCount,
+                            bestWeightKg: p.bestWeightKg, bestLengthCm: p.bestLengthCm,
+                            rows: catches))
+                    }
                 }
                 catchesCard
                 if !sharedSpots.isEmpty { spotsCard }
@@ -1236,6 +1293,7 @@ struct FriendProfileView: View {
                 // Owner sees everything: catches straight from the local log,
                 // profile from the published record (or built locally).
                 catchAccess = true
+                ownDetails = (try? appState.catchRepository.fetchAll(limit: 2000)) ?? []
                 catches = ownLocalRows()
                 if let fresh = await svc.fetchProfile(code: code) { profile = fresh }
                 if profile == nil { profile = ownFallbackProfile() }
@@ -1264,7 +1322,9 @@ struct FriendProfileView: View {
     /// Your catches, straight from the local log — newest first, photos and
     /// species art included.
     private func ownLocalRows() -> [CommunityService.LeaderRow] {
-        let all = (try? appState.catchRepository.fetchAll()) ?? []
+        let all = ownDetails.isEmpty
+            ? ((try? appState.catchRepository.fetchAll(limit: 2000)) ?? [])
+            : ownDetails
         return all.map {
             CommunityService.LeaderRow(
                 id: "me-\($0.catchRecord.id)",
@@ -1288,7 +1348,7 @@ struct FriendProfileView: View {
               speciesCount: Set(catches.map(\.species)).count,
               bestWeightKg: catches.compactMap(\.weightKg).max() ?? 0,
               bestLengthCm: catches.compactMap(\.lengthCm).max() ?? 0,
-              favoriteSpecies: "")
+              favoriteSpecies: "", title: svc.myTitle)
     }
 
     // MARK: Hero
@@ -1303,6 +1363,9 @@ struct FriendProfileView: View {
             .zoomableOnTap(profile?.avatar)
             VStack(spacing: 3) {
                 Text(profile?.name ?? "Angler").font(.title2.bold())
+                if let flair = flairTitle {
+                    TitleFlairChip(title: flair)
+                }
                 if !privacy.nickname.isEmpty {
                     Text("“\(privacy.nickname)”")
                         .font(.subheadline).foregroundStyle(CurrentsTheme.accent)
@@ -1326,6 +1389,14 @@ struct FriendProfileView: View {
         }
         .frame(maxWidth: .infinity)
         .glassCard()
+    }
+
+    /// The badge-earned title under the name — your locally-stored pick when
+    /// it's you (instant, even before the profile record round-trips).
+    private var flairTitle: String? {
+        let t = isSelf ? (svc.myTitle.isEmpty ? (profile?.title ?? "") : svc.myTitle)
+                       : (profile?.title ?? "")
+        return t.isEmpty ? nil : t
     }
 
     private func heroChip(_ text: String, icon: String) -> some View {
@@ -1544,9 +1615,13 @@ struct FriendProfileView: View {
 struct FriendBadgesCard: View {
     let badges: [BadgeDefinition]
     @State private var selected: BadgeDefinition?
+    @State private var showingAll = false
 
     private var earned: [BadgeDefinition] {
         badges.filter(\.earned).sorted { $0.rarity.rawValue > $1.rarity.rawValue }
+    }
+    private var locked: [BadgeDefinition] {
+        badges.filter { !$0.earned }.sorted { $0.rarity.rawValue < $1.rarity.rawValue }
     }
 
     var body: some View {
@@ -1563,7 +1638,7 @@ struct FriendBadgesCard: View {
             } else {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 12) {
-                        ForEach(earned) { badge in
+                        ForEach(earned.prefix(5)) { badge in
                             Button { selected = badge } label: { bubble(badge) }
                                 .buttonStyle(.plain)
                         }
@@ -1571,6 +1646,11 @@ struct FriendBadgesCard: View {
                     .padding(.vertical, 2)
                 }
             }
+            Button { showingAll = true } label: {
+                Label("Show all achievements", systemImage: "chevron.right")
+                    .font(.caption.bold())
+            }
+            .buttonStyle(.borderless)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .glassCard()
@@ -1578,7 +1658,67 @@ struct FriendBadgesCard: View {
             BadgeDetailView(badge: badge)
                 .presentationDetents([.medium]).presentationDragIndicator(.visible)
         }
+        .sheet(isPresented: $showingAll) { allBadgesSheet }
         .sensoryFeedback(.selection, trigger: selected?.id)
+    }
+
+    /// Everything computable from their public data — earned first, then what
+    /// they haven't unlocked yet, in the same grid language as your own page.
+    private var allBadgesSheet: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    if !earned.isEmpty {
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 75))], spacing: 10) {
+                            ForEach(earned) { badge in
+                                Button { selected = badge } label: { gridCell(badge) }
+                                    .buttonStyle(.plain)
+                            }
+                        }
+                    }
+                    if !locked.isEmpty {
+                        Text("Locked")
+                            .font(.caption.bold()).foregroundStyle(.secondary)
+                            .padding(.top, 4)
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 75))], spacing: 10) {
+                            ForEach(locked) { badge in
+                                Button { selected = badge } label: { gridCell(badge) }
+                                    .buttonStyle(.plain)
+                            }
+                        }
+                    }
+                }
+                .padding()
+            }
+            .navigationTitle("Achievements")
+            .navigationBarTitleDisplayMode(.inline)
+        }
+        .presentationDragIndicator(.visible)
+    }
+
+    private func gridCell(_ badge: BadgeDefinition) -> some View {
+        VStack(spacing: 4) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(badge.earned ? badge.rarity.color.opacity(0.15) : Color.secondary.opacity(0.08))
+                    .frame(width: 75, height: 60)
+                VStack(spacing: 3) {
+                    Image(systemName: badge.icon)
+                        .font(.title3)
+                        .foregroundStyle(badge.earned ? badge.rarity.color : Color.secondary.opacity(0.4))
+                    Text(badge.rarity.label)
+                        .font(.system(size: 7, weight: .heavy))
+                        .textCase(.uppercase)
+                        .foregroundStyle(badge.earned ? badge.rarity.color : Color.secondary.opacity(0.4))
+                }
+            }
+            Text(badge.title)
+                .font(.system(size: 8).bold())
+                .foregroundStyle(badge.earned ? .primary : Color.secondary.opacity(0.4))
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+        }
+        .opacity(badge.earned ? 1.0 : 0.6)
     }
 
     private func bubble(_ badge: BadgeDefinition) -> some View {

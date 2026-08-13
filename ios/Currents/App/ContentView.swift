@@ -93,6 +93,7 @@ struct ContentView: View {
             if page.isPlainTab { appState.swipePage = nil }
         }
         .toastHost()
+        .celebrationHost()
         .fullScreenCover(isPresented: Binding(get: { !hasOnboarded && !ScreenshotSupport.isActive },
                                               set: { if $0 == false { hasOnboarded = true } })) {
             OnboardingView()
@@ -188,6 +189,11 @@ struct ContentView: View {
             selectedTab = .community
             let code = url.lastPathComponent.uppercased()
             if code.count == 6 { appState.openCrewCode = code }
+            return
+        case "tournament":
+            // The tournament Live Activity tap: Community is where crews (and
+            // their live tournament) live.
+            selectedTab = .community
             return
         case "gear":
             settingsDestination = .gear

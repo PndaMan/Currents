@@ -87,15 +87,23 @@ final class PhoneConnectivity: NSObject, WCSessionDelegate, @unchecked Sendable 
         }
     }
 
-    /// A catch at the current location — with the species the angler named on
-    /// the watch if it resolves. Works with or without an active session.
+    /// A catch at the current location, parsed from whatever the angler said —
+    /// "three and a half pound largemouth bass released" logs the species,
+    /// the weight AND the release in one breath. Works with or without an
+    /// active session.
     @MainActor
     private static func logQuickCatch(speciesName: String?) {
         guard let app = AppState.shared else { return }
         let coord = app.locationManager.currentLocation?.coordinate
             ?? app.tripTracker.currentLocation?.coordinate
             ?? CLLocationCoordinate2D(latitude: 0, longitude: 0)
-        let species = speciesName.flatMap { app.speciesRepository.resolve(spokenName: $0) }
+        let parsed = CatchPhraseParser.parse(speciesName ?? "")
+        // Resolve the leftover words as a species; fall back to the raw phrase
+        // in case the parser stripped something the matcher needed.
+        let species = [parsed.speciesText, speciesName ?? ""]
+            .filter { !$0.isEmpty }
+            .lazy.compactMap { app.speciesRepository.resolve(spokenName: $0) }
+            .first
         let note = speciesName.map { species == nil ? "Watch: \"\($0)\"" : "Logged from Apple Watch" }
             ?? "Logged from Apple Watch"
         var record = Catch(
@@ -104,10 +112,21 @@ final class PhoneConnectivity: NSObject, WCSessionDelegate, @unchecked Sendable 
             caughtAt: .now,
             latitude: coord.latitude,
             longitude: coord.longitude,
+            lengthCm: parsed.lengthCm,
+            weightKg: parsed.weightKg,
+            released: parsed.released ?? false,
             tripId: app.tripTracker.activeTrip?.id,
             notes: note
         )
+        // First-of-species / personal best judged against the log as it stands.
+        let priors = species.flatMap { try? app.catchRepository.fetchForSpecies($0.id) }?
+            .map(\.catchRecord) ?? []
+        let celebration = CelebrationJudge.judge(
+            speciesName: species?.commonName, speciesId: species?.id,
+            weightKg: record.weightKg, lengthCm: record.lengthCm,
+            excludingCatchId: record.id, existing: priors)
         try? app.catchRepository.save(&record)
+        if let celebration { CelebrationCenter.shared.show(celebration) }
         // Watch catches reach the community exactly like log-sheet catches —
         // this was the hole where voice-logged fish never hit crew feeds.
         let published = record

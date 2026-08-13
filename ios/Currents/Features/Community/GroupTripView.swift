@@ -323,9 +323,19 @@ struct GroupTripView: View {
     @State private var showAddByCode = false
     @State private var showingLog = false
     @State private var showingInvite = false
+    @State private var confirmingEndForAll = false
+    @State private var confirmingLeave = false
 
     private let autoJoin: Bool
     private var service: CommunityService { .shared }
+
+    private func leave(code: String) {
+        Task {
+            await leaveGroupAndCleanup(code: code, tripId: tripId, appState: appState)
+            self.code = nil
+            trip = nil; members = []; feed = []
+        }
+    }
 
     init(tripId: String?, tripName: String, initialCode: String? = nil) {
         self.tripId = tripId
@@ -366,21 +376,18 @@ struct GroupTripView: View {
                         Divider()
                         if trip?.isHost == true, !(trip?.isEnded ?? false) {
                             Button(role: .destructive) {
-                                Haptics.warning()
-                                Task {
-                                    await service.endGroupTrip(code: code)
-                                    ToastCenter.shared.show("Trip ended for everyone", style: .info, haptic: false)
-                                    await refresh()
-                                }
+                                confirmingEndForAll = true
                             } label: {
                                 Label("End trip for everyone", systemImage: "flag.slash")
                             }
                         }
                         Button(role: .destructive) {
-                            Task {
-                                await leaveGroupAndCleanup(code: code, tripId: tripId, appState: appState)
-                                self.code = nil
-                                trip = nil; members = []; feed = []
+                            if trip?.isEnded == true {
+                                // Removing a finished trip from your list is
+                                // harmless housekeeping — no ceremony needed.
+                                leave(code: code)
+                            } else {
+                                confirmingLeave = true
                             }
                         } label: {
                             Label(trip?.isEnded == true ? "Remove from my trips" : "Leave trip",
@@ -391,6 +398,30 @@ struct GroupTripView: View {
                     }
                 }
             }
+        }
+        .confirmationDialog("End the trip for everyone?", isPresented: $confirmingEndForAll,
+                            titleVisibility: .visible) {
+            Button("End trip", role: .destructive) {
+                guard let code else { return }
+                Haptics.warning()
+                Task {
+                    await service.endGroupTrip(code: code)
+                    ToastCenter.shared.show("Trip ended for everyone", style: .info, haptic: false)
+                    await refresh()
+                }
+            }
+        } message: {
+            Text("Every member's live feed closes. Catches already logged stay on the trip.")
+        }
+        .confirmationDialog("Leave this trip?", isPresented: $confirmingLeave,
+                            titleVisibility: .visible) {
+            Button("Leave", role: .destructive) {
+                guard let code else { return }
+                Haptics.warning()
+                leave(code: code)
+            }
+        } message: {
+            Text("You can re-join with the trip code while it's still live.")
         }
         // No pull-to-refresh: it would swallow the sheet's pull-down-to-collapse
         // gesture. The feed auto-polls every 15s.

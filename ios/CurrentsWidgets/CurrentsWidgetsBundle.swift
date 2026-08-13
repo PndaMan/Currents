@@ -8,5 +8,6 @@ struct CurrentsWidgetsBundle: WidgetBundle {
         NextSessionWidget()
         QuickLogWidget()
         SessionLiveActivity()
+        TournamentLiveActivity()
     }
 }

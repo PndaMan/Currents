@@ -63,14 +63,18 @@ final class WatchConnector: NSObject, ObservableObject, WCSessionDelegate {
     func startSession() { send(WatchMessage.startSession, confirm: "Session started") }
     func endSession() { send(WatchMessage.endSession, confirm: "Session ended") }
 
-    /// Log a catch (optionally naming the species). Works with or without an
-    /// active session — the phone attaches it to the session if one's running.
+    /// Log a catch from whatever was said/typed — the phone parses species,
+    /// weight, length and released/kept out of the phrase. Works with or
+    /// without an active session.
     func logCatch(species: String? = nil) {
         var extra: [String: Any] = [:]
+        var confirm = "Catch logged!"
         if let species, !species.trimmingCharacters(in: .whitespaces).isEmpty {
             extra[WatchMessage.speciesName] = species
+            let parsed = CatchPhraseParser.parse(species)
+            let name = parsed.speciesText.isEmpty ? species : parsed.speciesText.capitalized
+            confirm = parsed.summary.isEmpty ? "Logged \(name)!" : "Logged \(name) · \(parsed.summary)"
         }
-        let confirm = species.map { "Logged \($0)!" } ?? "Catch logged!"
         send(WatchMessage.logCatch, extra: extra, confirm: confirm)
     }
 
@@ -222,13 +226,15 @@ struct WatchRootView: View {
 
 // MARK: - Log a catch (species by dictation or recents)
 
-/// Logs a catch to the phone with the species you name — tap the mic in the
-/// text field to say "largemouth bass", or pick a recent species. No active
-/// session required.
+/// Logs a catch to the phone from one dictated phrase — say "three pound
+/// largemouth bass released" and the species, weight and release all land on
+/// the catch. Or pick a recent species. No active session required.
 struct WatchLogView: View {
     @EnvironmentObject var connector: WatchConnector
     @Environment(\.dismiss) private var dismiss
     @State private var species = ""
+
+    private var parsed: ParsedCatchPhrase { CatchPhraseParser.parse(species) }
 
     var body: some View {
         ScrollView {
@@ -237,11 +243,27 @@ struct WatchLogView: View {
                 TextField("Species (tap 🎙 to speak)", text: $species)
                     .textInputAutocapitalization(.words)
 
+                if species.isEmpty {
+                    Text("Try “3 lb bass released” — weight, length and released/kept are understood.")
+                        .font(.caption2).foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                } else if parsed.hasDetails {
+                    // Live read-back of what the phone will log.
+                    Label {
+                        Text("\(parsed.speciesText.isEmpty ? "Catch" : parsed.speciesText.capitalized) · \(parsed.summary)")
+                    } icon: {
+                        Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+                    }
+                    .font(.caption2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+
                 Button {
                     connector.logCatch(species: species)
                     dismiss()
                 } label: {
-                    Label(species.isEmpty ? "Log Catch" : "Log \(species)", systemImage: "fish.fill")
+                    Label(species.isEmpty ? "Log Catch" : "Log \(parsed.speciesText.isEmpty ? species : parsed.speciesText.capitalized)",
+                          systemImage: "fish.fill")
                         .frame(maxWidth: .infinity)
                 }
                 .tint(.blue)

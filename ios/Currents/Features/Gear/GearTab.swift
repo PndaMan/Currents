@@ -11,6 +11,10 @@ struct GearTab: View {
     @State private var selectedLoadout: GearLoadout?
     @State private var editingOwnedGear: OwnedGear?
     @State private var editingLoadout: GearLoadout?
+    /// Deleting gear (and a preset) is confirmed first — one mis-tap in a
+    /// context menu shouldn't erase an item, its photo and its stock alerts.
+    @State private var gearToDelete: OwnedGear?
+    @State private var loadoutToDelete: GearLoadout?
     @State private var viewMode: ViewMode = .items
     @State private var categoryFilter: OwnedGear.Category?
 
@@ -37,6 +41,40 @@ struct GearTab: View {
                 .padding(.bottom, 24)
             }
             .navigationTitle("Gear")
+            .confirmationDialog("Delete this gear?",
+                                isPresented: Binding(get: { gearToDelete != nil },
+                                                     set: { if !$0 { gearToDelete = nil } }),
+                                titleVisibility: .visible) {
+                Button("Delete", role: .destructive) {
+                    if let item = gearToDelete {
+                        try? appState.ownedGearRepository.delete(item)
+                        if let p = item.photoPath { PhotoManager.delete(p) }
+                        NotificationManager.shared.cancelLowStockAlert(itemId: item.id)
+                        Haptics.warning()
+                        ToastCenter.shared.show("Gear deleted", style: .info, haptic: false)
+                        Task { await refresh() }
+                    }
+                    gearToDelete = nil
+                }
+            } message: {
+                Text("The item, its photo and any stock alerts are removed.")
+            }
+            .confirmationDialog("Delete this preset?",
+                                isPresented: Binding(get: { loadoutToDelete != nil },
+                                                     set: { if !$0 { loadoutToDelete = nil } }),
+                                titleVisibility: .visible) {
+                Button("Delete", role: .destructive) {
+                    if let loadout = loadoutToDelete {
+                        try? appState.gearRepository.delete(loadout)
+                        Haptics.warning()
+                        ToastCenter.shared.show("Preset deleted", style: .info, haptic: false)
+                        Task { await refresh() }
+                    }
+                    loadoutToDelete = nil
+                }
+            } message: {
+                Text("Catches logged with it keep their gear snapshot.")
+            }
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
                     Menu {
@@ -217,12 +255,7 @@ struct GearTab: View {
                                     Label("Edit", systemImage: "pencil")
                                 }
                                 Button(role: .destructive) {
-                                    try? appState.ownedGearRepository.delete(item)
-                                    if let p = item.photoPath { PhotoManager.delete(p) }
-                                    NotificationManager.shared.cancelLowStockAlert(itemId: item.id)
-                                    Haptics.warning()
-                                    ToastCenter.shared.show("Gear deleted", style: .info, haptic: false)
-                                    Task { await refresh() }
+                                    gearToDelete = item
                                 } label: {
                                     Label("Delete", systemImage: "trash")
                                 }
@@ -356,10 +389,7 @@ struct GearTab: View {
                         Label("Edit", systemImage: "pencil")
                     }
                     Button(role: .destructive) {
-                        try? appState.gearRepository.delete(loadout)
-                        Haptics.warning()
-                        ToastCenter.shared.show("Preset deleted", style: .info, haptic: false)
-                        Task { await refresh() }
+                        loadoutToDelete = loadout
                     } label: {
                         Label("Delete", systemImage: "trash")
                     }

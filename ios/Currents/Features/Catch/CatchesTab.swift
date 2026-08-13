@@ -12,6 +12,9 @@ struct CatchesTab: View {
     @AppStorage("catchesLayout") private var layoutRaw = LayoutMode.gallery.rawValue
     /// Programmatic push target for gallery cells (see the Button note there).
     @State private var openCatchId: String?
+    /// Deleting is confirmed first — a swipe or long-press should never be
+    /// able to destroy a catch (and its photos) in one accidental gesture.
+    @State private var catchToDelete: CatchDetail?
     private var layout: LayoutMode { LayoutMode(rawValue: layoutRaw) ?? .list }
 
     enum LayoutMode: String {
@@ -146,7 +149,7 @@ struct CatchesTab: View {
                                                   systemImage: detail.catchRecord.isFavorite ? "star.slash.fill" : "star.fill")
                                         }
                                         Button(role: .destructive) {
-                                            delete(detail)
+                                            catchToDelete = detail
                                         } label: {
                                             Label("Delete", systemImage: "trash")
                                         }
@@ -173,7 +176,7 @@ struct CatchesTab: View {
                                 .listRowInsets(EdgeInsets(top: 5, leading: 16, bottom: 5, trailing: 16))
                                 .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                                     Button(role: .destructive) {
-                                        delete(detail)
+                                        catchToDelete = detail
                                     } label: {
                                         Label("Delete", systemImage: "trash")
                                     }
@@ -214,6 +217,20 @@ struct CatchesTab: View {
                 }
             }
             .smartSwipe(.catches)
+            .confirmationDialog("Delete this catch?",
+                                isPresented: Binding(get: { catchToDelete != nil },
+                                                     set: { if !$0 { catchToDelete = nil } }),
+                                titleVisibility: .visible) {
+                Button("Delete", role: .destructive) {
+                    if let detail = catchToDelete {
+                        Haptics.warning()
+                        delete(detail)
+                    }
+                    catchToDelete = nil
+                }
+            } message: {
+                Text("The catch and its photos are removed everywhere, including any shared feeds. This can't be undone.")
+            }
             .navigationTitle("Catches")
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {

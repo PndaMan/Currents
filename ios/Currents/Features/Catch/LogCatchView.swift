@@ -867,6 +867,16 @@ struct LogCatchView: View {
             depthM: depthText.measurementValue.map { imperial ? $0 * 0.3048 : $0 }
         )
 
+        // Judge first-species / personal-best BEFORE the save, against what's
+        // in the log right now — so a deleted-and-relogged species celebrates
+        // again (it genuinely is the only one in the log).
+        let priors = (try? appState.catchRepository.fetchForSpecies(selectedSpeciesId ?? -1))?
+            .map(\.catchRecord) ?? []
+        let celebration = CelebrationJudge.judge(
+            speciesName: species?.commonName, speciesId: selectedSpeciesId,
+            weightKg: catchRecord.weightKg, lengthCm: catchRecord.lengthCm,
+            excludingCatchId: catchId, existing: priors)
+
         try? appState.catchRepository.save(&catchRecord)
 
         // Reset the cold-streak nudge — you just caught something.
@@ -905,7 +915,13 @@ struct LogCatchView: View {
         let crewCatch = catchRecord
         Task { await CommunityService.shared.autoPostCatch(crewCatch, speciesName: crewName) }
 
-        ToastCenter.shared.show("Catch logged 🎣")
+        if let celebration {
+            // Confetti replaces the plain toast — it plays over the screen
+            // underneath once the sheet closes.
+            CelebrationCenter.shared.show(celebration)
+        } else {
+            ToastCenter.shared.show("Catch logged 🎣")
+        }
         // Nudge for a review at a positive milestone (rate-limited by Apple).
         let logged = UserDefaults.standard.integer(forKey: "totalCatchesLogged") + 1
         UserDefaults.standard.set(logged, forKey: "totalCatchesLogged")

@@ -35,6 +35,10 @@ struct TournamentSetupView: View {
     @State private var hasEnd = false
     @State private var endsAt = Date().addingTimeInterval(6 * 3600)
     @State private var busy = false
+    @State private var customScoring = false
+    @State private var perFish = TournamentPoints.standard.perFish
+    @State private var perKg = TournamentPoints.standard.perKg
+    @State private var speciesBonus = TournamentPoints.standard.newSpeciesBonus
 
     var body: some View {
         NavigationStack {
@@ -51,6 +55,25 @@ struct TournamentSetupView: View {
                     }
                 } footer: {
                     Text("Teams are live sessions — crewmates create or join one and every catch scores points. Without an end time, an admin ends the tournament manually.")
+                }
+                Section {
+                    Toggle("Custom scoring", isOn: $customScoring.animation(.snappy))
+                        .tint(CurrentsTheme.accent)
+                    if customScoring {
+                        Stepper(value: $perFish, in: 0...100) {
+                            scoringRow("Per fish landed", value: perFish)
+                        }
+                        Stepper(value: $perKg, in: 0...50) {
+                            scoringRow("Per kilogram (rounded)", value: perKg)
+                        }
+                        Stepper(value: $speciesBonus, in: 0...100) {
+                            scoringRow("New species bonus", value: speciesBonus)
+                        }
+                    }
+                } footer: {
+                    Text(customScoring
+                         ? "Weight a tournament toward what matters — set a rate to 0 to ignore it entirely."
+                         : "Standard scoring: \(TournamentPoints.standard.perFish) per fish, +\(TournamentPoints.standard.perKg)/kg, +\(TournamentPoints.standard.newSpeciesBonus) for each new species.")
                 }
                 Section {
                     Button {
@@ -74,12 +97,27 @@ struct TournamentSetupView: View {
         }
     }
 
+    private func scoringRow(_ label: String, value: Int) -> some View {
+        HStack {
+            Text(label)
+            Spacer()
+            Text("\(value) pt\(value == 1 ? "" : "s")")
+                .foregroundStyle(CurrentsTheme.accent)
+                .fontWeight(.semibold)
+                .monospacedDigit()
+        }
+    }
+
     private func create() {
         busy = true
         let trimmed = name.trimmingCharacters(in: .whitespaces)
+        let rates = customScoring
+            ? TournamentPoints.Rates(perFish: perFish, perKg: perKg, newSpeciesBonus: speciesBonus)
+            : TournamentPoints.standard
         Task {
             let t = await svc.createTournament(name: trimmed, crew: crew,
-                                               endsAt: hasEnd ? endsAt : nil)
+                                               endsAt: hasEnd ? endsAt : nil,
+                                               rates: rates)
             busy = false
             if let t {
                 Haptics.success()
@@ -111,6 +149,8 @@ struct TournamentView: View {
     @State private var showingEnd = false
     @State private var newTeamName = ""
     @State private var creatingTeam = false
+    @State private var shareImage: UIImage?
+    @State private var showingShare = false
 
     init(tournament: CommunityService.Tournament, crew: CommunityService.Crew) {
         self.crew = crew
@@ -147,8 +187,25 @@ struct TournamentView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    Haptics.tap()
+                    shareImage = TournamentShareCard.render(
+                        tournament: tournament, crewName: crew.name, standings: standings)
+                    if shareImage != nil { showingShare = true }
+                } label: { Image(systemName: "square.and.arrow.up") }
+                    .accessibilityLabel("Share tournament card")
+            }
+            ToolbarItem(placement: .topBarTrailing) {
                 Button { showingInfo = true } label: { Image(systemName: "info.circle") }
                     .accessibilityLabel("How points work")
+            }
+        }
+        .sheet(isPresented: $showingShare) {
+            if let shareImage {
+                ImageShareSheet(image: shareImage,
+                                filename: "Currents-\(tournament.name)",
+                                caption: TournamentShareCard.caption(tournament: tournament,
+                                                                     standings: standings))
             }
         }
         .sheet(isPresented: $showingInfo) { infoSheet }
@@ -190,6 +247,10 @@ struct TournamentView: View {
         }
         crewMembers = await members
         standings = await svc.teamStandings(tournament: tournament)
+        // Lock Screen scoreboard: starts when you're on a team, updates with
+        // every refresh, ends with the tournament.
+        TournamentActivityManager.shared.sync(
+            tournament: tournament, standings: standings, myCode: svc.friendCode)
         let codes = Array(Set(standings.flatMap(\.memberCodes)))
         if !codes.isEmpty {
             profiles = await svc.profiles(for: codes)
@@ -516,7 +577,7 @@ struct TournamentView: View {
                 VStack(alignment: .leading, spacing: 12) {
                     Label("How points work", systemImage: "trophy.fill")
                         .font(.headline)
-                    Text(TournamentPoints.explanation)
+                    Text(TournamentPoints.explanation(rates: tournament.rates))
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
@@ -822,14 +883,15 @@ struct TeamTournamentDetailView: View {
     // MARK: Points breakdown
 
     private var pointsCard: some View {
-        let fishPts = standing.fishCount * TournamentPoints.perFish
-        let speciesPts = standing.speciesCount * TournamentPoints.newSpeciesBonus
+        let rates = tournament.rates
+        let fishPts = standing.fishCount * rates.perFish
+        let speciesPts = standing.speciesCount * rates.newSpeciesBonus
         let weightPts = standing.points - fishPts - speciesPts
         return VStack(alignment: .leading, spacing: 8) {
             Label("Where the points came from", systemImage: "sum").font(.headline)
-            breakdownRow("\(standing.fishCount) fish × \(TournamentPoints.perFish)", fishPts)
-            breakdownRow("Weight (+\(TournamentPoints.perKg)/kg)", weightPts)
-            breakdownRow("\(standing.speciesCount) new species × \(TournamentPoints.newSpeciesBonus)", speciesPts)
+            breakdownRow("\(standing.fishCount) fish × \(rates.perFish)", fishPts)
+            breakdownRow("Weight (+\(rates.perKg)/kg)", weightPts)
+            breakdownRow("\(standing.speciesCount) new species × \(rates.newSpeciesBonus)", speciesPts)
             Divider()
             breakdownRow("Total", standing.points, bold: true)
         }
@@ -893,7 +955,7 @@ struct TeamTournamentDetailView: View {
                 }
             }
             if standing.catches.isEmpty {
-                Text("Nothing landed yet — first fish scores \(TournamentPoints.perFish + TournamentPoints.newSpeciesBonus) points.")
+                Text("Nothing landed yet — first fish scores \(tournament.rates.perFish + tournament.rates.newSpeciesBonus) points.")
                     .font(.caption).foregroundStyle(.secondary)
             } else {
                 VStack(spacing: 0) {

@@ -227,6 +227,8 @@ final class CommunityService: ObservableObject {
         var bestWeightKg: Double
         var bestLengthCm: Double
         var favoriteSpecies: String
+        /// Flair earned from achievements ("Species Master"), shown under the name.
+        var title: String = ""
     }
 
     struct LeaderRow: Identifiable {
@@ -331,12 +333,16 @@ final class CommunityService: ObservableObject {
     var myHomeWater: String { UserDefaults.standard.string(forKey: "communityHomeWater") ?? "" }
     var myRegion: String { UserDefaults.standard.string(forKey: "communityRegion") ?? (Locale.current.region?.identifier ?? "Global") }
     var memberSince: Date { UserDefaults.standard.object(forKey: "communityMemberSince") as? Date ?? .now }
+    /// Flair title picked from earned achievements; empty shows no flair.
+    var myTitle: String { UserDefaults.standard.string(forKey: "communityTitle") ?? "" }
 
-    func updateProfile(name: String, bio: String, homeWater: String, region: String, avatar: UIImage?, stats: MyStats?) async {
+    func updateProfile(name: String, bio: String, homeWater: String, region: String,
+                       avatar: UIImage?, stats: MyStats?, title: String? = nil) async {
         UserDefaults.standard.set(name, forKey: "communityName")
         UserDefaults.standard.set(bio, forKey: "communityBio")
         UserDefaults.standard.set(homeWater, forKey: "communityHomeWater")
         UserDefaults.standard.set(region, forKey: "communityRegion")
+        if let title { UserDefaults.standard.set(title, forKey: "communityTitle") }
         if let avatar { saveAvatar(avatar) }
         bumpRevision()
         await saveMyProfile(stats: stats)
@@ -396,8 +402,14 @@ final class CommunityService: ObservableObject {
         if FileManager.default.fileExists(atPath: avatarURL.path) {
             record["avatar"] = CKAsset(fileURL: avatarURL)
         }
+        record["title"] = myTitle as CKRecordValue
         record["updatedAt"] = Date() as CKRecordValue
-        _ = try? await db.save(record)
+        if (try? await db.save(record)) == nil {
+            // Production rejects undeclared fields until the schema import
+            // deploys `title` — retry without it so profile saves never break.
+            record["title"] = nil
+            _ = try? await db.save(record)
+        }
     }
 
     func fetchProfile(code: String) async -> Profile? {
@@ -420,6 +432,7 @@ final class CommunityService: ObservableObject {
         var totalCatches, speciesCount: Int
         var bestWeightKg, bestLengthCm: Double
         var favoriteSpecies: String
+        var title: String?
         var avatarData: Data?
 
         init(_ p: Profile) {
@@ -428,6 +441,7 @@ final class CommunityService: ObservableObject {
             totalCatches = p.totalCatches; speciesCount = p.speciesCount
             bestWeightKg = p.bestWeightKg; bestLengthCm = p.bestLengthCm
             favoriteSpecies = p.favoriteSpecies
+            title = p.title
             avatarData = p.avatar?.jpegData(compressionQuality: 0.6)
         }
 
@@ -436,7 +450,7 @@ final class CommunityService: ObservableObject {
                     avatar: avatarData.flatMap(UIImage.init(data:)), memberSince: memberSince,
                     totalCatches: totalCatches, speciesCount: speciesCount,
                     bestWeightKg: bestWeightKg, bestLengthCm: bestLengthCm,
-                    favoriteSpecies: favoriteSpecies)
+                    favoriteSpecies: favoriteSpecies, title: title ?? "")
         }
     }
 
@@ -480,7 +494,8 @@ final class CommunityService: ObservableObject {
             speciesCount: r["speciesCount"] as? Int ?? 0,
             bestWeightKg: r["bestWeightKg"] as? Double ?? 0,
             bestLengthCm: r["bestLengthCm"] as? Double ?? 0,
-            favoriteSpecies: r["favoriteSpecies"] as? String ?? ""
+            favoriteSpecies: r["favoriteSpecies"] as? String ?? "",
+            title: r["title"] as? String ?? ""
         )
     }
 
@@ -1222,6 +1237,8 @@ final class CommunityService: ObservableObject {
         /// the feed can badge it "on <trip>".
         var tripName: String = ""
         var reactions: [CrewReaction] = []
+        /// Optional so feeds cached before comments existed still decode.
+        var commentCount: Int? = nil
     }
 
     /// The crew's currently-live trip, if any (a linked group trip not yet ended).
@@ -1414,6 +1431,10 @@ final class CommunityService: ObservableObject {
                 post.reactions = (byPost[post.id] ?? []).map { $0.1 }
                 return post
             }
+        }
+        let counts = await commentCounts(crewCode: code)
+        if !counts.isEmpty {
+            for i in posts.indices { posts[i].commentCount = counts[posts[i].id] ?? 0 }
         }
         posts.sort { $0.caughtAt > $1.caughtAt }
         crewFeedCache[code] = posts

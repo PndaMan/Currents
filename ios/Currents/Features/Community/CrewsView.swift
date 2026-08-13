@@ -190,6 +190,7 @@ struct CrewDetailView: View {
             headerSection
             membersSection
             if let crew { tournamentsSection(crew) }
+            challengesSection
             sessionsSection
             feedSection
         }
@@ -246,8 +247,10 @@ struct CrewDetailView: View {
             mergeFirstPage(await svc.crewFeedPage(code: code))
             liveTrips = await svc.liveCrewTrips(crewCode: code)
             tournament = await svc.activeTournament(crewCode: code)
-            if let t = tournament, !t.isEnded {
-                standings = await svc.teamStandings(tournament: t)
+            if let t = tournament {
+                if !t.isEnded { standings = await svc.teamStandings(tournament: t) }
+                TournamentActivityManager.shared.sync(
+                    tournament: t, standings: standings, myCode: svc.friendCode)
             }
         }
     }
@@ -274,6 +277,8 @@ struct CrewDetailView: View {
         tournament = await tourney
         if let t = tournament {
             standings = await svc.teamStandings(tournament: t)
+            TournamentActivityManager.shared.sync(
+                tournament: t, standings: standings, myCode: svc.friendCode)
         } else {
             standings = []
         }
@@ -507,6 +512,21 @@ struct CrewDetailView: View {
     }
 
     // MARK: Live sessions
+
+    /// Three deterministic weekly challenges scaled to the crew's size, with
+    /// progress measured straight off the feed.
+    private var challengesSection: some View {
+        Section {
+            CrewChallengesCard(challenges: CrewChallengeEngine.weeklyChallenges(
+                crewCode: code,
+                memberCount: max(members.count, 1),
+                memberCodes: members.map(\.id),
+                posts: feed))
+            .listRowSeparator(.hidden)
+            .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+            .listRowBackground(Color.clear)
+        }
+    }
 
     private var sessionsSection: some View {
         Section("Live sessions") {
@@ -1178,6 +1198,9 @@ struct CrewPostCard: View {
     @State private var captionDraft = ""
     @State private var confirmingDelete = false
     @State private var showingAuthor = false
+    @State private var showingComments = false
+    /// Optimistic comment count while the sheet is open; server truth on reload.
+    @State private var localCommentCount: Int?
     /// Optimistic reactions, shown the instant you tap and replaced by the
     /// server's truth on the next reload.
     @State private var localReactions: [CommunityService.CrewReaction]?
@@ -1208,6 +1231,13 @@ struct CrewPostCard: View {
         .sheet(isPresented: $showingAuthor) {
             NavigationStack { FriendProfileView(code: post.authorCode) }
                 .presentationDragIndicator(.visible)
+        }
+        .sheet(isPresented: $showingComments) {
+            CrewCommentsSheet(post: post, crew: crew) { count in
+                localCommentCount = count
+            }
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
         }
         .onChange(of: post.reactions) { _, _ in localReactions = nil }
         .alert("Caption", isPresented: $editingCaption) {
@@ -1394,7 +1424,31 @@ struct CrewPostCard: View {
                 .buttonStyle(.plain)
             }
             Spacer(minLength: 0)
+            commentButton
         }
+    }
+
+    /// 💬 with the thread's size — opens the comments sheet.
+    private var commentButton: some View {
+        let count = localCommentCount ?? post.commentCount ?? 0
+        return Button {
+            Haptics.tap()
+            showingComments = true
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "bubble.right")
+                    .font(.system(size: 14, weight: .semibold))
+                if count > 0 {
+                    Text("\(count)").font(.caption.bold().monospacedDigit())
+                }
+            }
+            .foregroundStyle(count > 0 ? CurrentsTheme.accent : .secondary)
+            .padding(.horizontal, count > 0 ? 10 : 8)
+            .padding(.vertical, 6)
+            .background(.gray.opacity(0.12), in: Capsule())
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
     }
 
     private func toggle(_ emoji: String) {
@@ -1424,6 +1478,161 @@ struct CrewPostCard: View {
     private func startEditingCaption() {
         captionDraft = post.caption
         editingCaption = true
+    }
+}
+
+// MARK: - Comments
+
+/// The comment thread on one crew post: conversation-ordered list with the
+/// composer pinned underneath, like every messaging surface the user already
+/// knows. Authors delete their own comments; moderators anyone's.
+struct CrewCommentsSheet: View {
+    let post: CommunityService.CrewPost
+    var crew: CommunityService.Crew? = nil
+    /// Reports the live count so the card's 💬 badge stays honest.
+    var onCountChange: (Int) -> Void = { _ in }
+
+    @Environment(\.dismiss) private var dismiss
+    private var svc: CommunityService { .shared }
+    @State private var comments: [CommunityService.CrewComment] = []
+    @State private var loading = true
+    @State private var draft = ""
+    @State private var sending = false
+    @FocusState private var composerFocused: Bool
+
+    private var canModerate: Bool { crew.map { svc.myRole(in: $0).canModerate } ?? false }
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                if loading && comments.isEmpty {
+                    Spacer()
+                    ProgressView()
+                    Spacer()
+                } else if comments.isEmpty {
+                    Spacer()
+                    VStack(spacing: 6) {
+                        Image(systemName: "bubble.left.and.bubble.right")
+                            .font(.title2).foregroundStyle(.secondary)
+                        Text("No comments yet")
+                            .font(.subheadline.bold())
+                        Text("Say something about this \(post.species).")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                } else {
+                    ScrollViewReader { proxy in
+                        List {
+                            ForEach(comments) { comment in
+                                commentRow(comment)
+                                    .id(comment.id)
+                                    .listRowSeparator(.hidden)
+                                    .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
+                            }
+                        }
+                        .listStyle(.plain)
+                        .onChange(of: comments.count) { _, _ in
+                            if let last = comments.last {
+                                withAnimation { proxy.scrollTo(last.id, anchor: .bottom) }
+                            }
+                        }
+                    }
+                }
+                composer
+            }
+            .navigationTitle("Comments")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Done") { dismiss() } }
+            }
+        }
+        .task {
+            comments = await svc.comments(postId: post.id)
+            loading = false
+            onCountChange(comments.count)
+        }
+    }
+
+    private func commentRow(_ comment: CommunityService.CrewComment) -> some View {
+        let mine = comment.authorCode == svc.friendCode
+        return HStack(alignment: .top, spacing: 10) {
+            AnglerAvatar(image: svc.cachedProfiles(for: [comment.authorCode]).first?.avatar, size: 30)
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 6) {
+                    Text(mine ? "You" : comment.authorName)
+                        .font(.caption.bold())
+                    Text(comment.createdAt.formatted(.relative(presentation: .named)))
+                        .font(.caption2).foregroundStyle(.tertiary)
+                }
+                Text(comment.text).font(.subheadline)
+            }
+            Spacer(minLength: 0)
+        }
+        .contextMenu {
+            if mine || canModerate {
+                Button(role: .destructive) { delete(comment) } label: {
+                    Label("Delete comment", systemImage: "trash")
+                }
+            }
+        }
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            if mine || canModerate {
+                Button(role: .destructive) { delete(comment) } label: {
+                    Label("Delete", systemImage: "trash")
+                }
+            }
+        }
+    }
+
+    private var composer: some View {
+        HStack(spacing: 10) {
+            TextField("Add a comment…", text: $draft, axis: .vertical)
+                .lineLimit(1...4)
+                .focused($composerFocused)
+                .padding(.horizontal, 14).padding(.vertical, 9)
+                .background(.gray.opacity(0.12), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            Button {
+                send()
+            } label: {
+                Image(systemName: "arrow.up.circle.fill")
+                    .font(.system(size: 30))
+                    .foregroundStyle(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                                     ? AnyShapeStyle(.tertiary) : AnyShapeStyle(CurrentsTheme.accent))
+            }
+            .buttonStyle(.plain)
+            .disabled(sending || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        }
+        .padding(.horizontal, 16).padding(.vertical, 10)
+        .background(.ultraThinMaterial)
+    }
+
+    private func send() {
+        let text = draft
+        draft = ""
+        sending = true
+        Haptics.tap()
+        Task {
+            if let added = await svc.addComment(text, post: post) {
+                comments.append(added)
+                onCountChange(comments.count)
+            } else {
+                draft = text     // give the words back rather than losing them
+                ToastCenter.shared.show("Couldn't post the comment", style: .error)
+            }
+            sending = false
+        }
+    }
+
+    private func delete(_ comment: CommunityService.CrewComment) {
+        Task {
+            if await svc.deleteComment(comment, in: crew) {
+                Haptics.warning()
+                comments.removeAll { $0.id == comment.id }
+                onCountChange(comments.count)
+            } else {
+                ToastCenter.shared.show("Couldn't delete the comment", style: .error)
+            }
+        }
     }
 }
 

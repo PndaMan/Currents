@@ -22,6 +22,8 @@ struct SegmentedPills<T: Hashable & Identifiable>: View {
             ForEach(options) { option in
                 let isSelected = option == selection
                 Button {
+                    // One haptic source covers every segment row in the app.
+                    if !isSelected { Haptics.selection() }
                     withAnimation(.snappy(duration: 0.22)) { selection = option }
                 } label: {
                     VStack(spacing: 7) {

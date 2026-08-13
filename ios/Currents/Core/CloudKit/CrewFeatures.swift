@@ -234,10 +234,92 @@ extension CommunityService {
             }
             for i in posts.indices { posts[i].reactions = byPost[posts[i].id] ?? [] }
         }
+        // Comment counts for the 💬 badge — one indexed query for the crew.
+        let counts = await commentCounts(crewCode: code)
+        if !counts.isEmpty {
+            for i in posts.indices { posts[i].commentCount = counts[posts[i].id] ?? 0 }
+        }
         if before == nil {
             CommunityDiskCache.saveFeed(posts, for: code)
         }
         return posts
+    }
+
+    // MARK: - Post comments
+
+    struct CrewComment: Identifiable, Equatable, Codable {
+        let id: String            // crewcomment-<postId suffix>-<uuid>
+        let postId: String
+        let crewCode: String
+        let authorCode: String
+        let authorName: String
+        var text: String
+        let createdAt: Date
+    }
+
+    var crewCommentType: String { "CrewComment" }
+
+    /// All comments on one post, oldest first (conversation order).
+    func comments(postId: String) async -> [CrewComment] {
+        let q = CKQuery(recordType: crewCommentType,
+                        predicate: NSPredicate(format: "postId == %@", postId))
+        guard let res = try? await db.records(matching: q, resultsLimit: 200) else {
+            return CommunityDiskCache.load([CrewComment].self, key: "comments-\(postId)") ?? []
+        }
+        let list: [CrewComment] = res.matchResults.compactMap { id, r in
+            guard let rec = try? r.get() else { return nil }
+            return CrewComment(id: id.recordName,
+                               postId: postId,
+                               crewCode: rec["crewCode"] as? String ?? "",
+                               authorCode: rec["authorCode"] as? String ?? "",
+                               authorName: rec["authorName"] as? String ?? "Angler",
+                               text: rec["text"] as? String ?? "",
+                               createdAt: rec["createdAt"] as? Date ?? .distantPast)
+        }.sorted { $0.createdAt < $1.createdAt }
+        CommunityDiskCache.save(list, key: "comments-\(postId)")
+        return list
+    }
+
+    /// Comment counts for a whole crew in one indexed query, keyed by postId —
+    /// powers the 💬 badge on feed cards without per-post fetches.
+    func commentCounts(crewCode: String) async -> [String: Int] {
+        let q = CKQuery(recordType: crewCommentType,
+                        predicate: NSPredicate(format: "crewCode == %@", crewCode))
+        guard let res = try? await db.records(matching: q, desiredKeys: ["postId"],
+                                              resultsLimit: 800) else { return [:] }
+        var counts: [String: Int] = [:]
+        for (_, r) in res.matchResults {
+            if let rec = try? r.get(), let pid = rec["postId"] as? String {
+                counts[pid, default: 0] += 1
+            }
+        }
+        return counts
+    }
+
+    @discardableResult
+    func addComment(_ text: String, post: CrewPost) async -> CrewComment? {
+        let clean = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard cloudAllowed, !clean.isEmpty else { return nil }
+        let name = "crewcomment-\(UUID().uuidString)"
+        let record = CKRecord(recordType: crewCommentType,
+                              recordID: CKRecord.ID(recordName: name))
+        record["postId"] = post.id as CKRecordValue
+        record["crewCode"] = post.crewCode as CKRecordValue
+        record["authorCode"] = friendCode as CKRecordValue
+        record["authorName"] = myName as CKRecordValue
+        record["text"] = clean as CKRecordValue
+        record["createdAt"] = Date() as CKRecordValue
+        guard (try? await db.save(record)) != nil else { return nil }
+        return CrewComment(id: name, postId: post.id, crewCode: post.crewCode,
+                           authorCode: friendCode, authorName: myName,
+                           text: clean, createdAt: .now)
+    }
+
+    /// Delete a comment — the author always may; moderators may for anyone.
+    func deleteComment(_ comment: CrewComment, in crew: Crew?) async -> Bool {
+        let mayModerate = crew.map { myRole(in: $0).canModerate } ?? false
+        guard comment.authorCode == friendCode || mayModerate else { return false }
+        return (try? await db.deleteRecord(withID: CKRecord.ID(recordName: comment.id))) != nil
     }
 
     /// A crew-post photo, cached to disk so scrolling back through the feed
@@ -346,7 +428,17 @@ extension CommunityService {
         var endsAt: Date?
         var endedAt: Date?
         var winnerTeam: String?
+        /// Custom scoring set by the admin at creation. Nil (older records and
+        /// caches) falls back to the standard rates.
+        var pointsPerFish: Int?
+        var pointsPerKg: Int?
+        var speciesBonus: Int?
         var isEnded: Bool { endedAt != nil }
+        var rates: TournamentPoints.Rates {
+            .init(perFish: pointsPerFish ?? TournamentPoints.standard.perFish,
+                  perKg: pointsPerKg ?? TournamentPoints.standard.perKg,
+                  newSpeciesBonus: speciesBonus ?? TournamentPoints.standard.newSpeciesBonus)
+        }
     }
 
     /// A team = one live session inside the tournament, plus its tally.
@@ -407,6 +499,22 @@ extension CommunityService {
         return out
     }
 
+    private static func tournament(from rec: CKRecord, crewCode: String) -> Tournament? {
+        guard let code = rec["code"] as? String else { return nil }
+        return Tournament(id: code,
+                          name: rec["name"] as? String ?? "Tournament",
+                          crewCode: crewCode,
+                          hostCode: rec["hostCode"] as? String ?? "",
+                          hostName: rec["hostName"] as? String ?? "",
+                          createdAt: rec["createdAt"] as? Date ?? .distantPast,
+                          endsAt: rec["endsAt"] as? Date,
+                          endedAt: rec["endedAt"] as? Date,
+                          winnerTeam: rec["winnerTeam"] as? String,
+                          pointsPerFish: (rec["pointsPerFish"] as? Int64).map(Int.init),
+                          pointsPerKg: (rec["pointsPerKg"] as? Int64).map(Int.init),
+                          speciesBonus: (rec["speciesBonus"] as? Int64).map(Int.init))
+    }
+
     /// Every tournament the crew has run, newest first — the history hub, so
     /// the crew page itself only ever carries the active one. Client-sorted
     /// (the record type has no sortable index) and disk-cached.
@@ -417,23 +525,17 @@ extension CommunityService {
             return CommunityDiskCache.load([Tournament].self, key: "tournaments-\(crewCode)") ?? []
         }
         let list: [Tournament] = res.matchResults.compactMap { _, r in
-            guard let rec = try? r.get(), let code = rec["code"] as? String else { return nil }
-            return Tournament(id: code,
-                              name: rec["name"] as? String ?? "Tournament",
-                              crewCode: crewCode,
-                              hostCode: rec["hostCode"] as? String ?? "",
-                              hostName: rec["hostName"] as? String ?? "",
-                              createdAt: rec["createdAt"] as? Date ?? .distantPast,
-                              endsAt: rec["endsAt"] as? Date,
-                              endedAt: rec["endedAt"] as? Date,
-                              winnerTeam: rec["winnerTeam"] as? String)
+            guard let rec = try? r.get() else { return nil }
+            return Self.tournament(from: rec, crewCode: crewCode)
         }.sorted { $0.createdAt > $1.createdAt }
         CommunityDiskCache.save(list, key: "tournaments-\(crewCode)")
         return list
     }
 
-    /// Admins only. Teams are created as members join.
-    func createTournament(name: String, crew: Crew, endsAt: Date?) async -> Tournament? {
+    /// Admins only. Teams are created as members join. Scoring rates default
+    /// to the standard rules; admins can tune them in the setup sheet.
+    func createTournament(name: String, crew: Crew, endsAt: Date?,
+                          rates: TournamentPoints.Rates = TournamentPoints.standard) async -> Tournament? {
         guard cloudAllowed, myRole(in: crew).canRunTournaments else { return nil }
         let chars = Array("ABCDEFGHJKLMNPQRSTUVWXYZ23456789")
         let code = String((0..<6).map { _ in chars[Int.random(in: 0..<chars.count)] })
@@ -446,10 +548,25 @@ extension CommunityService {
         record["hostName"] = myName as CKRecordValue
         record["createdAt"] = Date() as CKRecordValue
         if let endsAt { record["endsAt"] = endsAt as CKRecordValue }
-        guard (try? await db.save(record)) != nil else { return nil }
+        record["pointsPerFish"] = rates.perFish as CKRecordValue
+        record["pointsPerKg"] = rates.perKg as CKRecordValue
+        record["speciesBonus"] = rates.newSpeciesBonus as CKRecordValue
+        var saved = rates
+        if (try? await db.save(record)) == nil {
+            // Production rejects undeclared fields until the schema import
+            // deploys the scoring columns — fall back to standard rates so
+            // starting a tournament never silently fails.
+            record["pointsPerFish"] = nil
+            record["pointsPerKg"] = nil
+            record["speciesBonus"] = nil
+            guard (try? await db.save(record)) != nil else { return nil }
+            saved = TournamentPoints.standard
+        }
         return Tournament(id: code, name: name, crewCode: crew.code,
                           hostCode: friendCode, hostName: myName,
-                          createdAt: .now, endsAt: endsAt, endedAt: nil, winnerTeam: nil)
+                          createdAt: .now, endsAt: endsAt, endedAt: nil, winnerTeam: nil,
+                          pointsPerFish: saved.perFish, pointsPerKg: saved.perKg,
+                          speciesBonus: saved.newSpeciesBonus)
     }
 
     /// The crew's current tournament (newest un-ended), or its most recent
@@ -461,16 +578,8 @@ extension CommunityService {
             return CommunityDiskCache.load(Tournament.self, key: "tournament-\(crewCode)")
         }
         let all: [Tournament] = res.matchResults.compactMap { _, r in
-            guard let rec = try? r.get(), let code = rec["code"] as? String else { return nil }
-            return Tournament(id: code,
-                              name: rec["name"] as? String ?? "Tournament",
-                              crewCode: crewCode,
-                              hostCode: rec["hostCode"] as? String ?? "",
-                              hostName: rec["hostName"] as? String ?? "",
-                              createdAt: rec["createdAt"] as? Date ?? .distantPast,
-                              endsAt: rec["endsAt"] as? Date,
-                              endedAt: rec["endedAt"] as? Date,
-                              winnerTeam: rec["winnerTeam"] as? String)
+            guard let rec = try? r.get() else { return nil }
+            return Self.tournament(from: rec, crewCode: crewCode)
         }
         let live = all.filter { !$0.isEnded }.max { $0.createdAt < $1.createdAt }
         let recent = all.filter { $0.isEnded && ($0.endedAt ?? .distantPast) > Date().addingTimeInterval(-86_400) }
@@ -537,7 +646,8 @@ extension CommunityService {
                     let catches = await self.groupCatches(code: team.code)
                     let members = await self.groupMembers(code: team.code).map(\.id)
                     let score = TournamentPoints.score(
-                        catches.map { (species: $0.species, weightKg: $0.weightKg) })
+                        catches.map { (species: $0.species, weightKg: $0.weightKg) },
+                        rates: tournament.rates)
                     return TeamStanding(id: team.code, teamName: team.name,
                                         points: score.points, fishCount: score.fish,
                                         totalWeightKg: score.weightKg,
@@ -604,39 +714,48 @@ extension CommunityService {
 
 // MARK: - Tournament points
 
-/// Three rules, explained verbatim in the in-app info sheet:
-///   • 10 points per fish landed
-///   • +1 point per kilogram of each fish (rounded)
-///   • +5 points the first time the team lands a new species
+/// Three rules, explained in the in-app info sheet. The standard rates are
+/// the defaults; each tournament may carry its own (admin sets them at
+/// creation and every device scores with the tournament's rates).
 enum TournamentPoints {
-    static let perFish = 10
-    static let perKg = 1
-    static let newSpeciesBonus = 5
+    struct Rates: Equatable {
+        var perFish: Int
+        var perKg: Int
+        var newSpeciesBonus: Int
+    }
+    static let standard = Rates(perFish: 10, perKg: 1, newSpeciesBonus: 5)
 
-    static func score(_ catches: [(species: String, weightKg: Double?)])
+    static func score(_ catches: [(species: String, weightKg: Double?)],
+                      rates: Rates = standard)
         -> (points: Int, fish: Int, weightKg: Double, species: Int) {
         var points = 0, seen = Set<String>(), weight = 0.0
         for c in catches {
-            points += perFish
+            points += rates.perFish
             if let w = c.weightKg {
-                points += Int(w.rounded()) * perKg
+                points += Int(w.rounded()) * rates.perKg
                 weight += w
             }
             if seen.insert(c.species.lowercased()).inserted {
-                points += newSpeciesBonus
+                points += rates.newSpeciesBonus
             }
         }
         return (points, catches.count, weight, seen.count)
     }
 
-    static let explanation = """
-    How points work:
-    • 10 points for every fish landed
-    • +1 point per kilogram of each fish (rounded)
-    • +5 points the first time your team lands a new species
+    static func explanation(rates: Rates = standard) -> String {
+        var out = """
+        How points work:
+        • \(rates.perFish) points for every fish landed
+        • +\(rates.perKg) point\(rates.perKg == 1 ? "" : "s") per kilogram of each fish (rounded)
+        • +\(rates.newSpeciesBonus) points the first time your team lands a new species
 
-    Points update live as catches are logged. When the tournament ends, an \
-    admin confirms the winner — the top team is highlighted, but the call is \
-    theirs.
-    """
+        Points update live as catches are logged. When the tournament ends, an \
+        admin confirms the winner — the top team is highlighted, but the call is \
+        theirs.
+        """
+        if rates != standard {
+            out += "\n\nThis tournament uses custom scoring set by its host."
+        }
+        return out
+    }
 }

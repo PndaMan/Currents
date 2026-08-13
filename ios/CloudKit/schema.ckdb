@@ -13,6 +13,9 @@ DEFINE SCHEMA
         bestLengthCm    DOUBLE,
         favoriteSpecies STRING,
         avatar          ASSET,
+        -- A flair title picked from earned achievements ("Species Master"),
+        -- shown under the angler's name on profiles.
+        title           STRING,
         updatedAt       TIMESTAMP,
         "___createTime" TIMESTAMP,
         "___createdBy"  REFERENCE,
@@ -267,8 +270,29 @@ DEFINE SCHEMA
         GRANT READ TO "_world"
     );
 
+    -- A comment on a crew post. Queried by postId; crewCode carries the
+    -- moderation scope. WRITE is _icloud so admins can delete comments.
+    RECORD TYPE CrewComment (
+        postId      STRING QUERYABLE,
+        crewCode    STRING QUERYABLE,
+        authorCode  STRING,
+        authorName  STRING,
+        text        STRING,
+        createdAt   TIMESTAMP,
+        "___createTime" TIMESTAMP,
+        "___createdBy"  REFERENCE,
+        "___etag"       STRING,
+        "___modTime"    TIMESTAMP,
+        "___modifiedBy" REFERENCE,
+        "___recordID"   REFERENCE QUERYABLE,
+        GRANT WRITE TO "_icloud",
+        GRANT CREATE TO "_icloud",
+        GRANT READ TO "_world"
+    );
+
     -- A crew tournament: teams (live sessions with a team name) compete on
     -- points. Created by crew admins; winner declared by an admin at the end.
+    -- Scoring is per-tournament (admin sets the rates at creation).
     RECORD TYPE Tournament (
         code        STRING QUERYABLE,
         crewCode    STRING QUERYABLE,
@@ -279,6 +303,9 @@ DEFINE SCHEMA
         endsAt      TIMESTAMP,
         endedAt     TIMESTAMP,
         winnerTeam  STRING,
+        pointsPerFish INT64,
+        pointsPerKg   INT64,
+        speciesBonus  INT64,
         "___createTime" TIMESTAMP,
         "___createdBy"  REFERENCE,
         "___etag"       STRING,

@@ -231,7 +231,11 @@ struct FilterChip: View {
     private var accent: Color { (ThemeOption(rawValue: selectedTheme) ?? .ocean).primary }
 
     var body: some View {
-        Button(action: action) {
+        Button {
+            // Every filter row in the app ticks through this one control.
+            if !isSelected { Haptics.selection() }
+            action()
+        } label: {
             // No capsules at all any more: filter rows are plain labels with
             // an accent underline on the selection — quiet, uniform, and the
             // active choice reads instantly across every screen.

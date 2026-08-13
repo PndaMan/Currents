@@ -53,6 +53,10 @@ struct MapTab: View {
     @AppStorage("mapLayer_wind") private var layerWind = false
     @AppStorage("mapLayer_current") private var layerCurrent = false
     @State private var radarOverlay: MKTileOverlay?
+    // Public boat ramps + fishing access points (OpenStreetMap), toggleable.
+    @AppStorage("mapLayer_ramps") private var layerRamps = false
+    @StateObject private var rampService = BoatRampService.shared
+    @State private var selectedRamp: BoatRamp?
 
     enum MapStyleOption: String, CaseIterable {
         case offline = "Offline"
@@ -160,6 +164,19 @@ struct MapTab: View {
                         }
                     }
 
+                    // Public boat ramps / fishing access points
+                    if layerRamps && currentLatSpan < 2.5 {
+                        ForEach(rampService.ramps) { ramp in
+                            Annotation("", coordinate: ramp.coordinate) {
+                                RampPin(ramp: ramp, accent: accent)
+                                    .onTapGesture {
+                                        Haptics.tap()
+                                        selectedRamp = ramp
+                                    }
+                            }
+                        }
+                    }
+
                     // Water body overlays
                     if showWaterbodies {
                         ForEach(waterbodies) { wb in
@@ -246,6 +263,9 @@ struct MapTab: View {
                             }
                             Toggle(isOn: $showCatchPins) {
                                 Label("My Catches", systemImage: "fish.fill")
+                            }
+                            Toggle(isOn: $layerRamps) {
+                                Label("Boat Ramps & Access", systemImage: "sailboat.fill")
                             }
                         }
 
@@ -403,6 +423,7 @@ struct MapTab: View {
             .sensoryFeedback(.selection, trigger: layerCurrent)
             .sensoryFeedback(.selection, trigger: showWaterbodies)
             .sensoryFeedback(.selection, trigger: showCatchPins)
+            .sensoryFeedback(.selection, trigger: layerRamps)
             // No navigation bar on the map — its invisible bar was reserving a
             // big empty band above the search field.
             .toolbar(.hidden, for: .navigationBar)
@@ -447,6 +468,19 @@ struct MapTab: View {
             .onChange(of: layerRadar) { _, on in if on { mapStyle = .offline } }
             .onChange(of: layerWind) { _, on in if on { mapStyle = .offline } }
             .onChange(of: layerCurrent) { _, on in if on { mapStyle = .offline } }
+            // Ramps render on the SwiftUI map — fetch as soon as the layer is
+            // switched on for wherever the camera already sits.
+            .onChange(of: layerRamps) { _, on in
+                guard on else { return }
+                let center = lastMapCenter ?? appState.locationManager.currentLocation?.coordinate
+                let span = currentLatSpan
+                if let center { Task { await rampService.load(around: center, latSpan: span) } }
+            }
+            .sheet(item: $selectedRamp) { ramp in
+                RampDetailSheet(ramp: ramp)
+                    .presentationDetents([.height(230)])
+                    .presentationBackground(.ultraThinMaterial)
+            }
             .sheet(isPresented: $showingSpeciesBrowser) {
                 NavigationStack {
                     SpeciesBrowserView()
@@ -706,6 +740,10 @@ struct MapTab: View {
         lastMapCenter = region.center
         // Background-cache tiles around the viewed area for offline use.
         appState.mapManager.prefetchOfflineTiles(around: region.center)
+        if layerRamps {
+            let center = region.center, span = region.span.latitudeDelta
+            Task { await rampService.load(around: center, latSpan: span) }
+        }
         // Debounce: cancel prior pending load, wait 300ms before firing
         waterbodyDebounceTask?.cancel()
         waterbodyDebounceTask = Task {
@@ -1646,6 +1684,82 @@ struct WaterbodyPin: View {
         case .estuary: "water.waves.slash"
         case .coast: "sailboat.fill"
         }
+    }
+}
+
+// MARK: - Boat ramp pin + detail
+
+/// A public boat ramp / fishing access marker — visually distinct from spots
+/// (teal square, marine icon) so launch points read at a glance.
+struct RampPin: View {
+    let ramp: BoatRamp
+    var accent: Color = CurrentsTheme.accent
+
+    var body: some View {
+        VStack(spacing: 2) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .fill(Color.teal.opacity(0.9))
+                    .frame(width: 30, height: 30)
+                    .shadow(color: .teal.opacity(0.4), radius: 3, y: 2)
+                Image(systemName: ramp.kind.icon)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(.white)
+            }
+            if ramp.name != ramp.kind.label {
+                Text(ramp.name)
+                    .font(.system(size: 9).bold())
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 1)
+                    .background(.ultraThinMaterial)
+                    .clipShape(Capsule())
+                    .lineLimit(1)
+            }
+        }
+    }
+}
+
+/// Tap a ramp: what it is, and one-tap driving directions — the whole reason
+/// you'd look for a ramp on the map.
+struct RampDetailSheet: View {
+    let ramp: BoatRamp
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(spacing: 14) {
+            HStack(spacing: 12) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(Color.teal.opacity(0.15))
+                        .frame(width: 48, height: 48)
+                    Image(systemName: ramp.kind.icon)
+                        .font(.title3)
+                        .foregroundStyle(.teal)
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(ramp.name).font(.headline)
+                    Text("\(ramp.kind.label) · OpenStreetMap")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer()
+            }
+            Button {
+                Haptics.tap()
+                let item = MKMapItem(placemark: MKPlacemark(coordinate: ramp.coordinate))
+                item.name = ramp.name
+                item.openInMaps(launchOptions: [
+                    MKLaunchOptionsDirectionsModeKey: MKLaunchOptionsDirectionsModeDriving
+                ])
+            } label: {
+                Label("Directions", systemImage: "car.fill")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent).labelStyle(.prominentButton).tint(CurrentsTheme.accent)
+            Button("Done") { dismiss() }
+                .font(.subheadline)
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

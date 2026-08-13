@@ -142,15 +142,16 @@ struct QuickLogCatchIntent: AppIntent {
 
 // MARK: - Log a named species (hands-free, headless)
 
-/// "Log a largemouth bass in Currents" — records a catch of the named species
-/// at your current location, without opening the app. Resolves the spoken name
-/// against the species catalog; logs it unmatched (with a note) if it can't.
+/// "Log a fish in Currents" → "three pound largemouth bass, released" —
+/// records a catch of the named species at your current location without
+/// opening the app, parsing weight, length and released/kept out of the same
+/// phrase. Logs it unmatched (with a note) if the species doesn't resolve.
 struct LogSpeciesCatchIntent: AppIntent {
     static var title: LocalizedStringResource = "Log a Fish"
-    static var description = IntentDescription("Log a catch of a named species without opening the app.")
+    static var description = IntentDescription("Log a catch — species, size and released/kept — in one phrase, without opening the app.")
     static var openAppWhenRun = false
 
-    @Parameter(title: "Species", requestValueDialog: "What did you catch?")
+    @Parameter(title: "Catch", requestValueDialog: "What did you catch?")
     var species: String
 
     @MainActor
@@ -159,21 +160,39 @@ struct LogSpeciesCatchIntent: AppIntent {
         let coord = app.locationManager.currentLocation?.coordinate
             ?? app.tripTracker.currentLocation?.coordinate
             ?? fallbackCoordinate
-        let match = app.speciesRepository.resolve(spokenName: species)
+        let parsed = CatchPhraseParser.parse(species)
+        let match = [parsed.speciesText, species]
+            .filter { !$0.isEmpty }
+            .lazy.compactMap { app.speciesRepository.resolve(spokenName: $0) }
+            .first
         var record = Catch(
             speciesId: match?.id, spotId: nil, caughtAt: .now,
             latitude: coord.latitude, longitude: coord.longitude,
+            lengthCm: parsed.lengthCm,
+            weightKg: parsed.weightKg,
+            released: parsed.released ?? false,
             tripId: app.tripTracker.activeTrip?.id,
             notes: match == nil ? "Siri: \"\(species)\"" : "Logged via Siri")
+        let priors = match.flatMap { try? app.catchRepository.fetchForSpecies($0.id) }?
+            .map(\.catchRecord) ?? []
+        let celebration = CelebrationJudge.judge(
+            speciesName: match?.commonName, speciesId: match?.id,
+            weightKg: record.weightKg, lengthCm: record.lengthCm,
+            excludingCatchId: record.id, existing: priors)
         try? app.catchRepository.save(&record)
+        if let celebration { CelebrationCenter.shared.show(celebration) }
         let published = record
         let publishedName = match?.commonName
         Task { await CommunityService.shared.publishLoggedCatch(published, speciesName: publishedName) }
         if app.tripTracker.isTracking { await NotificationManager.shared.scheduleColdStreakNudge() }
         if let match {
-            return .result(dialog: "Logged a \(match.commonName). Tight lines!")
+            let details = parsed.summary
+            let celebrated = celebration.map { " \($0.headline)" } ?? ""
+            return .result(dialog: details.isEmpty
+                ? "Logged a \(match.commonName).\(celebrated) Tight lines!"
+                : "Logged a \(match.commonName) — \(details).\(celebrated) Tight lines!")
         }
-        return .result(dialog: "Logged your catch. I couldn't match “\(species)” — open Currents to set the species.")
+        return .result(dialog: "Logged your catch. I couldn't match “\(parsed.speciesText.isEmpty ? species : parsed.speciesText)” — open Currents to set the species.")
     }
 }
 
