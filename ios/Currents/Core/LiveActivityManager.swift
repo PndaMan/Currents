@@ -98,7 +98,7 @@ final class TournamentActivityManager {
             teamsCount: standings.count,
             endsAt: tournament.endsAt,
             startedAt: tournament.createdAt,
-            biteScore: SharedStore.load()?.currentScore)
+            biteScore: SharedStore.load()?.score())
 
         if let activity, activity.attributes.tournamentCode == tournament.id {
             Task { await activity.update(.init(state: state, staleDate: nil)) }
