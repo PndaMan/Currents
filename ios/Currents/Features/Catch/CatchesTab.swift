@@ -153,6 +153,14 @@ struct CatchesTab: View {
                                         } label: {
                                             Label("Delete", systemImage: "trash")
                                         }
+                                    } preview: {
+                                        // Without an explicit preview the
+                                        // lift snapshots the whole LIST ROW —
+                                        // and the entire grid is one row, so a
+                                        // long-press hoisted every catch at
+                                        // once. Preview just the pressed cell.
+                                        CatchGalleryCell(detail: detail)
+                                            .frame(width: 250, height: 208)
                                     }
                                 }
                             }
