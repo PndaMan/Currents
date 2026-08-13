@@ -194,7 +194,7 @@ struct BadgeDefinition: Identifiable {
         case "Leviathan":       return "Land a fish weighing 50 kg (110 lb) or more."
         case "Master of All Waters": return "Catch 50 different species."
         case "Eternal Flame":   return "Keep a weekly fishing streak alive for 26 weeks — half a year."
-        case "Bass Daddy":      return "You knew the secret code. Welcome to the 90210 club, Bass Daddy. 🐟"
+        case "Bass Daddy":      return "“My rod is my sword, the water my kingdom, and every bass bows before the throne.” — Bass Daddy"
         default:                return "Keep fishing to unlock this badge."
         }
     }
