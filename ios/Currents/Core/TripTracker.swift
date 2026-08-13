@@ -172,7 +172,16 @@ final class TripTracker: NSObject, CLLocationManagerDelegate {
     /// Kick off the Live Activity + widget snapshot for a newly-started session.
     private func beginLiveSession(_ trip: Trip) {
         resetAutoPause()
-        LiveActivityManager.shared.start(sessionName: trip.name, startDate: trip.startDate, biteScore: 0)
+        // A tournament team session gets the tournament scoreboard activity
+        // instead — don't stack a session card next to it.
+        let group = CommunityService.shared.groupCode(forTripId: trip.id)
+        let isTeamSession = group.flatMap { g in
+            CommunityService.shared.myGroups.first { $0.code == g }?.teamName
+        } != nil
+        if !isTeamSession {
+            LiveActivityManager.shared.start(sessionName: trip.name, startDate: trip.startDate,
+                                             biteScore: 0, tripId: trip.id)
+        }
         WidgetSnapshotWriter.writeActiveSession(name: trip.name, start: trip.startDate, catches: 0)
         Task { await NotificationManager.shared.scheduleColdStreakNudge() }
     }

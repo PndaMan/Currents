@@ -19,9 +19,16 @@ public struct TournamentActivityAttributes: ActivityAttributes {
         public var rivalPoints: Int?
         public var teamsCount: Int
         public var endsAt: Date?
+        /// When the tournament began — drives the count-UP clock when the
+        /// admin didn't set an end time (endsAt drives the countdown).
+        public var startedAt: Date
+        /// The live bite score at your location, mirrored from the session so
+        /// the tournament card can replace the session one outright.
+        public var biteScore: Int?
 
         public init(myTeamName: String, myPoints: Int, myRank: Int, myFish: Int,
-                    rivalName: String?, rivalPoints: Int?, teamsCount: Int, endsAt: Date?) {
+                    rivalName: String?, rivalPoints: Int?, teamsCount: Int, endsAt: Date?,
+                    startedAt: Date = .now, biteScore: Int? = nil) {
             self.myTeamName = myTeamName
             self.myPoints = myPoints
             self.myRank = myRank
@@ -30,6 +37,8 @@ public struct TournamentActivityAttributes: ActivityAttributes {
             self.rivalPoints = rivalPoints
             self.teamsCount = teamsCount
             self.endsAt = endsAt
+            self.startedAt = startedAt
+            self.biteScore = biteScore
         }
     }
 

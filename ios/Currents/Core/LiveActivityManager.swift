@@ -10,12 +10,16 @@ final class LiveActivityManager {
     private init() {}
 
     private var activity: Activity<SessionActivityAttributes>?
+    /// The local trip the current activity belongs to, so the tournament
+    /// manager can tell "this session IS the team session" and replace it.
+    private(set) var activeTripId: String?
 
     var isSupported: Bool {
         ActivityAuthorizationInfo().areActivitiesEnabled
     }
 
-    func start(sessionName: String, startDate: Date, biteScore: Int) {
+    func start(sessionName: String, startDate: Date, biteScore: Int, tripId: String? = nil) {
+        activeTripId = tripId
         guard isSupported, activity == nil else { return }
         let attributes = SessionActivityAttributes(sessionName: sessionName)
         let state = SessionActivityAttributes.ContentState(
@@ -41,6 +45,7 @@ final class LiveActivityManager {
     }
 
     func end() {
+        activeTripId = nil
         guard let activity else { return }
         let final = activity.content.state
         Task { await activity.end(.init(state: final, staleDate: nil), dismissalPolicy: .immediate) }
@@ -72,6 +77,13 @@ final class TournamentActivityManager {
             return
         }
         let me = standings[myIndex]
+        // The team session and the tournament are the same event — one Lock
+        // Screen card is enough. If the session Live Activity is showing this
+        // team's trip, drop it: the tournament card carries the bite score too.
+        if let linked = CommunityService.shared.tripId(forGroupCode: me.id),
+           LiveActivityManager.shared.activeTripId == linked {
+            LiveActivityManager.shared.end()
+        }
         // The team to beat: the leader when chasing, second place when on top.
         let rival = myIndex == 0
             ? (standings.count > 1 ? standings[1] : nil)
@@ -84,7 +96,9 @@ final class TournamentActivityManager {
             rivalName: rival?.teamName,
             rivalPoints: rival?.points,
             teamsCount: standings.count,
-            endsAt: tournament.endsAt)
+            endsAt: tournament.endsAt,
+            startedAt: tournament.createdAt,
+            biteScore: SharedStore.load()?.currentScore)
 
         if let activity, activity.attributes.tournamentCode == tournament.id {
             Task { await activity.update(.init(state: state, staleDate: nil)) }

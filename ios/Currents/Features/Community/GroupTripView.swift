@@ -335,6 +335,14 @@ struct GroupTripView: View {
     private let autoJoin: Bool
     private var service: CommunityService { .shared }
 
+    /// A tournament team session lives inside a crew — its roster is managed
+    /// from the tournament screen (join a team / admin assign), so friend
+    /// invites and share links make no sense here and are hidden.
+    private var isTournamentTeam: Bool {
+        trip?.tournamentCode != nil || trip?.teamName != nil
+            || service.myGroups.first(where: { $0.code == code })?.teamName != nil
+    }
+
     private func leave(code: String) {
         Task {
             await leaveGroupAndCleanup(code: code, tripId: tripId, appState: appState)
@@ -402,13 +410,15 @@ struct GroupTripView: View {
             if let code, !confirming, svc.joined {
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
-                        Button { showingInvite = true } label: {
-                            Label("Invite friends", systemImage: "person.badge.plus")
+                        if !isTournamentTeam {
+                            Button { showingInvite = true } label: {
+                                Label("Invite friends", systemImage: "person.badge.plus")
+                            }
+                            ShareLink(item: service.inviteMessage(forGroup: code, tripName: trip?.name ?? tripName)) {
+                                Label("Share invite link", systemImage: "square.and.arrow.up")
+                            }
+                            Divider()
                         }
-                        ShareLink(item: service.inviteMessage(forGroup: code, tripName: trip?.name ?? tripName)) {
-                            Label("Share invite link", systemImage: "square.and.arrow.up")
-                        }
-                        Divider()
                         if trip?.isHost == true, !(trip?.isEnded ?? false) {
                             Button(role: .destructive) {
                                 confirmingEndForAll = true
@@ -762,18 +772,25 @@ struct GroupTripView: View {
 
             facepile
 
-            HStack {
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("Trip code").font(.caption2).foregroundStyle(.secondary)
-                    CopyableCode(code: code, font: .system(.subheadline, design: .monospaced).bold())
+            if isTournamentTeam {
+                // Teammates come from the crew via the tournament screen —
+                // no invites, no code to pass around.
+                Text("Crewmates join from the tournament page")
+                    .font(.caption2).foregroundStyle(.secondary)
+            } else {
+                HStack {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("Trip code").font(.caption2).foregroundStyle(.secondary)
+                        CopyableCode(code: code, font: .system(.subheadline, design: .monospaced).bold())
+                    }
+                    Spacer()
+                    Button {
+                        showingInvite = true
+                    } label: {
+                        Label("Invite", systemImage: "person.badge.plus").font(.caption.bold())
+                    }
+                    .buttonStyle(.bordered)
                 }
-                Spacer()
-                Button {
-                    showingInvite = true
-                } label: {
-                    Label("Invite", systemImage: "person.badge.plus").font(.caption.bold())
-                }
-                .buttonStyle(.bordered)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -1104,6 +1121,27 @@ struct GroupTripView: View {
                     } label: {
                         Label("End my session", systemImage: "stop.circle").frame(maxWidth: .infinity)
                     }.buttonStyle(.bordered)
+                } else if let linkedId, let lt = (try? appState.tripRepository.fetch(linkedId)) ?? nil {
+                    // The shared trip is over, but YOUR session — track, stats,
+                    // catches — is still worth opening.
+                    NavigationLink {
+                        SessionDetailView(trip: lt)
+                    } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: "map")
+                                .foregroundStyle(CurrentsTheme.accent)
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text("View your session").font(.subheadline.bold())
+                                Text("Your GPS track, stats and catches")
+                                    .font(.caption2).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.caption).foregroundStyle(.tertiary)
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
                 }
             } else if isThisActive, tracker.isDayActive {
                 if tracker.manualPaused {

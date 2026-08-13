@@ -723,6 +723,17 @@ private struct FriendsSection: View {
                 Button {
                     let code = addCode
                     addCode = ""
+                    // The Beverly Hills handshake: 90210 isn't a friend code,
+                    // it's the hidden Bass Daddy achievement.
+                    if code == "90210" {
+                        let fresh = !BadgeDefinition.bassDaddyUnlocked
+                        BadgeDefinition.unlockBassDaddy()
+                        Haptics.success()
+                        ToastCenter.shared.show(fresh
+                            ? "🐟 Mythic achievement unlocked — Bass Daddy!"
+                            : "🐟 Still the Bass Daddy.", style: .success)
+                        return
+                    }
                     Task {
                         let ok = await svc.sendFriendRequest(to: code)
                         requestSent = ok
@@ -734,7 +745,8 @@ private struct FriendsSection: View {
                     Label("Send Request", systemImage: "person.badge.plus").frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent).labelStyle(.prominentButton).tint(CurrentsTheme.accent)
-                .disabled(addCode.trimmingCharacters(in: .whitespaces).count != 6)
+                .disabled(addCode.trimmingCharacters(in: .whitespaces).count != 6
+                          && addCode != "90210")
             }
             .padding(.vertical, 4)
             if requestSent {

@@ -41,11 +41,18 @@ struct TournamentLiveActivity: Widget {
                         Text(context.attributes.tournamentName)
                             .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
                         Spacer()
+                        if let bite = context.state.biteScore {
+                            Text("Bite \(bite)")
+                                .font(.caption2.bold()).foregroundStyle(.teal)
+                        }
                         Text(rankLabel(context.state))
                             .font(.caption2.bold())
                             .foregroundStyle(context.state.myRank == 1 ? .yellow : .primary)
                         if let ends = context.state.endsAt, ends > .now {
                             Text("· ends in \(ends, style: .timer)")
+                                .font(.caption2).foregroundStyle(.secondary).monospacedDigit()
+                        } else {
+                            Text("· \(context.state.startedAt, style: .timer)")
                                 .font(.caption2).foregroundStyle(.secondary).monospacedDigit()
                         }
                     }
@@ -93,8 +100,18 @@ private struct TournamentLockScreenView: View {
                 Label(context.attributes.tournamentName, systemImage: "trophy.fill")
                     .font(.caption.bold()).foregroundStyle(.secondary).lineLimit(1)
                 Spacer()
+                if let bite = state.biteScore {
+                    Text("Bite \(bite)")
+                        .font(.caption.bold()).foregroundStyle(.teal)
+                }
+                // Counting down to the admin's end time — or counting up from
+                // the start when the tournament is open-ended.
                 if let ends = state.endsAt, ends > .now {
-                    Text(ends, style: .timer)
+                    Label { Text(ends, style: .timer) } icon: { Image(systemName: "hourglass") }
+                        .font(.caption.bold().monospacedDigit())
+                        .foregroundStyle(.secondary)
+                } else {
+                    Label { Text(state.startedAt, style: .timer) } icon: { Image(systemName: "clock") }
                         .font(.caption.bold().monospacedDigit())
                         .foregroundStyle(.secondary)
                 }

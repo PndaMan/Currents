@@ -166,13 +166,12 @@ struct TournamentView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: CurrentsTheme.paddingM) {
-                if tournament.isEnded, let winner = tournament.winnerTeam {
-                    winnerBanner(winner)
-                }
                 hero
-                highlightsSection
                 standingsSection
-                if myTeam == nil && !tournament.isEnded { joinArea }
+                // Wait for the first standings load before offering to create a
+                // team — otherwise members briefly see the join card over the
+                // team they're already on.
+                if !loading && myTeam == nil && !tournament.isEnded { joinArea }
                 if svc.myRole(in: crew).canRunTournaments && !tournament.isEnded {
                     Button(role: .destructive) {
                         showingEnd = true
@@ -303,8 +302,20 @@ struct TournamentView: View {
 
     // MARK: Hero
 
+    /// One card carries the whole story: winner (once ended), name + status,
+    /// host, countdown, totals, and the highlight moments — instead of three
+    /// stacked cards saying overlapping things.
     private var hero: some View {
         VStack(alignment: .leading, spacing: 10) {
+            if tournament.isEnded, let winner = tournament.winnerTeam {
+                VStack(spacing: 6) {
+                    Text("🏆").font(.system(size: 44))
+                    Text(winner).font(.title2.bold())
+                    Text("Tournament winner").font(.caption).foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity)
+                Divider()
+            }
             HStack(spacing: 8) {
                 Image(systemName: "trophy.fill")
                     .font(.title3).foregroundStyle(.yellow)
@@ -339,20 +350,11 @@ struct TournamentView: View {
                 Label("\(standings.reduce(0) { $0 + $1.fishCount }) fish", systemImage: "fish.fill")
             }
             .font(.caption2).foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .glassCard()
-    }
 
-    // MARK: Highlights
-
-    /// The tournament's headline moments — most fish, biggest, first — each
-    /// pinned to the angler (avatar + name) and their team.
-    @ViewBuilder private var highlightsSection: some View {
-        let highlights = CommunityService.tournamentHighlights(from: standings)
-        if !highlights.isEmpty {
-            VStack(alignment: .leading, spacing: 12) {
-                Label("Highlights", systemImage: "sparkles").font(.headline)
+            let highlights = CommunityService.tournamentHighlights(from: standings)
+            if !highlights.isEmpty {
+                Divider()
+                Label("Highlights", systemImage: "sparkles").font(.subheadline.bold())
                 ForEach(highlights) { h in
                     HStack(spacing: 10) {
                         Image(systemName: h.icon)
@@ -378,25 +380,19 @@ struct TournamentView: View {
                     }
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .glassCard()
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassCard()
+        .overlay {
+            if tournament.isEnded, tournament.winnerTeam != nil {
+                RoundedRectangle(cornerRadius: CurrentsTheme.cornerRadius)
+                    .strokeBorder(Color.yellow.opacity(0.6), lineWidth: 1.5)
+            }
         }
     }
 
     private func teamId(named name: String) -> String? {
         standings.first { $0.teamName == name }?.id
-    }
-
-    private func winnerBanner(_ winner: String) -> some View {
-        VStack(spacing: 6) {
-            Text("🏆").font(.system(size: 44))
-            Text(winner).font(.title2.bold())
-            Text("Tournament winner").font(.caption).foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity)
-        .glassCard()
-        .overlay(RoundedRectangle(cornerRadius: CurrentsTheme.cornerRadius)
-            .strokeBorder(Color.yellow.opacity(0.6), lineWidth: 1.5))
     }
 
     // MARK: Standings
@@ -1010,6 +1006,8 @@ struct TeamTournamentDetailView: View {
 
     // MARK: Catches
 
+    /// The team's catches as a photo-first 2-up gallery — the same shape as
+    /// the Catches tab and leaderboards, instead of a plain list.
     private var catchesCard: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
@@ -1024,32 +1022,18 @@ struct TeamTournamentDetailView: View {
                 Text("Nothing landed yet — first fish scores \(tournament.rates.perFish + tournament.rates.newSpeciesBonus) points.")
                     .font(.caption).foregroundStyle(.secondary)
             } else {
-                VStack(spacing: 0) {
+                LazyVGrid(columns: [GridItem(.flexible(), spacing: 10),
+                                    GridItem(.flexible(), spacing: 10)],
+                          spacing: 10) {
                     ForEach(standing.catches) { c in
-                        HStack(spacing: 10) {
-                            Group {
-                                if let sp = SpeciesArtLookup.species(named: c.species, appState: appState) {
-                                    SpeciesArtworkView(species: sp, caught: true, size: 30)
-                                } else {
-                                    Image(systemName: "fish.fill")
-                                        .foregroundStyle(CurrentsTheme.accent)
-                                }
-                            }
-                            .frame(width: 36, height: 36)
-                            .background(CurrentsTheme.accent.opacity(0.10),
-                                        in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-                            VStack(alignment: .leading, spacing: 1) {
-                                Text(c.species).font(.subheadline.bold())
-                                Text("\(c.friendCode == svc.friendCode ? "You" : c.anglerName) · \(c.date.formatted(date: .omitted, time: .shortened))")
-                                    .font(.caption2).foregroundStyle(.secondary)
-                            }
-                            Spacer()
-                            Text(c.weightKg.map { Units.weight(kg: $0) } ?? "")
-                                .font(.caption.bold())
-                                .foregroundStyle(CurrentsTheme.accent)
+                        NavigationLink {
+                            CommunityCatchDetailView(row: leaderRow(from: c))
+                        } label: {
+                            TeamCatchGalleryCell(row: leaderRow(from: c),
+                                                 isSelf: c.friendCode == svc.friendCode)
+                                .contentShape(Rectangle())
                         }
-                        .padding(.vertical, 6)
-                        if c.id != standing.catches.last?.id { Divider() }
+                        .buttonStyle(.plain)
                     }
                 }
             }
@@ -1058,30 +1042,137 @@ struct TeamTournamentDetailView: View {
         .glassCard()
     }
 
+    /// Full catch detail wants a LeaderRow — same conversion the group trip
+    /// feed uses.
+    private func leaderRow(from c: CommunityService.GroupCatch) -> CommunityService.LeaderRow {
+        CommunityService.LeaderRow(
+            id: c.id, anglerName: c.anglerName, friendCode: c.friendCode,
+            species: c.species, weightKg: c.weightKg, lengthCm: c.lengthCm,
+            catchCount: nil, region: "", date: c.date, hasRemotePhoto: true)
+    }
+
     // MARK: Session
 
-    private var sessionRow: some View {
-        NavigationLink {
-            GroupTripView(tripId: svc.tripId(forGroupCode: standing.id),
-                          tripName: standing.teamName, initialCode: standing.id)
-        } label: {
-            HStack(spacing: 10) {
-                Image(systemName: "dot.radiowaves.left.and.right")
-                    .foregroundStyle(standing.isEnded ? Color.secondary : .red)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(isMember ? "Open the team session" : "View the live session")
-                        .font(.subheadline.bold())
-                    Text(isMember ? "Log to the trip, GPS, member standings"
-                         : "Watch the feed — or join the team from there")
-                        .font(.caption2).foregroundStyle(.secondary)
+    private var ended: Bool { standing.isEnded || tournament.isEnded }
+
+    /// My local trip linked to this team's session, for the GPS-session link
+    /// once the tournament is over.
+    private var myLinkedTrip: Trip? {
+        guard isMember, let id = svc.tripId(forGroupCode: standing.id) else { return nil }
+        return (try? appState.tripRepository.fetch(id)) ?? nil
+    }
+
+    @ViewBuilder private var sessionRow: some View {
+        // Once the team's session is over, the trip screen is a dead end for
+        // "where did I fish" — link straight to YOUR recorded session instead.
+        if ended, let lt = myLinkedTrip {
+            NavigationLink {
+                SessionDetailView(trip: lt)
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: "map")
+                        .foregroundStyle(CurrentsTheme.accent)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("Your GPS session").font(.subheadline.bold())
+                        Text("Your track, stats and catches from this team")
+                            .font(.caption2).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.caption).foregroundStyle(.tertiary)
                 }
-                Spacer()
-                Image(systemName: "chevron.right")
-                    .font(.caption).foregroundStyle(.tertiary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .glassCard()
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .glassCard()
+            .buttonStyle(.plain)
+        } else {
+            NavigationLink {
+                GroupTripView(tripId: svc.tripId(forGroupCode: standing.id),
+                              tripName: standing.teamName, initialCode: standing.id)
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: "dot.radiowaves.left.and.right")
+                        .foregroundStyle(standing.isEnded ? Color.secondary : .red)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(isMember ? "Open the team session" : "View the live session")
+                            .font(.subheadline.bold())
+                        Text(isMember ? "Log to the trip, GPS, member standings"
+                             : "Watch the feed — or join the team from there")
+                            .font(.caption2).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.caption).foregroundStyle(.tertiary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .glassCard()
+            }
+            .buttonStyle(.plain)
         }
-        .buttonStyle(.plain)
+    }
+}
+
+/// A team catch as a gallery card: photo (or species art) with the weight,
+/// species and angler on the bottom scrim — mirrors the leaderboard gallery.
+private struct TeamCatchGalleryCell: View {
+    let row: CommunityService.LeaderRow
+    let isSelf: Bool
+
+    @Environment(AppState.self) private var appState
+    @State private var photo: UIImage?
+    @State private var species: Species?
+
+    var body: some View {
+        Color.clear
+            .frame(height: 160)
+            .overlay {
+                if let photo {
+                    Image(uiImage: photo).resizable().scaledToFill()
+                } else {
+                    ZStack {
+                        CurrentsTheme.accent.opacity(0.10)
+                        if let species {
+                            SpeciesArtworkView(species: species, caught: true, size: 56)
+                        } else {
+                            Image(systemName: "fish.fill")
+                                .font(.system(size: 28))
+                                .foregroundStyle(CurrentsTheme.accent.opacity(0.5))
+                        }
+                    }
+                }
+            }
+            .overlay(alignment: .bottomLeading) {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(row.weightKg.map { Units.weight(kg: $0) }
+                         ?? row.lengthCm.map { Units.length(cm: $0) } ?? row.species)
+                        .font(.footnote.bold())
+                    Text("\(row.species) · \(isSelf ? "You" : row.anglerName)")
+                        .font(.system(size: 10))
+                        .opacity(0.85)
+                        .lineLimit(1)
+                }
+                .foregroundStyle(photo == nil ? AnyShapeStyle(.primary) : AnyShapeStyle(.white))
+                .padding(8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background {
+                    if photo != nil {
+                        LinearGradient(colors: [.clear, .black.opacity(0.72)],
+                                       startPoint: .top, endPoint: .bottom)
+                    }
+                }
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay {
+                if isSelf {
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .strokeBorder(CurrentsTheme.accent.opacity(0.7), lineWidth: 1.5)
+                }
+            }
+            .task(id: row.id) {
+                photo = await CommunityService.shared.catchPhoto(recordName: row.id)
+                if photo == nil {
+                    species = (try? appState.speciesRepository.fetchByCommonName(row.species)) ?? nil
+                }
+            }
     }
 }
