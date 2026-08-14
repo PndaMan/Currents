@@ -3,6 +3,9 @@ name: iOS Build & Test
 on:
   push:
     branches: [master]
+    # Docs/Pages-only changes don't need an app build (or a TestFlight upload).
+    paths-ignore:
+      - "docs/**"
   pull_request:
     branches: [master]
   workflow_dispatch:

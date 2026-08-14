@@ -50,7 +50,7 @@
         <p class="sub" id="subtitle">Tap below to open this in the Currents app.</p>
         <div class="code" id="code">------</div>
         <a class="btn" id="openBtn" href="#">Open in Currents</a>
-        <a class="btn secondary" href="https://github.com/PndaMan/Currents">Get Currents</a>
+        <a class="btn secondary" href="https://apps.apple.com/za/app/currents-fishing-app/id6771932525">Get Currents</a>
         <p class="hint" id="hint">
             Don't have the app yet? Install Currents, then open Community › Friends
             and enter the code above.
@@ -101,11 +101,35 @@
                 document.getElementById('code').style.display = 'none';
             }
 
+            var storeLink = 'https://apps.apple.com/za/app/currents-fishing-app/id6771932525';
+
+            // Try the app; if nothing grabs the deep link within a couple of
+            // seconds (the page never got backgrounded), the app isn't
+            // installed — send them to the App Store instead.
+            function openWithStoreFallback() {
+                var appOpened = false;
+                function markOpened() {
+                    if (document.visibilityState === 'hidden') { appOpened = true; }
+                }
+                document.addEventListener('visibilitychange', markOpened);
+                window.addEventListener('pagehide', function () { appOpened = true; });
+                window.location.href = deepLink;
+                setTimeout(function () {
+                    if (!appOpened && document.visibilityState !== 'hidden') {
+                        window.location.href = storeLink;
+                    }
+                }, 2000);
+            }
+
             var btn = document.getElementById('openBtn');
             if (deepLink) {
                 btn.setAttribute('href', deepLink);
+                btn.addEventListener('click', function (e) {
+                    e.preventDefault();
+                    openWithStoreFallback();
+                });
                 // Attempt to open the app automatically on load.
-                setTimeout(function () { window.location.href = deepLink; }, 350);
+                setTimeout(openWithStoreFallback, 350);
             } else {
                 btn.style.display = 'none';
             }
