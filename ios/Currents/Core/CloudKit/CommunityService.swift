@@ -704,6 +704,10 @@ final class CommunityService: ObservableObject {
     private func fetchAllLeaderCatches(limit: Int = 400,
                                        maxAge: TimeInterval = 60) async -> [LeaderRow] {
         let cacheKey = "leadercatches"
+        // Screenshot mode: the seeded rows ARE the board — no CloudKit query.
+        if ScreenshotSupport.isActive {
+            return (CommunityDiskCache.load([LeaderRowDTO].self, key: cacheKey) ?? []).map(\.row)
+        }
         if maxAge > 0, CommunityDiskCache.isFresh(key: cacheKey, maxAge: maxAge),
            let cached = CommunityDiskCache.load([LeaderRowDTO].self, key: cacheKey) {
             return cached.map(\.row)

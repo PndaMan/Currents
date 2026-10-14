@@ -12,6 +12,7 @@ struct CatchesTab: View {
     @AppStorage("catchesLayout") private var layoutRaw = LayoutMode.gallery.rawValue
     /// Programmatic push target for gallery cells (see the Button note there).
     @State private var openCatchId: String?
+    @State private var showingAnalytics = ScreenshotSupport.screen == "analytics"
     /// Deleting is confirmed first — a swipe or long-press should never be
     /// able to destroy a catch (and its photos) in one accidental gesture.
     @State private var catchToDelete: CatchDetail?
@@ -338,6 +339,7 @@ struct CatchesTab: View {
                     CatchDetailView(detail: detail)
                 }
             }
+            .navigationDestination(isPresented: $showingAnalytics) { AnalyticsView() }
             .navigationDestination(item: $openCatchId) { catchId in
                 if let detail = filteredCatches.first(where: { $0.catchRecord.id == catchId }) {
                     CatchDetailView(detail: detail)
@@ -345,6 +347,9 @@ struct CatchesTab: View {
             }
             .task {
                 await loadCatches()
+                if ScreenshotSupport.screen == "catch" {
+                    openCatchId = ScreenshotSupport.heroCatchId
+                }
             }
             .sensoryFeedback(.selection, trigger: filter)
             .sensoryFeedback(.selection, trigger: sortOrder)

@@ -12,6 +12,10 @@ name: App Store Screenshots
 
 on:
   workflow_dispatch:
+    inputs:
+      publish_branch:
+        description: Branch the PNGs are force-pushed to
+        default: app-store-screenshots
 
 permissions:
   contents: write
@@ -115,18 +119,25 @@ jobs:
           mkdir -p "$OUT"
 
           # First launch seeds the demo data; later launches reuse it.
+          # Each entry is tab[:screen] — the optional screen is pushed on top
+          # of the tab (see ScreenshotSupport.screen).
           i=1
-          for TAB in today map catches fish community; do
+          for SHOT in today map catches fish community \
+                      catches:catch catches:analytics community:profile community:leaderboard; do
+            TAB="${SHOT%%:*}"
+            SCREEN=""; [[ "$SHOT" == *:* ]] && SCREEN="${SHOT#*:}"
+            NAME="${SCREEN:-$TAB}"
             xcrun simctl terminate "$UDID" "$BUNDLE_ID" 2>/dev/null || true
             sleep 1
             SIMCTL_CHILD_SCREENSHOT_MODE=1 \
             SIMCTL_CHILD_SCREENSHOT_TAB="$TAB" \
+            SIMCTL_CHILD_SCREENSHOT_SCREEN="$SCREEN" \
               xcrun simctl launch "$UDID" "$BUNDLE_ID"
             # Give SwiftUI + MapKit tiles time to settle.
             sleep 9
             printf -v N "%02d" "$i"
-            xcrun simctl io "$UDID" screenshot "$OUT/${N}_${TAB}.png"
-            echo "Captured $OUT/${N}_${TAB}.png"
+            xcrun simctl io "$UDID" screenshot "$OUT/${N}_${NAME}.png"
+            echo "Captured $OUT/${N}_${NAME}.png"
             i=$((i+1))
           done
 
@@ -211,9 +222,10 @@ jobs:
           git init -q
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git checkout -q -b app-store-screenshots
+          BRANCH="${{ inputs.publish_branch || 'app-store-screenshots' }}"
+          git checkout -q -b "$BRANCH"
           git add ./*.png
           git commit -q -m "App Store screenshots (automated, ${GITHUB_SHA})"
           git remote add origin "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git"
-          git push -f origin app-store-screenshots
-          echo "Pushed $(ls *.png | wc -l) screenshots to branch app-store-screenshots"
+          git push -f origin "$BRANCH"
+          echo "Pushed $(ls *.png | wc -l) screenshots to branch $BRANCH"

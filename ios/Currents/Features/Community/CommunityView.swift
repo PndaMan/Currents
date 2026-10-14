@@ -38,8 +38,8 @@ struct CommunityView: View {
     @AppStorage("communityTab") private var tab: CommunityTab = .feed
     @State private var name = ""
     @State private var showingSettings = false
-    @State private var showingProfile = false
-    @State private var showingLeaderboard = false
+    @State private var showingProfile = ScreenshotSupport.screen == "profile"
+    @State private var showingLeaderboard = ScreenshotSupport.screen == "leaderboard"
     @State private var pushedCrew: CrewRoute?
     @State private var showingInbox = false
     @State private var pendingRequests: [CommunityService.FriendRequest] = []
