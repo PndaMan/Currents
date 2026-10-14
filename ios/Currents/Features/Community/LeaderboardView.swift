@@ -293,6 +293,9 @@ struct LeaderboardView: View {
             avatars[p.id] = p.avatar
         }
         if let a = svc.myAvatar { avatars[svc.friendCode] = a }
+        // Screenshot mode: the seeded board is complete — the CloudKit lookups
+        // below would trap in an unsigned simulator build.
+        if ScreenshotSupport.isActive { loading = false; return }
         let othersToCheck = codes.filter { $0 != svc.friendCode }
         catchAccess = await svc.catchAccess(for: Array(othersToCheck))
         for (code, p) in await svc.profiles(for: Array(othersToCheck)) where p.avatar != nil {
