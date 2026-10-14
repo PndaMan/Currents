@@ -32,5 +32,11 @@ be answered confidently, and so the marketing screenshots stay rights-clean.
 ## App Store screenshots
 See `.github/workflows/screenshots.yml`. Captured in the iOS Simulator (no
 physical device needed) at iPhone 16 Pro Max / 6.9" (1320×2868). "Screenshot
-mode" (`SCREENSHOT_MODE=1`) seeds demo catches whose photos are rendered from
-the app's **own** fish artwork — every pixel shown is owned or public domain.
+mode" (`SCREENSHOT_MODE=1`) seeds demo catches, crew posts and friend avatars.
+Recent catches, posts and avatars use real photos from `ci/screenshot-photos/`:
+each is public domain (mostly US Fish & Wildlife / Forest Service / Park Service
+works) or CC0, with source, creator and license recorded in that folder's
+`CREDITS.md`. The workflow stages them into the simulator app's Documents; they
+are never bundled with the app. Older demo catches use the app's **own** fish
+artwork. Every person's name shown is fictional — public-domain status covers
+copyright, not publicity rights, so no photo implies anyone endorses Currents.

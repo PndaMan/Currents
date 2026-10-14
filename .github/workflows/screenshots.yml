@@ -112,6 +112,14 @@ jobs:
           echo "App: $APP_PATH"
           xcrun simctl install "$UDID" "$APP_PATH"
 
+          # Real public-domain / CC0 photos for the demo catches, crew posts and
+          # avatars (ci/screenshot-photos/CREDITS.md). Staged into the app's
+          # Documents rather than bundled, so a shipping build never has them.
+          DATA=$(xcrun simctl get_app_container "$UDID" "$BUNDLE_ID" data)
+          mkdir -p "$DATA/Documents/ScreenshotPhotos"
+          cp ../ci/screenshot-photos/*.jpg "$DATA/Documents/ScreenshotPhotos/"
+          echo "Staged $(ls "$DATA/Documents/ScreenshotPhotos" | wc -l) demo photos"
+
       - name: Capture each tab
         run: |
           BUNDLE_ID=com.aidanmcconnon.currents

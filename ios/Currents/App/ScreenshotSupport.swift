@@ -10,15 +10,18 @@ import CoreLocation
 ///   • seeds fourteen months of a believable angler's life — catches across
 ///     two dozen species, spots, gear setups, GPS-tracked trips, three crews
 ///     with a photo feed and a friends leaderboard — so every screen
-///     photographs populated, and
+///     photographs populated (recent catches, crew posts and avatars use real
+///     public-domain photos staged by CI; older catches use the app's own
+///     fish artwork), and
 ///   • opens straight to the tab named by `SCREENSHOT_TAB` (and optionally a
 ///     pushed screen named by `SCREENSHOT_SCREEN`), so CI can relaunch the app
 ///     once per screen and grab one clean, full-resolution screenshot each.
 ///
 /// IMPORTANT — content rights: every image shown in screenshot mode is content
-/// we own or that is public domain. Catch photos are rendered from the app's
-/// OWN bundled fish artwork (the `fish_<id>` asset catalog), not third-party
-/// photos. The map is Apple MapKit (permitted in screenshots of your own app);
+/// we own or that is public domain. Real photos (recent catches, crew posts,
+/// friend avatars) are public-domain / CC0 files from `ci/screenshot-photos`,
+/// each credited in its CREDITS.md; everything else is the app's OWN bundled
+/// fish artwork (the `fish_<id>` asset catalog). The map is Apple MapKit (permitted in screenshots of your own app);
 /// third-party overlays (OpenSeaMap, radar, satellite) stay off by default. We
 /// deliberately never navigate to the species-detail iNaturalist photo in
 /// screenshot mode, so no externally-licensed imagery is captured. Every
@@ -51,8 +54,8 @@ enum ScreenshotSupport {
             .lowercased()
     }
 
-    /// The catch the `catch` screen opens — the trip-of-the-year kob.
-    static let heroCatchId = "demo-hero-kob"
+    /// The catch the `catch` screen opens — this morning's golden brown trout.
+    static let heroCatchId = "demo-hero-catch"
 
     // MARK: - Seed tables
 
@@ -110,16 +113,16 @@ enum ScreenshotSupport {
     }
 
     private static let demoTrips: [DemoTrip] = [
-        .init(name: "Breede mouth, spring tide", spot: 2, daysAgo: 4, startHour: 4.5, hours: 7.5,
+        .init(name: "Breede mouth, spring tide", spot: 2, daysAgo: 9, startHour: 4.5, hours: 7.5,
               weather: "fog", notes: "Fog till 8. Kob on the push, nothing after the turn."),
         .init(name: "Struisbaai tuna run", spot: 4, daysAgo: 23, startHour: 5, hours: 9,
               weather: "clear", notes: "Two yellowfin, one dorado on the way home."),
-        .init(name: "Drowned forest bass", spot: 1, daysAgo: 11, startHour: 5.5, hours: 5,
+        .init(name: "Drowned forest bass", spot: 1, daysAgo: 4, startHour: 5.5, hours: 5,
               weather: "cloudy", notes: nil),
         .init(name: "Elandspad fly day", spot: 5, daysAgo: 38, startHour: 7, hours: 6.5,
               weather: "clear", notes: "Low clear water. 6x tippet or nothing."),
-        .init(name: "Kogel Bay before work", spot: 0, daysAgo: 1, startHour: 5.25, hours: 2.25,
-              weather: "clear", notes: nil),
+        .init(name: "Elandspad first light", spot: 5, daysAgo: 1, startHour: 5.5, hours: 4,
+              weather: "fog", notes: "Mist on the pools till 8. Browns on the swing."),
         .init(name: "Clanwilliam long weekend", spot: 6, daysAgo: 96, startHour: 6, hours: 8,
               weather: "clear", notes: "Water down 30%. Smallies on the rocky points."),
     ]
@@ -131,42 +134,50 @@ enum ScreenshotSupport {
         var fav = false, gear: Int? = nil, trip: Int? = nil
         var clarity: WaterClarity? = nil, depth: Double? = nil, note: String? = nil
         var id: String? = nil
+        /// A real photo from `ci/screenshot-photos` (falls back to artwork).
+        var photo: String? = nil
     }
 
     private static let demoCatches: [DemoCatch] = [
-        // This week
-        .init(species: "Leervis (Garrick)", spot: 0, daysAgo: 1, hour: 6.1, cm: 88, kg: 7.4,
-              released: true, score: 86, fav: true, gear: 0, trip: 4, clarity: .clear, depth: 2.5,
-              note: "Came up behind the plopper three times before it ate. Shaking after."),
-        .init(species: "Bluefish", spot: 0, daysAgo: 1, hour: 6.6, cm: 46, kg: 1.3,
-              released: true, score: 84, gear: 0, trip: 4),
-        .init(species: "Dusky Kob", spot: 2, daysAgo: 4, hour: 5.66, cm: 112, kg: 15.2,
-              released: true, score: 93, fav: true, gear: 1, trip: 0, clarity: .stained, depth: 3.4,
-              note: "Push tide, 40 min after the turn. Took the pearl paddle on a slow hop off the drop. Swam her ten minutes before she kicked off.",
-              id: heroCatchId),
-        .init(species: "Dusky Kob", spot: 2, daysAgo: 4, hour: 6.9, cm: 74, kg: 4.1,
-              released: true, score: 88, gear: 1, trip: 0, clarity: .stained, depth: 2.8),
-        .init(species: "Cape Stumpnose", spot: 2, daysAgo: 4, hour: 8.2, cm: 31, kg: 0.7,
-              released: true, score: 71, gear: 1, trip: 0),
-        .init(species: "Flathead Mullet", spot: 2, daysAgo: 4, hour: 10.5, cm: 38, kg: 0.9,
-              released: true, score: 62, trip: 0),
-        // Last fortnight
-        .init(species: "Largemouth Bass", spot: 1, daysAgo: 11, hour: 6.2, cm: 54, kg: 2.9,
-              released: true, score: 81, fav: true, gear: 0, trip: 2, clarity: .stained, depth: 1.8,
-              note: "Blow-up right on a stump. Fog still sitting on the water."),
-        .init(species: "Largemouth Bass", spot: 1, daysAgo: 11, hour: 7.0, cm: 41, kg: 1.4,
-              released: true, score: 79, gear: 0, trip: 2),
-        .init(species: "Largemouth Bass", spot: 1, daysAgo: 11, hour: 8.4, cm: 37, kg: 0.9,
-              released: true, score: 74, trip: 2),
-        .init(species: "Bluegill", spot: 1, daysAgo: 11, hour: 9.3, cm: 19, kg: 0.2,
+        // This week: a misty river morning, then the dam
+        .init(species: "Brown Trout", spot: 5, daysAgo: 1, hour: 6.4, cm: 52, kg: 1.9,
+              released: true, score: 88, fav: true, gear: 3, trip: 4, clarity: .clear, depth: 1.2,
+              note: "Took the bugger on the swing at the tail of Pool 7. Golden as anything.",
+              id: heroCatchId, photo: "catch-brown-trout-1"),
+        .init(species: "Brown Trout", spot: 5, daysAgo: 1, hour: 7.3, cm: 44, kg: 1.1,
+              released: true, score: 85, gear: 3, trip: 4, clarity: .clear, photo: "catch-brown-trout-2"),
+        .init(species: "Rainbow Trout", spot: 5, daysAgo: 1, hour: 8.1, cm: 41, kg: 0.9,
+              released: true, score: 81, gear: 3, trip: 4, photo: "catch-rainbow-trout-1"),
+        .init(species: "Largemouth Bass", spot: 1, daysAgo: 4, hour: 6.2, cm: 54, kg: 2.9,
+              released: true, score: 83, fav: true, gear: 0, trip: 2, clarity: .stained, depth: 1.8,
+              note: "Blow-up right on a stump. Fog still sitting on the water.",
+              photo: "catch-largemouth-bass-1"),
+        .init(species: "Largemouth Bass", spot: 1, daysAgo: 4, hour: 7.0, cm: 43, kg: 1.5,
+              released: true, score: 79, gear: 0, trip: 2, photo: "catch-largemouth-bass-2"),
+        .init(species: "Bluegill", spot: 1, daysAgo: 4, hour: 9.3, cm: 19, kg: 0.2,
               released: true, score: 70, trip: 2),
+        .init(species: "Bluefish", spot: 7, daysAgo: 6, hour: 18.6, cm: 49, kg: 1.6,
+              released: true, score: 82, gear: 2, note: "Elf on sardine at last light.",
+              photo: "catch-bluefish-1"),
+        .init(species: "Bluefish", spot: 7, daysAgo: 6, hour: 18.9, cm: 46, kg: 1.3,
+              released: false, score: 82, gear: 2, note: "Dinner.", photo: "catch-bluefish-2"),
+        // Breede mouth
+        .init(species: "Dusky Kob", spot: 2, daysAgo: 9, hour: 5.66, cm: 112, kg: 15.2,
+              released: true, score: 93, fav: true, gear: 1, trip: 0, clarity: .stained, depth: 3.4,
+              note: "Push tide, 40 min after the turn. Took the pearl paddle on a slow hop off the drop. Swam her ten minutes before she kicked off."),
+        .init(species: "Dusky Kob", spot: 2, daysAgo: 9, hour: 6.9, cm: 74, kg: 4.1,
+              released: true, score: 88, gear: 1, trip: 0, clarity: .stained, depth: 2.8),
+        .init(species: "Leervis (Garrick)", spot: 2, daysAgo: 9, hour: 8.2, cm: 88, kg: 7.4,
+              released: true, score: 86, fav: true, gear: 1, trip: 0,
+              note: "Came up behind the paddle three times before it ate."),
+        .init(species: "Cape Stumpnose", spot: 2, daysAgo: 9, hour: 9.0, cm: 31, kg: 0.7,
+              released: true, score: 71, gear: 1, trip: 0),
+        // Rocks and surf
         .init(species: "Galjoen", spot: 8, daysAgo: 15, hour: 16.8, cm: 44, kg: 2.2,
               released: true, score: 76, gear: 2, clarity: .stained, depth: 1.5,
               note: "White water, red bait. Finally."),
         .init(species: "Blacktail", spot: 8, daysAgo: 15, hour: 17.4, cm: 29, kg: 0.6,
               released: true, score: 73, gear: 2),
-        .init(species: "Bluefish", spot: 7, daysAgo: 18, hour: 18.9, cm: 52, kg: 1.8,
-              released: false, score: 82, gear: 2, note: "Sardine on a sliding trace. Dinner."),
         // Tuna trip
         .init(species: "Yellowfin Tuna", spot: 4, daysAgo: 23, hour: 9.1, cm: 131, kg: 38.5,
               released: false, score: 90, fav: true, gear: 4, trip: 1, clarity: .clear, depth: 60,
@@ -187,13 +198,13 @@ enum ScreenshotSupport {
               released: false, score: 87, fav: true, gear: 0, clarity: .clear,
               note: "Shoal pushed bait right up against the wall."),
         // Elandspad
-        .init(species: "Rainbow Trout", spot: 5, daysAgo: 38, hour: 9.2, cm: 42, kg: 0.9,
+        .init(species: "Rainbow Trout", spot: 5, daysAgo: 38, hour: 9.2, cm: 46, kg: 1.1,
               released: true, score: 75, fav: true, gear: 3, trip: 3, clarity: .clear, depth: 0.8,
-              note: "Sighted in the tail of the pool. Third drift."),
-        .init(species: "Rainbow Trout", spot: 5, daysAgo: 38, hour: 11.0, cm: 31, kg: 0.4,
-              released: true, score: 72, gear: 3, trip: 3),
+              note: "Sighted in the tail of the pool. Third drift.", photo: "catch-rainbow-trout-2"),
+        .init(species: "Rainbow Trout", spot: 5, daysAgo: 38, hour: 11.0, cm: 43, kg: 0.9,
+              released: true, score: 72, gear: 3, trip: 3, photo: "catch-rainbow-trout-3"),
         .init(species: "Brown Trout", spot: 5, daysAgo: 38, hour: 12.4, cm: 47, kg: 1.2,
-              released: true, score: 77, gear: 3, trip: 3, clarity: .clear),
+              released: true, score: 77, gear: 3, trip: 3, clarity: .clear, photo: "catch-brown-trout-3"),
         // Earlier spring / winter
         .init(species: "White Steenbras", spot: 2, daysAgo: 45, hour: 15.5, cm: 71, kg: 4.8,
               released: true, score: 78, gear: 2, note: "Pencil bait on the sandbank."),
@@ -240,6 +251,11 @@ enum ScreenshotSupport {
         .init(species: "Largemouth Bass", spot: 1, daysAgo: 300, hour: 6.4, cm: 57, kg: 3.4,
               released: true, score: 83, fav: true, gear: 0,
               note: "Personal best. Still the one to beat."),
+        .init(species: "Brown Trout", spot: 5, daysAgo: 120, hour: 8.0, cm: 55, kg: 2.1,
+              released: true, score: 79, fav: true, gear: 3, note: "Biggest brown off the Elandspad.",
+              photo: "catch-brown-trout-4"),
+        .init(species: "Brown Trout", spot: 5, daysAgo: 200, hour: 9.5, cm: 49, kg: 1.4,
+              released: true, score: 74, gear: 3, photo: "catch-brown-trout-5"),
         .init(species: "Rainbow Trout", spot: 5, daysAgo: 340, hour: 10.0, cm: 39, kg: 0.7,
               released: true, score: 70, gear: 3),
         .init(species: "Dorado", spot: 4, daysAgo: 380, hour: 11.0, cm: 104, kg: 11.6,
@@ -366,11 +382,13 @@ enum ScreenshotSupport {
                 waterClarity: c.clarity,
                 depthM: c.depth
             )
-            // Use the app's OWN artwork as the catch photo (rights-clean).
-            if let card = renderArtworkCard(assetName: sp.artworkAssetName,
-                                            palette: salt ? .salt : .fresh,
-                                            seed: rng.next()),
-               let filename = try? PhotoManager.save(card, id: record.id) {
+            // A real public-domain photo when one was staged for this catch,
+            // otherwise the app's own artwork.
+            let artSeed = rng.next()
+            if let image = c.photo.flatMap(demoPhoto)
+                ?? renderArtworkCard(assetName: sp.artworkAssetName,
+                                     palette: salt ? .salt : .fresh, seed: artSeed),
+               let filename = try? PhotoManager.save(image, id: record.id) {
                 record.photoPath = filename
                 record.photoPaths = Catch.encodePhotoPaths([filename])
             }
@@ -416,10 +434,10 @@ enum ScreenshotSupport {
     // MARK: - Community
 
     /// Seed a joined Community with three crews, a lively photo feed, friends
-    /// and a leaderboard — entirely from local storage (UserDefaults + the
-    /// disk caches), so the Community screens photograph populated without any
-    /// CloudKit round trip. All names are fictional and every fish is the
-    /// app's own artwork.
+    /// with faces, and a leaderboard — entirely from local storage
+    /// (UserDefaults + the disk caches), so the Community screens photograph
+    /// populated without any CloudKit round trip. Every name is fictional;
+    /// photos are public domain / CC0 (`ci/screenshot-photos/CREDITS.md`).
     @MainActor
     private static func seedDemoCommunity(species: @escaping (String) -> Species?) {
         let d = UserDefaults.standard
@@ -435,17 +453,39 @@ enum ScreenshotSupport {
         let megan = (code: "TIDE22", name: "Megan Fourie")
         let ruan = (code: "DAMS44", name: "Ruan Botha")
         let thandi = (code: "FLY909", name: "Thandi Mokoena")
-        let jess = (code: "BANK12", name: "Jess van Wyk")
-        let friends = [sipho, megan, ruan, thandi, jess]
+        let jesse = (code: "BANK12", name: "Jesse van Wyk")
+        let gerrit = (code: "BASS71", name: "Gerrit Nel")
+        let friends = [sipho, megan, ruan, thandi, jesse, gerrit]
         d.set(friends.map(\.code) + [CommunityService.demoCode], forKey: "communityFriends")
+
+        // Faces: mine, plus a cached profile per friend (what a CloudKit
+        // profile fetch would have left on disk).
+        let svc = CommunityService.shared
+        if let avatar = demoPhoto("avatar-\(me.code)") { svc.saveAvatar(avatar) }
+        let profiles: [(who: (code: String, name: String), home: String, fav: String, n: Int, sp: Int, kg: Double, cm: Double)] = [
+            (sipho, "Kogel Bay", "Yellowtail Kingfish", 61, 19, 13.8, 106),
+            (megan, "Elandspad River", "Rainbow Trout", 48, 12, 6.1, 81),
+            (ruan, "Theewaterskloof", "Common Carp", 73, 14, 16.0, 98),
+            (thandi, "Elandspad River", "Brown Trout", 39, 9, 1.6, 52),
+            (jesse, "Hangklip", "Yellowtail Kingfish", 27, 11, 9.2, 94),
+            (gerrit, "Clanwilliam Dam", "Largemouth Bass", 112, 16, 3.4, 57),
+        ]
+        for p in profiles {
+            svc.primeProfileCache(CommunityService.Profile(
+                id: p.who.code, name: p.who.name, bio: "", region: "Western Cape",
+                homeWater: p.home, avatar: demoPhoto("avatar-\(p.who.code)"),
+                memberSince: .now.addingTimeInterval(-86400 * 300),
+                totalCatches: p.n, speciesCount: p.sp, bestWeightKg: p.kg, bestLengthCm: p.cm,
+                favoriteSpecies: p.fav))
+        }
 
         let crews = [
             CommunityService.Crew(code: "DAWN01", name: "Dawn Patrol", emoji: "🌊",
                                   createdByCode: me.code, createdByName: me.name,
                                   joinedAt: .now.addingTimeInterval(-86400 * 200),
-                                  mates: [sipho.code], admins: [megan.code]),
-            CommunityService.Crew(code: "BREDE5", name: "Breede Bandits", emoji: "🎣",
-                                  createdByCode: sipho.code, createdByName: sipho.name,
+                                  mates: [sipho.code], admins: [jesse.code]),
+            CommunityService.Crew(code: "DAMB55", name: "Dam Busters", emoji: "🎣",
+                                  createdByCode: ruan.code, createdByName: ruan.name,
                                   joinedAt: .now.addingTimeInterval(-86400 * 120)),
             CommunityService.Crew(code: "FLYELN", name: "Elandspad Fly Club", emoji: "🪶",
                                   createdByCode: thandi.code, createdByName: thandi.name,
@@ -453,18 +493,14 @@ enum ScreenshotSupport {
         ]
         if let data = try? JSONEncoder().encode(crews) { d.set(data, forKey: "myCrews") }
 
-        var rng = SeededRandom(seed: 0xB17E)
         func post(_ crew: String, _ id: Int, _ author: (code: String, name: String),
                   _ speciesName: String, kg: Double?, cm: Double?, hoursAgo: Double,
-                  caption: String, trip: String = "", comments: Int = 0, photo: Bool = true,
+                  caption: String, photo: String? = nil, trip: String = "", comments: Int = 0,
                   reactions: [((code: String, name: String), String)]) -> CommunityService.CrewPost {
             let postId = "crewpost-\(crew)-demo\(id)"
             var hasPhoto = false
-            if photo, let sp = species(speciesName),
-               let card = renderArtworkCard(assetName: sp.artworkAssetName,
-                                            palette: crew == "FLYELN" ? .fresh : .salt,
-                                            seed: rng.next()) {
-                CommunityDiskCache.saveImage(card, key: "post-\(postId)")
+            if let image = photo.flatMap(demoPhoto) {
+                CommunityDiskCache.saveImage(image, key: "post-\(postId)")
                 hasPhoto = true
             }
             return CommunityService.CrewPost(
@@ -482,52 +518,47 @@ enum ScreenshotSupport {
                 commentCount: comments)
         }
 
+        let fly = [
+            post("FLYELN", 1, megan, "Rainbow Trout", kg: 1.4, cm: 51, hoursAgo: 3,
+                 caption: "Pool 3 on the dry. Pink as a sunset.", photo: "post-megan-rainbow",
+                 comments: 7, reactions: [(me, "🔥"), (thandi, "😮"), (gerrit, "👏")]),
+            post("FLYELN", 2, thandi, "Brown Trout", kg: 1.6, cm: 52, hoursAgo: 20,
+                 caption: "Wet-wading at first light. Worth the cold toes.", photo: "post-thandi-brown",
+                 comments: 4, reactions: [(me, "🔥"), (megan, "🐟")]),
+            post("FLYELN", 3, me, "Brown Trout", kg: 1.9, cm: 52, hoursAgo: 26,
+                 caption: "Took the bugger on the swing at the tail of Pool 7.", photo: "post-me-brown",
+                 trip: "Elandspad first light", comments: 9,
+                 reactions: [(thandi, "🔥"), (megan, "😮"), (ruan, "👏"), (jesse, "🔥")]),
+        ]
         let dawn = [
-            post("DAWN01", 1, me, "Leervis (Garrick)", kg: 7.4, cm: 88, hoursAgo: 27,
-                 caption: "Three swipes at the plopper before it committed. Still shaking.",
-                 trip: "Kogel Bay before work", comments: 6,
-                 reactions: [(sipho, "🔥"), (megan, "😮"), (ruan, "🔥"), (jess, "👏")]),
-            post("DAWN01", 2, megan, "Yellowtail Kingfish", kg: 6.1, cm: 81, hoursAgo: 9,
+            post("DAWN01", 1, jesse, "Yellowtail Kingfish", kg: 9.2, cm: 94, hoursAgo: 5,
+                 caption: "Off the Hangklip pinnacles. Twelve metres of vis.", photo: "post-jesse-yellowtail",
+                 comments: 6, reactions: [(me, "😮"), (sipho, "🔥"), (megan, "🔥")]),
+            post("DAWN01", 2, sipho, "Yellowtail Kingfish", kg: 6.1, cm: 81, hoursAgo: 30,
                  caption: "Wall was alive at 6. Get here.", comments: 3,
-                 reactions: [(me, "🔥"), (sipho, "🎣")]),
-            post("DAWN01", 3, sipho, "Galjoen", kg: 2.6, cm: 47, hoursAgo: 52,
+                 reactions: [(me, "🔥"), (jesse, "🎣")]),
+            post("DAWN01", 3, me, "Bluefish", kg: 1.3, cm: 46, hoursAgo: 6 * 24 - 5,
+                 caption: "Elf on sardine at last light. Dinner sorted.", photo: "post-me-bluefish",
+                 comments: 2, reactions: [(sipho, "🎣"), (jesse, "👏")]),
+            post("DAWN01", 4, sipho, "Galjoen", kg: 2.6, cm: 47, hoursAgo: 52,
                  caption: "National fish, national treasure. Back she goes.", comments: 2,
                  reactions: [(me, "👏"), (megan, "🐟")]),
-            post("DAWN01", 4, jess, "Bluefish", kg: 1.9, cm: 53, hoursAgo: 74,
-                 caption: "Elf on the last light. Sardine fillet, no sinker.",
-                 reactions: [(me, "🎣")]),
-            post("DAWN01", 5, ruan, "Red Roman", kg: 1.1, cm: 35, hoursAgo: 101,
-                 caption: "", photo: false, reactions: []),
         ]
-        let breede = [
-            post("BREDE5", 1, me, "Dusky Kob", kg: 15.2, cm: 112, hoursAgo: 4 * 24 - 5,
-                 caption: "Fish of the year. 112 on the mat, swum and released.",
-                 trip: "Breede mouth, spring tide", comments: 14,
-                 reactions: [(sipho, "😮"), (megan, "🔥"), (ruan, "🔥"), (thandi, "👏"), (jess, "😮")]),
-            post("BREDE5", 2, sipho, "Leervis (Garrick)", kg: 6.0, cm: 82, hoursAgo: 16,
-                 caption: "Live mullet on the drop-off. Jumped four times.", comments: 4,
-                 reactions: [(me, "🔥"), (ruan, "😮")]),
-            post("BREDE5", 3, ruan, "Spotted Grunter", kg: 1.4, cm: 44, hoursAgo: 40,
-                 caption: "Prawn on the flats. Tailing in 30 cm of water.", photo: false,
-                 reactions: [(sipho, "🎣")]),
-            post("BREDE5", 4, sipho, "White Steenbras", kg: 4.3, cm: 69, hoursAgo: 130,
-                 caption: "Pencil bait on the bank, right where Aidan said.", comments: 1,
-                 reactions: [(me, "👏")]),
+        let dams = [
+            post("DAMB55", 1, ruan, "Common Carp", kg: 10.1, cm: 78, hoursAgo: 16,
+                 caption: "Twenty-two pounds of mirror. Boilie on the margin.", photo: "post-ruan-carp",
+                 comments: 11, reactions: [(me, "😮"), (gerrit, "🔥"), (sipho, "🔥")]),
+            post("DAMB55", 2, gerrit, "Largemouth Bass", kg: 3.4, cm: 57, hoursAgo: 40,
+                 caption: "Senko, dead-sticked on the stumps. Patience pays.", photo: "post-gerrit-bass",
+                 comments: 5, reactions: [(me, "🔥"), (ruan, "👏")]),
+            post("DAMB55", 3, me, "Largemouth Bass", kg: 2.9, cm: 54, hoursAgo: 4 * 24 - 6,
+                 caption: "Blow-up right on a stump, fog still on the water.", photo: "post-me-bass",
+                 trip: "Drowned forest bass", comments: 8,
+                 reactions: [(gerrit, "🔥"), (ruan, "😮"), (megan, "👏")]),
         ]
-        let fly = [
-            post("FLYELN", 1, thandi, "Rainbow Trout", kg: 1.1, cm: 46, hoursAgo: 20,
-                 caption: "Pool 7 fished like a dream. #16 parachute Adams.", comments: 5,
-                 reactions: [(me, "🔥"), (jess, "🐟")]),
-            post("FLYELN", 2, jess, "Brown Trout", kg: 0.8, cm: 39, hoursAgo: 63,
-                 caption: "First wild brown. Hands shaking too much for a decent photo.",
-                 comments: 8, reactions: [(thandi, "👏"), (me, "🔥"), (megan, "😮")]),
-            post("FLYELN", 3, me, "Rainbow Trout", kg: 0.9, cm: 42, hoursAgo: 38 * 24 - 9,
-                 caption: "Sighted in the tail of the pool. Third drift.",
-                 trip: "Elandspad fly day", comments: 2, reactions: [(thandi, "🎣")]),
-        ]
-        CommunityDiskCache.saveFeed(dawn, for: "DAWN01")
-        CommunityDiskCache.saveFeed(breede, for: "BREDE5")
         CommunityDiskCache.saveFeed(fly, for: "FLYELN")
+        CommunityDiskCache.saveFeed(dawn, for: "DAWN01")
+        CommunityDiskCache.saveFeed(dams, for: "DAMB55")
 
         // Friends leaderboard: the rows a CloudKit fetch would have cached.
         func row(_ i: Int, _ who: (code: String, name: String), _ sp: String,
@@ -538,36 +569,35 @@ enum ScreenshotSupport {
                 catchCount: nil, region: "Western Cape",
                 date: .now.addingTimeInterval(-daysAgo * 86400)))
         }
-        let board: [(code: String, name: String, sp: String, kg: Double, cm: Double, days: Double)] = [
-            (sipho.code, sipho.name, "Dusky Kob", 13.8, 106, 9),
-            (sipho.code, sipho.name, "Leervis (Garrick)", 6.0, 82, 1),
-            (sipho.code, sipho.name, "White Steenbras", 4.3, 69, 5),
-            (sipho.code, sipho.name, "Galjoen", 2.6, 47, 2),
-            (sipho.code, sipho.name, "Red Roman", 1.2, 36, 20),
-            (sipho.code, sipho.name, "Snoek", 3.9, 85, 40),
-            (megan.code, megan.name, "Yellowtail Kingfish", 6.1, 81, 0.4),
-            (megan.code, megan.name, "Yellowfin Tuna", 24.5, 112, 23),
-            (megan.code, megan.name, "Dorado", 7.2, 90, 23),
-            (megan.code, megan.name, "Snoek", 3.1, 79, 50),
-            (ruan.code, ruan.name, "Largemouth Bass", 3.1, 55, 6),
-            (ruan.code, ruan.name, "Common Carp", 14.2, 86, 12),
-            (ruan.code, ruan.name, "Largemouth Bass", 2.2, 49, 30),
-            (ruan.code, ruan.name, "Smallmouth Bass", 1.3, 41, 33),
-            (ruan.code, ruan.name, "Grass Carp", 16.0, 98, 60),
-            (ruan.code, ruan.name, "Red Roman", 1.1, 35, 4),
-            (ruan.code, ruan.name, "Spotted Grunter", 1.4, 44, 2),
-            (thandi.code, thandi.name, "Rainbow Trout", 1.1, 46, 1),
-            (thandi.code, thandi.name, "Brown Trout", 1.6, 52, 15),
-            (thandi.code, thandi.name, "Rainbow Trout", 0.7, 37, 38),
-            (jess.code, jess.name, "Brown Trout", 0.8, 39, 3),
-            (jess.code, jess.name, "Bluefish", 1.9, 53, 3),
-            (jess.code, jess.name, "Blacktail", 0.5, 27, 8),
+        let board: [(who: (code: String, name: String), sp: String, kg: Double, cm: Double, days: Double)] = [
+            (sipho, "Dusky Kob", 13.8, 106, 9), (sipho, "Yellowtail Kingfish", 6.1, 81, 1),
+            (sipho, "White Steenbras", 4.3, 69, 5), (sipho, "Galjoen", 2.6, 47, 2),
+            (sipho, "Red Roman", 1.2, 36, 20), (sipho, "Snoek", 3.9, 85, 40),
+            (megan, "Rainbow Trout", 1.4, 51, 0.1), (megan, "Rainbow Trout", 0.9, 42, 12),
+            (megan, "Brown Trout", 1.2, 46, 30), (megan, "Yellowfin Tuna", 24.5, 112, 23),
+            (ruan, "Common Carp", 10.1, 78, 0.7), (ruan, "Grass Carp", 16.0, 98, 60),
+            (ruan, "Common Carp", 7.4, 69, 12), (ruan, "Largemouth Bass", 2.2, 49, 30),
+            (ruan, "Smallmouth Bass", 1.3, 41, 33),
+            (thandi, "Brown Trout", 1.6, 52, 0.8), (thandi, "Rainbow Trout", 0.7, 37, 38),
+            (jesse, "Yellowtail Kingfish", 9.2, 94, 0.2), (jesse, "Snoek", 3.4, 82, 21),
+            (gerrit, "Largemouth Bass", 3.4, 57, 1.7), (gerrit, "Largemouth Bass", 2.6, 51, 9),
+            (gerrit, "Smallmouth Bass", 1.5, 44, 16), (gerrit, "Bluegill", 0.3, 21, 16),
+            (gerrit, "Largemouth Bass", 2.1, 48, 25),
         ]
         let rows = board.enumerated().map { i, b in
-            row(i, (code: b.code, name: b.name), b.sp, b.kg, b.cm, daysAgo: b.days)
+            row(i, b.who, b.sp, b.kg, b.cm, daysAgo: b.days)
         }
         CommunityDiskCache.save(rows, key: "leadercatches")
         CommunityDiskCache.touch(key: "leadercatches")
+    }
+
+    /// A real photo staged by the screenshots workflow into
+    /// `Documents/ScreenshotPhotos` (sources: `ci/screenshot-photos`). Kept out
+    /// of the app bundle so a shipping build never carries them.
+    private static func demoPhoto(_ name: String) -> UIImage? {
+        let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("ScreenshotPhotos", isDirectory: true)
+        return UIImage(contentsOfFile: dir.appendingPathComponent("\(name).jpg").path)
     }
 
     /// A few dam/lake waterbodies near the demo map camera (Kogel Bay coast),

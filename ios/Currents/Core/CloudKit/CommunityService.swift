@@ -470,6 +470,13 @@ final class CommunityService: ObservableObject {
         profileCache = c
     }
 
+    /// Screenshot mode only: leave a friend's profile in the cache as a
+    /// CloudKit fetch would, so their face shows without any network.
+    func primeProfileCache(_ p: Profile) {
+        guard ScreenshotSupport.isActive else { return }
+        cache(profile: p, code: p.id)
+    }
+
     /// Last-known profiles for these friend codes, in the same order, for
     /// instant display while the network refresh runs.
     func cachedProfiles(for codes: [String]) -> [Profile] {
