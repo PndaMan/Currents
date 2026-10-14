@@ -12,14 +12,20 @@
   .f { position: relative; width: 1320px; height: 2868px; overflow: hidden; background: var(--ink); }
   .f .chart { position: absolute; top: 0; height: 100%; width: auto; opacity: .9; }
   .f .glow { position: absolute; inset: 0; background: radial-gradient(900px 1100px at var(--gx, 70%) 75%, rgba(26,140,242,.17), transparent 70%); }
-  .kick { position: absolute; left: 96px; top: 150px; display: flex; align-items: center; gap: 22px;
-    font: 600 30px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--dim); }
+  .cap { position: absolute; left: 0; right: 0; top: 0; z-index: 8; }
+  .bottom .cap { top: auto; bottom: 0; padding-bottom: 150px;
+    background: linear-gradient(180deg, transparent, rgba(6,17,26,.94) 30%); padding-top: 160px; }
+  .kick { position: relative; margin: 170px 0 0 96px; display: flex; align-items: center; gap: 22px;
+    font: 600 32px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--dim); }
+  .bottom .kick { margin-top: 0; }
   .kick b { color: var(--cyan); font-weight: 600; }
   .kick i { width: 70px; height: 2px; background: var(--dim); }
-  h2 { position: absolute; left: 88px; right: 80px; top: 230px; margin: 0;
-    font: 900 224px/.82 var(--display); text-transform: uppercase; color: var(--paper); letter-spacing: -.005em; }
+  h2 { position: relative; margin: 46px 80px 0 88px;
+    font: 900 236px/.82 var(--display); text-transform: uppercase; color: var(--paper); letter-spacing: -.005em; }
   h2 span { color: var(--cyan); }
-  .f .phone { width: 1000px; }
+  .tideline { position: absolute; left: 0; top: 40px; z-index: 8; }
+  .full { position: absolute; left: -130px; top: -260px; width: 1580px; }
+  .veil { position: absolute; inset: 0; background: linear-gradient(180deg, rgba(6,17,26,.96) 0, rgba(6,17,26,.75) 22%, transparent 42%, transparent 80%, rgba(6,17,26,.6)); }
   .note { position: absolute; z-index: 9; font: 500 30px/1.4 var(--mono); color: var(--paper); }
   .note small { display: block; color: var(--dim); font-size: 24px; letter-spacing: .08em; text-transform: uppercase; }
   .note .y { color: var(--bite); }
@@ -44,34 +50,50 @@
 // shot: screenshot file; x/y/r: phone placement; chartX: which slice of the
 // wide chart shows behind it, so the contours run continuously across the set.
 const FRAMES = [
-  { kick: 'Today', note2: 'works offline', title: 'The bite,<br><span>hour by hour.</span>',
-    shot: '01_today.png', x: 210, y: 1020, r: -3, gx: '60%' },
-  { kick: 'Log', note2: 'every catch', title: 'Every fish<br>remembers<br><span>the tide.</span>',
-    shot: '06_catch.png', fallback: '03_catches.png', x: 250, y: 1200, r: 3, gx: '50%' },
-  { kick: 'Catches', note2: '14 months', title: 'A logbook<br>that <span>fills<br>itself in.</span>',
-    shot: '03_catches.png', x: 140, y: 1200, r: -2, gx: '40%' },
-  { kick: 'Explore', note2: 'private by default', title: 'Your spots<br><span>stay yours.</span>',
-    shot: '02_map.png', x: 260, y: 1020, r: 2.5, gx: '70%' },
-  { kick: 'Stats', note2: 'what actually works', title: 'Know what<br><span>works.</span>',
-    shot: '07_analytics.png', fallback: '04_fish.png', x: 170, y: 1020, r: -2.5, gx: '45%' },
-  { kick: 'Field guide', note2: '1,568 species', title: 'Go catch<br><span>them all.</span>',
-    shot: '04_fish.png', x: 240, y: 1020, r: 2, gx: '60%' },
-  { kick: 'Crews', note2: 'friends only', title: 'Bragging,<br><span>but only to<br>your mates.</span>',
-    shot: '09_leaderboard.png', fallback: '05_community.png', x: 160, y: 1200, r: -3, gx: '35%' },
+  { kick: 'Today', sub: 'works offline', title: 'The bite,<br><span>hour by hour.</span>',
+    shot: '01_today.png', x: 230, y: 1010, w: 1000, r: -3, gx: '60%' },
+  { kick: 'Log', sub: 'every catch', title: 'Every fish<br>remembers<br><span>the tide.</span>', at: 'bottom',
+    shot: '06_catch.png', x: 150, y: -420, w: 1060, r: 3, gx: '50%' },
+  { kick: 'Catches', sub: '46 this year', title: 'A logbook<br>that <span>fills<br>itself in.</span>',
+    shot: '03_catches.png', x: -40, y: 1160, w: 1120, r: -4, gx: '25%',
+    note: { x: 1080, y: 1200, w: 220, small: 'Auto', text: 'Weather, tide, score. Attached.' } },
+  { kick: 'Explore', sub: 'private by default', title: 'Your spots<br><span>stay yours.</span>',
+    bleed: '02_map.png', gx: '50%' },
+  { kick: 'Stats', sub: 'what actually works', title: 'Know what<br><span>works.</span>',
+    shot: '07_analytics.png', x: 250, y: 900, w: 1060, r: 2.5, gx: '70%' },
+  { kick: 'Field guide', sub: '1,568 species', title: 'Go catch<br><span>them all.</span>', at: 'bottom',
+    shot: '04_fish.png', x: 130, y: -360, w: 1060, r: -2.5, gx: '45%' },
+  { kick: 'Crews', sub: 'friends only', title: 'Brag to<br><span>your mates.</span>',
+    shot: '09_leaderboard.png', fallback: '05_community.png', x: 160, y: 1010, w: 1000, r: -3, gx: '35%' },
 ];
+// One tide curve across the whole set (two highs a day over seven frames),
+// so the frames read as a single strip in the store.
+const TIDE = (() => {
+  const W = 1320 * FRAMES.length, pts = [];
+  for (let x = 0; x <= W; x += 20) pts.push(`${x},${(45 + 26 * Math.sin(x / W * Math.PI * 9 + 0.6)).toFixed(1)}`);
+  return `<polyline points="${pts.join(' ')}" fill="none" stroke="#26D1FA" stroke-width="3" stroke-opacity=".75"/>`;
+})();
 const row = document.getElementById('row');
 FRAMES.forEach((f, i) => {
   const el = document.createElement('section');
-  el.className = 'f';
+  el.className = 'f' + (f.at === 'bottom' ? ' bottom' : '') + (f.bleed ? ' bleed' : '');
   el.style.setProperty('--gx', f.gx);
+  const phone = f.shot ? `
+    <div class="phone" style="left:${f.x}px; top:${f.y}px; width:${f.w}px; transform:rotate(${f.r}deg)">
+      <img src="shots/${f.shot}" ${f.fallback ? `onerror="this.onerror=null;this.src='shots/${f.fallback}'"` : ''} alt="">
+    </div>` : `<img class="full" src="shots/${f.bleed}" alt=""><div class="veil"></div>`;
+  const note = f.note ? `<div class="note" style="left:${f.note.x}px; top:${f.note.y}px; width:${f.note.w}px">
+      <small>${f.note.small}</small>${f.note.text}</div>` : '';
   el.innerHTML = `
     <img class="chart" src="chart-wide.svg" style="left:${-i * 1320}px" alt="">
     <div class="glow"></div>
-    <div class="kick"><b>${String(i + 1).padStart(2, '0')}</b><i></i>${f.kick} · ${f.note2}</div>
-    <h2>${f.title}</h2>
-    <div class="phone" style="left:${f.x}px; top:${f.y}px; transform:rotate(${f.r}deg)">
-      <img src="shots/${f.shot}" ${f.fallback ? `onerror="this.onerror=null;this.src='shots/${f.fallback}'"` : ''} alt="">
-    </div>`;
+    ${phone}
+    <svg class="tideline" viewBox="${i * 1320} 0 1320 90" width="1320" height="90">${TIDE}</svg>
+    <div class="cap">
+      <div class="kick"><b>${String(i + 1).padStart(2, '0')}</b><i></i>${f.kick} · ${f.sub}</div>
+      <h2>${f.title}</h2>
+    </div>
+    ${note}`;
   row.appendChild(el);
 });
 </script>
