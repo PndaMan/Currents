@@ -618,7 +618,8 @@ enum ScreenshotSupport {
             ) {
                 cg.drawLinearGradient(
                     gradient, start: CGPoint(x: size.width * seed, y: 0),
-                    end: CGPoint(x: size.width * (1 - seed), y: size.height), options: []
+                    end: CGPoint(x: size.width * (1 - seed), y: size.height),
+                    options: [.drawsBeforeStartLocation, .drawsAfterEndLocation]
                 )
             }
             let pad: CGFloat = 90
