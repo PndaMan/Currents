@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Currents</title>
+<style>
+  @font-face { font-family: 'Lato'; font-weight: 400; src: url(fonts/Lato-400.woff2) format('woff2'); }
+  @font-face { font-family: 'Lato'; font-weight: 700; src: url(fonts/Lato-700.woff2) format('woff2'); }
+  @font-face { font-family: 'Lato'; font-weight: 900; src: url(fonts/Lato-900.woff2) format('woff2'); }
+  @font-face { font-family: 'Nunito'; font-weight: 200 1000; src: url(fonts/Nunito.woff2) format('woff2'); }
+
+  :root {
+    --text: #3B4650;
+    --text-2: #56626D;
+    --blue: #1A8CF2;
+    --cyan: #26D1FA;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; width: 2000px; height: 1930px; }
+  body { position: relative; overflow: hidden; font-family: 'Lato', sans-serif;
+    background: linear-gradient(180deg, #FFFFFF 0%, #F7FAFC 40%, #EAF4F9 100%); }
+
+  .logo { position: absolute; left: 306px; top: 78px; display: flex; align-items: center; gap: 18px; }
+  .logo svg { width: 76px; height: 76px; }
+  .logo span { font: 800 56px/1 'Nunito', sans-serif; color: #2A3540; letter-spacing: -.01em; }
+
+  h1 { position: absolute; left: 306px; top: 318px; margin: 0;
+    font: 900 92px/1.06 'Lato', sans-serif; color: var(--text); letter-spacing: -.01em; }
+  p { position: absolute; left: 306px; top: 562px; width: 560px; margin: 0;
+    font: 700 28px/1.6 'Lato', sans-serif; color: var(--text-2); }
+  .badge { position: absolute; left: 306px; top: 738px; height: 66px; }
+
+  /* Upright phones: coloured metal band, black bezel, real screenshot. */
+  .phone { position: absolute; width: 300px; aspect-ratio: 1320 / 2868; padding: 7px;
+    border-radius: 46px; background: var(--band);
+    box-shadow: 0 1px 0 rgba(255,255,255,.6) inset, 0 28px 50px rgba(30,55,80,.16), 0 6px 14px rgba(30,55,80,.10); }
+  .phone .bezel { width: 100%; height: 100%; padding: 6px; border-radius: 40px; background: #0B0C0E; }
+  .phone img { display: block; width: 100%; height: 100%; object-fit: cover; border-radius: 34px; }
+
+  /* Hero phone lying on the page: an orthographic tilt with stacked layers
+     for the device's edge, like the reference's isometric render. */
+  .iso { position: absolute; left: 1250px; top: 110px; width: 330px; aspect-ratio: 1320 / 2868;
+    transform: rotateX(56deg) rotateZ(54deg); transform-style: preserve-3d; }
+  .iso .layer { position: absolute; inset: 0; border-radius: 50px; background: #D3D8DE; }
+  .iso .face { position: absolute; inset: 0; padding: 8px; border-radius: 50px; background: #F4F6F8;
+    transform: translateZ(0); }
+  .iso .face .bezel { width: 100%; height: 100%; padding: 6px; border-radius: 43px; background: #0B0C0E; }
+  .iso .face img { display: block; width: 100%; height: 100%; object-fit: cover; border-radius: 37px; }
+  .iso-shadow { position: absolute; left: 1090px; top: 470px; width: 760px; height: 200px; border-radius: 50%;
+    background: radial-gradient(closest-side, rgba(30,55,80,.20), transparent); filter: blur(18px);
+    transform: rotate(-22deg); }
+</style>
+</head>
+<body>
+  <div class="logo">
+    <svg viewBox="0 0 100 100">
+      <defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0" stop-color="#1A8CF2"/><stop offset="1" stop-color="#26D1FA"/>
+      </linearGradient></defs>
+      <!-- CurrentsMark (LogoView.swift): three streamlines. -->
+      <g fill="none" stroke="url(#g)" stroke-width="11" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M10,32 C24,13.3 36,50.7 50,32 C64,13.3 76,50.7 90,32"/>
+        <path d="M10,52 C24,33.3 36,70.7 50,52 C64,33.3 76,70.7 90,52"/>
+        <path d="M10,72 C24,53.3 36,90.7 50,72 C64,53.3 76,90.7 90,72"/>
+      </g>
+    </svg>
+    <span>Currents</span>
+  </div>
+
+  <h1>Fish smarter.<br>Log everything.</h1>
+  <p>Currents forecasts the bite, logs every catch and identifies the species, right on your phone. No signal needed.</p>
+  <img class="badge" src="badge-app-store.svg" alt="Download on the App Store">
+
+  <div class="iso-shadow"></div>
+  <div class="iso" id="iso">
+    <div class="face"><div class="bezel"><img src="shots/06_catch.png" alt=""></div></div>
+  </div>
+
+  <div class="phone" style="--band:#D8B892; left:310px;  top:1600px"><div class="bezel"><img src="shots/01_today.png" alt=""></div></div>
+  <div class="phone" style="--band:#A8D2C8; left:670px;  top:1268px"><div class="bezel"><img src="shots/03_catches.png" alt=""></div></div>
+  <div class="phone" style="--band:#8FB6DC; left:1030px; top:950px"><div class="bezel"><img src="shots/05_community.png" alt=""></div></div>
+  <div class="phone" style="--band:#6E7686; left:1030px; top:1600px"><div class="bezel"><img src="shots/04_fish.png" alt=""></div></div>
+  <div class="phone" style="--band:#E4E8EC; left:1390px; top:1268px"><div class="bezel"><img src="shots/07_analytics.png" alt=""></div></div>
+
+<script>
+  // Device edge: a stack of layers below the face gives the tilted phone
+  // its thickness.
+  const iso = document.getElementById('iso');
+  for (let z = 1; z <= 16; z++) {
+    const l = document.createElement('div');
+    l.className = 'layer';
+    l.style.transform = `translateZ(${-z}px)`;
+    iso.prepend(l);
+  }
+</script>
+</body>
+</html>
