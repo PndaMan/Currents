@@ -31,21 +31,21 @@
   .badge { position: absolute; left: 306px; top: 738px; height: 66px; }
 
   /* Upright phones: coloured metal band, black bezel, real screenshot. */
-  .phone { position: absolute; width: 300px; aspect-ratio: 1320 / 2868; padding: 7px;
+  .phone { position: absolute; width: 300px; padding: 7px;
     border-radius: 46px; background: var(--band);
     box-shadow: 0 1px 0 rgba(255,255,255,.6) inset, 0 28px 50px rgba(30,55,80,.16), 0 6px 14px rgba(30,55,80,.10); }
-  .phone .bezel { width: 100%; height: 100%; padding: 6px; border-radius: 40px; background: #0B0C0E; }
-  .phone img { display: block; width: 100%; height: 100%; object-fit: cover; border-radius: 34px; }
+  .phone .bezel { padding: 6px; border-radius: 40px; background: #0B0C0E; }
+  .phone img { display: block; width: 100%; height: auto; border-radius: 34px; }
 
   /* Hero phone lying on the page: an orthographic tilt with stacked layers
      for the device's edge, like the reference's isometric render. */
-  .iso { position: absolute; left: 1250px; top: 110px; width: 330px; aspect-ratio: 1320 / 2868;
+  .iso { position: absolute; left: 1250px; top: 110px; width: 330px; aspect-ratio: 330 / 684; /* 302px screen + 28px of band and bezel */
     transform: rotateX(56deg) rotateZ(54deg); transform-style: preserve-3d; }
   .iso .layer { position: absolute; inset: 0; border-radius: 50px; background: #D3D8DE; }
   .iso .face { position: absolute; inset: 0; padding: 8px; border-radius: 50px; background: #F4F6F8;
     transform: translateZ(0); }
   .iso .face .bezel { width: 100%; height: 100%; padding: 6px; border-radius: 43px; background: #0B0C0E; }
-  .iso .face img { display: block; width: 100%; height: 100%; object-fit: cover; border-radius: 37px; }
+  .iso .face img { display: block; width: 100%; aspect-ratio: 1320 / 2868; border-radius: 37px; }
   .iso-shadow { position: absolute; left: 1090px; top: 470px; width: 760px; height: 200px; border-radius: 50%;
     background: radial-gradient(closest-side, rgba(30,55,80,.20), transparent); filter: blur(18px);
     transform: rotate(-22deg); }
@@ -73,7 +73,7 @@
 
   <div class="iso-shadow"></div>
   <div class="iso" id="iso">
-    <div class="face"><div class="bezel"><img src="shots/06_catch.png" alt=""></div></div>
+    <div class="face"><div class="bezel"><img src="shots/02_map.png" alt=""></div></div>
   </div>
 
   <div class="phone" style="--band:#D8B892; left:310px;  top:1600px"><div class="bezel"><img src="shots/01_today.png" alt=""></div></div>
