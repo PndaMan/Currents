@@ -154,7 +154,7 @@ enum ScreenshotSupport {
               photo: "catch-largemouth-bass-1"),
         .init(species: "Largemouth Bass", spot: 1, daysAgo: 4, hour: 7.0, cm: 43, kg: 1.5,
               released: true, score: 79, gear: 0, trip: 2, photo: "catch-largemouth-bass-2"),
-        .init(species: "Bluegill", spot: 1, daysAgo: 4, hour: 9.3, cm: 19, kg: 0.2,
+        .init(species: "Bluegill", spot: 1, daysAgo: 4, hour: 5.8, cm: 19, kg: 0.2,
               released: true, score: 70, trip: 2),
         .init(species: "Bluefish", spot: 7, daysAgo: 6, hour: 18.6, cm: 49, kg: 1.6,
               released: true, score: 82, gear: 2, note: "Elf on sardine at last light.",
