@@ -68,7 +68,9 @@ enum ReviewPrompt {
         let controller = UIHostingController(rootView: sheet)
         host = controller
         if let presentation = controller.sheetPresentationController {
-            presentation.detents = [.medium()]
+            // Medium fits the sheet at default text sizes; large text can
+            // pull it up instead of clipping the buttons.
+            presentation.detents = [.medium(), .large()]
             presentation.prefersGrabberVisible = true
             presentation.preferredCornerRadius = DS.Radius.sheet
         }
@@ -87,16 +89,21 @@ struct RatePromptSheet: View {
     }
 
     var body: some View {
+        ScrollView {
+            content
+        }
+        .scrollBounceBehavior(.basedOnSize)
+        .background(Color.dsBackground.ignoresSafeArea())
+        .tint(DS.accent)
+    }
+
+    private var content: some View {
         VStack(spacing: DS.Space.s2) {
-            RoundedRectangle(cornerRadius: DS.Radius.button, style: .continuous)
-                .fill(Color.dsFill)
-                .frame(width: 64, height: 64)
-                .overlay(
-                    CurrentsMark()
-                        .stroke(DS.accent, style: StrokeStyle(lineWidth: 4, lineCap: .round, lineJoin: .round))
-                        .frame(width: 40, height: 40)
-                )
-                .padding(.bottom, DS.Space.s1)
+            Image("Logo")
+                .resizable()
+                .scaledToFit()
+                .frame(width: 72, height: 72)
+                .padding(.bottom, DS.Space.s2)
                 .accessibilityHidden(true)
             Text(title)
                 .font(.title3.weight(.semibold))
@@ -124,8 +131,7 @@ struct RatePromptSheet: View {
         }
         .padding(.horizontal, DS.gutter)
         .padding(.top, DS.Space.s6)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .background(Color.dsBackground.ignoresSafeArea())
-        .tint(DS.accent)
+        .padding(.bottom, DS.Space.s4)
+        .frame(maxWidth: .infinity, alignment: .top)
     }
 }

@@ -16,6 +16,7 @@ struct LogCatchSheetChrome<Content: View>: View {
     var body: some View {
         NavigationStack {
             content()
+                .scrollEdgeEffectStyle(.hard, for: .top)
                 .navigationTitle(title)
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
@@ -46,6 +47,8 @@ struct LogCatchListRow: View {
     var value: String? = nil
     var chevron: Bool = false
     var checked: Bool = false
+    /// A lure or bait name to show as a small picture before the value.
+    var lureArt: String? = nil
 
     var body: some View {
         HStack(spacing: DS.Space.s3) {
@@ -59,6 +62,10 @@ struct LogCatchListRow: View {
                 .foregroundStyle(Color.dsText)
                 .lineLimit(1)
             Spacer(minLength: DS.Space.s2)
+            if let lureArt, !lureArt.isEmpty {
+                LureArtView(name: lureArt, size: 28)
+                    .accessibilityHidden(true)
+            }
             if let value {
                 Text(value)
                     .foregroundStyle(Color.dsText2)
@@ -369,18 +376,94 @@ struct LogCatchGearSheet: View {
                 Section {
                     field(.rod, selection: $rod, placeholder: "Rod")
                     field(.reel, selection: $reel, placeholder: "Reel")
-                    lureField
+                }
+
+                Section {
+                    if !lureCandidates.isEmpty {
+                        lureCarousel
+                            .listRowInsets(EdgeInsets())
+                    }
+                    TextField(lureCandidates.isEmpty ? "Lure or bait" : "Or type one", text: $lure)
                     if !lure.isEmpty {
                         TextField("Lure colour", text: $lureColor)
                     }
+                } header: {
+                    Text("Lure or bait")
+                }
+
+                Section {
                     TechniquePicker(selection: $technique)
                 } footer: {
-                    Text("Presets live in your tackle box. Changing a field here only changes this catch.")
+                    Text("Changes here only apply to this catch.")
                 }
             }
             .sensoryFeedback(.selection, trigger: selectedGearId)
         }
         .presentationDetents([.large])
+    }
+
+    private struct LureChoice: Identifiable {
+        let name: String
+        let owned: Bool
+        var id: String { name.lowercased() }
+    }
+
+    /// What can be picked with one tap: the lures and bait in the tackle
+    /// box, then lures saved in presets.
+    private var lureCandidates: [LureChoice] {
+        var seen = Set<String>()
+        var out: [LureChoice] = []
+        let owned = ownedGear.filter { $0.category == .lure || $0.category == .bait }.map(\.displayName)
+        let fromPresets = presets.compactMap(\.lure).filter { !$0.isEmpty }
+        for name in owned where seen.insert(name.lowercased()).inserted {
+            out.append(LureChoice(name: name, owned: true))
+        }
+        for name in fromPresets where seen.insert(name.lowercased()).inserted {
+            out.append(LureChoice(name: name, owned: false))
+        }
+        return out
+    }
+
+    private var lureCarousel: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(alignment: .top, spacing: DS.Space.s3) {
+                ForEach(lureCandidates) { item in
+                    lureTile(item.name, owned: item.owned)
+                }
+            }
+            .padding(.horizontal, DS.Space.s4)
+            .padding(.vertical, DS.Space.s3)
+        }
+    }
+
+    private func lureTile(_ name: String, owned: Bool) -> some View {
+        let selected = lure == name
+        return Button {
+            withAnimation(DS.Motion.easeOut) { lure = selected ? "" : name }
+        } label: {
+            VStack(spacing: DS.Space.s1) {
+                LureArtView(name: name, size: 72)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: DS.Radius.thumb, style: .continuous)
+                            .strokeBorder(selected ? DS.accent : Color.clear, lineWidth: 3)
+                    }
+                Text(name)
+                    .font(.footnote.weight(selected ? .semibold : .regular))
+                    .foregroundStyle(selected ? Color.dsText : Color.dsText2)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+                if owned {
+                    Text("In your box")
+                        .font(.caption)
+                        .foregroundStyle(Color.dsScoreGood)
+                }
+            }
+            .frame(width: 84)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.dim)
+        .accessibilityLabel(owned ? "\(name), in your tackle box" : name)
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
     private var isEmpty: Bool {
@@ -410,17 +493,6 @@ struct LogCatchGearSheet: View {
             GearFieldPicker(placeholder: placeholder, items: items, selection: selection)
         }
     }
-
-    /// Lures and bait from the tackle box share one field, as before.
-    @ViewBuilder
-    private var lureField: some View {
-        let items = ownedGear.filter { $0.category == .lure || $0.category == .bait }
-        if items.isEmpty {
-            TextField("Lure or bait", text: $lure)
-        } else {
-            GearFieldPicker(placeholder: "Lure or bait", items: items, selection: $lure)
-        }
-    }
 }
 
 // MARK: - Session
@@ -448,7 +520,7 @@ struct LogCatchSessionSheet: View {
                         row(activeTrip.id, title: "Current session",
                             subtitle: "Started \(activeTrip.startDate.formatted(date: .omitted, time: .shortened))")
                     } footer: {
-                        Text("Catches logged while a session is recording are added to it.")
+                        Text("Catches made while it records join it.")
                     }
                 } else {
                     Section {
@@ -467,8 +539,6 @@ struct LogCatchSessionSheet: View {
                                     .foregroundStyle(Color.dsText)
                             }
                             .tint(Color.dsScoreGood)
-                        } footer: {
-                            Text("A session records your track, every catch and the catch limits for the day.")
                         }
                     }
                 }

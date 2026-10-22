@@ -123,6 +123,10 @@ struct LogCatchView: View {
     @State private var allTrips: [Trip] = []
     @State private var ownedGear: [OwnedGear] = []
     @State private var caughtIds: Set<Int64> = []
+    /// The reading behind the Conditions tiles, reused at save so saving
+    /// never waits on the network.
+    @State private var lastWeather: WeatherService.WeatherData?
+    @State private var lastWeatherKey = ""
     @State private var priors: [Catch] = []
     @State private var conditions: Conditions?
 
@@ -144,6 +148,7 @@ struct LogCatchView: View {
         var windKmh: Double?
         var windDeg: Double?
         var pressureHpa: Double?
+        var pressureTrend: Double?
         var score: Int?
     }
 
@@ -176,6 +181,9 @@ struct LogCatchView: View {
                 .padding(.bottom, DS.Space.s6)
             }
             .scrollDismissesKeyboard(.interactively)
+            // A firm edge under the title once the form scrolls, so fields
+            // never read through the bar.
+            .scrollEdgeEffectStyle(.hard, for: .top)
             .detailTint(pageTint)
             .navigationTitle(isEditing ? "Edit catch" : "New catch")
             .navigationBarTitleDisplayMode(.inline)
@@ -349,7 +357,53 @@ struct LogCatchView: View {
         }
     }
 
+    @ViewBuilder
     private var emptyCover: some View {
+        if let species = selectedSpecies {
+            speciesCover(species)
+        } else {
+            photoPrompt
+        }
+    }
+
+    /// No photo yet but the species is known (picked, or preset from a
+    /// species page): its art stands in as the cover until a photo is added.
+    private func speciesCover(_ species: Species) -> some View {
+        ZStack {
+            species.artTint.opacity(0.32)
+            SpeciesArtworkView(species: species, caught: true, size: 220)
+                .padding(DS.Space.s6)
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: 240)
+        .clipShape(RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
+        .overlay(alignment: .bottomLeading) {
+            HStack(spacing: DS.Space.s2) {
+                Button { openCamera() } label: {
+                    Label("Add a photo", systemImage: "camera")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Color.dsText)
+                        .padding(.horizontal, DS.Space.s3)
+                        .padding(.vertical, DS.Space.s2)
+                        .glassEffect(.regular.interactive(), in: Capsule())
+                }
+                .buttonStyle(.dim)
+                PhotosPicker(selection: $libraryItems, maxSelectionCount: 10, matching: .images) {
+                    Image(systemName: "photo.on.rectangle")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Color.dsText)
+                        .frame(width: 36, height: 36)
+                        .glassEffect(.regular.interactive(), in: Circle())
+                }
+                .buttonStyle(.dim)
+                .accessibilityLabel("Choose photos")
+            }
+            .padding(DS.Space.s3)
+        }
+        .accessibilityElement(children: .contain)
+    }
+
+    private var photoPrompt: some View {
         VStack(spacing: DS.Space.s2) {
             Image(systemName: "camera")
                 .font(.title2)
@@ -375,8 +429,9 @@ struct LogCatchView: View {
             .padding(.top, DS.Space.s2)
         }
         .padding(DS.Space.s6)
-        .frame(maxWidth: .infinity)
-        .aspectRatio(1 / 0.86, contentMode: .fit)
+        // A minimum height, not an aspect ratio, so large text grows the box
+        // instead of spilling out of it.
+        .frame(maxWidth: .infinity, minHeight: 280)
         .overlay(
             RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous)
                 .strokeBorder(Color.dsText3, style: StrokeStyle(lineWidth: 1.5, dash: [6, 5]))
@@ -522,7 +577,9 @@ struct LogCatchView: View {
             }
 
             if showsNewTag || bestLength != nil {
-                HStack(spacing: DS.Space.s2) {
+                // Stacked, not side by side, so a long tag at large text
+                // sizes wraps instead of widening the page.
+                VStack(alignment: .leading, spacing: DS.Space.s2) {
                     if showsNewTag {
                         tag("New to your Fishdex", systemImage: "book", color: .dsScoreGood)
                     }
@@ -672,16 +729,24 @@ struct LogCatchView: View {
                 .font(.footnote)
                 .foregroundStyle(Color.dsText2)
                 .lineLimit(1)
+            // The field is as wide as its digits so the unit sits right after
+            // the number, but never wider than the tile: a long entry scrolls
+            // inside the field instead of pushing the page sideways.
             HStack(alignment: .firstTextBaseline, spacing: 4) {
                 TextField(placeholder, text: text)
                     .keyboardType(.decimalPad)
                     .focused($focusedField, equals: field)
                     .font(.system(size: numeralSize, weight: .bold, design: .rounded)) // ui-lint: allow, big numeral scaled with @ScaledMetric
                     .monospacedDigit()
-                    .fixedSize()
+                    .lineLimit(1)
+                    .frame(minWidth: 0, maxWidth: numeralWidth(text.wrappedValue, placeholder: placeholder),
+                           alignment: .leading)
                 Text(unit)
                     .font(.subheadline.weight(.medium))
                     .foregroundStyle(Color.dsText2)
+                    .fixedSize()
+                    .layoutPriority(1)
+                Spacer(minLength: 0)
             }
             HStack(spacing: DS.Space.s2) {
                 stepButton(systemImage: "minus", label: minusLabel) { step(-1) }
@@ -722,6 +787,12 @@ struct LogCatchView: View {
         Haptics.selection()
     }
 
+    /// Width that fits the typed digits (or the placeholder) at the numeral size.
+    private func numeralWidth(_ text: String, placeholder: String) -> CGFloat {
+        let chars = CGFloat(max(text.count, placeholder.count, 1))
+        return chars * numeralSize * 0.64 + 6
+    }
+
     private func formatNumber(_ v: Double) -> String {
         v == v.rounded() ? String(format: "%.0f", v) : String(format: "%.1f", v)
     }
@@ -729,7 +800,10 @@ struct LogCatchView: View {
     private var regulationNote: (text: String, icon: String, warn: Bool)? {
         guard let species = selectedSpecies else { return nil }
         let result = RegulationsService.shared.verdict(species: species, lengthCm: lengthInCm)
-        guard let reg = result.reg else { return nil }
+        guard let reg = result.reg else {
+            return ("No size or bag limit on file for \(species.commonName.lowercased()). Check local rules.",
+                    "checkmark.circle", false)
+        }
         let bag = reg.bagLimit.map { " Bag limit \($0) a day." } ?? ""
         switch result.verdict {
         case .legal:
@@ -753,9 +827,23 @@ struct LogCatchView: View {
 
     // MARK: - Spot
 
+    /// The closest saved spot within 2 km of the angler, named the way Today
+    /// names the place.
+    private var nearbySpot: (spot: Spot, metres: Double)? {
+        guard let loc = appState.locationManager.currentLocation else { return nil }
+        var best: (spot: Spot, metres: Double)?
+        for spot in allSpots {
+            let d = CLLocation(latitude: spot.latitude, longitude: spot.longitude).distance(from: loc)
+            if d < 2_000, d < (best?.metres ?? .infinity) { best = (spot, d) }
+        }
+        return best
+    }
+
     private var spotTitle: String {
         switch locationMode {
-        case .current: return "Current location"
+        case .current:
+            if let near = nearbySpot { return "Near \(near.spot.name)" }
+            return "Current location"
         case .spot: return allSpots.first { $0.id == selectedSpotId }?.name ?? "Choose a saved spot"
         case .pin: return "Dropped pin"
         }
@@ -811,6 +899,23 @@ struct LogCatchView: View {
             }
             .buttonStyle(.dim)
             .padding(.horizontal, DS.gutter)
+
+            // Standing at a saved spot: one tap files the catch under it.
+            if locationMode == .current, let near = nearbySpot, near.metres < 300 {
+                Button {
+                    withAnimation(DS.Motion.easeOut) {
+                        selectedSpotId = near.spot.id
+                        locationMode = .spot
+                    }
+                } label: {
+                    Label("Log it at \(near.spot.name)", systemImage: "bookmark")
+                        .lineLimit(1)
+                }
+                .buttonStyle(.dsTonal)
+                .padding(.horizontal, DS.gutter)
+                .padding(.top, 10)
+                .transition(.opacity)
+            }
             .accessibilityLabel("Change the spot")
         }
     }
@@ -853,7 +958,8 @@ struct LogCatchView: View {
             VStack(spacing: 0) {
                 detailRow("Caught", systemImage: "clock", tint: .dsScoreLow, value: caughtValue, sheet: .time)
                 Divider().padding(.leading, 52)
-                detailRow("Gear", systemImage: "shippingbox", tint: .purple, value: gearValue, sheet: .gear)
+                detailRow("Gear", systemImage: "shippingbox", tint: .purple, value: gearValue, sheet: .gear,
+                          lureArt: gearLure)
                 Divider().padding(.leading, 52)
                 detailRow("Water", systemImage: "drop", tint: DS.accent, value: waterValue, sheet: .water)
                 if FeatureFlags.liveTrips {
@@ -867,12 +973,13 @@ struct LogCatchView: View {
     }
 
     private func detailRow(_ title: String, systemImage: String, tint: Color, value: String,
-                           sheet: ComposerSheet) -> some View {
+                           sheet: ComposerSheet, lureArt: String? = nil) -> some View {
         Button {
             focusedField = nil
             activeSheet = sheet
         } label: {
-            LogCatchListRow(title: title, systemImage: systemImage, tint: tint, value: value, chevron: true)
+            LogCatchListRow(title: title, systemImage: systemImage, tint: tint, value: value, chevron: true,
+                            lureArt: lureArt)
         }
         .buttonStyle(.dim)
     }
@@ -891,17 +998,14 @@ struct LogCatchView: View {
             let c = conditions
             HStack(spacing: DS.Space.s2) {
                 conditionTile(systemImage: "thermometer.medium", tint: .dsScoreLow,
-                              value: c?.waterC.map { Units.temperature($0, imperial: imperial) } ?? "–",
-                              label: "Water")
+                              value: waterTempValue(c), label: waterTempLabel(c))
                 conditionTile(systemImage: "wind", tint: .cyan,
-                              value: c?.windKmh.map { formatNumber((imperial ? $0 * 0.62137119 : $0).rounded()) } ?? "–",
-                              label: c?.windDeg.map { "\(Units.speedSymbol) \(compass($0))" } ?? Units.speedSymbol)
+                              value: windValue(c), label: windLabel(c))
                 conditionTile(systemImage: "gauge.medium", tint: .purple,
-                              value: c?.pressureHpa.map { "\(Int($0.rounded()))" } ?? "–",
-                              label: "hPa")
+                              value: pressureValue(c), label: pressureLabel(c))
                 conditionTile(systemImage: "fish", tint: .dsScoreGood,
-                              value: c?.score.map { "\($0)" } ?? "–",
-                              label: "Bite")
+                              value: c?.score.map { "\($0)" } ?? "–", label: "Bite",
+                              valueTint: c?.score.map { DS.scoreInk($0) })
             }
             .padding(.horizontal, DS.gutter)
 
@@ -919,7 +1023,47 @@ struct LogCatchView: View {
         return "Filled in from the forecast for \(caughtAt.formatted(date: .omitted, time: .shortened)). Saved with the catch."
     }
 
-    private func conditionTile(systemImage: String, tint: Color, value: String, label: String) -> some View {
+    // Each tile says what the number means for fishing, not just the number:
+    // water against the species' comfort band, the pressure trend, the
+    // wind direction, and the bite score in its score colour.
+
+    private func waterTempValue(_ c: Conditions?) -> String {
+        c?.waterC.map { Units.temperature($0, imperial: imperial) } ?? "–"
+    }
+
+    private func waterTempLabel(_ c: Conditions?) -> String {
+        guard let t = c?.waterC, let lo = selectedSpecies?.minTempC, let hi = selectedSpecies?.maxTempC,
+              hi > lo else { return "Water" }
+        if t < lo { return "Water, cold" }
+        if t > hi { return "Water, warm" }
+        return "Water, in range"
+    }
+
+    private func windValue(_ c: Conditions?) -> String {
+        guard let kmh = c?.windKmh else { return "–" }
+        let speed: Double = imperial ? kmh * 0.62137119 : kmh
+        return formatNumber(speed.rounded())
+    }
+
+    private func windLabel(_ c: Conditions?) -> String {
+        guard let deg = c?.windDeg else { return Units.speedSymbol }
+        return "\(Units.speedSymbol) \(compass(deg))"
+    }
+
+    private func pressureValue(_ c: Conditions?) -> String {
+        guard let hpa = c?.pressureHpa else { return "–" }
+        return "\(Int(hpa.rounded()))"
+    }
+
+    private func pressureLabel(_ c: Conditions?) -> String {
+        guard let trend = c?.pressureTrend else { return "hPa" }
+        if trend <= -1 { return "hPa, falling" }
+        if trend >= 1 { return "hPa, rising" }
+        return "hPa, steady"
+    }
+
+    private func conditionTile(systemImage: String, tint: Color, value: String, label: String,
+                               valueTint: Color? = nil) -> some View {
         VStack(spacing: 2) {
             Image(systemName: systemImage)
                 .font(.body)
@@ -927,7 +1071,7 @@ struct LogCatchView: View {
                 .padding(.bottom, 4)
             Text(value)
                 .font(.headline.monospacedDigit())
-                .foregroundStyle(Color.dsText)
+                .foregroundStyle(valueTint ?? Color.dsText)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
                 .contentTransition(.numericText())
@@ -956,11 +1100,16 @@ struct LogCatchView: View {
             conditions = nil
             return
         }
+        let key = conditionsKey
         let wx = await WeatherService.shared.current(for: coord)
+        guard !Task.isCancelled else { return }
         guard let wx else {
             conditions = nil
+            lastWeather = nil
             return
         }
+        lastWeather = wx
+        lastWeatherKey = key
         let forecast = ForecastEngine.forecast(
             date: caughtAt,
             coordinate: coord,
@@ -975,7 +1124,7 @@ struct LogCatchView: View {
         withAnimation(DS.Motion.easeOut) {
             conditions = Conditions(waterC: wx.waterTempC, windKmh: wx.windSpeedKmh,
                                     windDeg: wx.windDirectionDeg, pressureHpa: wx.pressureHpa,
-                                    score: forecast.score)
+                                    pressureTrend: wx.pressureChange6h, score: forecast.score)
         }
     }
 
@@ -1052,7 +1201,14 @@ struct LogCatchView: View {
             Button {
                 Task { await save() }
             } label: {
-                Label(isEditing ? "Save changes" : "Save catch", systemImage: "checkmark")
+                if isSaving {
+                    HStack(spacing: DS.Space.s2) {
+                        ProgressView()
+                        Text("Saving")
+                    }
+                } else {
+                    Label(isEditing ? "Save changes" : "Save catch", systemImage: "checkmark")
+                }
             }
             .buttonStyle(.dsPrimary)
             .disabled(selectedSpeciesId == nil || isSaving)
@@ -1171,7 +1327,7 @@ struct LogCatchView: View {
             if let presetSpecies {
                 selectSpecies(presetSpecies)
             }
-            if CommunityService.shared.joined {
+            if CommunityService.shared.cloudAllowed {
                 crews = CommunityService.shared.myCrews
                 crewShare = Dictionary(uniqueKeysWithValues: crews.map { ($0.code, $0.autoPost) })
             }
@@ -1219,7 +1375,7 @@ struct LogCatchView: View {
            let snap = try? JSONDecoder().decode(WxSnap.self, from: data) {
             conditions = Conditions(waterC: snap.waterTempC, windKmh: snap.windSpeedKmh,
                                     windDeg: snap.windDirectionDeg, pressureHpa: snap.pressureHpa,
-                                    score: c.forecastScoreAtCapture)
+                                    pressureTrend: snap.pressureChange6h, score: c.forecastScoreAtCapture)
         } else if let score = c.forecastScoreAtCapture {
             conditions = Conditions(score: score)
         }
@@ -1326,20 +1482,30 @@ struct LogCatchView: View {
         lowConfidence = false
         Task {
             // BioCLIP is the only identifier — the old artwork-similarity and
-            // Vision fallbacks produced junk guesses and were removed. Nudge
-            // the model download in case the launch attempt had no network.
-            await appState.fishModelDownloader.ensureModelDownloaded()
+            // Vision fallbacks produced junk guesses and were removed. When the
+            // model isn't on the phone yet, fetch it in the background instead
+            // of holding the composer on "Identifying" for a 90 MB download;
+            // the photo is scanned again once it lands.
+            if !(await appState.fishModelDownloader.isModelAvailable) {
+                Task {
+                    await appState.fishModelDownloader.ensureModelDownloaded()
+                    if await appState.fishModelDownloader.isModelAvailable,
+                       selectedSpeciesId == nil, let first = photos.first {
+                        classifyImage(first.image)
+                    }
+                }
+            }
 
             let byId = Dictionary(uniqueKeysWithValues: allSpecies.map { ($0.id, $0) })
 
             // Region/season prior: nudge scores toward species whose thermal
             // band brackets the local water temperature. Best-effort — no
-            // location or offline just means no nudge.
+            // location, offline or a weak signal just means no nudge.
             let (lat, lon) = resolveLocation()
-            var waterTemp: Double?
-            if lat != 0 || lon != 0 {
-                waterTemp = await WeatherService.shared.current(
-                    for: CLLocationCoordinate2D(latitude: lat, longitude: lon))?.waterTempC
+            var waterTemp: Double? = lastWeather?.waterTempC
+            if waterTemp == nil, lat != 0 || lon != 0 {
+                waterTemp = await Self.quickWeather(
+                    for: CLLocationCoordinate2D(latitude: lat, longitude: lon), seconds: 2)?.waterTempC
             }
             let prior = thermalPrior(waterTempC: waterTemp)
 
@@ -1369,6 +1535,23 @@ struct LogCatchView: View {
                     autoSelectedFromML = true
                 }
             }
+        }
+    }
+
+    /// Weather for the catch without ever holding things up on a weak
+    /// signal: gives up after `seconds` and returns nothing. The cached
+    /// reading comes back at once, and airplane mode fails immediately.
+    private static func quickWeather(for coordinate: CLLocationCoordinate2D,
+                                     seconds: Double) async -> WeatherService.WeatherData? {
+        await withTaskGroup(of: WeatherService.WeatherData?.self) { group in
+            group.addTask { await WeatherService.shared.current(for: coordinate) }
+            group.addTask {
+                try? await Task.sleep(for: .seconds(seconds))
+                return nil
+            }
+            let first: WeatherService.WeatherData?? = await group.next()
+            group.cancelAll()
+            return first ?? nil
         }
     }
 
@@ -1419,6 +1602,7 @@ struct LogCatchView: View {
         var windDirectionDeg: Double?
         var pressureHpa: Double?
         var condition: String?
+        var pressureChange6h: Double? = nil
     }
 
     /// The gear the catch is saved with. Starting from any chosen preset, the
@@ -1541,8 +1725,13 @@ struct LogCatchView: View {
             photoPaths = (try? PhotoManager.saveMultiple(photos.map(\.image), catchId: catchId)) ?? []
         }
 
-        // Capture the actual conditions at the catch (weather + real bite score).
-        let wx = await WeatherService.shared.current(for: coord)
+        // Capture the actual conditions at the catch (weather + real bite
+        // score). Reuse the reading behind the Conditions tiles; otherwise a
+        // short, capped fetch, so a weak signal never holds up the save.
+        var wx: WeatherService.WeatherData? = lastWeatherKey == conditionsKey ? lastWeather : nil
+        if wx == nil, lat != 0 || lon != 0 {
+            wx = await Self.quickWeather(for: coord, seconds: 3)
+        }
         let species = allSpecies.first(where: { $0.id == selectedSpeciesId })
         let forecast = ForecastEngine.forecast(
             date: caughtAt,
@@ -1558,7 +1747,8 @@ struct LogCatchView: View {
         let weatherJSON: String? = wx.flatMap {
             let snap = WxSnap(temperatureC: $0.temperatureC, waterTempC: $0.waterTempC,
                               windSpeedKmh: $0.windSpeedKmh, windDirectionDeg: $0.windDirectionDeg,
-                              pressureHpa: $0.pressureHpa, condition: $0.condition)
+                              pressureHpa: $0.pressureHpa, condition: $0.condition,
+                              pressureChange6h: $0.pressureChange6h)
             return (try? JSONEncoder().encode(snap)).flatMap { String(data: $0, encoding: .utf8) }
         }
         // Any fish logged while a session is recording belongs to that session.
@@ -1599,11 +1789,20 @@ struct LogCatchView: View {
             weightKg: catchRecord.weightKg, lengthCm: catchRecord.lengthCm,
             excludingCatchId: catchId, existing: priorCatches)
 
-        try? appState.catchRepository.save(&catchRecord)
+        do {
+            try appState.catchRepository.save(&catchRecord)
+        } catch {
+            // Nothing was written: keep the composer open with everything the
+            // angler entered, and drop the photo files saved for it.
+            for path in photoPaths { PhotoManager.delete(path) }
+            isSaving = false
+            ToastCenter.shared.show("The catch couldn't be saved. Try again.", style: .error)
+            return
+        }
 
         // Reset the cold-streak nudge — you just caught something.
         if tripId != nil, appState.tripTracker.isTracking {
-            await NotificationManager.shared.scheduleColdStreakNudge()
+            Task { await NotificationManager.shared.scheduleColdStreakNudge() }
         }
 
         // Share to iNaturalist when the user has connected their account and
@@ -1620,9 +1819,13 @@ struct LogCatchView: View {
         // the BACKGROUND — never block the save + dismiss on a CloudKit round
         // trip. No-op unless joined. Group-tagged catches publish even
         // unmeasured, so a quick "fish on" still lands in the trip feed.
+        // Builds without iCloud (sideloaded, screenshot mode) never reach
+        // CloudKit from here: that is an uncatchable crash, not an error.
         let resolvedGroup = tripId.flatMap { CommunityService.shared.groupCode(forTripId: $0) }
             ?? groupCodeOverride
-        if catchRecord.weightKg != nil || catchRecord.lengthCm != nil || resolvedGroup != nil {
+        let cloudOK = CommunityService.shared.cloudAllowed
+            || (resolvedGroup != nil && !ScreenshotSupport.isActive)
+        if cloudOK, catchRecord.weightKg != nil || catchRecord.lengthCm != nil || resolvedGroup != nil {
             let name = species?.commonName ?? "Fish"
             let region = CommunityService.shared.myRegion
             let groupCode = resolvedGroup
@@ -1635,7 +1838,10 @@ struct LogCatchView: View {
         // the default). Always in the background; no-op unless joined.
         let crewName = species?.commonName ?? "Fish"
         let crewCatch = catchRecord
-        let shareCrews = crews.filter { crewShare[$0.code] ?? false }
+        var shareCrews: [CommunityService.Crew] = []
+        if CommunityService.shared.cloudAllowed {
+            shareCrews = crews.filter { crewShare[$0.code] ?? false }
+        }
         if !shareCrews.isEmpty {
             let codes = shareCrews.map(\.code)
             Task {
@@ -1652,11 +1858,9 @@ struct LogCatchView: View {
             // The celebration plays over the screen underneath once the
             // composer closes.
             CelebrationCenter.shared.show(celebration)
-        } else if shareCrews.count == 1, let crew = shareCrews.first {
-            ToastCenter.shared.show("Saved and posted to \(crew.name)")
         } else {
-            let size = catchRecord.lengthCm.map { ", \(Units.length(cm: $0, imperial: imperial))" } ?? ""
-            ToastCenter.shared.show("\(crewName) saved\(size)")
+            ToastCenter.shared.show(savedMessage(name: crewName, lengthCm: catchRecord.lengthCm, crews: shareCrews),
+                                    icon: "checkmark.circle.fill")
         }
         // Rate or support prompt: after the first catch ever, once any
         // celebration is dismissed, then not again for 30 days.
@@ -1664,6 +1868,15 @@ struct LogCatchView: View {
         UserDefaults.standard.set(logged, forKey: "totalCatchesLogged")
         ReviewPrompt.maybeAsk(afterCatchCount: logged)
         dismiss()
+    }
+
+    /// "Largemouth Bass saved, 38 cm. Posted to Dawn Patrol."
+    private func savedMessage(name: String, lengthCm: Double?, crews: [CommunityService.Crew]) -> String {
+        let size = lengthCm.map { ", \(Units.length(cm: $0, imperial: imperial))" } ?? ""
+        let saved = "\(name) saved\(size)."
+        if crews.count == 1, let crew = crews.first { return "\(saved) Posted to \(crew.name)." }
+        if crews.count > 1 { return "\(saved) Posted to \(crews.count) crews." }
+        return saved
     }
 
     private func resolveLocation() -> (Double, Double) {
@@ -1729,7 +1942,7 @@ struct LocationPickerSheet: View {
     @State private var isSearching = false
     @FocusState private var searchFocused: Bool
 
-    init(coordinate: Binding<CLLocationCoordinate2D?>, pinLabel: String = "Catch Location") {
+    init(coordinate: Binding<CLLocationCoordinate2D?>, pinLabel: String = "Catch location") {
         _coordinate = coordinate
         self.pinLabel = pinLabel
         // Open centred on the existing pin when there is one (e.g. editing a
@@ -1763,131 +1976,32 @@ struct LocationPickerSheet: View {
 
     var body: some View {
         NavigationStack {
-            ZStack {
-                Map(position: $cameraPosition) {
-                    UserAnnotation()
-                    if let pin = pinPosition {
-                        Annotation(pinLabel, coordinate: pin) {
-                            Image(systemName: "mappin.circle.fill")
-                                .font(.title)
-                                .foregroundStyle(CurrentsTheme.accent)
-                        }
-                    }
-                }
-                .mapStyle(.hybrid(elevation: .realistic))
-                .mapControls {
-                    MapUserLocationButton()
-                    MapCompass()
-                }
-
-                // Center crosshair
-                VStack {
-                    Spacer()
-                    Image(systemName: "plus.circle.fill")
-                        .font(.largeTitle)
-                        .foregroundStyle(CurrentsTheme.accent)
-                    Spacer()
-                }
-
-                // Search bar + type-ahead results overlay (same behaviour as
-                // the main map: results show while the keyboard is up, and
-                // there's an explicit keyboard-dismiss button).
-                VStack(spacing: 4) {
-                    HStack {
-                        Image(systemName: "magnifyingglass")
-                            .foregroundStyle(.secondary)
-                        TextField("Search location...", text: $searchText)
-                            .textFieldStyle(.plain)
-                            .focused($searchFocused)
-                            .submitLabel(.search)
-                            .autocorrectionDisabled()
-                            .onSubmit {
-                                if let first = searchModel.completions.first {
-                                    select(first)
-                                }
-                                searchFocused = false
-                            }
-                            .onChange(of: searchText) { _, newValue in
-                                searchModel.update(
-                                    query: newValue,
-                                    near: pinPosition ?? appState.locationManager.currentLocation?.coordinate
-                                )
-                            }
-                        if isSearching {
-                            ProgressView()
-                                .controlSize(.small)
-                        }
-                        if !searchText.isEmpty {
-                            Button {
-                                searchText = ""
-                                searchModel.clear()
-                            } label: {
-                                Image(systemName: "xmark.circle.fill")
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                        if searchFocused {
-                            Button {
-                                searchFocused = false
-                            } label: {
-                                Image(systemName: "keyboard.chevron.compact.down")
-                                    .foregroundStyle(CurrentsTheme.accent)
-                            }
-                        }
-                    }
-                    .padding(10)
-                    .background(.ultraThinMaterial) // ui-lint: allow, floating panel over the map
-                    .clipShape(RoundedRectangle(cornerRadius: DS.Radius.thumb))
-                    .padding(.horizontal)
-                    .padding(.top, 8)
-
-                    if !searchModel.completions.isEmpty && !searchText.isEmpty {
-                        VStack(spacing: 0) {
-                            ForEach(Array(searchModel.completions.prefix(6).enumerated()), id: \.offset) { index, completion in
-                                Button {
-                                    select(completion)
-                                } label: {
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(completion.title)
-                                            .font(.subheadline)
-                                            .foregroundStyle(.primary)
-                                            .lineLimit(1)
-                                        if !completion.subtitle.isEmpty {
-                                            Text(completion.subtitle)
-                                                .font(.caption)
-                                                .foregroundStyle(.secondary)
-                                                .lineLimit(1)
-                                        }
-                                    }
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .padding(.horizontal, 12)
-                                    .padding(.vertical, 9)
-                                }
-                                if index < min(searchModel.completions.count, 6) - 1 {
-                                    Divider()
-                                }
-                            }
-                        }
-                        .background(.ultraThinMaterial) // ui-lint: allow, floating panel over the map
-                        .clipShape(RoundedRectangle(cornerRadius: DS.Radius.thumb))
-                        .padding(.horizontal)
-                    }
-
-                    Spacer()
-                }
+            Map(position: $cameraPosition) {
+                UserAnnotation()
             }
-            .navigationTitle("Drop Pin")
+            .mapStyle(.hybrid(elevation: .realistic))
+            .mapControls {
+                MapUserLocationButton()
+                MapCompass()
+            }
+            // One pin fixed at the centre: move the map under it. The pin's
+            // tip sits on the exact centre point that gets saved.
+            .overlay {
+                Image(systemName: "mappin")
+                    .font(.largeTitle.weight(.semibold))
+                    .foregroundStyle(Color.dsScoreSlow)
+                    .alignmentGuide(VerticalAlignment.center) { $0[.bottom] }
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
+            .safeAreaInset(edge: .top, spacing: 0) { searchPanel }
+            .safeAreaInset(edge: .bottom, spacing: 0) { confirmPanel }
+            .navigationTitle("Drop pin")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Confirm") {
-                        coordinate = pinPosition
-                        dismiss()
-                    }
-                    .bold()
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { dismiss() } label: { Image(systemName: "xmark") }
+                        .accessibilityLabel("Close")
                 }
             }
             // Track the centre continuously so the pin always reflects the
@@ -1897,6 +2011,112 @@ struct LocationPickerSheet: View {
                 pinPosition = context.camera.centerCoordinate
             }
         }
+    }
+
+    /// Search bar plus type-ahead results, floating over the map (same
+    /// behaviour as the main map: results show while the keyboard is up).
+    private var searchPanel: some View {
+        VStack(spacing: DS.Space.s1) {
+            HStack(spacing: DS.Space.s2) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(Color.dsText2)
+                TextField("Search for a place", text: $searchText)
+                    .textFieldStyle(.plain)
+                    .focused($searchFocused)
+                    .submitLabel(.search)
+                    .autocorrectionDisabled()
+                    .onSubmit {
+                        if let first = searchModel.completions.first {
+                            select(first)
+                        }
+                        searchFocused = false
+                    }
+                    .onChange(of: searchText) { _, newValue in
+                        searchModel.update(
+                            query: newValue,
+                            near: pinPosition ?? appState.locationManager.currentLocation?.coordinate
+                        )
+                    }
+                if isSearching {
+                    ProgressView()
+                        .controlSize(.small)
+                }
+                if !searchText.isEmpty {
+                    Button {
+                        searchText = ""
+                        searchModel.clear()
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(Color.dsText3)
+                    }
+                    .accessibilityLabel("Clear search")
+                }
+            }
+            .padding(.horizontal, 14)
+            .frame(minHeight: 44)
+            .glassEffect(.regular, in: RoundedRectangle(cornerRadius: DS.Radius.button, style: .continuous))
+
+            if !searchModel.completions.isEmpty && !searchText.isEmpty {
+                VStack(spacing: 0) {
+                    ForEach(Array(searchModel.completions.prefix(6).enumerated()), id: \.offset) { index, completion in
+                        Button {
+                            select(completion)
+                        } label: {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(completion.title)
+                                    .font(.subheadline.weight(.medium))
+                                    .foregroundStyle(Color.dsText)
+                                    .lineLimit(1)
+                                if !completion.subtitle.isEmpty {
+                                    Text(completion.subtitle)
+                                        .font(.footnote)
+                                        .foregroundStyle(Color.dsText2)
+                                        .lineLimit(1)
+                                }
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 10)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.dim)
+                        if index < min(searchModel.completions.count, 6) - 1 {
+                            Divider().padding(.leading, 14)
+                        }
+                    }
+                }
+                .glassEffect(.regular, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
+            }
+        }
+        .padding(.horizontal, DS.Space.s4)
+        .padding(.top, DS.Space.s2)
+    }
+
+    /// What the pin is for, where it is, and the one button that keeps it.
+    private var confirmPanel: some View {
+        VStack(alignment: .leading, spacing: DS.Space.s3) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(pinLabel)
+                    .font(.headline)
+                    .foregroundStyle(Color.dsText)
+                Text(pinPosition.map { String(format: "%.4f, %.4f", $0.latitude, $0.longitude) }
+                     ?? "Move the map to place the pin")
+                    .font(.subheadline.monospacedDigit())
+                    .foregroundStyle(Color.dsText2)
+            }
+            Button {
+                coordinate = pinPosition
+                dismiss()
+            } label: {
+                Label("Use this place", systemImage: "checkmark")
+            }
+            .buttonStyle(.dsPrimary)
+            .disabled(pinPosition == nil)
+        }
+        .padding(DS.Space.s4)
+        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: DS.Radius.sheet, style: .continuous))
+        .padding(.horizontal, DS.Space.s3)
+        .padding(.bottom, DS.Space.s2)
     }
 
     /// Resolve a tapped suggestion to coordinates, move the camera and pin.
@@ -1921,8 +2141,8 @@ struct LocationPickerSheet: View {
 // MARK: - Species Picker Sheet
 
 /// The species list: on-device matches first (with a re-scan), then every
-/// species, filtered by habitat and searchable. The old three-argument init
-/// still works; the extras default to a plain list.
+/// species, filtered by habitat and searchable, caught ones first. The old
+/// three-argument init still works; the extras default to a plain list.
 struct SpeciesPickerSheet: View {
     let species: [Species]
     @Binding var selectedId: Int64?
@@ -1973,89 +2193,53 @@ struct SpeciesPickerSheet: View {
 
     var body: some View {
         NavigationStack {
-            List {
-                if showsMatches {
-                    Section {
-                        ForEach(Array(matches.prefix(4).enumerated()), id: \.element.species.id) { _, match in
-                            row(match.species, confidence: match.confidence)
-                        }
-                    } header: {
-                        HStack {
-                            Text(matchesAreUncertain ? "Closest matches, none are certain" : "Matched on your phone")
-                            Spacer()
-                            if let onRescan {
-                                Button("Scan again") {
-                                    onRescan()
-                                    dismiss()
-                                }
-                                .font(.subheadline.weight(.semibold))
-                                .textCase(nil)
-                            }
-                        }
+            // A plain scroll of rows, not a List: no pinned headers to draw
+            // over the rows, and the habitat chips scroll with the content.
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    if showsMatches {
+                        matchesSection
+                    } else if modelDownloading && searchText.isEmpty {
+                        downloadNotice
                     }
-                } else if modelDownloading && searchText.isEmpty {
-                    Section {
-                        HStack(alignment: .top, spacing: DS.Space.s3) {
-                            Image(systemName: "icloud.and.arrow.down")
-                                .foregroundStyle(Color.dsText2)
-                            Text("Species ID is still downloading. It needs internet once, then works anywhere.")
-                                .font(.subheadline)
-                                .foregroundStyle(Color.dsText2)
-                            Spacer(minLength: 0)
-                            if let onRetryDownload {
-                                Button("Try again") {
-                                    onRetryDownload()
-                                    dismiss()
-                                }
-                                .font(.subheadline.weight(.semibold))
-                                .buttonStyle(.borderless)
-                            }
-                        }
-                    }
-                }
 
-                if filtered.isEmpty {
-                    ContentUnavailableView {
-                        Label("No species found", systemImage: "magnifyingglass")
-                    } description: {
-                        Text("Try the common or scientific name.")
-                    }
-                    .listRowBackground(Color.clear)
-                } else if caughtIds.isEmpty {
-                    Section(filtered.count == 1 ? "1 species" : "\(filtered.count) species") {
+                    FilterChips(HabitatFilter.allCases, selection: $habitat, title: { $0.rawValue })
+                        .padding(.vertical, DS.Space.s3)
+
+                    if filtered.isEmpty {
+                        ContentUnavailableView {
+                            Label("No species found", systemImage: "magnifyingglass")
+                        } description: {
+                            Text("Try the common or scientific name.")
+                        }
+                        .padding(.top, DS.Space.s6)
+                    } else if caughtIds.isEmpty {
+                        header(filtered.count == 1 ? "1 species" : "\(filtered.count) species")
                         ForEach(filtered) { row($0) }
-                    }
-                } else {
-                    let caught = filtered.filter { caughtIds.contains($0.id) }
-                    let notYet = filtered.filter { !caughtIds.contains($0.id) }
-                    if !caught.isEmpty {
-                        Section("In your Fishdex") {
+                    } else {
+                        let caught = filtered.filter { caughtIds.contains($0.id) }
+                        let notYet = filtered.filter { !caughtIds.contains($0.id) }
+                        if !caught.isEmpty {
+                            header("In your Fishdex")
                             ForEach(caught) { row($0) }
                         }
-                    }
-                    if !notYet.isEmpty {
-                        Section("Not caught yet") {
+                        if !notYet.isEmpty {
+                            header("Not caught yet")
                             ForEach(notYet) { row($0) }
                         }
                     }
                 }
+                .padding(.bottom, DS.Space.s6)
             }
-            .listStyle(.insetGrouped)
-            .safeAreaInset(edge: .top, spacing: 0) {
-                FilterChips(HabitatFilter.allCases, selection: $habitat, title: { $0.rawValue })
-                    .padding(.vertical, DS.Space.s2)
-            }
+            .scrollDismissesKeyboard(.immediately)
+            .dsScreenBackground()
             .navigationTitle("Species")
             .navigationBarTitleDisplayMode(.inline)
             .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always),
-                        prompt: "Search \(species.count) species")
+                        prompt: "Search \(species.count.formatted()) species")
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button { dismiss() } label: { Image(systemName: "xmark") }
-                        .accessibilityLabel("Close")
-                }
                 if selectedId != nil {
-                    ToolbarItem(placement: .primaryAction) {
+                    ToolbarItem(placement: .topBarLeading) {
                         Button("Clear") {
                             selectedId = nil
                             selectedName = ""
@@ -2063,9 +2247,79 @@ struct SpeciesPickerSheet: View {
                         }
                     }
                 }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { dismiss() } label: { Image(systemName: "xmark") }
+                        .accessibilityLabel("Close")
+                }
             }
         }
         .presentationDragIndicator(.visible)
+        .sensoryFeedback(.selection, trigger: habitat)
+    }
+
+    @ViewBuilder
+    private var matchesSection: some View {
+        header(matchesAreUncertain ? "Closest matches, none are certain" : "Matched on your phone")
+        ForEach(Array(matches.prefix(4).enumerated()), id: \.element.species.id) { _, match in
+            row(match.species, confidence: match.confidence)
+        }
+        if let onRescan {
+            Button {
+                onRescan()
+                dismiss()
+            } label: {
+                Label("Scan again", systemImage: "arrow.counterclockwise")
+            }
+            .buttonStyle(TonalButtonStyle(fullWidth: false))
+            .padding(.horizontal, DS.gutter)
+            .padding(.top, DS.Space.s2)
+        }
+    }
+
+    private var downloadNotice: some View {
+        HStack(alignment: .top, spacing: DS.Space.s3) {
+            Image(systemName: "icloud.and.arrow.down")
+                .foregroundStyle(Color.dsText2)
+            VStack(alignment: .leading, spacing: DS.Space.s2) {
+                Text("Species ID is still downloading. It needs internet once, then works anywhere.")
+                    .font(.subheadline)
+                    .foregroundStyle(Color.dsText2)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let onRetryDownload {
+                    Button("Try again") {
+                        onRetryDownload()
+                        dismiss()
+                    }
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(DS.accent)
+                    .buttonStyle(.dim)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(14)
+        .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
+        .padding(.horizontal, DS.gutter)
+        .padding(.top, DS.Space.s2)
+    }
+
+    private func header(_ text: String) -> some View {
+        Text(text)
+            .font(.subheadline)
+            .foregroundStyle(Color.dsText2)
+            .padding(.horizontal, DS.gutter)
+            .padding(.top, DS.Space.s4)
+            .padding(.bottom, DS.Space.s1)
+            .accessibilityAddTraits(.isHeader)
+    }
+
+    private func confidenceLabel(_ c: Float) -> String {
+        switch c {
+        case 0.85...: "Very confident"
+        case 0.6..<0.85: "Likely"
+        case 0.4..<0.6: "Best guess"
+        default: "Uncertain"
+        }
     }
 
     private func habitatLine(_ sp: Species) -> String {
@@ -2082,33 +2336,26 @@ struct SpeciesPickerSheet: View {
         return place
     }
 
+    /// "Very confident, 94%" for a match, adding "new to your Fishdex" when
+    /// the angler has never logged it.
+    private func matchLine(_ sp: Species, confidence: Float) -> String {
+        let line = "\(confidenceLabel(confidence)), \(Int(confidence * 100))%"
+        guard !caughtIds.isEmpty, !caughtIds.contains(sp.id) else { return line }
+        return "\(line), new to your Fishdex"
+    }
+
     private func row(_ sp: Species, confidence: Float? = nil) -> some View {
         Button {
             selectedId = sp.id
             selectedName = sp.commonName
             dismiss()
         } label: {
-            HStack(spacing: DS.Space.s3) {
-                ThumbView(tint: sp.artTint, size: 48) {
-                    SpeciesArtworkView(species: sp, caught: true, size: 40)
+            ArtRow(title: sp.commonName,
+                   subtitle: confidence.map { matchLine(sp, confidence: $0) } ?? habitatLine(sp)) {
+                ThumbView(tint: sp.artTint) {
+                    SpeciesArtworkView(species: sp, caught: true, size: 52)
                 }
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(sp.commonName)
-                        .font(.body.weight(.semibold))
-                        .foregroundStyle(Color.dsText)
-                    Text(confidence == nil ? habitatLine(sp) : sp.scientificName)
-                        .font(.subheadline)
-                        .italic(confidence != nil)
-                        .foregroundStyle(Color.dsText2)
-                        .lineLimit(1)
-                }
-                Spacer(minLength: DS.Space.s2)
-                if let confidence {
-                    let pct = Int(confidence * 100)
-                    Text("\(pct)%")
-                        .font(.subheadline.weight(.semibold).monospacedDigit())
-                        .foregroundStyle(DS.scoreInk(pct))
-                }
+            } trailing: {
                 if selectedId == sp.id {
                     Image(systemName: "checkmark")
                         .font(.body.weight(.semibold))
@@ -2116,9 +2363,8 @@ struct SpeciesPickerSheet: View {
                         .accessibilityLabel("Selected")
                 }
             }
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.dim)
+        .buttonStyle(.dsRow)
     }
 }
 
