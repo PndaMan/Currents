@@ -15,6 +15,9 @@ struct CurrentsApp: App {
                 .environment(appState)
                 .preferredColorScheme((AppearanceMode(rawValue: appearanceMode) ?? .dark).colorScheme)
                 .tint(ThemeOption(rawValue: selectedTheme)?.primary ?? .blue)
+                // Finishes tips left unfinished (an approved Ask to Buy, a
+                // purchase cut off by a crash). StoreKit wants this at launch.
+                .task { TipJar.shared.startListening() }
         }
         .onChange(of: scenePhase) { _, phase in
             // Check for group-trip invites on foreground; fires a local

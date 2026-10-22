@@ -1558,6 +1558,13 @@ struct AboutView: View {
             }
 
             Section {
+                // Hidden until the App Store returns the tips, so a build
+                // without them never shows a dead row.
+                if TipJar.shared.isAvailable {
+                    NavigationLink(value: AboutRoute.tips) {
+                        PFRowLabel(title: "Leave a tip", systemImage: "heart.fill", color: .pink)
+                    }
+                }
                 // The App Store's write-review page, as Apple recommends for
                 // a permanent Rate button.
                 Link(destination: ReviewPrompt.writeReviewURL) {
@@ -1586,6 +1593,12 @@ struct AboutView: View {
         .detailTint(DS.accent)
         .pfTrackScroll($titleShown, threshold: 140)
         .pfScrollTitle("About", shown: titleShown)
+        .navigationDestination(for: AboutRoute.self) { _ in TipJarView() }
+        .task {
+            // Tries again each visit, as the tips may not have loaded before
+            // (offline, or not on sale yet).
+            if TipJar.shared.state != .loaded { await TipJar.shared.load() }
+        }
     }
 }
 
