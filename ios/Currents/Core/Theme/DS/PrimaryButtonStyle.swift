@@ -9,6 +9,7 @@ struct PrimaryButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         DSFilledButton(configuration: configuration, fullWidth: fullWidth,
                        fill: .dsPrimaryButton, foreground: .dsOnPrimary)
+            .pressHaptic(configuration.isPressed, .press)
     }
 }
 

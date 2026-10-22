@@ -19,6 +19,8 @@ struct Celebration: Equatable, Identifiable {
     /// Optional primary button ("View in Fishdex") that opens a deep link.
     var primaryTitle: String? = nil
     var primaryLink: URL? = nil
+    /// Which haptic pattern plays with the card.
+    var moment: Haptics.Moment = .newSpecies
 
     static func == (lhs: Celebration, rhs: Celebration) -> Bool { lhs.id == rhs.id }
 }
@@ -48,14 +50,16 @@ enum CelebrationJudge {
                                detail: "Your heaviest yet at \(Units.weight(kg: w)).",
                                icon: "trophy.fill",
                                title: name,
-                               speciesId: speciesId)
+                               speciesId: speciesId,
+                               moment: .personalBest)
         }
         if let l = lengthCm, l > 0, l > (priors.compactMap(\.lengthCm).max() ?? 0) {
             return Celebration(headline: "Personal best",
                                detail: "Your longest yet at \(Units.length(cm: l)).",
                                icon: "trophy.fill",
                                title: name,
-                               speciesId: speciesId)
+                               speciesId: speciesId,
+                               moment: .personalBest)
         }
         return nil
     }
@@ -71,7 +75,13 @@ final class CelebrationCenter: ObservableObject {
     @Published var current: Celebration?
 
     func show(_ celebration: Celebration) {
-        Haptics.success()
+        // Callers show the card after saving, so a log holding one catch
+        // means this new species is the angler's first fish ever.
+        var moment = celebration.moment
+        if moment == .newSpecies, (try? AppState.shared?.catchRepository.totalCount()) == 1 {
+            moment = .firstCatch
+        }
+        Haptics.celebrate(moment)
         withAnimation(DS.Motion.spring) { current = celebration }
     }
 

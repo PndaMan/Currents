@@ -76,12 +76,13 @@ struct ContentView: View {
 
     struct JoinCode: Identifiable { let id: String }
 
-    /// Selecting the tab that is already selected pops it to its root.
+    /// Selecting the tab that is already selected pops it to its root. Only a
+    /// tap on the tab bar ticks; deep links switch tabs quietly.
     private var tabSelection: Binding<Tab> {
         Binding(
             get: { selectedTab },
             set: { tab in
-                if tab == selectedTab { paths[tab] = NavigationPath() }
+                if tab == selectedTab { paths[tab] = NavigationPath() } else { Haptics.selection() }
                 selectedTab = tab
             }
         )
@@ -149,7 +150,6 @@ struct ContentView: View {
             await CommunityService.shared.refreshTripInvites()
             await CommunityService.shared.refreshFriendRequests()
         }
-        .sensoryFeedback(.selection, trigger: selectedTab)
         .toastHost()
         .celebrationHost()
         .fullScreenCover(isPresented: Binding(get: { !hasOnboarded && !ScreenshotSupport.isActive },
@@ -195,6 +195,7 @@ struct ContentView: View {
         ), presenting: planPrompt) { trip in
             Button("Start session") {
                 _ = appState.tripTracker.startPlanned(trip)
+                Haptics.success()
                 planPrompt = nil
                 selectedTab = .explore
             }

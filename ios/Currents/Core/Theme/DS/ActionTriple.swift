@@ -76,6 +76,7 @@ struct ActionTileStyle: ButtonStyle {
         ActionTileBody(kind: kind) { configuration.label }
             .opacity(configuration.isPressed ? 0.6 : 1)
             .animation(DS.Motion.press, value: configuration.isPressed)
+            .pressHaptic(configuration.isPressed, kind == .primary ? .press : .softPress)
     }
 }
 

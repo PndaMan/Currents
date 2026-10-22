@@ -1,15 +1,4 @@
 import SwiftUI
-import UIKit
-
-/// Lightweight haptic helpers so success/error/selection feedback is consistent
-/// everywhere instead of ad-hoc generators.
-enum Haptics {
-    static func success() { UINotificationFeedbackGenerator().notificationOccurred(.success) }
-    static func warning() { UINotificationFeedbackGenerator().notificationOccurred(.warning) }
-    static func error()   { UINotificationFeedbackGenerator().notificationOccurred(.error) }
-    static func selection() { UISelectionFeedbackGenerator().selectionChanged() }
-    static func tap()     { UIImpactFeedbackGenerator(style: .light).impactOccurred() }
-}
 
 /// A transient status message shown at the top of the screen.
 struct Toast: Equatable, Identifiable {
@@ -53,11 +42,13 @@ final class ToastCenter: ObservableObject {
         withAnimation(DS.Motion.spring) {
             current = Toast(message: Self.strippingEmoji(message), style: style, icon: icon)
         }
+        // A success haptic the caller already played is not repeated (Haptics
+        // drops the same feedback asked for twice in a moment).
         if haptic {
             switch style {
             case .success: Haptics.success()
             case .error:   Haptics.error()
-            case .info:    Haptics.tap()
+            case .info:    Haptics.softPress()
             }
         }
         dismissTask?.cancel()

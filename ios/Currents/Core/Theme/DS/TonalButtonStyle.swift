@@ -8,6 +8,7 @@ struct TonalButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         DSFilledButton(configuration: configuration, fullWidth: fullWidth,
                        fill: .dsTonal, foreground: .dsText)
+            .pressHaptic(configuration.isPressed, .softPress)
     }
 }
 

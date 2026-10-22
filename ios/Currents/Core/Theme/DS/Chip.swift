@@ -31,13 +31,14 @@ struct Chip: View {
             .contentShape(Capsule())
         }
         .buttonStyle(.dim)
+        .buttonHaptic(.selection)
         .animation(.easeOut(duration: DS.Motion.fast), value: isSelected)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }
 
 /// A horizontally scrolling row of `Chip`s bound to a selection, inset to the
-/// gutter, with a selection haptic.
+/// gutter. Each chip plays the selection haptic.
 struct FilterChips<Item: Hashable>: View {
     let items: [Item]
     @Binding var selection: Item
@@ -65,7 +66,6 @@ struct FilterChips<Item: Hashable>: View {
             .padding(.vertical, 4)
         }
         .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
-        .sensoryFeedback(.selection, trigger: selection)
     }
 }
 

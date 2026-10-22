@@ -12,6 +12,7 @@ struct AppearanceSettingsView: View {
     @AppStorage("selectedAppIcon") private var selectedAppIcon = "ocean"
     /// When true the app icon automatically tracks the colour theme.
     @AppStorage("appIconFollowsTheme") private var iconFollowsTheme = true
+    @AppStorage(Haptics.enabledKey) private var hapticsEnabled = true
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var titleShown = false
 
@@ -66,6 +67,22 @@ struct AppearanceSettingsView: View {
                     PFFootnote(iconFollowsTheme
                                ? "Pick a different icon to set it on its own."
                                : "Your icon is set on its own. Turn on Match the colour theme to link them again.")
+                }
+
+                VStack(alignment: .leading, spacing: DS.Space.s3) {
+                    SectionTitle("Haptics")
+                    PFToggleRow(title: "Haptics",
+                                isOn: Binding(get: { hapticsEnabled },
+                                              set: { on in
+                                                  hapticsEnabled = on
+                                                  // A sample, so turning it on is felt.
+                                                  if on { Haptics.success() }
+                                              }))
+                        .padding(.horizontal, DS.Space.s4)
+                        .padding(.vertical, 12)
+                        .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
+                        .padding(.horizontal, DS.gutter)
+                    PFFootnote("Vibrations for taps, confirmations and celebrations.")
                 }
             }
             .padding(.bottom, DS.Space.s8)

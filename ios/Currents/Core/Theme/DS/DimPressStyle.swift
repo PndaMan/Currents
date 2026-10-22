@@ -8,6 +8,7 @@ struct DimPressStyle: ButtonStyle {
             .contentShape(Rectangle())
             .opacity(configuration.isPressed ? 0.6 : 1)
             .animation(DS.Motion.press, value: configuration.isPressed)
+            .pressHaptic(configuration.isPressed, .softPress)
     }
 }
 
@@ -19,6 +20,7 @@ struct RowPressStyle: ButtonStyle {
             .contentShape(Rectangle())
             .background(configuration.isPressed ? Color.dsFill : Color.clear)
             .animation(DS.Motion.press, value: configuration.isPressed)
+            .pressHaptic(configuration.isPressed, .softPress)
     }
 }
 
