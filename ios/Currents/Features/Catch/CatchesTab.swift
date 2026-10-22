@@ -56,6 +56,9 @@ struct CatchesTab: View {
         case favourites = "Favourites"
         case released = "Released"
         case kept = "Kept"
+
+        /// What the menu shows.
+        var title: String { self == .all ? "All catches" : rawValue }
     }
 
     /// Raw values are stored in user defaults, so they stay as they were;
@@ -395,20 +398,48 @@ struct CatchesTab: View {
         }
     }
 
+    /// The active filter as a removable chip (or the catch count when
+    /// showing everything), then one menu for what to show and how to sort,
+    /// then the layout toggle. Fits one line without scrolling.
     private var catchTools: some View {
         HStack(spacing: 0) {
-            FilterChips(CatchFilter.allCases, selection: $filter.animation(DS.Motion.softSpring),
-                        title: { $0.rawValue })
+            Group {
+                if filter == .all {
+                    Text("\(catches.count) \(catches.count == 1 ? "catch" : "catches")")
+                        .font(.subheadline.weight(.medium))
+                        .monospacedDigit()
+                        .foregroundStyle(.dsText2)
+                } else {
+                    Chip(filter.rawValue, systemImage: "xmark", isSelected: true) {
+                        withAnimation(DS.Motion.softSpring) { filter = .all }
+                    }
+                    .accessibilityLabel("Showing \(filter.rawValue.lowercased())")
+                    .accessibilityHint("Shows all catches")
+                    .transition(.scale(scale: 0.8, anchor: .leading).combined(with: .opacity))
+                }
+            }
+            .padding(.leading, DS.gutter)
+            Spacer(minLength: DS.Space.s2)
             Menu {
-                Picker("Sort catches", selection: $sortOrder.animation(DS.Motion.softSpring)) {
-                    ForEach(SortOrder.allCases, id: \.self) { order in
-                        Text(order.title).tag(order)
+                Section("Show") {
+                    Picker("Show", selection: $filter.animation(DS.Motion.softSpring)) {
+                        ForEach(CatchFilter.allCases, id: \.self) { f in
+                            Text(f.title).tag(f)
+                        }
+                    }
+                }
+                Section("Sort by") {
+                    Picker("Sort catches", selection: $sortOrder.animation(DS.Motion.softSpring)) {
+                        ForEach(SortOrder.allCases, id: \.self) { order in
+                            Text(order.title).tag(order)
+                        }
                     }
                 }
             } label: {
-                toolIcon("arrow.up.arrow.down")
+                toolIcon("line.3.horizontal.decrease", active: filter != .all)
             }
-            .accessibilityLabel("Sort catches")
+            .accessibilityLabel("Show and sort")
+            .accessibilityValue("\(filter.title), \(sortOrder.title)")
             Button {
                 withAnimation(DS.Motion.softSpring) {
                     layoutRaw = (layout == .list ? LayoutMode.gallery : .list).rawValue
@@ -423,13 +454,14 @@ struct CatchesTab: View {
         .padding(.top, DS.Space.s2)
     }
 
-    private func toolIcon(_ systemImage: String) -> some View {
+    private func toolIcon(_ systemImage: String, active: Bool = false) -> some View {
         Image(systemName: systemImage)
             .font(.subheadline.weight(.semibold))
-            .foregroundStyle(.dsText)
+            .foregroundStyle(active ? Color.dsOnPrimary : Color.dsText)
             .frame(width: 36, height: 36)
-            .background(Color.dsFill, in: Circle())
+            .background(active ? Color.dsPrimaryButton : Color.dsFill, in: Circle())
             .padding(.leading, 6)
+            .animation(.easeOut(duration: DS.Motion.fast), value: active)
     }
 
     private func groupHeader(_ title: String, detail: String?, count: Int) -> some View {
