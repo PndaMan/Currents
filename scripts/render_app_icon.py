@@ -2,8 +2,9 @@
 """
 Render every Currents icon asset from one vector definition of the mark.
 
-The mark is a sleek fish, tilted slightly upward as if rising, with a single
-"current" stroke running along its flank. The geometry lives in this file as
+The mark is a diagonal fish drawn as a single monoline outline, nose pointing
+up-right at 45°, with a solid dot for the eye. The outline is white; the eye is
+the one accent and carries the theme colour. The geometry lives in this file as
 normalised (0..1) control points so the same curves drive:
 
   * the SVG that becomes the App Store / Home Screen icon PNGs,
@@ -19,7 +20,8 @@ Outputs (all regenerated in place):
   ios/CurrentsWatch/Assets.xcassets/AppIcon.appiconset/            circular-safe watch icon
   docs/assets/logo.png                                             README logo (rounded, transparent)
   design/icon/currents-icon.svg                                    editable source
-  design/icon/layers/{background,fish,current}.svg                 Icon Composer layers
+  design/icon/currents-mark.svg                                    the mark alone, transparent
+  design/icon/layers/{background,fish,eye}.svg                     Icon Composer layers
   design/icon/preview.png                                          contact sheet
 
 Deps: pip install cairosvg pillow numpy
@@ -55,12 +57,12 @@ BG_DARK = ("#2C2C2E", "#161618")
 BG_TINTED = ("#1C1C1E", "#1C1C1E")   # tinted icons sit on a flat near-black
 BG_WATCH = ("#48484A", "#2A2A2C")     # HIG: lighten black on watchOS
 
-FISH = "#F5F5F7"
-FISH_TINTED = "#FFFFFF"
-CURRENT_TINTED = "#9A9A9E"            # greys keep the two-tone in tinted mode
+LINE = "#F5F5F7"
+LINE_TINTED = "#FFFFFF"
+EYE_TINTED = "#9A9A9E"                # greys keep the two-tone in tinted mode
 
 # Accent per theme = the light stop of ThemeOption.gradient in LiquidGlass.swift,
-# so the icon's current line and the in-app wordmark gradient agree.
+# so the icon's eye and the in-app wordmark gradient agree.
 THEMES = {
     "ocean":    "#26D1FA",
     "forest":   "#4DD980",
@@ -84,7 +86,7 @@ ALT_ICONS = {
     "AppIcon-Gold": "gold",
 }
 
-# Transparent in-app logo imagesets -> theme of the current line
+# Transparent in-app logo imagesets -> theme of the eye
 LOGO_SETS = {
     "Logo": "ocean",
     "LogoGreen": "forest",
@@ -93,95 +95,29 @@ LOGO_SETS = {
 }
 
 # --------------------------------------------------------------------------
-# Geometry (unit square, fish facing right, un-tilted)
+# Geometry (unit square, fish drawn horizontally facing right, then rotated)
 # --------------------------------------------------------------------------
 
-# Closed outline as (point, ctrl_out, ctrl_in) style cubic segments:
-# each entry is the end point of a cubic plus the two control points that lead
-# to it from the previous end point. Three corners (nose, two tail tips) are
-# sharp here and get rounded geometrically by `rounded_outline` below.
-_RAW = [
-    # end point,     ctrl1,         ctrl2
-    ((0.95, 0.50), None, None),                       # nose (start)
-    ((0.56, 0.29), (0.86, 0.36), (0.70, 0.29)),       # over the back
-    ((0.30, 0.44), (0.46, 0.29), (0.37, 0.36)),       # down to the tail root
-    ((0.09, 0.26), (0.25, 0.38), (0.17, 0.30)),       # upper tail tip
-    ((0.21, 0.50), (0.13, 0.34), (0.17, 0.43)),       # fork notch
-    ((0.09, 0.74), (0.17, 0.57), (0.13, 0.66)),       # lower tail tip
-    ((0.30, 0.56), (0.17, 0.70), (0.25, 0.62)),       # back to the tail root
-    ((0.56, 0.71), (0.37, 0.64), (0.46, 0.71)),       # along the belly
-    ((0.95, 0.50), (0.70, 0.71), (0.86, 0.64)),       # up to the nose (close)
+# Closed monoline outline: a long teardrop body that tapers to a narrow
+# peduncle, and a wide fan tail with a shallow concave trailing edge.
+OUTLINE = [
+    ("M", (0.92, 0.50)),                                    # nose
+    ("C", (0.88, 0.36), (0.74, 0.29), (0.60, 0.29)),        # over the head and back
+    ("C", (0.47, 0.29), (0.38, 0.38), (0.31, 0.46)),        # taper to the peduncle
+    ("C", (0.25, 0.42), (0.17, 0.34), (0.10, 0.30)),        # upper tail lobe
+    ("C", (0.16, 0.41), (0.16, 0.59), (0.10, 0.70)),        # concave trailing edge
+    ("C", (0.17, 0.66), (0.25, 0.58), (0.31, 0.54)),        # lower lobe back in
+    ("C", (0.38, 0.62), (0.47, 0.71), (0.60, 0.71)),        # belly
+    ("C", (0.74, 0.71), (0.88, 0.64), (0.92, 0.50)),        # chin to nose
+    ("Z",),
 ]
-_ROUND = {0: 0.030, 3: 0.028, 5: 0.028}   # corner index -> rounding radius
+EYE = (0.78, 0.44, 0.040)                 # cx, cy, r (pre-rotation, unit coords)
+LINE_WIDTH = 0.048                        # stroke width as a fraction of the icon
 
-EYE = (0.80, 0.45, 0.030)                 # cx, cy, r
-CURRENT = (0.40, 0.72, 0.515, 0.035)      # x0, x1, y, amplitude (one period)
-CURRENT_WIDTH = 0.046
-
-TILT_DEG = -8.0                           # nose up: "rising to the surface"
-ICON_SCALE = 0.84                         # mark width as a fraction of the icon
-WATCH_SCALE = 0.70                        # stays inside the circular mask
+TILT_DEG = -45.0                          # nose up-right
+ICON_SCALE = 0.88                         # mark size as a fraction of the icon
+WATCH_SCALE = 0.72                        # stays inside the circular mask
 LOGO_SCALE = 0.96                         # transparent imagesets: fill the box
-
-
-def _unit(v):
-    n = math.hypot(*v)
-    return (v[0] / n, v[1] / n)
-
-
-def rounded_outline():
-    """Return the closed outline as a list of ('M'|'C'|'Z', pts...) in unit coords."""
-    n = len(_RAW) - 1  # last entry closes back to the first point
-    # Work on a ring of corners 0..n-1 where corner i is the end point of seg i.
-    pts = [p for p, _, _ in _RAW[:-1]]
-    ctrls = []  # ctrls[i] = (c1, c2) for the segment from corner i-1 to corner i
-    for i in range(1, len(_RAW)):
-        ctrls.append(_RAW[i][1:])
-    # segment i runs corner i -> corner i+1 (mod n) with ctrls[i]
-    segs = [(pts[i], ctrls[i][0], ctrls[i][1], pts[(i + 1) % n]) for i in range(n)]
-
-    # Trim segments at rounded corners and insert a small cubic for the corner.
-    out = []
-    K = 0.55
-    for i in range(n):
-        p0, c1, c2, p1 = segs[i]
-        j = (i + 1) % n
-        if i in _ROUND:  # trim the start of this segment
-            r = _ROUND[i]
-            d = _unit((c1[0] - p0[0], c1[1] - p0[1]))
-            p0 = (p0[0] + r * d[0], p0[1] + r * d[1])
-        if j in _ROUND:  # trim the end of this segment
-            r = _ROUND[j]
-            d = _unit((c2[0] - p1[0], c2[1] - p1[1]))
-            p1 = (p1[0] + r * d[0], p1[1] + r * d[1])
-        out.append(("C", c1, c2, p1, p0))
-        if j in _ROUND:
-            tip = pts[j]
-            nxt = segs[j]
-            r = _ROUND[j]
-            d2 = _unit((nxt[1][0] - tip[0], nxt[1][1] - tip[1]))
-            s = (tip[0] + r * d2[0], tip[1] + r * d2[1])
-            k1 = (p1[0] + K * (tip[0] - p1[0]), p1[1] + K * (tip[1] - p1[1]))
-            k2 = (s[0] + K * (tip[0] - s[0]), s[1] + K * (tip[1] - s[1]))
-            out.append(("C", k1, k2, s, p1))
-
-    path = [("M", out[0][4])]
-    for cmd, c1, c2, p1, _ in out:
-        path.append(("C", c1, c2, p1))
-    path.append(("Z",))
-    return path
-
-
-def current_path():
-    x0, x1, y, amp = CURRENT
-    seg = (x1 - x0) / 2
-    pts = [("M", (x0, y))]
-    for i in range(2):
-        a = x0 + i * seg
-        b = a + seg
-        s = -1 if i == 0 else 1
-        pts.append(("C", (a + seg * 0.36, y + s * amp), (b - seg * 0.36, y + s * amp), (b, y)))
-    return pts
 
 
 def transform(scale=1.0, cx=0.5, cy=0.5, rot_deg=TILT_DEG):
@@ -206,13 +142,13 @@ def to_svg_d(path, t):
 # SVG
 # --------------------------------------------------------------------------
 
-def svg_document(scale, bg, fish, current, *, eye_fill=None, layers=None):
+def svg_document(scale, bg, line, eye, *, layers=None):
     """Full icon SVG. `bg` is (top, bottom) or None for transparent.
 
-    `layers` may be a subset of {"background", "fish", "current"} to emit a
-    single Icon Composer layer.
+    `layers` may be a subset of {"background", "fish", "eye"} to emit a single
+    Icon Composer layer.
     """
-    layers = layers or {"background", "fish", "current"}
+    layers = layers or {"background", "fish", "eye"}
     t = transform(scale)
     body = []
     if "background" in layers and bg:
@@ -223,19 +159,12 @@ def svg_document(scale, bg, fish, current, *, eye_fill=None, layers=None):
             '<rect width="1" height="1" fill="url(#bg)"/>'
         )
     if "fish" in layers:
+        body.append(f'<path d="{to_svg_d(OUTLINE, t)}" fill="none" stroke="{line}" '
+                    f'stroke-width="{LINE_WIDTH * scale / ICON_SCALE:.4f}" stroke-linejoin="round"/>')
+    if "eye" in layers:
         ex, ey, er = EYE
         cx, cy = t((ex, ey))
-        d = to_svg_d(rounded_outline(), t)
-        # Eye as a sub-path with even-odd fill so it is a real hole (works on
-        # transparent exports and matches the SwiftUI eoFill).
-        hole = (f" M{cx + er * scale:.4f},{cy:.4f} "
-                f"A{er * scale:.4f},{er * scale:.4f} 0 1 0 {cx - er * scale:.4f},{cy:.4f} "
-                f"A{er * scale:.4f},{er * scale:.4f} 0 1 0 {cx + er * scale:.4f},{cy:.4f} Z")
-        body.append(f'<path d="{d}{hole}" fill="{fish}" fill-rule="evenodd"/>')
-    if "current" in layers:
-        d = to_svg_d(current_path(), t)
-        body.append(f'<path d="{d}" fill="none" stroke="{current}" '
-                    f'stroke-width="{CURRENT_WIDTH * scale:.4f}" stroke-linecap="round"/>')
+        body.append(f'<circle cx="{cx:.4f}" cy="{cy:.4f}" r="{er * scale:.4f}" fill="{eye}"/>')
     return ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1" '
             f'width="{SIZE}" height="{SIZE}">' + "".join(body) + "</svg>")
 
@@ -271,9 +200,9 @@ def write_json(path: Path, data: dict):
 def render_icon_set(out_dir: Path, prefix: str, theme: str):
     """Default + dark + tinted 1024 PNGs for one appiconset."""
     accent = THEMES[theme]
-    render_png(svg_document(ICON_SCALE, BG_DEFAULT, FISH, accent), out_dir / f"{prefix}.png")
-    render_png(svg_document(ICON_SCALE, BG_DARK, FISH, accent), out_dir / f"{prefix}-dark.png")
-    render_png(svg_document(ICON_SCALE, BG_TINTED, FISH_TINTED, CURRENT_TINTED),
+    render_png(svg_document(ICON_SCALE, BG_DEFAULT, LINE, accent), out_dir / f"{prefix}.png")
+    render_png(svg_document(ICON_SCALE, BG_DARK, LINE, accent), out_dir / f"{prefix}-dark.png")
+    render_png(svg_document(ICON_SCALE, BG_TINTED, LINE_TINTED, EYE_TINTED),
                out_dir / f"{prefix}-tinted.png")
     write_json(out_dir / "Contents.json", appiconset_contents(prefix, "ios", True))
     print(f"  wrote {out_dir.relative_to(REPO)}")
@@ -281,7 +210,7 @@ def render_icon_set(out_dir: Path, prefix: str, theme: str):
 
 def render_logo_set(name: str, theme: str):
     out_dir = ASSETS / f"{name}.imageset"
-    svg = svg_document(LOGO_SCALE, None, FISH, THEMES[theme])
+    svg = svg_document(LOGO_SCALE, None, LINE, THEMES[theme])
     images = []
     for scale, px in ((1, 256), (2, 512), (3, 768)):
         fn = f"{name}.png" if scale == 1 else f"{name}@{scale}x.png"
@@ -313,7 +242,7 @@ def squircle_mask(size: int, n: float = 5.0):
 def render_docs_logo():
     from PIL import Image
     tmp = DOCS_LOGO.with_suffix(".tmp.png")
-    render_png(svg_document(ICON_SCALE, BG_DEFAULT, FISH, THEMES["ocean"]), tmp)
+    render_png(svg_document(ICON_SCALE, BG_DEFAULT, LINE, THEMES["ocean"]), tmp)
     im = Image.open(tmp).convert("RGBA")
     im.putalpha(squircle_mask(SIZE))
     im.save(DOCS_LOGO)
@@ -325,27 +254,27 @@ def render_preview():
     from PIL import Image, ImageDraw
     tile, gap, pad = 160, 28, 40
     themes = list(THEMES)
-    rows = [("default", BG_DEFAULT, FISH, None), ("dark", BG_DARK, FISH, None),
-            ("tinted", BG_TINTED, FISH_TINTED, CURRENT_TINTED)]
+    rows = [("default", BG_DEFAULT, LINE, None), ("dark", BG_DARK, LINE, None),
+            ("tinted", BG_TINTED, LINE_TINTED, EYE_TINTED)]
     W = pad * 2 + 120 + len(themes) * (tile + gap)
     H = pad * 2 + len(rows) * (tile + gap) + 220
     sheet = Image.new("RGB", (W, H), (236, 236, 241))
     d = ImageDraw.Draw(sheet)
     mask = squircle_mask(tile)
     tmp = DESIGN / "_tmp.png"
-    for r, (label, bg, fish, cur) in enumerate(rows):
+    for r, (label, bg, line, eye) in enumerate(rows):
         y = pad + r * (tile + gap)
         d.text((pad, y + tile // 2), label, fill=(60, 60, 70), anchor="lm")
         for c, theme in enumerate(themes):
             x = pad + 120 + c * (tile + gap)
-            render_png(svg_document(ICON_SCALE, bg, fish, cur or THEMES[theme]), tmp, tile)
+            render_png(svg_document(ICON_SCALE, bg, line, eye or THEMES[theme]), tmp, tile)
             sheet.paste(Image.open(tmp).convert("RGB"), (x, y), mask)
             if r == 0:
                 d.text((x + tile // 2, y - 14), theme, fill=(60, 60, 70), anchor="mm")
     # size ladder on light and dark
     y = pad + len(rows) * (tile + gap) + 20
     d.text((pad, y + 60), "sizes", fill=(60, 60, 70), anchor="lm")
-    render_png(svg_document(ICON_SCALE, BG_DEFAULT, FISH, THEMES["ocean"]), tmp, 256)
+    render_png(svg_document(ICON_SCALE, BG_DEFAULT, LINE, THEMES["ocean"]), tmp, 256)
     big = Image.open(tmp).convert("RGB")
     x = pad + 120
     for px in (29, 40, 58, 76, 120, 180):
@@ -355,10 +284,11 @@ def render_preview():
         x += px + 34
     dark = Image.new("RGB", (W - x - pad, 200), (28, 28, 30))
     sheet.paste(dark, (x, y))
-    render_png(svg_document(LOGO_SCALE, None, FISH, THEMES["ocean"]), tmp, 150)
+    # in-app mark: outline in the theme colour, eye in the same colour
+    render_png(svg_document(LOGO_SCALE, None, "#1E8CF0", "#1E8CF0"), tmp, 150)
     logo = Image.open(tmp).convert("RGBA")
     sheet.paste(logo, (x + 20, y + 25), logo)
-    render_png(svg_document(WATCH_SCALE, BG_WATCH, FISH, THEMES["ocean"]), tmp, 150)
+    render_png(svg_document(WATCH_SCALE, BG_WATCH, LINE, THEMES["ocean"]), tmp, 150)
     w = Image.open(tmp).convert("RGB")
     circ = Image.new("L", (150, 150), 0)
     ImageDraw.Draw(circ).ellipse((0, 0, 149, 149), fill=255)
@@ -382,7 +312,7 @@ def swift_code() -> str:
     lines = ["    func path(in rect: CGRect) -> Path {",
              "        var p = Path()",
              "        let w = rect.width, h = rect.height"]
-    for seg in rounded_outline():
+    for seg in OUTLINE:
         cmd, *ps = seg
         if cmd == "M":
             lines.append(f"        p.move(to: {pt(ps[0])})")
@@ -392,67 +322,58 @@ def swift_code() -> str:
             lines.append(f"                   control2: {pt(ps[1])})")
         else:
             lines.append("        p.closeSubpath()")
+    lines.append("        return p")
+    lines.append("    }")
+    outline = "\n".join(lines)
+
     ex, ey, er = EYE
     cx, cy = t((ex, ey))
-    lines.append("        // Eye: a separate sub-path; fill with eoFill so it is a hole.")
-    lines.append(f"        p.addEllipse(in: CGRect(x: w * {cx - er:.4f}, y: h * {cy - er:.4f}, "
-                 f"width: w * {2 * er:.4f}, height: h * {2 * er:.4f}))")
-    lines.append("        return p")
-    lines.append("    }")
-    fish = "\n".join(lines)
+    eye = (f"    func path(in rect: CGRect) -> Path {{\n"
+           f"        let w = rect.width, h = rect.height\n"
+           f"        return Path(ellipseIn: CGRect(x: w * {cx - er:.4f}, y: h * {cy - er:.4f}, "
+           f"width: w * {2 * er:.4f}, height: h * {2 * er:.4f}))\n"
+           f"    }}")
 
-    lines = ["    func path(in rect: CGRect) -> Path {",
-             "        var p = Path()",
-             "        let w = rect.width, h = rect.height"]
-    for seg in current_path():
-        cmd, *ps = seg
-        if cmd == "M":
-            lines.append(f"        p.move(to: {pt(ps[0])})")
-        else:
-            lines.append(f"        p.addCurve(to: {pt(ps[2])},")
-            lines.append(f"                   control1: {pt(ps[0])},")
-            lines.append(f"                   control2: {pt(ps[1])})")
-    lines.append("        return p")
-    lines.append("    }")
-    current = "\n".join(lines)
+    # Stroke width relative to the mark's own bounding square, so a
+    # `.frame(width: s, height: s)` of the view gives the icon's proportions.
+    stroke = LINE_WIDTH / ICON_SCALE
     return f"""import SwiftUI
 
 // Generated by `python scripts/render_app_icon.py --swift` — do not hand-edit.
 // The same control points render the App Store / Home Screen icon PNGs, so the
 // in-app logo and the icon are guaranteed to be the same mark.
 
-/// The fish body (tilted {abs(TILT_DEG):g}° nose-up) with the eye as an even-odd hole.
-/// Fill with `FillStyle(eoFill: true)`.
-struct CurrentsFishShape: Shape {{
-{fish}
+/// The fish outline, nose up-right at {abs(TILT_DEG):g}°. Stroke it; never fill it.
+struct CurrentsFishOutline: Shape {{
+{outline}
 }}
 
-/// The single "current" running along the flank. Stroke with round caps at
-/// `size * CurrentsMark.currentLineWidth`.
-struct CurrentsCurrentShape: Shape {{
-{current}
+/// The eye: a solid dot. Fill it.
+struct CurrentsFishEye: Shape {{
+{eye}
 }}
 
-/// The Currents mark: fish filled in `tint`, current line stroked in `accent`.
+/// The Currents mark: a monoline fish outline in `tint` with a solid eye in
+/// `accent` (defaults to `tint`, so the in-app logo is one colour).
 ///
-/// Inside the app the fish takes the theme colour and the current is white
-/// (the inverse of the Home Screen icon, where the fish is white and the
-/// current carries the theme colour). Square; size it with `.frame(width:height:)`.
+/// The Home Screen icon is the inverse: white outline, theme-coloured eye.
+/// Square; size it with `.frame(width:height:)`.
 struct CurrentsMark: View {{
     var tint: Color
-    var accent: Color = .white
+    var accent: Color? = nil
 
-    static let currentLineWidth: CGFloat = {CURRENT_WIDTH:.3f}
+    /// Stroke width as a fraction of the view's side.
+    static let lineWidth: CGFloat = {stroke:.4f}
 
     var body: some View {{
         GeometryReader {{ geo in
             let side = min(geo.size.width, geo.size.height)
             ZStack {{
-                CurrentsFishShape()
-                    .fill(tint, style: FillStyle(eoFill: true))
-                CurrentsCurrentShape()
-                    .stroke(accent, style: StrokeStyle(lineWidth: side * Self.currentLineWidth,
-                                                       lineCap: .round))
+                CurrentsFishOutline()
+                    .stroke(tint, style: StrokeStyle(lineWidth: side * Self.lineWidth,
+                                                     lineJoin: .round))
+                CurrentsFishEye()
+                    .fill(accent ?? tint)
             }}
             .frame(width: side, height: side)
         }}
@@ -481,20 +402,23 @@ def main():
     for name, theme in LOGO_SETS.items():
         render_logo_set(name, theme)
 
-    render_png(svg_document(WATCH_SCALE, BG_WATCH, FISH, THEMES["ocean"]), WATCH_ICON / "icon-1024.png")
+    render_png(svg_document(WATCH_SCALE, BG_WATCH, LINE, THEMES["ocean"]), WATCH_ICON / "icon-1024.png")
     write_json(WATCH_ICON / "Contents.json", appiconset_contents("icon-1024", "watchos", False))
     print(f"  wrote {WATCH_ICON.relative_to(REPO)}")
 
     render_docs_logo()
 
     DESIGN.mkdir(parents=True, exist_ok=True)
-    (DESIGN / "currents-icon.svg").write_text(svg_document(ICON_SCALE, BG_DEFAULT, FISH, THEMES["ocean"]))
+    (DESIGN / "currents-icon.svg").write_text(svg_document(ICON_SCALE, BG_DEFAULT, LINE, THEMES["ocean"]))
+    (DESIGN / "currents-mark.svg").write_text(svg_document(LOGO_SCALE, None, LINE, THEMES["ocean"]))
     layers = DESIGN / "layers"
     layers.mkdir(exist_ok=True)
-    for layer in ("background", "fish", "current"):
+    for stale in layers.glob("*.svg"):
+        stale.unlink()
+    for layer in ("background", "fish", "eye"):
         (layers / f"{layer}.svg").write_text(
-            svg_document(ICON_SCALE, BG_DEFAULT, FISH, THEMES["ocean"], layers={layer}))
-    print(f"  wrote {DESIGN.relative_to(REPO)}/currents-icon.svg + layers/")
+            svg_document(ICON_SCALE, BG_DEFAULT, LINE, THEMES["ocean"], layers={layer}))
+    print(f"  wrote {DESIGN.relative_to(REPO)}/currents-icon.svg, currents-mark.svg + layers/")
     render_preview()
     print("Done.")
 

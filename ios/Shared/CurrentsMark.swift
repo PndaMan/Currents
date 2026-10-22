@@ -4,90 +4,67 @@ import SwiftUI
 // The same control points render the App Store / Home Screen icon PNGs, so the
 // in-app logo and the icon are guaranteed to be the same mark.
 
-/// The fish body (tilted 8° nose-up) with the eye as an even-odd hole.
-/// Fill with `FillStyle(eoFill: true)`.
-struct CurrentsFishShape: Shape {
+/// The fish outline, nose up-right at 45°. Stroke it; never fill it.
+struct CurrentsFishOutline: Shape {
     func path(in rect: CGRect) -> Path {
         var p = Path()
         let w = rect.width, h = rect.height
-        p.move(to: CGPoint(x: w * 0.9260, y: h * 0.4146))
-        p.addCurve(to: CGPoint(x: w * 0.5302, y: h * 0.2837),
-                   control1: CGPoint(x: w * 0.8370, y: h * 0.3113),
-                   control2: CGPoint(x: w * 0.6688, y: h * 0.2642))
-        p.addCurve(to: CGPoint(x: w * 0.2936, y: h * 0.4684),
-                   control1: CGPoint(x: w * 0.4312, y: h * 0.2976),
-                   control2: CGPoint(x: w * 0.3518, y: h * 0.3795))
-        p.addCurve(to: CGPoint(x: w * 0.0871, y: h * 0.3283),
-                   control1: CGPoint(x: w * 0.2357, y: h * 0.4160),
-                   control2: CGPoint(x: w * 0.1454, y: h * 0.3479))
-        p.addCurve(to: CGPoint(x: w * 0.0765, y: h * 0.3425),
-                   control1: CGPoint(x: w * 0.0725, y: h * 0.3234),
-                   control2: CGPoint(x: w * 0.0677, y: h * 0.3298))
-        p.addCurve(to: CGPoint(x: w * 0.2128, y: h * 0.5404),
-                   control1: CGPoint(x: w * 0.1113, y: h * 0.3931),
-                   control2: CGPoint(x: w * 0.1635, y: h * 0.4766))
-        p.addCurve(to: CGPoint(x: w * 0.1363, y: h * 0.7682),
-                   control1: CGPoint(x: w * 0.1830, y: h * 0.6152),
-                   control2: CGPoint(x: w * 0.1559, y: h * 0.7099))
-        p.addCurve(to: CGPoint(x: w * 0.1504, y: h * 0.7788),
-                   control1: CGPoint(x: w * 0.1314, y: h * 0.7828),
-                   control2: CGPoint(x: w * 0.1378, y: h * 0.7876))
-        p.addCurve(to: CGPoint(x: w * 0.3103, y: h * 0.5873),
-                   control1: CGPoint(x: w * 0.2010, y: h * 0.7440),
-                   control2: CGPoint(x: w * 0.2691, y: h * 0.6536))
-        p.addCurve(to: CGPoint(x: w * 0.5886, y: h * 0.6996),
-                   control1: CGPoint(x: w * 0.3907, y: h * 0.6567),
-                   control2: CGPoint(x: w * 0.4896, y: h * 0.7135))
-        p.addCurve(to: CGPoint(x: w * 0.9331, y: h * 0.4646),
-                   control1: CGPoint(x: w * 0.7273, y: h * 0.6801),
-                   control2: CGPoint(x: w * 0.8760, y: h * 0.5885))
-        p.addCurve(to: CGPoint(x: w * 0.9260, y: h * 0.4146),
-                   control1: CGPoint(x: w * 0.9400, y: h * 0.4496),
-                   control2: CGPoint(x: w * 0.9368, y: h * 0.4271))
+        p.move(to: CGPoint(x: w * 0.7970, y: h * 0.2030))
+        p.addCurve(to: CGPoint(x: w * 0.4222, y: h * 0.2808),
+                   control1: CGPoint(x: w * 0.6697, y: h * 0.1323),
+                   control2: CGPoint(x: w * 0.5212, y: h * 0.1818))
+        p.addCurve(to: CGPoint(x: w * 0.3374, y: h * 0.6061),
+                   control1: CGPoint(x: w * 0.3303, y: h * 0.3727),
+                   control2: CGPoint(x: w * 0.3303, y: h * 0.5000))
+        p.addCurve(to: CGPoint(x: w * 0.0757, y: h * 0.6414),
+                   control1: CGPoint(x: w * 0.2667, y: h * 0.6202),
+                   control2: CGPoint(x: w * 0.1535, y: h * 0.6202))
+        p.addCurve(to: CGPoint(x: w * 0.3586, y: h * 0.9243),
+                   control1: CGPoint(x: w * 0.1959, y: h * 0.6768),
+                   control2: CGPoint(x: w * 0.3232, y: h * 0.8041))
+        p.addCurve(to: CGPoint(x: w * 0.3939, y: h * 0.6626),
+                   control1: CGPoint(x: w * 0.3798, y: h * 0.8465),
+                   control2: CGPoint(x: w * 0.3798, y: h * 0.7333))
+        p.addCurve(to: CGPoint(x: w * 0.7192, y: h * 0.5778),
+                   control1: CGPoint(x: w * 0.5000, y: h * 0.6697),
+                   control2: CGPoint(x: w * 0.6273, y: h * 0.6697))
+        p.addCurve(to: CGPoint(x: w * 0.7970, y: h * 0.2030),
+                   control1: CGPoint(x: w * 0.8182, y: h * 0.4788),
+                   control2: CGPoint(x: w * 0.8677, y: h * 0.3303))
         p.closeSubpath()
-        // Eye: a separate sub-path; fill with eoFill so it is a hole.
-        p.addEllipse(in: CGRect(x: w * 0.7601, y: h * 0.3787, width: w * 0.0600, height: h * 0.0600))
         return p
     }
 }
 
-/// The single "current" running along the flank. Stroke with round caps at
-/// `size * CurrentsMark.currentLineWidth`.
-struct CurrentsCurrentShape: Shape {
+/// The eye: a solid dot. Fill it.
+struct CurrentsFishEye: Shape {
     func path(in rect: CGRect) -> Path {
-        var p = Path()
         let w = rect.width, h = rect.height
-        p.move(to: CGPoint(x: w * 0.4031, y: h * 0.5288))
-        p.addCurve(to: CGPoint(x: w * 0.5615, y: h * 0.5065),
-                   control1: CGPoint(x: w * 0.4552, y: h * 0.4861),
-                   control2: CGPoint(x: w * 0.4996, y: h * 0.4799))
-        p.addCurve(to: CGPoint(x: w * 0.7199, y: h * 0.4842),
-                   control1: CGPoint(x: w * 0.6234, y: h * 0.5331),
-                   control2: CGPoint(x: w * 0.6678, y: h * 0.5269))
-        return p
+        return Path(ellipseIn: CGRect(x: w * 0.6156, y: h * 0.2196, width: w * 0.0800, height: h * 0.0800))
     }
 }
 
-/// The Currents mark: fish filled in `tint`, current line stroked in `accent`.
+/// The Currents mark: a monoline fish outline in `tint` with a solid eye in
+/// `accent` (defaults to `tint`, so the in-app logo is one colour).
 ///
-/// Inside the app the fish takes the theme colour and the current is white
-/// (the inverse of the Home Screen icon, where the fish is white and the
-/// current carries the theme colour). Square; size it with `.frame(width:height:)`.
+/// The Home Screen icon is the inverse: white outline, theme-coloured eye.
+/// Square; size it with `.frame(width:height:)`.
 struct CurrentsMark: View {
     var tint: Color
-    var accent: Color = .white
+    var accent: Color? = nil
 
-    static let currentLineWidth: CGFloat = 0.046
+    /// Stroke width as a fraction of the view's side.
+    static let lineWidth: CGFloat = 0.0545
 
     var body: some View {
         GeometryReader { geo in
             let side = min(geo.size.width, geo.size.height)
             ZStack {
-                CurrentsFishShape()
-                    .fill(tint, style: FillStyle(eoFill: true))
-                CurrentsCurrentShape()
-                    .stroke(accent, style: StrokeStyle(lineWidth: side * Self.currentLineWidth,
-                                                       lineCap: .round))
+                CurrentsFishOutline()
+                    .stroke(tint, style: StrokeStyle(lineWidth: side * Self.lineWidth,
+                                                     lineJoin: .round))
+                CurrentsFishEye()
+                    .fill(accent ?? tint)
             }
             .frame(width: side, height: side)
         }
