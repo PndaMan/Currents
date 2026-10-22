@@ -1,534 +1,568 @@
 import SwiftUI
 import CoreLocation
 
-/// The home screen: the three questions an angler actually has, answered in
-/// one scroll — how good is it right now, when are the windows, and what
-/// should I tie on. Everything denser than that lives one tap away.
+/// The home tab: how good the bite is right now, the day's windows, what to
+/// tie on and the week ahead. The full forecast pushes from here.
 struct TodayTab: View {
     @Environment(AppState.self) private var appState
-    @AppStorage("use24HourTime") private var use24HourTime = true
-    /// Angler's clarity call, remembered between sessions. Empty = infer it.
+    @Environment(\.openURL) private var openURL
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @AppStorage("use24HourTime") private var use24 = true
+    /// Angler's clarity call, remembered between sessions. Empty means infer it.
     @AppStorage("waterClarityOverride") private var clarityOverride = ""
+    /// Saved spot the forecast is for. Empty means the phone's location.
+    @AppStorage("todaySpotId") private var spotId = ""
+    /// Shared with the species page's Target button. 0 means any species.
+    @AppStorage("targetSpeciesId") private var targetSpeciesId: Int = 0
 
-    @State private var weather: WeatherService.WeatherData?
-    @State private var forecast: ForecastEngine.ForecastResult?
-    @State private var allSpecies: [Species] = []
-    @State private var selectedSpecies: Species?
+    @State private var store = ForecastStore()
+    @State private var spots: [Spot] = []
     @State private var ownedGear: [OwnedGear] = []
     @State private var history: [CatchDetail] = []
-    @State private var isLoading = true
-    @State private var showSpeciesPicker = false
-    @State private var showFullForecast = false
-    @State private var showAllLures = false
-    @State private var showSettings = false
-    /// Hour tapped on the day timeline; nil shows the window list instead.
+    @State private var nextPlan: Trip?
+    @State private var sessionCatches = 0
     @State private var selectedHour: Int?
 
-    private var coordinate: CLLocationCoordinate2D {
-        appState.locationManager.currentLocation?.coordinate
-            ?? CLLocationCoordinate2D(latitude: -33.9, longitude: 18.4)
+    @State private var showLocation = false
+    @State private var showSpeciesPicker = false
+    @State private var showAllLures = false
+    @State private var showSession = false
+    @State private var planning: PlanTarget?
+    @State private var confirmEnd = false
+
+    /// What the planner sheet opens with.
+    private enum PlanTarget: Identifiable {
+        case new
+        case edit(Trip)
+        var id: String {
+            switch self {
+            case .new: "new"
+            case .edit(let t): t.id
+            }
+        }
     }
+
+    // MARK: - Derived
+
+    private var selectedSpot: Spot? {
+        spotId.isEmpty ? nil : spots.first { $0.id == spotId }
+    }
+
+    private var resolvedLocation: (coordinate: CLLocationCoordinate2D, name: String) {
+        if let spot = selectedSpot {
+            return (CLLocationCoordinate2D(latitude: spot.latitude, longitude: spot.longitude), spot.name)
+        }
+        if let loc = appState.locationManager.currentLocation {
+            // Name the place after a saved spot when standing at one.
+            let near = spots.first {
+                CLLocation(latitude: $0.latitude, longitude: $0.longitude).distance(from: loc) < 2_000
+            }
+            return (loc.coordinate, near?.name ?? "Current location")
+        }
+        return (ForecastStore.fallbackCoordinate, "Cape Town")
+    }
+
+    /// Re-run the load when the place changes by more than about a kilometre.
+    private var locationKey: String {
+        let c = resolvedLocation.coordinate
+        return "\(spotId)|\((c.latitude * 100).rounded())|\((c.longitude * 100).rounded())"
+    }
+
+    private var weather: WeatherService.WeatherData? { store.weather(for: 0) }
 
     private var clarity: WaterClarity {
-        WaterClarity(rawValue: clarityOverride)
-            ?? WaterClarity.inferred(precipMm: weather?.precipMm)
+        WaterClarity(rawValue: clarityOverride) ?? WaterClarity.inferred(precipMm: weather?.precipMm)
     }
 
-    private var conditions: LureEngine.Conditions {
-        LureEngine.Conditions(
+    private var suggestions: [LureEngine.Suggestion] {
+        let conditions = LureEngine.Conditions(
             waterTempC: weather?.waterTempC,
             clarity: clarity,
             cloudCoverPct: weather?.cloudCoverPct,
             windSpeedKmh: weather?.windSpeedKmh,
             pressureChange6h: weather?.pressureChange6h
         )
+        return LureEngine.recommend(conditions: conditions, species: store.species,
+                                    ownedGear: ownedGear, history: history)
     }
 
-    private var suggestions: [LureEngine.Suggestion] {
-        LureEngine.recommend(conditions: conditions, species: selectedSpecies,
-                             ownedGear: ownedGear, history: history)
+    private var locationOff: Bool {
+        selectedSpot == nil && !appState.locationManager.isAuthorized
     }
 
-    private var windows: [BiteWindows.Window] {
-        BiteWindows.best(from: forecast?.hourlyScores ?? [])
-    }
+    // MARK: - Body
 
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(spacing: CurrentsTheme.paddingM) {
-                    if let forecast {
-                        scoreHero(forecast)
-                    } else {
-                        FishLoader(message: "Reading the bite…").frame(height: 120)
+        let today = store.day(0)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                LargeTitleHeader("Today") {
+                    HeaderIconButton("Plan a session", systemImage: "calendar.badge.plus") {
+                        planning = .new
                     }
-                    targetSpeciesRow
-                    if !windows.isEmpty { bestWindowsCard }
-                    whatToThrowCard
-                    quickActions
-                    fullForecastLink
                 }
-                .padding()
-            }
-            // Left end of the swipe continuum — only travels right, to Explore.
-            .smartSwipe(.today)
-            .navigationTitle("Today")
-            .toolbar {
-                ToolbarItem(placement: .primaryAction) {
-                    Button { showSettings = true } label: { Image(systemName: "gearshape") }
+
+                placeLine
+                if locationOff { locationNotice }
+                if let trip = appState.tripTracker.activeTrip { sessionBanner(trip) }
+
+                if store.hasLoaded || store.current != nil {
+                    hero(today)
+                        .padding(.top, 20)
+                    targetRow.padding(.top, 20)
+                    upNextRow
+                    whatToThrow.padding(.top, 12)
+                    weekStrip.padding(.top, 20)
+                    conditions(today).padding(.top, 20)
+                } else {
+                    FishLoader(message: "Reading the bite")
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 260)
                 }
             }
-            .task {
-                allSpecies = (try? appState.speciesRepository.fetchAll()) ?? []
-                await load()
+            .padding(.bottom, DS.Space.s8)
+        }
+        .dsScreenBackground()
+        .toolbar(.hidden, for: .navigationBar)
+        .refreshable { await reload(force: true) }
+        .navigationDestination(for: ForecastRoute.self) { route in
+            ForecastDestination(store: store, route: route)
+        }
+        .syncsTargetSpecies(store)
+        .onChange(of: store.species?.id) { _, _ in writeWidget() }
+        .task(id: locationKey) {
+            let loc = resolvedLocation
+            store.setLocation(loc.coordinate, name: loc.name)
+            await reload(force: false)
+        }
+        .onAppear { refreshLocalData() }
+        .onChange(of: appState.tripTracker.isTracking) { _, _ in refreshLocalData() }
+        .sheet(isPresented: $showLocation) {
+            TodayLocationSheet(
+                spots: spots,
+                selectedSpotId: selectedSpot == nil ? "" : spotId,
+                locationAuthorized: appState.locationManager.isAuthorized,
+                onSelect: { id in spotId = id },
+                onRequestLocation: turnOnLocation
+            )
+        }
+        .sheet(isPresented: $showSpeciesPicker) {
+            ForecastSpeciesPickerSheet(selected: store.species) { sp in
+                targetSpeciesId = Int(sp?.id ?? 0)
+                store.setSpecies(sp)
+                ToastCenter.shared.show(sp.map { "Targeting \($0.commonName)" } ?? "Forecast for any species",
+                                        style: .info, haptic: false, icon: "scope")
             }
-            .sheet(isPresented: $showSpeciesPicker) {
-                ForecastSpeciesPickerSheet(allSpecies: allSpecies,
-                                           selectedSpecies: $selectedSpecies,
-                                           onSelect: { recompute() })
+        }
+        .sheet(isPresented: $showAllLures) {
+            WhatToThrowDetailView(suggestions: suggestions, clarity: clarity, species: store.species)
+        }
+        .sheet(isPresented: $showSession) {
+            if let trip = appState.tripTracker.activeTrip {
+                TodaySessionSheet(trip: trip, catches: sessionCatches,
+                                  onLogCatch: logCatch,
+                                  onOpenMap: { appState.pendingDeepLink = URL(string: "currents://session") },
+                                  onEnd: endSession)
             }
-            .sheet(isPresented: $showFullForecast) { ForecastTab(presentedAsSheet: true) }
-            .sheet(isPresented: $showSettings) { SettingsView() }
-            .sheet(isPresented: $showAllLures) {
-                WhatToThrowDetailView(suggestions: suggestions, clarity: clarity,
-                                      species: selectedSpecies)
+        }
+        .sheet(item: $planning, onDismiss: refreshLocalData) { target in
+            switch target {
+            case .new: PlanSessionSheet()
+            case .edit(let trip): PlanSessionSheet(editingTrip: trip)
             }
+        }
+        .confirmationDialog("End this session?", isPresented: $confirmEnd, titleVisibility: .visible) {
+            Button("End session", role: .destructive) { endSession() }
+            Button("Keep fishing", role: .cancel) {}
+        } message: {
+            Text("It will be saved to your Logbook.")
         }
     }
 
-    // MARK: - Bite score hero
+    // MARK: - Place
 
-    private func scoreHero(_ f: ForecastEngine.ForecastResult) -> some View {
-        VStack(spacing: 6) {
-            // Same ring as the tapped-hour card, so the two read as one idea.
-            ScoreRing(score: f.score, size: 116, caption: "bite score")
-            Text(verdict(f.score)).font(.headline)
-            if let reason = f.reasons.first {
-                Text(reason).font(.caption).foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-            }
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 8)
-        .glassCard()
-    }
-
-    private func verdict(_ s: Int) -> String {
-        switch s {
-        case 80...:   "Excellent — go now"
-        case 65..<80: "Good conditions"
-        case 50..<65: "Fair — work for them"
-        default:      "Slow — finesse it"
-        }
-    }
-
-    // MARK: - Target species
-
-    private var targetSpeciesRow: some View {
-        Button { showSpeciesPicker = true } label: {
-            HStack {
-                Label("Target", systemImage: "target").font(.subheadline)
-                Spacer()
-                Text(selectedSpecies?.commonName ?? "Any species")
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(CurrentsTheme.accent)
-                Image(systemName: "chevron.right").font(.caption).foregroundStyle(.secondary)
-            }
-            .padding(.vertical, 2)
-        }
-        .buttonStyle(.plain)
-        .glassCard()
-    }
-
-    // MARK: - Best windows (BiteTime)
-
-    private var bestWindowsCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Label("Best Windows Today", systemImage: "clock.badge.checkmark")
-                .font(.headline)
-
-            // The whole day at a glance: one bar per hour, coloured by score,
-            // with a marker on now. Reading the shape is faster than reading
-            // three time ranges. Tapping an hour swaps the window list below
-            // for that hour's detail; tapping it again puts the list back.
-            DayTimeline(hourly: forecast?.hourlyScores ?? [], selected: $selectedHour)
-
-            if let hour = selectedHour, let point = hourPoint(hour) {
-                hourDetail(hour: hour, score: point)
-            } else {
-                windowList
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .glassCard()
-    }
-
-    private func hourPoint(_ hour: Int) -> Int? {
-        forecast?.hourlyScores.first { $0.hour == hour }?.score
-    }
-
-    /// Replaces the window list while an hour is selected. Built for this
-    /// card rather than borrowed from the full forecast's hourly drill-down:
-    /// a ring you can read at arm's length, the change against right now, and
-    /// what to actually do in that hour.
-    private func hourDetail(hour: Int, score: Int) -> some View {
-        let nowScore = hourPoint(Calendar.current.component(.hour, from: .now))
-        let delta = nowScore.map { score - $0 }
-
-        return HStack(alignment: .top, spacing: 14) {
-            ScoreRing(score: score, size: 62)
-
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 6) {
-                    Text(BiteWindows.Window(startHour: hour, endHour: hour, peakScore: score)
-                        .label(use24Hour: use24HourTime))
+    private var placeLine: some View {
+        HStack(spacing: 6) {
+            Button { showLocation = true } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: selectedSpot == nil ? "location.fill" : "mappin")
+                        .font(.footnote)
+                    Text(store.placeName)
                         .font(.subheadline.weight(.semibold))
-                        .monospacedDigit()
-                    if let delta, delta != 0 {
-                        Label("\(abs(delta))", systemImage: delta > 0 ? "arrow.up" : "arrow.down")
-                            .font(.system(size: 10, weight: .bold))
-                            .foregroundStyle(delta > 0 ? .green : .orange)
-                            .labelStyle(.titleAndIcon)
-                        Text("vs now").font(.caption2).foregroundStyle(.tertiary)
-                    }
+                    Image(systemName: "chevron.down")
+                        .font(.caption2.weight(.semibold))
                 }
-                Text(BiteWindows.guidance(forScore: score))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                Button {
-                    withAnimation(.snappy(duration: 0.2)) { selectedHour = nil }
-                } label: {
-                    Label("Back to windows", systemImage: "chevron.left")
-                        .font(.caption2.weight(.medium))
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(CurrentsTheme.accent)
-                .padding(.top, 2)
+                .foregroundStyle(DS.accent)
             }
+            .buttonStyle(.dim)
+            .accessibilityLabel("Forecast for \(store.placeName). Change place")
+
+            Text(ForecastFormat.longDate(.now))
+                .font(.subheadline)
+                .foregroundStyle(.dsText2)
+        }
+        .padding(.horizontal, DS.gutter)
+    }
+
+    private var locationNotice: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "location.slash")
+                .foregroundStyle(.dsText2)
+            Text("Location is off, so this is the forecast for Cape Town.")
+                .font(.subheadline)
+                .foregroundStyle(.dsText2)
+                .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
+            Button("Turn on location", action: turnOnLocation)
+                .font(.subheadline.weight(.semibold))
+                .buttonStyle(.dim)
+                .foregroundStyle(DS.accent)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .transition(.opacity.combined(with: .move(edge: .top)))
+        .padding(14)
+        .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.button, style: .continuous))
+        .padding(.horizontal, DS.gutter)
+        .padding(.top, 12)
     }
 
-    private var windowList: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            ForEach(windows) { w in
-                VStack(alignment: .leading, spacing: 3) {
-                    HStack {
-                        Text(w.label(use24Hour: use24HourTime))
-                            .font(.subheadline.weight(.semibold))
-                            .monospacedDigit()
-                        if w.isNow() {
-                            Text("NOW").font(.caption2.bold())
-                                .padding(.horizontal, 6).padding(.vertical, 2)
-                                .background(CurrentsTheme.scoreColor(w.peakScore).opacity(0.2),
-                                            in: Capsule())
-                        }
-                        Spacer()
-                        Text("\(w.peakScore)")
-                            .font(.subheadline.bold())
-                            .foregroundStyle(CurrentsTheme.scoreColor(w.peakScore))
+    // MARK: - Session
+
+    private func sessionBanner(_ trip: Trip) -> some View {
+        Button { showSession = true } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "record.circle")
+                    .font(.title3)
+                    .foregroundStyle(Color.dsScoreSlow)
+                    .symbolEffect(.pulse, options: .repeating, isActive: !reduceMotion)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Session running")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.dsText)
+                    TimelineView(.periodic(from: .now, by: 60)) { context in
+                        Text("\(trip.name), \(minutes(since: trip.currentDayStart ?? trip.startDate, now: context.date))")
+                            .font(.footnote)
+                            .foregroundStyle(.dsText2)
+                            .lineLimit(1)
                     }
-                    Text(BiteWindows.guidance(forScore: w.peakScore))
-                        .font(.caption).foregroundStyle(.secondary)
                 }
-                .opacity(w.hasPassed() ? 0.45 : 1)
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.dsText3)
             }
+            .padding(14)
+            .background(Color.dsScoreSlow.opacity(0.12),
+                        in: RoundedRectangle(cornerRadius: DS.Radius.button, style: .continuous))
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .transition(.opacity)
+        .buttonStyle(.dim)
+        .padding(.horizontal, DS.gutter)
+        .padding(.top, 12)
     }
 
-    // MARK: - What to Throw
+    private func minutes(since start: Date, now: Date) -> String {
+        let m = max(0, Int(now.timeIntervalSince(start) / 60))
+        return m >= 60 ? "\(m / 60) h \(m % 60) min" : "\(m) min"
+    }
 
-    private var whatToThrowCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Label("What to Throw", systemImage: "fish.fill").font(.headline)
-                Spacer()
-                Button("See all") { showAllLures = true }
-                    .font(.caption).foregroundStyle(CurrentsTheme.accent)
+    // MARK: - Hero
+
+    private func hero(_ day: ForecastDay) -> some View {
+        let score = day.result.score
+        let reason = day.result.reasons.first.map(ForecastFormat.clean) ?? ForecastFormat.guidance(score)
+        let currentHour = Calendar.current.component(.hour, from: .now)
+        return VStack(alignment: .leading, spacing: 18) {
+            HStack(alignment: .center, spacing: 16) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Bite right now")
+                        .font(.subheadline)
+                        .foregroundStyle(.dsText2)
+                    Text(ForecastFormat.verdict(score))
+                        .font(.title.bold())
+                        .foregroundStyle(.dsText)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(reason)
+                        .font(.callout)
+                        .foregroundStyle(.dsText2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 0)
+                ScoreRing(score: score, size: 100, caption: "of 100")
+            }
+            .padding(.horizontal, DS.gutter)
+            .accessibilityElement(children: .combine)
+
+            VStack(spacing: 8) {
+                BiteBars(hourly: day.result.hourlyScores, windows: day.windows,
+                         currentHour: currentHour, selected: $selectedHour, height: 72, use24: use24)
+                HourAxis(labels: use24 ? ["00:00", "06:00", "12:00", "18:00", "23:00"]
+                                       : ["12 am", "6 am", "Noon", "6 pm", "11 pm"])
+                Group {
+                    if let hour = selectedHour {
+                        HourInfoBox(store: store, day: day, hour: hour, use24: use24)
+                    } else {
+                        WindowTiles(day: day, use24: use24) { hour in
+                            withAnimation(DS.Motion.softSpring) { selectedHour = hour }
+                        }
+                    }
+                }
+                .padding(.top, 6)
+                .transition(.opacity)
+                .animation(DS.Motion.softSpring, value: selectedHour)
+            }
+            .padding(.horizontal, DS.gutter)
+
+            actions
+        }
+    }
+
+    private var actions: some View {
+        ActionTriple {
+            if appState.tripTracker.isTracking {
+                Button { confirmEnd = true } label: {
+                    Label("End session", systemImage: "stop.fill")
+                }
+                .buttonStyle(ActionTileStyle(.destructive))
+            } else {
+                Button(action: startSession) {
+                    Label("Start session", systemImage: "play.fill")
+                }
+                .buttonStyle(ActionTileStyle(.primary))
             }
 
-            // Clarity is the biggest lever on colour, and only the angler can
-            // actually see it — so it's a first-class control, pre-filled from
-            // recent rainfall and shown as water rather than words.
-            ClarityPicker(selection: Binding(
-                get: { clarity },
-                set: { if let new = $0 { clarityOverride = new.rawValue } }
-            ))
+            Button(action: logCatch) {
+                Label("Log catch", systemImage: "plus")
+            }
+            .buttonStyle(ActionTileStyle(.tonal))
 
-            if isLoading {
-                FishLoader(message: "Matching conditions…").frame(height: 80)
-            } else {
-                let top = Array(suggestions.prefix(3))
-                ForEach(Array(top.enumerated()), id: \.element.id) { index, s in
-                    LureRow(suggestion: s, rank: index + 1)
-                    if index < top.count - 1 { Divider() }
+            NavigationLink(value: ForecastRoute.day(offset: 0, hour: nil)) {
+                ActionTileLabel("Forecast", systemImage: "chart.bar.xaxis")
+            }
+            .buttonStyle(.dim)
+        }
+    }
+
+    // MARK: - Target and plans
+
+    private var targetRow: some View {
+        Button { showSpeciesPicker = true } label: {
+            ArtRow(over: "Targeting", title: store.species?.commonName ?? "Any species",
+                   subtitle: store.species == nil ? "General forecast. Choose a species to tune it." : "Score and lures tuned for it",
+                   chevron: true) {
+                if let s = store.species {
+                    ThumbView(species: s, size: 52)
+                } else {
+                    ThumbView(systemImage: "scope", tint: DS.accent, size: 52)
                 }
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .glassCard()
+        .buttonStyle(.dsRow)
+    }
+
+    private var upNextRow: some View {
+        Button {
+            planning = nextPlan.map { PlanTarget.edit($0) } ?? PlanTarget.new
+        } label: {
+            if let plan = nextPlan {
+                ArtRow(over: "Up next", title: plan.name,
+                       subtitle: plan.plannedDate.map { planDate($0) } ?? "Planned",
+                       subtitleIcon: "calendar", chevron: true) {
+                    ThumbView(systemImage: "calendar", tint: DS.accent, size: 52)
+                }
+            } else {
+                ArtRow(over: "Up next", title: "Plan a session",
+                       subtitle: "Pick a day and get the best times and a gear list",
+                       chevron: true) {
+                    ThumbView(systemImage: "calendar.badge.plus", tint: DS.accent, size: 52)
+                }
+            }
+        }
+        .buttonStyle(.dsRow)
+    }
+
+    private func planDate(_ date: Date) -> String {
+        let cal = Calendar.current
+        let day = cal.isDateInToday(date) ? "Today"
+            : cal.isDateInTomorrow(date) ? "Tomorrow"
+            : ForecastFormat.longDate(date)
+        return "\(day), \(ForecastFormat.time(date, use24: use24))"
+    }
+
+    // MARK: - What to throw
+
+    private var whatToThrow: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button { showAllLures = true } label: {
+                SectionTitle("What to throw", chevron: true)
+            }
+            .buttonStyle(.dim)
+            .accessibilityHint("Shows every suggestion")
+
+            VStack(alignment: .leading, spacing: 10) {
+                ClaritySegments(selection: clarity) { clarityOverride = $0.rawValue }
+                Text(clarityOverride.isEmpty
+                     ? "\(clarity.label) water, guessed from recent rain. Change it if you can see otherwise."
+                     : "\(clarity.label) water, \(clarity.detail.lowercased()).")
+                    .font(.footnote)
+                    .foregroundStyle(.dsText2)
+            }
+            .padding(.horizontal, DS.gutter)
+            .padding(.bottom, 8)
+
+            let top = Array(suggestions.prefix(2))
+            ForEach(Array(top.enumerated()), id: \.element.id) { index, s in
+                Button { showAllLures = true } label: {
+                    LureRow(suggestion: s, rank: index + 1, compact: true)
+                        .padding(.horizontal, DS.gutter)
+                        .padding(.vertical, 10)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.dsRow)
+            }
+
+            if ownedGear.isEmpty {
+                NavigationLink(value: AppRoute.gear) {
+                    ArtRow(title: "Add your tackle", subtitle: "Lures you own rank first", chevron: true) {
+                        ThumbView(systemImage: "shippingbox", tint: DS.accent, size: 52)
+                    }
+                }
+                .buttonStyle(.dsRow)
+            }
+        }
+    }
+
+    // MARK: - Week
+
+    private var weekStrip: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            NavigationLink(value: ForecastRoute.week) {
+                SectionTitle("Next 7 days", chevron: true)
+            }
+            .buttonStyle(.dim)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 10) {
+                    ForEach(0..<7, id: \.self) { i in
+                        let d = store.day(i)
+                        NavigationLink(value: ForecastRoute.day(offset: i, hour: nil)) {
+                            dayCard(d)
+                        }
+                        .buttonStyle(.dim)
+                    }
+                }
+                .padding(.horizontal, DS.gutter)
+            }
+        }
+    }
+
+    private func dayCard(_ d: ForecastDay) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text(d.offset == 0 ? "Today" : d.offset == 1 ? "Tomorrow" : ForecastFormat.shortDay(d.date))
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.dsText)
+                Spacer(minLength: 4)
+                if let w = d.weather {
+                    Image(systemName: WeatherIcon(condition: w.condition).systemName)
+                        .symbolRenderingMode(.multicolor)
+                        .font(.subheadline)
+                }
+            }
+            ScoreRing(score: d.peakScore, size: 52)
+            Text(d.bestWindow.map { ForecastFormat.hour($0.startHour, use24: use24) } ?? "No window")
+                .font(.footnote)
+                .foregroundStyle(.dsText2)
+                .monospacedDigit()
+        }
+        .frame(width: 112, alignment: .leading)
+        .padding(14)
+        .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(ForecastFormat.dayName(d.offset, date: d.date)), best score \(d.peakScore)\(d.bestWindow.map { ", from \(ForecastFormat.hour($0.startHour, use24: use24))" } ?? "")")
+    }
+
+    // MARK: - Conditions
+
+    private func conditions(_ day: ForecastDay) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            SectionTitle("Conditions")
+            ConditionGrid(store: store, day: day, use24: use24)
+            if let updated = store.updatedAt {
+                Text(updatedLine(updated))
+                    .font(.footnote)
+                    .foregroundStyle(.dsText2)
+                    .padding(.horizontal, DS.gutter)
+                    .padding(.top, 10)
+            } else if store.hasLoaded {
+                Text("No weather saved yet. The score uses tide, moon and season until there is a connection.")
+                    .font(.footnote)
+                    .foregroundStyle(.dsText2)
+                    .padding(.horizontal, DS.gutter)
+                    .padding(.top, 10)
+            }
+        }
+    }
+
+    private func updatedLine(_ date: Date) -> String {
+        let f = RelativeDateTimeFormatter()
+        f.unitsStyle = .full
+        let ago = f.localizedString(for: date, relativeTo: .now)
+        if Date.now.timeIntervalSince(date) > 3 * 3600 {
+            return "Weather is stale since \(ago). Pull to refresh when you have signal."
+        }
+        return "Weather updated \(ago)."
     }
 
     // MARK: - Actions
 
-    private var quickActions: some View {
-        HStack(spacing: 10) {
-            if appState.tripTracker.isTracking {
-                Button {
-                    _ = appState.tripTracker.end()
-                } label: {
-                    Label("End Session", systemImage: "stop.fill").frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.bordered).tint(.red)
-            } else {
-                Button {
-                    _ = appState.tripTracker.start(name: SessionFormat.defaultName(), spotId: nil)
-                } label: {
-                    Label("Start Session", systemImage: "play.fill").frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent).labelStyle(.prominentButton)
-            }
-            Button {
-                appState.siriRequestedLogCatch = true
-            } label: {
-                Label("Log Catch", systemImage: "plus.circle.fill").frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.bordered)
-        }
+    private func startSession() {
+        _ = appState.tripTracker.start(name: SessionFormat.defaultName(), spotId: selectedSpot?.id)
+        ToastCenter.shared.show("Session started. Tracking your spot", icon: "play.fill")
+        refreshLocalData()
     }
 
-    private var fullForecastLink: some View {
-        Button { showFullForecast = true } label: {
-            HStack {
-                Label("Full forecast, tides & solunar", systemImage: "chart.xyaxis.line")
-                    .font(.subheadline)
-                Spacer()
-                Image(systemName: "chevron.right").font(.caption)
-            }
+    private func endSession() {
+        guard appState.tripTracker.end() != nil else { return }
+        ToastCenter.shared.show("Session saved to Logbook", icon: "checkmark")
+        refreshLocalData()
+    }
+
+    /// Same path as the Logbook's log button and Siri: the root switches to
+    /// Logbook and opens the log flow.
+    private func logCatch() {
+        appState.siriRequestedLogCatch = true
+    }
+
+    private func turnOnLocation() {
+        if appState.locationManager.authorizationStatus == .notDetermined {
+            appState.locationManager.requestPermission()
+        } else if let url = URL(string: UIApplication.openSettingsURLString) {
+            openURL(url)
         }
-        .buttonStyle(.plain)
-        .foregroundStyle(.secondary)
-        .glassCard()
     }
 
     // MARK: - Data
 
-    private func load(force: Bool = false) async {
-        isLoading = true
+    private func refreshLocalData() {
+        spots = (try? appState.spotRepository.fetchAll()) ?? []
         ownedGear = (try? appState.ownedGearRepository.fetchAll()) ?? []
         history = (try? appState.catchRepository.fetchAll(limit: 200)) ?? []
-        weather = await WeatherService.shared.current(for: coordinate, force: force)
-        recompute()
-        isLoading = false
+        nextPlan = ((try? appState.tripRepository.fetchPlanned()) ?? [])
+            .filter { ($0.plannedDate ?? .distantPast) > .now.addingTimeInterval(-3 * 3600) }
+            .min { ($0.plannedDate ?? .distantFuture) < ($1.plannedDate ?? .distantFuture) }
+        if let trip = appState.tripTracker.activeTrip {
+            sessionCatches = (try? appState.tripRepository.catchCount(tripId: trip.id)) ?? 0
+        }
     }
 
-    private func recompute() {
-        let f = ForecastEngine.forecast(
-            coordinate: coordinate,
-            currentPressureHpa: weather?.pressureHpa,
-            pressureChange6h: weather?.pressureChange6h,
-            waterTempC: weather?.waterTempC,
-            windSpeedKmh: weather?.windSpeedKmh,
-            windDirection: weather?.windDirectionDeg,
-            species: selectedSpecies,
-            isInSpawningZone: false
-        )
-        forecast = f
+    private func reload(force: Bool) async {
+        refreshLocalData()
+        await store.load(force: force)
+        writeWidget()
+    }
+
+    private func writeWidget() {
+        let f = store.day(0).result
         WidgetSnapshotWriter.writeBite(
-            score: f.score, verdict: verdict(f.score), location: "",
+            score: f.score, verdict: ForecastFormat.verdict(f.score), location: store.placeName,
             hourly: WidgetSnapshotWriter.hourlyEntries(from: f.hourlyScores))
-    }
-}
-
-// MARK: - One recommendation
-
-struct LureRow: View {
-    let suggestion: LureEngine.Suggestion
-    /// 1-based position, shown as a rank badge so the ordering is explicit
-    /// rather than implied by a bar you have to squint at.
-    var rank: Int? = nil
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 10) {
-            if let rank { rankBadge(rank) }
-
-            VStack(alignment: .leading, spacing: 5) {
-                HStack(spacing: 6) {
-                    Text(suggestion.lure).font(.subheadline.weight(.semibold))
-                    if suggestion.isOwned {
-                        Text("HAVE IT")
-                            .font(.system(size: 8, weight: .bold))
-                            .padding(.horizontal, 5).padding(.vertical, 2)
-                            .background(.green.opacity(0.18), in: Capsule())
-                            .foregroundStyle(.green)
-                    }
-                    Spacer(minLength: 0)
-                }
-
-                // The colour shown as the colour — "Chartreuse / White" is
-                // meaningless at a glance, two stripes of it are not.
-                HStack(spacing: 6) {
-                    LureColorSwatch(name: suggestion.color)
-                    Text(suggestion.color)
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(.primary)
-                }
-
-                Text(suggestion.technique)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                FlowChips(items: [suggestion.depth] + suggestion.reasons.prefix(2))
-            }
-        }
-        .padding(.vertical, 4)
-    }
-
-    private func rankBadge(_ n: Int) -> some View {
-        Text("\(n)")
-            .font(.caption.bold())
-            .monospacedDigit()
-            .frame(width: 22, height: 22)
-            .background(CurrentsTheme.scoreColor(Int(suggestion.score * 100)).opacity(0.18),
-                        in: Circle())
-            .foregroundStyle(CurrentsTheme.scoreColor(Int(suggestion.score * 100)))
-    }
-}
-
-/// The day's bite as 24 bars. Height and colour both carry the score so it
-/// reads at a glance in sunlight, with a marker on the current hour.
-struct DayTimeline: View {
-    let hourly: [(hour: Int, score: Int)]
-    @Binding var selected: Int?
-
-    private var currentHour: Int { Calendar.current.component(.hour, from: .now) }
-
-    var body: some View {
-        VStack(spacing: 4) {
-            HStack(alignment: .bottom, spacing: 2) {
-                ForEach(hourly, id: \.hour) { point in
-                    let isNow = point.hour == currentHour
-                    let isSelected = point.hour == selected
-                    RoundedRectangle(cornerRadius: 1.5)
-                        .fill(CurrentsTheme.scoreColor(point.score)
-                            .opacity(point.hour < currentHour && !isSelected ? 0.35 : 1))
-                        .frame(height: max(4, CGFloat(point.score) * 0.28))
-                        .overlay {
-                            if isSelected {
-                                RoundedRectangle(cornerRadius: 1.5)
-                                    .strokeBorder(.primary, lineWidth: 1.5)
-                            } else if isNow {
-                                RoundedRectangle(cornerRadius: 1.5)
-                                    .strokeBorder(.primary.opacity(0.7), lineWidth: 1)
-                            }
-                        }
-                        // A 4pt bar is far too small a target, so each one gets
-                        // the full height of the strip to be tapped in.
-                        .frame(maxHeight: .infinity, alignment: .bottom)
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            withAnimation(.snappy(duration: 0.2)) {
-                                selected = isSelected ? nil : point.hour
-                            }
-                        }
-                }
-            }
-            .frame(height: 30, alignment: .bottom)
-
-            HStack {
-                Text("12 AM").font(.system(size: 8))
-                Spacer()
-                Text("Noon").font(.system(size: 8))
-                Spacer()
-                Text("11 PM").font(.system(size: 8))
-            }
-            .foregroundStyle(.tertiary)
-        }
-    }
-}
-
-/// Chips that wrap instead of clipping — reason text varies in length and a
-/// single HStack would truncate the useful ones.
-struct FlowChips: View {
-    let items: [String]
-
-    var body: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(spacing: 5) { chips }
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 5) { chip(items.first ?? "") }
-                HStack(spacing: 5) {
-                    ForEach(Array(items.dropFirst()), id: \.self) { chip($0) }
-                }
-            }
-        }
-    }
-
-    private var chips: some View {
-        ForEach(items, id: \.self) { chip($0) }
-    }
-
-    private func chip(_ text: String) -> some View {
-        Text(text)
-            .font(.caption2)
-            .padding(.horizontal, 7).padding(.vertical, 3)
-            .background(.gray.opacity(0.15), in: Capsule())
-            .foregroundStyle(.secondary)
-            .lineLimit(1)
-    }
-}
-
-// MARK: - Full list
-
-struct WhatToThrowDetailView: View {
-    let suggestions: [LureEngine.Suggestion]
-    let clarity: WaterClarity
-    let species: Species?
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        NavigationStack {
-            List {
-                Section {
-                    ForEach(Array(suggestions.enumerated()), id: \.element.id) { index, s in
-                        VStack(alignment: .leading, spacing: 6) {
-                            LureRow(suggestion: s, rank: index + 1)
-                            if s.personalCatches > 0 {
-                                Label("\(s.personalCatches) of your catches came on this",
-                                      systemImage: "chart.line.uptrend.xyaxis")
-                                    .font(.caption2).foregroundStyle(.green)
-                            }
-                            if let owned = s.ownedName {
-                                Label(owned, systemImage: "shippingbox")
-                                    .font(.caption2).foregroundStyle(.secondary)
-                            }
-                        }
-                        .padding(.vertical, 4)
-                    }
-                } header: {
-                    Text("\(clarity.label) water · \(clarity.detail)")
-                } footer: {
-                    Text("Ranked for current water temperature, clarity, light, wind and pressure\(species.map { ", targeting \($0.commonName)" } ?? ""). Lures you own rank first.")
-                }
-
-                Section("Colours for \(clarity.label.lowercased()) water") {
-                    ForEach(LureEngine.colors(for: clarity, lowLight: false), id: \.self) {
-                        Text($0).font(.subheadline)
-                    }
-                }
-            }
-            .navigationTitle("What to Throw")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
-            }
-        }
     }
 }
