@@ -27,6 +27,8 @@ struct LogCatchView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage("units") private var units = "metric"
+    /// Shared with Today's target species (0 means any species).
+    @AppStorage("targetSpeciesId") private var targetSpeciesId: Int = 0
     /// Length/weight fields hold values in the user's chosen unit; converted to
     /// metric (the stored canonical) at save.
     private var imperial: Bool { units == "imperial" }
@@ -522,6 +524,11 @@ struct LogCatchView: View {
         return "Logged on \(date.formatted(.dateTime.day().month(.wide)))"
     }
 
+    /// The angler's target, offered first while no species is chosen.
+    private var targetSpecies: Species? {
+        targetSpeciesId == 0 ? nil : allSpecies.first { $0.id == Int64(targetSpeciesId) }
+    }
+
     private var titleBlock: some View {
         VStack(alignment: .leading, spacing: 2) {
             overLineView
@@ -553,6 +560,16 @@ struct LogCatchView: View {
                 Text("Pick the closest match from the list.")
                     .font(.callout)
                     .foregroundStyle(Color.dsText2)
+            }
+
+            if selectedSpeciesId == nil, !isClassifying, let target = targetSpecies {
+                Button { selectSpecies(target) } label: {
+                    Label("Use your target, \(target.commonName)", systemImage: "scope")
+                        .font(.subheadline.weight(.semibold))
+                }
+                .buttonStyle(.dim)
+                .foregroundStyle(DS.accent)
+                .padding(.top, DS.Space.s2)
             }
 
             if isDownloadingModel {
@@ -1243,6 +1260,7 @@ struct LogCatchView: View {
                 matches: photos.isEmpty ? [] : speciesMatches,
                 matchesAreUncertain: lowConfidence,
                 caughtIds: caughtIds,
+                targetId: targetSpecies?.id,
                 modelDownloading: isDownloadingModel,
                 onRescan: photos.isEmpty ? nil : { rescan() },
                 onRetryDownload: { retryDownload() }
@@ -2148,6 +2166,8 @@ struct SpeciesPickerSheet: View {
     var matches: [SpeciesMatch] = []
     var matchesAreUncertain: Bool = false
     var caughtIds: Set<Int64> = []
+    /// The angler's target species, listed first.
+    var targetId: Int64? = nil
     var modelDownloading: Bool = false
     var onRescan: (() -> Void)? = nil
     var onRetryDownload: (() -> Void)? = nil
@@ -2189,6 +2209,12 @@ struct SpeciesPickerSheet: View {
 
     private var showsMatches: Bool { !matches.isEmpty && searchText.isEmpty && habitat == .all }
 
+    /// The target, above the chips until a search or filter starts.
+    private var target: Species? {
+        guard let targetId, searchText.isEmpty, habitat == .all else { return nil }
+        return species.first { $0.id == targetId }
+    }
+
     var body: some View {
         NavigationStack {
             // A plain scroll of rows, not a List: no pinned headers to draw
@@ -2199,6 +2225,11 @@ struct SpeciesPickerSheet: View {
                         matchesSection
                     } else if modelDownloading && searchText.isEmpty {
                         downloadNotice
+                    }
+
+                    if let target {
+                        header("Your target")
+                        row(target)
                     }
 
                     FilterChips(HabitatFilter.allCases, selection: $habitat, title: { $0.rawValue })
