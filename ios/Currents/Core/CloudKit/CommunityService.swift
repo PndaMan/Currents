@@ -13,12 +13,12 @@ enum CloudCapability {
     /// App Store and TestFlight builds embed no provisioning profile and always
     /// carry the entitlement. Development and re-signed builds embed one, and
     /// its entitlements say whether CloudKit is allowed. The CI sideload IPA
-    /// is built with SIDELOAD and never has it. The simulator has no profile,
-    /// so it goes by whether an iCloud account is visible to the app.
+    /// never has it: its Info.plist sets CurrentsSideload, which CI adds after
+    /// the build. The simulator has no profile, so it goes by whether an
+    /// iCloud account is visible to the app.
     static let isAvailable: Bool = {
-        #if SIDELOAD
-        return false
-        #elseif targetEnvironment(simulator)
+        if Bundle.main.object(forInfoDictionaryKey: "CurrentsSideload") as? Bool == true { return false }
+        #if targetEnvironment(simulator)
         return FileManager.default.ubiquityIdentityToken != nil
         #else
         guard let url = Bundle.main.url(forResource: "embedded", withExtension: "mobileprovision") else { return true }
