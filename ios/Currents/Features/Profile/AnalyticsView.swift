@@ -29,12 +29,12 @@ struct AnalyticsView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if totalCatches == 0 {
                 ContentUnavailableView("No stats yet", systemImage: "chart.bar",
-                                       description: Text("Log a few catches and your patterns, best hours and personal bests show up here."))
+                                       description: Text("Log a few catches to see your patterns and personal bests."))
             } else {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
                         DetailHeader(over: dateRange, title: "Stats",
-                                     subtitle: "Worked out on your phone from \(totalCatches) \(totalCatches == 1 ? "catch" : "catches").")
+                                     subtitle: "From \(totalCatches) \(totalCatches == 1 ? "catch" : "catches")")
                         totalsTiles
                         patternsSection
                         monthSection
@@ -48,7 +48,9 @@ struct AnalyticsView: View {
                         personalBestsSection
                     }
                     .padding(.bottom, DS.Space.s8)
+                    .pageWidth()
                 }
+                .detailScrollEdge()
             }
         }
         .dsScreenBackground()
@@ -114,13 +116,10 @@ struct AnalyticsView: View {
         if !insights.isEmpty {
             SectionTitle("Your patterns")
                 .padding(.top, DS.Space.s8)
-            VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: DS.Space.s3) {
                 ForEach(insights.prefix(6)) { insight in
-                    HStack(alignment: .firstTextBaseline, spacing: 12) {
-                        Image(systemName: insight.icon)
-                            .font(.body)
-                            .foregroundStyle(DS.accent)
-                            .frame(width: 24)
+                    HStack(spacing: 14) {
+                        ThumbView(systemImage: insight.icon, tint: DS.accent, size: 44)
                         Text(insight.text)
                             .font(.body)
                             .foregroundStyle(.dsText)
@@ -190,8 +189,20 @@ struct AnalyticsView: View {
             SectionTitle("By species", detail: "\(speciesCounts.count)")
                 .padding(.top, DS.Space.s8)
             let shown = showingAllSpecies ? speciesCounts : Array(speciesCounts.prefix(8))
-            LabeledBarList(items: shown.map { ($0.commonName, $0.count) }, tint: .dsScoreGood)
-                .padding(.horizontal, DS.gutter)
+            let maxCount = speciesCounts.map(\.count).max() ?? 1
+            let byId = speciesById
+            VStack(spacing: DS.Space.s3) {
+                ForEach(shown, id: \.speciesId) { item in
+                    ThumbBarRow(name: item.commonName, count: item.count, maxCount: maxCount, tint: .dsScoreGood) {
+                        if let species = byId[item.speciesId] {
+                            ThumbView(species: species, size: 44)
+                        } else {
+                            ThumbView(systemImage: "fish.fill", tint: DS.accent, size: 44)
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal, DS.gutter)
             if speciesCounts.count > 8 {
                 Button(showingAllSpecies ? "Show fewer" : "Show all \(speciesCounts.count) species") {
                     withAnimation(DS.Motion.spring) { showingAllSpecies.toggle() }
@@ -206,22 +217,45 @@ struct AnalyticsView: View {
             if !lures.isEmpty {
                 SectionTitle("Best lure by species")
                     .padding(.top, DS.Space.s8)
-                LogbookKeyValueList(rows: lures)
-                SectionFoot("From catches logged with gear.")
+                ForEach(lures, id: \.species) { row in
+                    ArtRow(over: row.species, title: row.lure, subtitle: row.detail) {
+                        LureArtView(name: row.lure, size: 52)
+                    }
+                }
             }
         }
     }
 
-    /// The most productive lure (or loadout) per species, top eight species.
-    private var bestLures: [(String, String)] {
+    private var speciesById: [Int64: Species] {
+        var map: [Int64: Species] = [:]
+        for detail in allCatches {
+            if let species = detail.species { map[species.id] = species }
+        }
+        return map
+    }
+
+    /// The most productive lure (or loadout) per species, top eight species,
+    /// with the runner-up in the detail line.
+    private var bestLures: [(species: String, lure: String, detail: String)] {
         let withGear = allCatches.filter { $0.gearLoadout != nil && $0.species != nil }
         let grouped = Dictionary(grouping: withGear, by: { $0.species?.commonName ?? "" })
         return grouped.sorted { $0.value.count > $1.value.count }.prefix(8).compactMap { species, catches in
-            let lureGroups = Dictionary(grouping: catches, by: { $0.gearLoadout?.lure ?? $0.gearLoadout?.name ?? "Unknown" })
+            let lureGroups = Dictionary(grouping: catches, by: { lureName($0.gearLoadout) })
             let top = lureGroups.sorted { $0.value.count > $1.value.count }.prefix(2)
-            guard !top.isEmpty else { return nil }
-            return (species, top.map { "\($0.key) \($0.value.count)" }.joined(separator: ", "))
+            guard let first = top.first else { return nil }
+            var detail = "\(first.value.count) fish"
+            if top.count > 1 {
+                let second = top[top.index(after: top.startIndex)]
+                detail += ", then \(second.key) with \(second.value.count)"
+            }
+            return (species, first.key, detail)
         }
+    }
+
+    /// The loadout's lure, or its name when no lure was set.
+    private func lureName(_ loadout: GearLoadout?) -> String {
+        let lure = loadout?.lure?.trimmingCharacters(in: .whitespaces) ?? ""
+        return lure.isEmpty ? (loadout?.name ?? "") : lure
     }
 
     // MARK: - Gear
@@ -233,22 +267,27 @@ struct AnalyticsView: View {
         SectionTitle("Gear effectiveness")
             .padding(.top, DS.Space.s8)
         if sorted.isEmpty {
-            Text("Log catches with a gear loadout to see what works best.")
-                .font(.subheadline)
-                .foregroundStyle(.dsText2)
-                .padding(.horizontal, DS.gutter)
+            ArtRow(title: "No gear logged yet", subtitle: "Add a loadout when you log a catch.") {
+                ThumbView(systemImage: "backpack", tint: DS.accent, size: 52)
+            }
         } else {
-            LabeledBarList(items: sorted.prefix(8).map { ($0.key, $0.value.count) }, tint: DS.accent)
-                .padding(.horizontal, DS.gutter)
+            let maxCount = sorted.first?.value.count ?? 1
+            VStack(spacing: DS.Space.s3) {
+                ForEach(sorted.prefix(8), id: \.key) { name, catches in
+                    ThumbBarRow(name: name, count: catches.count, maxCount: maxCount, tint: DS.accent) {
+                        LureArtView(name: lureName(catches.first?.gearLoadout), size: 44)
+                    }
+                }
+            }
+            .padding(.horizontal, DS.gutter)
 
             let techniques = Dictionary(grouping: allCatches.compactMap { $0.gearLoadout?.technique }.filter { !$0.isEmpty }, by: { $0 })
                 .sorted { $0.value.count > $1.value.count }
             if !techniques.isEmpty {
                 SectionTitle("Techniques")
                     .padding(.top, DS.Space.s8)
-                LogbookKeyValueList(rows: techniques.prefix(6).map {
-                    ($0.key, "\($0.value.count) \($0.value.count == 1 ? "catch" : "catches")")
-                })
+                LabeledBarList(items: techniques.prefix(6).map { ($0.key, $0.value.count) }, tint: .dsScoreFair)
+                    .padding(.horizontal, DS.gutter)
             }
         }
     }
@@ -302,16 +341,21 @@ struct AnalyticsView: View {
         .map { (index: $0.key, day: symbols[$0.key], count: $0.value.count) }
         .sorted { $0.index < $1.index }
         if !dayCounts.isEmpty {
+            let best = dayCounts.max { $0.count < $1.count }
             SectionTitle("Days of the week")
                 .padding(.top, DS.Space.s8)
             Chart(dayCounts, id: \.index) { item in
                 BarMark(x: .value("Day", item.day), y: .value("Catches", item.count), width: .ratio(0.6))
-                    .foregroundStyle(DS.accent)
+                    .foregroundStyle(item.index == best?.index ? DS.accent : DS.accent.opacity(0.35))
             }
             .chartYAxis(.hidden)
             .frame(height: 120)
             .padding(.horizontal, DS.gutter)
             .accessibilityLabel("Catches by day of the week")
+            .accessibilityValue(dayCounts.map { "\($0.day) \($0.count)" }.joined(separator: ", "))
+            if let best, dayCounts.count > 1 {
+                SectionFoot("\(Calendar.current.weekdaySymbols[best.index]) is your best day.")
+            }
         }
     }
 
@@ -325,8 +369,8 @@ struct AnalyticsView: View {
             HStack(spacing: 16) {
                 ScoreRing(score: Int(avg.rounded()), size: 64, caption: "average")
                 Text(avg > 50
-                     ? "You catch more when the bite score is high, so the forecast is working for you."
-                     : "You catch fish whatever the bite score says. Keep going out.")
+                     ? "You catch more when the bite score is high."
+                     : "You catch fish whatever the score says.")
                     .font(.subheadline)
                     .foregroundStyle(.dsText2)
                     .fixedSize(horizontal: false, vertical: true)
@@ -346,10 +390,9 @@ struct AnalyticsView: View {
         SectionTitle("Top spots")
             .padding(.top, DS.Space.s8)
         if sorted.isEmpty {
-            Text("Log catches at a saved spot to see where you do best.")
-                .font(.subheadline)
-                .foregroundStyle(.dsText2)
-                .padding(.horizontal, DS.gutter)
+            ArtRow(title: "No spots yet", subtitle: "Log a catch at a saved spot.") {
+                ThumbView(systemImage: "mappin.and.ellipse", tint: DS.accent, size: 52)
+            }
         } else {
             ForEach(sorted.prefix(10), id: \.key) { _, catches in
                 if let spot = catches.first?.spot {
@@ -475,6 +518,45 @@ struct AnalyticsView: View {
             Circle().fill(color).frame(width: 8, height: 8)
             Text(label)
         }
+    }
+}
+
+/// A bar row with a square thumbnail: the name above a proportional bar,
+/// with the count trailing.
+private struct ThumbBarRow<Leading: View>: View {
+    let name: String
+    let count: Int
+    let maxCount: Int
+    var tint: Color = DS.accent
+    @ViewBuilder let leading: () -> Leading
+
+    var body: some View {
+        HStack(spacing: 14) {
+            leading()
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text(name)
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(.dsText)
+                        .lineLimit(1)
+                    Spacer(minLength: DS.Space.s2)
+                    Text("\(count)")
+                        .font(.subheadline.weight(.semibold))
+                        .monospacedDigit()
+                        .foregroundStyle(.dsText)
+                }
+                Capsule()
+                    .fill(Color.dsFill)
+                    .frame(height: 8)
+                    .overlay(alignment: .leading) {
+                        GeometryReader { geo in
+                            Capsule().fill(tint)
+                                .frame(width: max(6, geo.size.width * CGFloat(count) / CGFloat(max(maxCount, 1))))
+                        }
+                    }
+            }
+        }
+        .accessibilityElement(children: .combine)
     }
 }
 

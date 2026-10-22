@@ -1,6 +1,5 @@
 import SwiftUI
 import MapKit
-import Charts
 import UserNotifications
 
 /// A planned session: the bite on the day, Start now / Edit / Reminder, the
@@ -15,7 +14,9 @@ struct PlanDetailView: View {
     @State private var spot: Spot?
     @State private var checklist: [Trip.ChecklistItem] = []
     @State private var newItem = ""
+    @AppStorage("use24HourTime") private var use24 = true
     @State private var forecast: ForecastEngine.ForecastResult?
+    @State private var selectedHour: Int?
     @State private var solunar: SolunarEngine.SolunarDay?
     @State private var reminderOn = false
     @State private var showingEdit = false
@@ -39,6 +40,7 @@ struct PlanDetailView: View {
             }
         }
         .dsScreenBackground()
+        .detailScrollEdge()
         .navigationTitle(trip?.name ?? "Plan")
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $showingEdit, onDismiss: load) {
@@ -50,7 +52,7 @@ struct PlanDetailView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             if let trip {
-                Text("It is planned for \(LogbookFormat.longDay(plannedDate(trip))), \(LogbookFormat.time(plannedDate(trip))). Starting now records your track and catches from here.")
+                Text("It is planned for \(LogbookFormat.longDay(plannedDate(trip))), \(LogbookFormat.time(plannedDate(trip))).")
             }
         }
         .confirmationDialog("Delete this plan?", isPresented: $confirmingDelete, titleVisibility: .visible) {
@@ -147,39 +149,30 @@ struct PlanDetailView: View {
         SectionTitle("Bite on the day")
             .padding(.top, DS.Space.s8)
         if let forecast, !forecast.hourlyScores.isEmpty {
-            let plannedHour = Calendar.current.component(.hour, from: date)
+            let cal = Calendar.current
+            let plannedHour = cal.component(.hour, from: date)
             let window = plannedHour...(min(23, plannedHour + 3))
-            Chart {
-                ForEach(forecast.hourlyScores, id: \.hour) { h in
-                    BarMark(x: .value("Hour", h.hour), y: .value("Score", h.score), width: .ratio(0.7))
-                        .foregroundStyle(window.contains(h.hour) ? DS.scoreColor(h.score) : Color.dsFill2)
-                }
+            let windows = BiteWindows.best(from: forecast.hourlyScores)
+            let shownHour = selectedHour ?? plannedHour
+            let bestHour = forecast.hourlyScores.max { $0.score < $1.score }?.hour ?? plannedHour
+            VStack(alignment: .leading, spacing: 8) {
+                hourReadout(forecast, hour: shownHour, planned: window.contains(shownHour))
+                BiteBars(hourly: forecast.hourlyScores, windows: windows,
+                         currentHour: cal.isDateInToday(date) ? cal.component(.hour, from: .now) : nil,
+                         selected: Binding(get: { shownHour }, set: { selectedHour = $0 }),
+                         height: 72, use24: use24)
+                HourAxis(labels: use24 ? ["00:00", "06:00", "12:00", "18:00", "23:00"]
+                                       : ["12 am", "6 am", "Noon", "6 pm", "11 pm"])
+                BiteWindowTiles(windows: windows, bestHour: bestHour, hour: plannedHour, use24: use24)
+                    .padding(.top, 6)
             }
-            .chartYScale(domain: 0...100)
-            .chartYAxis(.hidden)
-            .chartXAxis {
-                AxisMarks(values: [0, 6, 12, 18, 23]) { value in
-                    AxisValueLabel {
-                        if let h = value.as(Int.self) { Text(SessionBiteChart.hourLabel(h)) }
-                    }
-                }
-            }
-            .frame(height: 140)
             .padding(.horizontal, DS.gutter)
-            .accessibilityLabel("Bite score by hour on the day")
-            .accessibilityValue(bestText(forecast) ?? "")
-            SectionFoot("Your planned hours are highlighted. Worked out on your phone, so it works without signal.")
 
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible())], spacing: 10) {
                 let planned = forecast.hourlyScores.filter { window.contains($0.hour) }.map(\.score)
                 ConditionTile("Your hours", systemImage: "clock", iconTint: DS.accent,
                               value: planned.max().map { "\($0)" } ?? "\(forecast.score)",
-                              footnote: "\(SessionBiteChart.hourLabel(window.lowerBound)) to \(SessionBiteChart.hourLabel(window.upperBound))")
-                if let best = forecast.hourlyScores.max(by: { $0.score < $1.score }) {
-                    ConditionTile("Best", systemImage: "star.fill", iconTint: .dsScoreFair,
-                                  value: "\(best.score)",
-                                  footnote: "Around \(SessionBiteChart.hourLabel(best.hour))")
-                }
+                              footnote: "\(ForecastFormat.hour(window.lowerBound, use24: use24)) to \(ForecastFormat.hour(window.upperBound + 1, use24: use24))")
                 if let solunar {
                     ConditionTile("Sunrise", systemImage: "sunrise.fill", iconTint: .dsScoreLow,
                                   value: LogbookFormat.time(solunar.sunrise),
@@ -196,26 +189,32 @@ struct PlanDetailView: View {
             }
             .padding(.horizontal, DS.gutter)
             .padding(.top, DS.Space.s4)
-        } else if forecastOpens(date) > .now {
-            Text("The forecast for \(LogbookFormat.longDay(date)) opens on \(LogbookFormat.longDay(forecastOpens(date))), seven days out.")
-                .font(.subheadline)
-                .foregroundStyle(.dsText2)
-                .padding(.horizontal, DS.gutter)
         } else {
-            Text("Turn on location or add a spot to the plan to see the bite on the day.")
-                .font(.subheadline)
-                .foregroundStyle(.dsText2)
-                .padding(.horizontal, DS.gutter)
+            ArtRow(title: "No forecast yet", subtitle: "Turn on location or edit the plan to pick a place") {
+                ThumbView(systemImage: "location.slash", tint: .dsText2, size: 44)
+            }
         }
     }
 
-    private func bestText(_ f: ForecastEngine.ForecastResult) -> String? {
-        guard let best = f.hourlyScores.max(by: { $0.score < $1.score }) else { return nil }
-        return "Best \(best.score) around \(SessionBiteChart.hourLabel(best.hour))"
-    }
-
-    private func forecastOpens(_ date: Date) -> Date {
-        Calendar.current.date(byAdding: .day, value: -7, to: Calendar.current.startOfDay(for: date)) ?? date
+    /// The tapped hour (or the planned start) with its score, above the bars.
+    private func hourReadout(_ f: ForecastEngine.ForecastResult, hour: Int, planned: Bool) -> some View {
+        let score = f.hourlyScores.first { $0.hour == hour }?.score ?? f.score
+        return HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Text(ForecastFormat.hour(hour, use24: use24))
+                .font(.headline)
+                .monospacedDigit()
+                .foregroundStyle(.dsText)
+            Text(planned ? "Your hours" : ForecastFormat.windowName(hour))
+                .font(.subheadline)
+                .foregroundStyle(.dsText2)
+            Spacer(minLength: 0)
+            Text("\(score)")
+                .font(.headline)
+                .monospacedDigit()
+                .foregroundStyle(DS.scoreInk(score))
+                .contentTransition(.numericText(value: Double(score)))
+        }
+        .accessibilityElement(children: .combine)
     }
 
     // MARK: - Checklist
@@ -273,7 +272,7 @@ struct PlanDetailView: View {
             .padding(.vertical, 11)
             .padding(.horizontal, DS.gutter)
         }
-        SectionFoot("Ticks save as you go. Long-press an item to remove it.")
+        SectionFoot("Long-press an item to remove it.")
     }
 
     // MARK: - Where
@@ -313,7 +312,7 @@ struct PlanDetailView: View {
                     .padding(.horizontal, DS.gutter)
                     .padding(.top, DS.Space.s3)
                 if spot == nil {
-                    SectionFoot("The session records wherever you are when you start it. The pin only sets the forecast.")
+                    SectionFoot("The session tracks wherever you are when you start it.")
                 }
             }
         }
@@ -337,7 +336,7 @@ struct PlanDetailView: View {
         let coord = spot.map { CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude) }
             ?? trip.plannedCoordinate
             ?? appState.locationManager.currentLocation?.coordinate
-        if let coord, date <= Calendar.current.date(byAdding: .day, value: 7, to: .now) ?? .now {
+        if let coord {
             forecast = ForecastEngine.forecast(date: date, coordinate: coord,
                                                currentPressureHpa: nil, pressureChange6h: nil,
                                                waterTempC: nil, windSpeedKmh: nil, windDirection: nil,
@@ -345,7 +344,7 @@ struct PlanDetailView: View {
             solunar = SolunarEngine.compute(date: date, coordinate: coord)
         } else {
             forecast = nil
-            solunar = coord.map { SolunarEngine.compute(date: date, coordinate: $0) }
+            solunar = nil
         }
         let id = "session-plan-\(trip.id)"
         Task {

@@ -140,6 +140,8 @@ struct BadgeMetrics {
 struct AchievementsView: View {
     let catches: [CatchDetail]
     @State private var selected: BadgeDefinition?
+    @State private var appeared = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var streak: Int { BadgeDefinition.streakWeeks(from: catches) }
 
@@ -155,12 +157,31 @@ struct AchievementsView: View {
             VStack(alignment: .leading, spacing: 0) {
                 DetailHeader(over: "Achievements",
                              title: "\(earned.count) of \(visible.count)",
-                             subtitle: next.map { "\($0.title) is closest. Tap a badge to see what it takes." }
-                                ?? "Tap a badge to see what it takes.")
+                             subtitle: "Tap a badge to see what it takes.")
 
                 rarityTally(visible)
                     .padding(.horizontal, DS.gutter)
-                    .padding(.top, DS.Space.s4)
+                    .padding(.top, DS.Space.s5)
+
+                if let next, let progress = metrics.progress(for: next.title) {
+                    SectionTitle("Closest")
+                        .padding(.top, DS.Space.s8)
+                    Button {
+                        selected = next
+                    } label: {
+                        VStack(spacing: 0) {
+                            ArtRow(over: next.rarity.label, title: next.title, subtitle: progress.text) {
+                                BadgeMedal(badge: next, size: 52)
+                            }
+                            LogbookProgressBar(fraction: appeared ? progress.fraction : 0, tint: next.rarity.color)
+                                .padding(.leading, DS.gutter + 52 + 14)
+                                .padding(.trailing, DS.gutter)
+                                .padding(.bottom, DS.Space.s2)
+                                .animation(reduceMotion ? nil : DS.Motion.easeOut, value: appeared)
+                        }
+                    }
+                    .buttonStyle(.dsRow)
+                }
 
                 if !earned.isEmpty {
                     SectionTitle("Earned", detail: "\(earned.count)")
@@ -172,14 +193,12 @@ struct AchievementsView: View {
                     SectionTitle("Locked", detail: "\(locked.count)")
                         .padding(.top, DS.Space.s8)
                     BadgeMedalGrid(badges: locked) { selected = $0 }
-                    Text("Some badges are secret and only appear once you find them.")
-                        .font(.footnote)
-                        .foregroundStyle(.dsText3)
-                        .padding(.horizontal, DS.gutter)
-                        .padding(.top, DS.Space.s4)
+                    SectionFoot("Secret badges appear once you find them.")
+                        .padding(.top, DS.Space.s2)
                 }
             }
             .padding(.bottom, DS.Space.s8)
+            .pageWidth()
         }
         .detailTint(.dsScoreFair)
         .navigationTitle("Achievements")
@@ -188,26 +207,38 @@ struct AchievementsView: View {
             BadgeDetailView(badge: badge, progress: metrics.progress(for: badge.title))
         }
         .sensoryFeedback(.selection, trigger: selected?.id)
+        .onAppear { appeared = true }
     }
 
+    /// Earned out of total for each rarity, with a bar in the rarity colour.
+    /// Three across, wrapping to a second row.
     private func rarityTally(_ badges: [BadgeDefinition]) -> some View {
-        // Wraps onto a second line on narrow phones.
-        let columns = [GridItem(.adaptive(minimum: 104), spacing: 10, alignment: .leading)]
-        return LazyVGrid(columns: columns, alignment: .leading, spacing: 8) {
+        let columns = Array(repeating: GridItem(.flexible(), spacing: 10), count: 3)
+        return LazyVGrid(columns: columns, alignment: .leading, spacing: 10) {
             ForEach(BadgeRarity.allCases, id: \.self) { rarity in
                 let tier = badges.filter { $0.rarity == rarity }
                 if !tier.isEmpty {
-                    HStack(spacing: 6) {
-                        Circle().fill(rarity.color).frame(width: 8, height: 8)
+                    let got = tier.filter(\.earned).count
+                    VStack(alignment: .leading, spacing: 6) {
                         Text(rarity.label)
+                            .font(.footnote.weight(.medium))
                             .foregroundStyle(.dsText2)
-                        Text("\(tier.filter(\.earned).count)/\(tier.count)")
-                            .fontWeight(.semibold)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
+                        Text("\(got) of \(tier.count)")
+                            .font(.headline)
                             .monospacedDigit()
                             .foregroundStyle(.dsText)
+                            .lineLimit(1)
+                        LogbookProgressBar(fraction: appeared ? Double(got) / Double(tier.count) : 0,
+                                           tint: rarity.color, height: 6)
+                            .animation(reduceMotion ? nil : DS.Motion.easeOut, value: appeared)
                     }
-                    .font(.footnote)
+                    .padding(12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
                     .accessibilityElement(children: .combine)
+                    .accessibilityLabel("\(rarity.label), \(got) of \(tier.count) earned")
                 }
             }
         }

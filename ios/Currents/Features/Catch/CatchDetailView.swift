@@ -101,6 +101,7 @@ struct CatchDetailView: View {
                 .padding(.top, DS.Space.s8)
             }
             .padding(.bottom, DS.Space.s8)
+            .pageWidth()
         }
         .detailTint(detail.species?.artTint ?? DS.accent)
         .navigationTitle(speciesName)
@@ -155,7 +156,7 @@ struct CatchDetailView: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("\(speciesName), \(LogbookFormat.shortDay(record.caughtAt)). The catch and its photos are removed everywhere, including any shared feeds. This can't be undone.")
+            Text("\(speciesName), \(LogbookFormat.shortDay(record.caughtAt)). Its photos go too, including from shared feeds. This can't be undone.")
         }
         .fullScreenCover(isPresented: $showingEdit) {
             LogCatchView(editing: detail) { updated in
@@ -387,7 +388,7 @@ struct CatchDetailView: View {
                         Text(text)
                             .font(.subheadline)
                             .foregroundStyle(.dsText)
-                        Text("For information. Confirm current local rules before you keep a fish.")
+                        Text("Check local rules before you keep a fish.")
                             .font(.footnote)
                             .foregroundStyle(.dsText2)
                     }
@@ -454,31 +455,46 @@ struct CatchDetailView: View {
 
     // MARK: - Gear
 
+    private var lureName: String? {
+        guard let lure = detail.gearLoadout?.lure, !lure.isEmpty else { return nil }
+        return lure
+    }
+
     @ViewBuilder
     private var gearSection: some View {
         let rows = gearRows
-        if !rows.isEmpty {
+        if lureName != nil || !rows.isEmpty {
             SectionTitle("Gear")
                 .padding(.top, DS.Space.s8)
             if let gear = detail.gearLoadout, !gear.isAutoCreated {
                 Text(gear.name)
-                    .font(.body.weight(.medium))
-                    .foregroundStyle(.dsText)
+                    .font(.subheadline)
+                    .foregroundStyle(.dsText2)
                     .padding(.horizontal, DS.gutter)
+                    .padding(.bottom, DS.Space.s1)
             }
-            LogbookKeyValueList(rows: rows)
+            if let lureName {
+                ArtRow(over: "Lure", title: lureName, subtitle: lureDetail) {
+                    LureArtView(name: lureName, size: 56)
+                }
+            }
+            if !rows.isEmpty {
+                LogbookKeyValueList(rows: rows)
+            }
         }
+    }
+
+    /// "Chartreuse, 7 g" under the lure's name.
+    private var lureDetail: String? {
+        guard let g = detail.gearLoadout else { return nil }
+        let parts = [g.lureColor.flatMap { $0.isEmpty ? nil : Self.sentenceCase($0) },
+                     g.lureWeightG.map { "\(Int($0)) g" }].compactMap { $0 }
+        return parts.isEmpty ? nil : parts.joined(separator: ", ")
     }
 
     private var gearRows: [(String, String)] {
         var rows: [(String, String)] = []
         if let g = detail.gearLoadout {
-            if let lure = g.lure, !lure.isEmpty {
-                var text = lure
-                if let color = g.lureColor, !color.isEmpty { text += ", \(color)" }
-                if let w = g.lureWeightG { text += ", \(Int(w)) g" }
-                rows.append(("Lure", text))
-            }
             if let rod = g.rod, !rod.isEmpty { rows.append(("Rod", rod)) }
             if let reel = g.reel, !reel.isEmpty { rows.append(("Reel", reel)) }
             if let line = g.lineLb { rows.append(("Line", "\(Int(line)) lb")) }
@@ -567,7 +583,7 @@ struct CatchDetailView: View {
                 }
             }
             .padding(.horizontal, DS.gutter)
-            SectionFoot("Saved with the catch from the forecast on your phone, so it stays the same.")
+            SectionFoot("Saved when you logged it.")
         }
     }
 
@@ -659,13 +675,54 @@ struct CatchDetailView: View {
            predictions.count > 1 {
             SectionTitle("Species ID")
                 .padding(.top, DS.Space.s8)
-            LogbookKeyValueList(rows: predictions.map { ($0.label, "\(Int($0.confidence * 100))%") })
-            SectionFoot("Identified on your phone when you logged it. Best match first.")
+            VStack(spacing: 12) {
+                ForEach(Array(predictions.enumerated()), id: \.offset) { i, p in
+                    ConfidenceBar(label: p.label, confidence: p.confidence,
+                                  tint: i == 0 ? (detail.species?.artTint ?? DS.accent) : Color.dsText3)
+                }
+            }
+            .padding(.horizontal, DS.gutter)
+            SectionFoot("Identified on your phone when you logged it.")
         }
     }
 }
 
 // MARK: - Small visuals
+
+/// A species match with its confidence as a proportional bar.
+private struct ConfidenceBar: View {
+    let label: String
+    let confidence: Double
+    let tint: Color
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(label)
+                    .font(.subheadline)
+                    .foregroundStyle(.dsText)
+                    .lineLimit(1)
+                Spacer()
+                Text("\(Int((confidence * 100).rounded()))%")
+                    .font(.subheadline.weight(.semibold))
+                    .monospacedDigit()
+                    .foregroundStyle(.dsText)
+            }
+            Capsule()
+                .fill(Color.dsFill)
+                .frame(height: 8)
+                .overlay(alignment: .leading) {
+                    // Sized from the track it sits in, so it never overflows.
+                    GeometryReader { geo in
+                        Capsule()
+                            .fill(tint)
+                            .frame(width: max(8, geo.size.width * CGFloat(min(1, max(0, confidence)))))
+                    }
+                }
+        }
+        .accessibilityElement(children: .combine)
+    }
+}
 
 /// A species' comfortable temperature band with the reading as a dot.
 private struct TempRangeBar: View {
@@ -731,7 +788,7 @@ private struct FlowTags: Layout {
         let width = proposal.width ?? .infinity
         var x: CGFloat = 0, y: CGFloat = 0, rowH: CGFloat = 0, maxX: CGFloat = 0
         for s in subviews {
-            let size = s.sizeThatFits(.unspecified)
+            let size = fitted(s, width)
             if x > 0 && x + size.width > width { x = 0; y += rowH + spacing; rowH = 0 }
             x += size.width + spacing
             rowH = max(rowH, size.height)
@@ -743,12 +800,19 @@ private struct FlowTags: Layout {
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
         var x = bounds.minX, y = bounds.minY, rowH: CGFloat = 0
         for s in subviews {
-            let size = s.sizeThatFits(.unspecified)
+            let size = fitted(s, bounds.width)
             if x > bounds.minX && x + size.width > bounds.maxX { x = bounds.minX; y += rowH + spacing; rowH = 0 }
             s.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
             x += size.width + spacing
             rowH = max(rowH, size.height)
         }
+    }
+
+    /// A tag's natural size, or wrapped to the row when it is wider.
+    private func fitted(_ s: LayoutSubview, _ width: CGFloat) -> CGSize {
+        let natural = s.sizeThatFits(.unspecified)
+        guard natural.width > width, width.isFinite else { return natural }
+        return s.sizeThatFits(ProposedViewSize(width: width, height: nil))
     }
 }
 

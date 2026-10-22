@@ -300,6 +300,27 @@ struct SectionFoot: View {
     }
 }
 
+/// A thin rounded progress bar that fills from the leading edge.
+struct LogbookProgressBar: View {
+    let fraction: Double
+    var tint: Color = DS.accent
+    var height: CGFloat = 8
+
+    var body: some View {
+        Capsule()
+            .fill(Color.dsFill2)
+            .frame(height: height)
+            .overlay(alignment: .leading) {
+                GeometryReader { geo in
+                    Capsule()
+                        .fill(tint)
+                        .frame(width: max(height, geo.size.width * CGFloat(min(1, max(0, fraction)))))
+                }
+            }
+            .accessibilityHidden(true)
+    }
+}
+
 // MARK: - Directions
 
 /// A full-width tonal "Directions" menu: Waze, Apple Maps or Google Maps,

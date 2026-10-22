@@ -472,7 +472,7 @@ struct BadgesGridView: View {
                 SectionTitle("Locked", detail: "\(lockedBadges.count)")
                     .padding(.top, DS.Space.s6)
                 BadgeMedalGrid(badges: lockedBadges) { selected = $0 }
-                Text("Some badges are secret and only appear once you find them.")
+                Text("Secret badges appear once you find them.")
                     .font(.footnote)
                     .foregroundStyle(.dsText3)
                     .padding(.horizontal, DS.gutter)
@@ -544,16 +544,16 @@ struct AchievementsCard: View {
             }
 
             if earned.isEmpty {
-                Text("No badges yet. Log catches and explore new spots and species to start earning them.")
+                Text("No badges yet. Log a catch to earn your first.")
                     .font(.footnote).foregroundStyle(.dsText2)
             } else {
-                HStack(spacing: 12) {
+                // Wraps rather than running off the edge when topCount is large.
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 46), spacing: 12)], alignment: .leading, spacing: 12) {
                     ForEach(earned.prefix(topCount)) { badge in
                         Button { selected = badge } label: { BadgeMedal(badge: badge, size: 46) }
                             .buttonStyle(.dim)
                             .accessibilityLabel(badge.title)
                     }
-                    Spacer(minLength: 0)
                 }
             }
 
@@ -569,13 +569,12 @@ struct AchievementsCard: View {
         }
         .sheet(isPresented: $showingAll) {
             NavigationStack {
-                ScrollView {
-                    BadgesGridView(catches: catches)
-                        .padding(.vertical, DS.Space.s4)
-                }
-                .dsScreenBackground()
-                .navigationTitle("Achievements")
-                .navigationBarTitleDisplayMode(.inline)
+                AchievementsView(catches: catches)
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Done") { showingAll = false }
+                        }
+                    }
             }
             .presentationDragIndicator(.visible)
         }

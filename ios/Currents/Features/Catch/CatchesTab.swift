@@ -1,4 +1,5 @@
 import SwiftUI
+import CoreLocation
 
 /// The Logbook tab root: streak, Fishdex, badges and stats cards, then
 /// Catches / Sessions / Plans. ContentView owns the NavigationStack.
@@ -27,7 +28,8 @@ struct CatchesTab: View {
     // Sessions and plans
     @State private var sessions: [Trip] = []
     @State private var planned: [Trip] = []
-    @State private var planScores: [String: Int] = [:]
+    @State private var planOutlooks: [String: PlanOutlook] = [:]
+    @AppStorage("use24HourTime") private var use24 = true
     @State private var showingNewSession = false
     @State private var showingPlanner = false
     @State private var planToEdit: Trip?
@@ -145,9 +147,10 @@ struct CatchesTab: View {
                 }
             }
             .padding(.bottom, DS.Space.s8)
+            .pageWidth()
         }
+        .largeTitleChrome("Logbook")
         .dsScreenBackground()
-        .toolbar(.hidden, for: .navigationBar)
         .navigationDestination(for: LogbookRoute.self) { route in
             destination(route)
         }
@@ -169,7 +172,7 @@ struct CatchesTab: View {
             }
             Button("Cancel", role: .cancel) { catchToDelete = nil }
         } message: { detail in
-            Text("\(detail.species?.commonName ?? "This catch"), \(LogbookFormat.shortDay(detail.catchRecord.caughtAt)). The catch and its photos are removed everywhere, including any shared feeds. This can't be undone.")
+            Text("\(detail.species?.commonName ?? "This catch"), \(LogbookFormat.shortDay(detail.catchRecord.caughtAt)). Its photos go too, including from shared feeds. This can't be undone.")
         }
         .confirmationDialog(tripToDelete?.isPlanned == true ? "Delete this plan?" : "Delete this session?",
                             isPresented: Binding(get: { tripToDelete != nil },
@@ -338,7 +341,7 @@ struct CatchesTab: View {
                 ContentUnavailableView {
                     Label("No catches yet", systemImage: "fish")
                 } description: {
-                    Text("Log your first fish and it shows up here, with the conditions at the time.")
+                    Text("Log your first fish. The conditions are saved with it.")
                 } actions: {
                     Button("Log catch") { showingLogCatch = true }
                         .buttonStyle(PrimaryButtonStyle(fullWidth: false))
@@ -634,7 +637,7 @@ struct CatchesTab: View {
         let past = sessions.filter(\.isCompleted)
         if past.isEmpty {
             ContentUnavailableView("No sessions yet", systemImage: "point.topleft.down.to.point.bottomright.curvepath",
-                                   description: Text("Start a session when you get to the water. Your track and catches are saved here when you end it."))
+                                   description: Text("Start one at the water. Your track and catches are saved here."))
                 .padding(.top, 12)
         } else {
             ForEach(sessionGroups(past), id: \.id) { group in
@@ -720,7 +723,7 @@ struct CatchesTab: View {
 
         if planned.isEmpty {
             ContentUnavailableView("Nothing planned", systemImage: "calendar",
-                                   description: Text("Plans show the forecast for the day and a gear checklist, and remind you 30 minutes before."))
+                                   description: Text("Pick a day with a good bite and get a reminder before you go."))
                 .padding(.top, 12)
         } else {
             groupHeader("Upcoming", detail: nil, count: planned.count)
@@ -732,27 +735,22 @@ struct CatchesTab: View {
 
     private func planRow(_ trip: Trip) -> some View {
         let date = trip.plannedDate ?? trip.startDate
-        let score = planScores[trip.id]
+        let outlook = planOutlooks[trip.id]
+        let subtitle: String = {
+            guard let outlook else { return "Turn on location to see the bite" }
+            guard let best = outlook.best else { return "No strong windows that day" }
+            return "Best \(best.peakScore) from \(ForecastFormat.hour(best.startHour, use24: use24))"
+        }()
         return NavigationLink(value: LogbookRoute.plan(trip.id)) {
             ArtRow(over: "\(LogbookFormat.time(date)), \(relativePlan(date))",
                    title: trip.name,
-                   subtitle: score.map { _ in "Forecast for the day" } ?? "Forecast opens a week before",
-                   chevron: score == nil) {
-                ThumbView(tint: score.map { DS.scoreColor($0) } ?? DS.accent) {
-                    VStack(spacing: 0) {
-                        Text(date.formatted(.dateTime.weekday(.abbreviated)))
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.dsText2)
-                        Text(date.formatted(.dateTime.day()))
-                            .font(.title2.weight(.bold))
-                            .foregroundStyle(.dsText)
-                    }
-                }
+                   subtitle: subtitle,
+                   chevron: outlook == nil) {
+                PlanDateThumb(date: date, size: 64)
             } trailing: {
-                if let score {
-                    Text("\(score)")
-                        .foregroundStyle(DS.scoreInk(score))
-                        .accessibilityLabel("Forecast \(score)")
+                if let outlook {
+                    ScoreRing(score: outlook.score, size: 44)
+                        .accessibilityLabel("Bite \(outlook.score) at the planned time")
                 }
             }
         }
@@ -792,7 +790,8 @@ struct CatchesTab: View {
         if FeatureFlags.liveTrips {
             sessions = (try? appState.tripRepository.fetchAll()) ?? []
             planned = (try? appState.tripRepository.fetchPlanned()) ?? []
-            planScores = Self.planScores(for: planned)
+            planOutlooks = Self.planOutlooks(for: planned,
+                                             fallback: appState.locationManager.currentLocation?.coordinate)
         }
         let total = summary.speciesTotal > 0
             ? summary.speciesTotal
@@ -800,20 +799,28 @@ struct CatchesTab: View {
         summary = LogbookSummary(catches: catches, speciesTotal: total)
     }
 
-    /// Bite score for plans within the 7-day forecast window that have a
-    /// forecast pin. Moon, sun, tide and season only: live weather is not
-    /// known days ahead.
-    private static func planScores(for plans: [Trip]) -> [String: Int] {
-        var result: [String: Int] = [:]
+    /// The bite at a plan's start time and its best window, for the plan's
+    /// pin or else where you are now. Moon, sun, tide and season only: live
+    /// weather is not known days ahead.
+    struct PlanOutlook {
+        let score: Int
+        let best: BiteWindows.Window?
+    }
+
+    private static func planOutlooks(for plans: [Trip], fallback: CLLocationCoordinate2D?) -> [String: PlanOutlook] {
+        var result: [String: PlanOutlook] = [:]
         for p in plans {
-            guard let date = p.plannedDate, let coord = p.plannedCoordinate,
-                  date.timeIntervalSinceNow < 7 * 86_400,
-                  date.timeIntervalSinceNow > -86_400 else { continue }
-            result[p.id] = ForecastEngine.forecast(
+            guard let coord = p.plannedCoordinate ?? fallback else { continue }
+            let date = p.plannedDate ?? p.startDate
+            let hour = Calendar.current.component(.hour, from: date)
+            let f = ForecastEngine.forecast(
                 date: date, coordinate: coord,
                 currentPressureHpa: nil, pressureChange6h: nil, waterTempC: nil,
                 windSpeedKmh: nil, windDirection: nil, species: nil, isInSpawningZone: false
-            ).score
+            )
+            result[p.id] = PlanOutlook(
+                score: f.hourlyScores.first { $0.hour == hour }?.score ?? f.score,
+                best: BiteWindows.best(from: f.hourlyScores).max { $0.peakScore < $1.peakScore })
         }
         return result
     }

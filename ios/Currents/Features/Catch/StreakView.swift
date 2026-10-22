@@ -95,7 +95,8 @@ struct StreakView: View {
                 weekStrip(stats)
                     .padding(.horizontal, DS.gutter)
 
-                LogbookKeyValueList(rows: rows(stats))
+                statTiles(stats)
+                    .padding(.horizontal, DS.gutter)
                     .padding(.top, DS.Space.s6)
 
                 if let next, let progress = metrics.progress(for: next.title) {
@@ -104,24 +105,30 @@ struct StreakView: View {
                     Button {
                         selected = next
                     } label: {
-                        ArtRow(title: next.title,
-                               subtitle: "\(Int(progress.target)) weeks in a row, \(next.rarity.label.lowercased())") {
-                            BadgeMedal(badge: next, size: 48)
-                        } trailing: {
-                            Text("\(stats.current)/\(Int(progress.target))")
-                                .foregroundStyle(.dsText2)
+                        VStack(spacing: 0) {
+                            ArtRow(title: next.title,
+                                   subtitle: "\(Int(progress.target)) weeks in a row, \(next.rarity.label.lowercased())") {
+                                BadgeMedal(badge: next, size: 52)
+                            } trailing: {
+                                Text("\(min(stats.current, Int(progress.target))) of \(Int(progress.target))")
+                                    .monospacedDigit()
+                                    .foregroundStyle(.dsText2)
+                            }
+                            LogbookProgressBar(fraction: appeared ? progress.fraction : 0, tint: next.rarity.color)
+                                .padding(.leading, DS.gutter + 52 + 14)
+                                .padding(.trailing, DS.gutter)
+                                .padding(.bottom, DS.Space.s2)
+                                .animation(reduceMotion ? nil : DS.Motion.easeOut, value: appeared)
                         }
                     }
                     .buttonStyle(.dsRow)
                 }
 
-                Text("A week counts when you log at least one catch between Monday and Sunday. Sessions with no catches do not count yet.")
-                    .font(.callout)
-                    .foregroundStyle(.dsText2)
-                    .padding(.horizontal, DS.gutter)
-                    .padding(.top, DS.Space.s8)
+                SectionFoot("A week counts when you log a catch, Monday to Sunday.")
+                    .padding(.top, DS.Space.s6)
             }
             .padding(.bottom, DS.Space.s8)
+            .pageWidth()
         }
         .detailTint(.dsScoreLow)
         .navigationTitle("Streak")
@@ -149,7 +156,7 @@ struct StreakView: View {
     }
 
     private func subtitle(_ stats: StreakStats) -> String {
-        if stats.fishedThisWeek { return "You have fished this week. See you next week." }
+        if stats.fishedThisWeek { return "You fished this week. Keep it going next week." }
         let cal = Calendar.current
         let sunday = cal.dateInterval(of: .weekOfYear, for: .now).map { $0.end.addingTimeInterval(-1) } ?? .now
         let day = LogbookFormat.longDay(sunday)
@@ -196,20 +203,23 @@ struct StreakView: View {
         }
     }
 
-    private func rows(_ stats: StreakStats) -> [(String, String)] {
-        var rows: [(String, String)] = []
-        let unit: (Int) -> String = { $0 == 1 ? "1 week" : "\($0) weeks" }
-        if let start = stats.currentStart, stats.current > 0 {
-            rows.append(("Current streak", "\(unit(stats.current)), since \(LogbookFormat.shortDay(start))"))
-        } else {
-            rows.append(("Current streak", "None yet"))
+    /// Current and longest streak, and this week, as three equal tiles.
+    private func statTiles(_ stats: StreakStats) -> some View {
+        let since = stats.current > 0 ? stats.currentStart.map { "Since \(LogbookFormat.shortDay($0))" } : nil
+        var longestRun: String?
+        if let s = stats.bestStart, stats.best > 1 {
+            longestRun = "From \(LogbookFormat.shortDay(s))"
         }
-        rows.append(("Longest streak", unit(stats.best)))
-        if let s = stats.bestStart, let e = stats.bestEnd, stats.best > 0 {
-            let end = Calendar.current.date(byAdding: .day, value: 6, to: e) ?? e
-            rows.append(("Longest run", "\(LogbookFormat.shortDay(s)) to \(LogbookFormat.shortDay(end))"))
+        return HStack(spacing: 10) {
+            StatTile("Current", systemImage: "flame.fill", tint: .dsScoreLow,
+                     value: "\(stats.current)", unit: stats.current == 1 ? "week" : "weeks",
+                     footnote: since ?? "None yet", width: nil)
+            StatTile("Longest", systemImage: "trophy.fill", tint: .dsScoreFair,
+                     value: "\(stats.best)", unit: stats.best == 1 ? "week" : "weeks",
+                     footnote: longestRun, width: nil)
+            StatTile("This week", systemImage: stats.fishedThisWeek ? "checkmark.circle.fill" : "circle.dashed",
+                     tint: stats.fishedThisWeek ? .dsScoreGood : .dsText3,
+                     value: stats.fishedThisWeek ? "Fished" : "Not yet", width: nil)
         }
-        rows.append(("This week", stats.fishedThisWeek ? "Fished" : "Not yet"))
-        return rows
     }
 }

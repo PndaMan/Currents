@@ -89,13 +89,15 @@ struct SessionsView: View {
 
                 if loaded && pastSessions.isEmpty && planned.isEmpty && tracker.activeTrip == nil {
                     ContentUnavailableView("No sessions yet", systemImage: "figure.fishing",
-                                           description: Text("Start a session when you get to the water. Your track, catches and bag limits are recorded as you fish."))
+                                           description: Text("Start one at the water. Your track and catches are saved here."))
                         .padding(.top, DS.Space.s6)
                 }
             }
             .padding(.bottom, DS.Space.s8)
+            .pageWidth()
         }
         .dsScreenBackground()
+        .detailScrollEdge()
         .navigationTitle("Sessions")
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $showingNew, onDismiss: reload) { NewSessionSheet() }
@@ -211,47 +213,80 @@ struct PlanDateThumb: View {
     }
 }
 
+/// Edit a session's name, spot and notes, or a plan's time too. Plans with
+/// a checklist and outlook use PlanSessionSheet; this is the light editor.
 struct EditSessionSheet: View {
     @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss
     @State private var trip: Trip
     @State private var spots: [Spot] = []
+    @FocusState private var focus: Field?
+    private enum Field { case name, notes }
     init(trip: Trip) { _trip = State(initialValue: trip) }
 
     var body: some View {
         NavigationStack {
-            Form {
-                Section("Session") {
-                    TextField("Name", text: $trip.name)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    TripNameField("Name this session", text: $trip.name)
+                        .focused($focus, equals: .name)
+                        .padding(.top, DS.Space.s4)
+
                     if trip.isPlanned {
-                        DatePicker("Planned for", selection: Binding(
-                            get: { trip.plannedDate ?? .now },
-                            set: { trip.plannedDate = $0; trip.startDate = $0 }
-                        ), displayedComponents: [.date, .hourAndMinute])
+                        SectionTitle("When")
+                            .padding(.top, DS.Space.s8)
+                        HStack(spacing: 14) {
+                            ThumbView(systemImage: "calendar", tint: DS.accent, size: 44)
+                            DatePicker("Starts", selection: Binding(
+                                get: { trip.plannedDate ?? .now },
+                                set: { trip.plannedDate = $0; trip.startDate = $0 }
+                            ), displayedComponents: [.date, .hourAndMinute])
+                                .font(.body.weight(.medium))
+                                .foregroundStyle(.dsText)
+                        }
+                        .padding(.horizontal, DS.gutter)
+                        .padding(.vertical, 4)
                     }
-                    Picker("Spot", selection: $trip.spotId) {
-                        Text("None").tag(nil as String?)
-                        ForEach(spots) { Text($0.name).tag($0.id as String?) }
-                    }
-                }
-                Section("Notes") {
-                    TextField("Notes", text: Binding(
+
+                    SectionTitle("Spot")
+                        .padding(.top, DS.Space.s8)
+                    SpotChoices(spotId: $trip.spotId, spots: spots, noneSubtitle: nil)
+
+                    SectionTitle("Notes")
+                        .padding(.top, DS.Space.s8)
+                    TextField("What worked, what the water was like", text: Binding(
                         get: { trip.notes ?? "" },
                         set: { trip.notes = $0.isEmpty ? nil : $0 }
-                    ), axis: .vertical).lineLimit(2...5)
+                    ), axis: .vertical)
+                        .lineLimit(3...8)
+                        .focused($focus, equals: .notes)
+                        .padding(DS.Space.s4)
+                        .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.button, style: .continuous))
+                        .padding(.horizontal, DS.gutter)
                 }
+                .padding(.bottom, DS.Space.s6)
             }
+            .scrollDismissesKeyboard(.interactively)
+            .detailScrollEdge()
+            .dsScreenBackground()
             .navigationTitle(trip.isPlanned ? "Edit plan" : "Edit session")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button(trip.isPlanned ? "Save plan" : "Save session") { save() }.bold()
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("Done") { focus = nil }
+                }
+            }
+            .safeAreaInset(edge: .bottom) {
+                SheetActionBar(trip.isPlanned ? "Save plan" : "Save session", systemImage: "checkmark",
+                               disabled: trip.name.trimmingCharacters(in: .whitespaces).isEmpty) {
+                    save()
                 }
             }
             .task { spots = (try? appState.spotRepository.fetchAll()) ?? [] }
         }
-        .presentationDetents([.medium, .large])
+        .presentationDetents([.large])
         .presentationDragIndicator(.visible)
     }
 
@@ -322,6 +357,7 @@ struct SessionRow: View {
 
 // MARK: - New session
 
+/// Start recording now: a name and, optionally, the spot you are fishing.
 struct NewSessionSheet: View {
     @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss
@@ -331,35 +367,40 @@ struct NewSessionSheet: View {
 
     var body: some View {
         NavigationStack {
-            Form {
-                Section {
-                    TextField("Name", text: $name)
-                    Picker("Spot", selection: $spotId) {
-                        Text("None").tag(nil as String?)
-                        ForEach(spots) { spot in Text(spot.name).tag(spot.id as String?) }
-                    }
-                } header: {
-                    Text("Session")
-                } footer: {
-                    Text("Currents records your GPS track, catches and bag limits until you end the session. The spot is optional.")
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    TripNameField("Name this session", text: $name)
+                        .padding(.top, DS.Space.s4)
+
+                    SectionTitle("Spot")
+                        .padding(.top, DS.Space.s8)
+                    SpotChoices(spotId: $spotId, spots: spots)
+                    SectionFoot("Records your track, catches and bag limits until you end it.")
                 }
+                .padding(.bottom, DS.Space.s6)
             }
+            .scrollDismissesKeyboard(.interactively)
+            .detailScrollEdge()
+            .dsScreenBackground()
             .navigationTitle("New session")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Start session") {
-                        _ = appState.tripTracker.start(name: name.isEmpty ? SessionFormat.defaultName() : name, spotId: spotId)
-                        ToastCenter.shared.show("Session started", icon: "play.fill")
-                        dismiss()
-                    }.bold()
-                }
+            }
+            .safeAreaInset(edge: .bottom) {
+                SheetActionBar("Start session", systemImage: "play.fill") { start() }
             }
             .task { spots = (try? appState.spotRepository.fetchAll()) ?? [] }
         }
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
+    }
+
+    private func start() {
+        let trimmed = name.trimmingCharacters(in: .whitespaces)
+        _ = appState.tripTracker.start(name: trimmed.isEmpty ? SessionFormat.defaultName() : trimmed, spotId: spotId)
+        ToastCenter.shared.show("Session started", icon: "play.fill")
+        dismiss()
     }
 }
 
@@ -370,6 +411,9 @@ struct ActiveSessionView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var catches: [CatchDetail] = []
     @State private var biteScore: Int?
+    @State private var biteHours: [(hour: Int, score: Int)] = []
+    @State private var biteHour: Int?
+    @AppStorage("use24HourTime") private var use24 = true
     @State private var showingLog = false
     @State private var showingEndConfirm = false
     @State private var showingEndDayConfirm = false
@@ -387,9 +431,9 @@ struct ActiveSessionView: View {
                                  subtitle: "Started \(LogbookFormat.time(trip.startDate))")
 
                     if tracker.manualPaused {
-                        pauseNote("Tracking is paused, so your position is not being recorded. Resume below.")
+                        pauseNote("Paused. Your position is not being recorded.")
                     } else if tracker.autoPaused {
-                        pauseNote("Paused because you stopped moving. Tracking resumes when you move.")
+                        pauseNote("Paused while you are still. It resumes when you move.")
                     }
 
                     statsHeader(trip)
@@ -401,21 +445,9 @@ struct ActiveSessionView: View {
                         .padding(.top, DS.Space.s3)
 
                     if let biteScore {
-                        HStack(spacing: 14) {
-                            ScoreRing(score: biteScore, size: 52)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("Bite now")
-                                    .font(.headline)
-                                    .foregroundStyle(.dsText)
-                                Text("Worked out on your phone for where you are")
-                                    .font(.footnote)
-                                    .foregroundStyle(.dsText2)
-                            }
-                            Spacer(minLength: 0)
-                        }
-                        .padding(.horizontal, DS.gutter)
-                        .padding(.top, DS.Space.s4)
-                        .accessibilityElement(children: .combine)
+                        biteBlock(biteScore)
+                            .padding(.horizontal, DS.gutter)
+                            .padding(.top, DS.Space.s5)
                     }
 
                     Button { Haptics.tap(); showingLog = true } label: {
@@ -443,13 +475,15 @@ struct ActiveSessionView: View {
                         .padding(.top, DS.Space.s8)
                 } else {
                     ContentUnavailableView("No session running", systemImage: "figure.fishing",
-                        description: Text("Start a session from the map or the Logbook to record your track and catches."))
+                        description: Text("Start one from the map or the Logbook."))
                         .padding(.top, DS.Space.s8)
                 }
             }
             .padding(.bottom, DS.Space.s8)
+            .pageWidth()
         }
         .dsScreenBackground()
+        .detailScrollEdge()
         .navigationTitle(tracker.activeTrip?.name ?? "Session")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -471,7 +505,7 @@ struct ActiveSessionView: View {
             Button("End day", role: .destructive) { Haptics.success(); tracker.endDay() }
             Button("Keep going", role: .cancel) {}
         } message: {
-            Text("Saves today's stats and pauses tracking. The trip stays open, so start the next day when you are back out.")
+            Text("Saves today and pauses tracking. Start the next day when you are back out.")
         }
         .confirmationDialog("End the whole trip?", isPresented: $showingEndConfirm, titleVisibility: .visible) {
             Button("End trip", role: .destructive) { Haptics.warning(); _ = tracker.end(); dismiss() }
@@ -480,6 +514,36 @@ struct ActiveSessionView: View {
             Text("Saves the track and catches and stops recording.")
         }
         .task { reload(); await refreshBite() }
+    }
+
+    /// The bite now and across today, so the next window is in view while
+    /// you fish.
+    private func biteBlock(_ score: Int) -> some View {
+        let nowHour = Calendar.current.component(.hour, from: .now)
+        let shown = biteHour ?? nowHour
+        let shownScore = biteHours.first { $0.hour == shown }?.score ?? score
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 14) {
+                ScoreRing(score: biteHour == nil ? score : shownScore, size: 52)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(biteHour == nil ? "Bite now" : ForecastFormat.hour(shown, use24: use24))
+                        .font(.headline)
+                        .foregroundStyle(.dsText)
+                    Text(ForecastFormat.verdict(biteHour == nil ? score : shownScore))
+                        .font(.subheadline)
+                        .foregroundStyle(.dsText2)
+                }
+                Spacer(minLength: 0)
+            }
+            .accessibilityElement(children: .combine)
+            if biteHours.count > 1 {
+                BiteBars(hourly: biteHours, windows: BiteWindows.best(from: biteHours),
+                         currentHour: nowHour, selected: $biteHour, height: 52, use24: use24)
+                    .padding(.top, DS.Space.s2)
+                HourAxis(labels: use24 ? ["00:00", "06:00", "12:00", "18:00", "23:00"]
+                                       : ["12 am", "6 am", "Noon", "6 pm", "11 pm"])
+            }
+        }
     }
 
     private func pauseNote(_ text: String) -> some View {
@@ -588,12 +652,14 @@ struct ActiveSessionView: View {
             ?? appState.locationManager.currentLocation?.coordinate
         guard let coord else { return }
         let w = await WeatherService.shared.current(for: coord)
-        biteScore = ForecastEngine.forecast(
+        let f = ForecastEngine.forecast(
             coordinate: coord,
             currentPressureHpa: w?.pressureHpa, pressureChange6h: w?.pressureChange6h,
             waterTempC: w?.waterTempC, windSpeedKmh: w?.windSpeedKmh,
             windDirection: w?.windDirectionDeg, species: nil, isInSpawningZone: false
-        ).score
+        )
+        biteScore = f.score
+        biteHours = f.hourlyScores
         pushLiveUpdate()
     }
 
@@ -700,11 +766,11 @@ struct SessionDetailView: View {
                         .padding(.top, DS.Space.s2)
 
                     HStack(spacing: 10) {
-                        StatTile("Duration", systemImage: "clock", tint: .dsText2,
+                        StatTile("Duration", systemImage: "clock", tint: DS.accent,
                                  value: SessionFormat.duration(trip.totalDurationSeconds), width: nil)
-                        StatTile("Distance", systemImage: "point.topleft.down.to.point.bottomright.curvepath", tint: .dsText2,
+                        StatTile("Distance", systemImage: "point.topleft.down.to.point.bottomright.curvepath", tint: .dsScoreFair,
                                  value: SessionFormat.distance(trip.totalTrackDistanceMeters), width: nil)
-                        StatTile("Catches", systemImage: "fish.fill", tint: .dsText2,
+                        StatTile("Catches", systemImage: "fish.fill", tint: .dsScoreGood,
                                  value: "\(catches.count)", width: nil)
                     }
                     .padding(.horizontal, DS.gutter)
@@ -722,11 +788,9 @@ struct SessionDetailView: View {
                     SectionTitle("Caught this session", detail: catches.isEmpty ? nil : "\(catches.count)")
                         .padding(.top, DS.Space.s8)
                     if catches.isEmpty {
-                        Text("No catches this time. The track and conditions are still saved.")
-                            .font(.subheadline)
-                            .foregroundStyle(.dsText2)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.horizontal, DS.gutter)
+                        ArtRow(title: "No catches this time", subtitle: "The track and bite are still saved.") {
+                            ThumbView(systemImage: "fish", tint: DS.accent, size: 52)
+                        }
                     } else {
                         ForEach(catches, id: \.catchRecord.id) { detail in
                             NavigationLink { CatchDetailView(detail: detail) } label: {
@@ -775,9 +839,11 @@ struct SessionDetailView: View {
                     .padding(.top, DS.Space.s8)
                 }
                 .padding(.bottom, DS.Space.s8)
+                .pageWidth()
             }
         }
         .dsScreenBackground()
+        .detailScrollEdge()
         .navigationTitle(trip.name)
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $showingEdit, onDismiss: {
@@ -838,12 +904,10 @@ struct SessionDetailView: View {
     @ViewBuilder private var suggestedSpotsSection: some View {
         SectionTitle("Spots you fished")
             .padding(.top, DS.Space.s8)
-        SectionFoot("You stayed a while at these places. Save them for next time.")
         ForEach(Array(suggestedSpots.enumerated()), id: \.element.id) { index, item in
             HStack(spacing: 0) {
-                ArtRow(title: "Stop \(index + 1)",
-                       subtitle: String(format: "%.4f, %.4f", item.coord.latitude, item.coord.longitude)) {
-                    ThumbView(systemImage: "mappin", tint: DS.accent, size: 44)
+                ArtRow(title: "Stop \(index + 1)", subtitle: "You stayed a while here") {
+                    StopMapThumb(coordinate: item.coord)
                 }
                 Button("Save spot") { spotToAdd = item }
                     .font(.subheadline.weight(.semibold))
@@ -868,6 +932,27 @@ struct SessionDetailView: View {
                 TrackThumb(points: day.track, size: 44)
             }
         }
+    }
+}
+
+/// A small satellite map of one place with a pin, as a row thumbnail.
+struct StopMapThumb: View {
+    let coordinate: CLLocationCoordinate2D
+    var size: CGFloat = 52
+
+    var body: some View {
+        Map(initialPosition: .camera(MapCamera(centerCoordinate: coordinate, distance: 600))) {
+            Annotation("", coordinate: coordinate) {
+                Image(systemName: "mappin.circle.fill")
+                    .font(.title3)
+                    .foregroundStyle(.white, DS.accent)
+            }
+        }
+        .mapStyle(.hybrid)
+        .frame(width: size, height: size)
+        .clipShape(RoundedRectangle(cornerRadius: DS.Radius.thumb, style: .continuous))
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 }
 
@@ -1020,6 +1105,16 @@ struct TripScrubberCard: View {
         return track.filter { $0.t <= t }.map { CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon) }
     }
 
+    /// Catches with a real coordinate logged up to the playhead, so fish
+    /// appear on the map as the replay reaches them.
+    private var caughtSoFar: [CatchDetail] {
+        guard let t = currentTime else { return [] }
+        return catches.filter {
+            $0.catchRecord.caughtAt <= t
+                && (abs($0.catchRecord.latitude) > 0.0001 || abs($0.catchRecord.longitude) > 0.0001)
+        }
+    }
+
     /// Catch logged within 15 min of the scrubbed time (nearest wins).
     private var nearbyCatch: CatchDetail? {
         guard let t = currentTime else { return nil }
@@ -1040,6 +1135,18 @@ struct TripScrubberCard: View {
                     MapPolyline(coordinates: walked)
                         .stroke(DS.accent, lineWidth: 4)
                 }
+                ForEach(caughtSoFar, id: \.catchRecord.id) { detail in
+                    Annotation(detail.species?.commonName ?? "Catch",
+                               coordinate: CLLocationCoordinate2D(latitude: detail.catchRecord.latitude,
+                                                                  longitude: detail.catchRecord.longitude)) {
+                        Image(systemName: "fish.fill")
+                            .font(.caption.weight(.bold))
+                            .foregroundStyle(.white)
+                            .frame(width: 26, height: 26)
+                            .background(Color.dsScoreGood, in: Circle())
+                            .overlay(Circle().stroke(.white, lineWidth: 2))
+                    }
+                }
                 if let c = currentCoord {
                     Annotation("", coordinate: c) {
                         Circle().fill(DS.accent)
@@ -1049,7 +1156,7 @@ struct TripScrubberCard: View {
                 }
             }
             .mapStyle(.hybrid)
-            .frame(height: 200)
+            .frame(height: 220)
             .clipShape(RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
             .allowsHitTesting(false)
             .padding(.horizontal, DS.gutter)
@@ -1128,8 +1235,8 @@ struct TripScrubberCard: View {
 
 // MARK: - Trip overview highlights
 
-/// Session highlights as plain rows: the standout catch, species, the most
-/// productive spot and tackle, and how many were kept.
+/// Session highlights: the standout catch, the lure and spot that worked,
+/// then species and how many were kept.
 struct TripOverviewHighlights: View {
     let catches: [CatchDetail]
     @AppStorage("units") private var units = "metric"
@@ -1140,28 +1247,48 @@ struct TripOverviewHighlights: View {
             VStack(alignment: .leading, spacing: 0) {
                 SectionTitle("Highlights")
                     .padding(.top, DS.Space.s8)
+                if let best = largestCatch {
+                    NavigationLink { CatchDetailView(detail: best) } label: {
+                        ArtRow(over: best.catchRecord.weightKg != nil ? "Heaviest" : "Longest",
+                               title: best.species?.commonName ?? "Catch",
+                               subtitle: size(of: best), chevron: true) {
+                            CatchThumb(detail: best, size: 52)
+                        }
+                    }
+                    .buttonStyle(.dsRow)
+                }
+                if let tackle = bestTackle {
+                    ArtRow(over: "Best lure", title: tackle.name, subtitle: fish(tackle.count)) {
+                        LureArtView(name: tackle.name, size: 52)
+                    }
+                }
+                if let best = bestSpot {
+                    NavigationLink { SpotDetailView(spot: best.spot) } label: {
+                        ArtRow(over: "Best spot", title: best.spot.name, subtitle: fish(best.count), chevron: true) {
+                            ThumbView(systemImage: best.spot.type.icon, tint: DS.accent, size: 52)
+                        }
+                    }
+                    .buttonStyle(.dsRow)
+                }
                 LogbookKeyValueList(rows: rows)
+                    .padding(.top, DS.Space.s2)
             }
         }
     }
 
+    private func fish(_ n: Int) -> String { "\(n) fish" }
+
+    private func size(of c: CatchDetail) -> String? {
+        if let w = c.catchRecord.weightKg { return Units.weight(kg: w, imperial: imperial) }
+        if let l = c.catchRecord.lengthCm { return Units.length(cm: l, imperial: imperial) }
+        return nil
+    }
+
     private var rows: [(String, String)] {
         var rows: [(String, String)] = []
-        if let best = largestCatch {
-            let size: String? = {
-                if let w = best.catchRecord.weightKg { return Units.weight(kg: w, imperial: imperial) }
-                if let l = best.catchRecord.lengthCm { return Units.length(cm: l, imperial: imperial) }
-                return nil
-            }()
-            let name = best.species?.commonName ?? "Catch"
-            rows.append((best.catchRecord.weightKg != nil ? "Heaviest" : "Longest",
-                         size.map { "\(name), \($0)" } ?? name))
-        }
         if !speciesCounts.isEmpty {
             rows.append(("Species", speciesCounts.map { "\($0.name) \($0.count)" }.joined(separator: ", ")))
         }
-        if let spot = bestSpot { rows.append(("Best spot", "\(spot.0), \(spot.1) fish")) }
-        if let tackle = bestTackle { rows.append(("Best lure", "\(tackle.0), \(tackle.1) fish")) }
         let kept = catches.filter { !$0.catchRecord.released }.count
         rows.append(("Kept", "\(kept) of \(catches.count)"))
         return rows
@@ -1183,13 +1310,16 @@ struct TripOverviewHighlights: View {
         return acc.map { ($0.key, $0.value) }.sorted { $0.count > $1.count }
     }
 
-    private var bestSpot: (String, Int)? {
-        var acc: [String: Int] = [:]
-        for c in catches { if let name = c.spot?.name { acc[name, default: 0] += 1 } }
-        return acc.max { $0.value < $1.value }.map { ($0.key, $0.value) }
+    private var bestSpot: (spot: Spot, count: Int)? {
+        var acc: [String: (spot: Spot, count: Int)] = [:]
+        for c in catches {
+            guard let spot = c.spot else { continue }
+            acc[spot.id, default: (spot, 0)].count += 1
+        }
+        return acc.values.max { $0.count < $1.count }
     }
 
-    private var bestTackle: (String, Int)? {
+    private var bestTackle: (name: String, count: Int)? {
         var acc: [String: Int] = [:]
         for c in catches {
             let label = c.gearLoadout?.lure ?? c.gearLoadout?.technique ?? c.gearLoadout?.name
@@ -1234,7 +1364,7 @@ struct CatchLimitBar: View {
                     }
                 }
                 .padding(.horizontal, DS.gutter)
-                SectionFoot("For information. Confirm current local rules before you keep a fish.")
+                SectionFoot("Check local rules before you keep a fish.")
             }
         }
     }

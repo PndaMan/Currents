@@ -16,20 +16,27 @@ struct FullscreenPhotoViewer: View {
 
             TabView(selection: $currentIndex) {
                 ForEach(Array(photoPaths.enumerated()), id: \.offset) { index, path in
-                    Group {
-                        if let image = PhotoManager.load(path) {
-                            ZoomableImage(image: image)
-                        } else {
-                            Image(systemName: "photo")
-                                .font(.largeTitle)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    .tag(index)
+                    PhotoPage(path: path)
+                        .tag(index)
                 }
             }
             .tabViewStyle(.page(indexDisplayMode: photoPaths.count > 1 ? .automatic : .never))
             .ignoresSafeArea()
+
+            if photoPaths.count > 1 {
+                Text("\(currentIndex + 1) of \(photoPaths.count)")
+                    .font(.subheadline.weight(.semibold))
+                    .monospacedDigit()
+                    .foregroundStyle(.white)
+                    .contentTransition(.numericText())
+                    .padding(.horizontal, 14)
+                    .frame(height: 44)
+                    .glassEffect(.regular, in: Capsule())
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.top, 8)
+                    .animation(DS.Motion.press, value: currentIndex)
+                    .accessibilityLabel("Photo \(currentIndex + 1) of \(photoPaths.count)")
+            }
 
             Button {
                 dismiss()
@@ -46,6 +53,35 @@ struct FullscreenPhotoViewer: View {
             .padding(.top, 8)
         }
         .statusBarHidden()
+    }
+}
+
+/// One page of the viewer: decodes the full-size photo off the main thread,
+/// with a spinner until it arrives.
+private struct PhotoPage: View {
+    let path: String
+    @State private var image: UIImage?
+    @State private var failed = false
+
+    var body: some View {
+        Group {
+            if let image {
+                ZoomableImage(image: image)
+            } else if failed {
+                ContentUnavailableView("Photo not found", systemImage: "photo")
+                    .foregroundStyle(.white)
+            } else {
+                ProgressView()
+                    .tint(.white)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .task(id: path) {
+            let path = path
+            let loaded = await Task.detached { PhotoManager.load(path) }.value
+            image = loaded
+            failed = loaded == nil
+        }
     }
 }
 
