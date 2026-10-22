@@ -1,12 +1,16 @@
 import SwiftUI
 
-/// Offline knot & rig reference. Knots that have a real, openly-licensed
-/// diagram/photo (bundled from Wikimedia Commons, with attribution) show it;
-/// the rest show accurate numbered steps only — no invented/AI diagrams, which
-/// are misleading. Content is data-driven so entries are easy to extend.
+/// Offline knot and rig reference. Knots that have a real, openly-licensed
+/// diagram or photo (bundled from Wikimedia Commons, with attribution) show it;
+/// the rest show accurate numbered steps only. No invented diagrams, which are
+/// misleading. Content is data-driven so entries are easy to extend.
 struct KnotLibraryView: View {
     @State private var search = ""
     @State private var category: KnotEntry.Category?
+    @State private var titleShown = false
+    @AppStorage("favouriteKnots") private var favouritesRaw = ""
+
+    private var favourites: Set<String> { KnotFavourites.decode(favouritesRaw) }
 
     private var filtered: [KnotEntry] {
         KnotEntry.all.filter { entry in
@@ -15,123 +19,309 @@ struct KnotLibraryView: View {
                 || entry.name.localizedCaseInsensitiveContains(search)
                 || entry.useCase.localizedCaseInsensitiveContains(search))
         }
+        .sorted { favourites.contains($0.name) && !favourites.contains($1.name) }
     }
 
     var body: some View {
-        List {
-            Section {
+        ScrollView {
+            VStack(alignment: .leading, spacing: DS.Space.s4) {
+                DetailHeader(title: "Knots and rigs", subtitle: "Step by step. Works offline.")
+                PFSearchField(prompt: "Search knots", text: $search)
                 ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 4) {
-                        FilterChip(title: "All", isSelected: category == nil) { category = nil }
+                    HStack(spacing: 6) {
+                        Chip("All", isSelected: category == nil) { category = nil }
                         ForEach(KnotEntry.Category.allCases, id: \.self) { c in
-                            FilterChip(title: c.rawValue, isSelected: category == c) {
+                            Chip(c.rawValue, isSelected: category == c) {
                                 category = category == c ? nil : c
                             }
                         }
                     }
-                    .padding(.vertical, 2)
+                    .padding(.horizontal, DS.gutter)
                 }
-                .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
-                .listRowBackground(Color.clear)
-            }
 
-            ForEach(filtered) { knot in
-                NavigationLink {
-                    KnotDetailView(knot: knot)
-                } label: {
-                    knotRowLabel(knot)
+                if filtered.isEmpty {
+                    ContentUnavailableView("No knots found", systemImage: "magnifyingglass",
+                                           description: Text("Try clinch, loop or snell."))
+                        .padding(.top, DS.Space.s6)
+                } else {
+                    LazyVStack(spacing: 0) {
+                        ForEach(filtered) { knot in
+                            NavigationLink(value: KnotRoute(name: knot.name)) {
+                                knotRow(knot)
+                            }
+                            .buttonStyle(.dim)
+                        }
+                    }
                 }
+            }
+            .padding(.bottom, DS.Space.s8)
+        }
+        .detailTint(.cyan)
+        .pfTrackScroll($titleShown, threshold: 60)
+        .pfScrollTitle("Knots and rigs", shown: titleShown)
+        .navigationDestination(for: KnotRoute.self) { route in
+            if let knot = KnotEntry.all.first(where: { $0.name == route.name }) {
+                KnotDetailView(knot: knot)
             }
         }
-        .navigationTitle("Knots & Rigs")
-        .searchable(text: $search, prompt: "Search knots")
         .sensoryFeedback(.selection, trigger: category)
     }
 
-    @ViewBuilder
-    private func knotRowLabel(_ knot: KnotEntry) -> some View {
-        HStack(spacing: 12) {
-            if let img = KnotImageStore.image(knot.imageName) {
-                Image(uiImage: img)
-                    .resizable().scaledToFill()
-                    .frame(width: 52, height: 52)
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-            } else {
-                Image(systemName: knot.category.icon)
-                    .frame(width: 52, height: 52)
-                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
-                    .foregroundStyle(CurrentsTheme.accent)
-            }
-            VStack(alignment: .leading, spacing: 3) {
-                Text(knot.name).font(.subheadline.bold())
+    private func knotRow(_ knot: KnotEntry) -> some View {
+        HStack(spacing: 14) {
+            KnotThumb(knot: knot, size: 56)
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(knot.name)
+                        .foregroundStyle(.dsText)
+                        .lineLimit(1)
+                    if favourites.contains(knot.name) {
+                        Image(systemName: "star.fill")
+                            .font(.caption)
+                            .foregroundStyle(.yellow)
+                            .accessibilityLabel("Saved")
+                    }
+                }
                 Text(knot.useCase)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
+                    .font(.subheadline)
+                    .foregroundStyle(.dsText2)
+                    .lineLimit(1)
+                Text("\(knot.category.rawValue), \(knot.steps.count) steps")
+                    .font(.footnote)
+                    .foregroundStyle(.dsText3)
             }
+            Spacer(minLength: 4)
+        }
+        .padding(.horizontal, DS.gutter)
+        .padding(.vertical, DS.Space.s2)
+        .contentShape(Rectangle())
+    }
+}
+
+struct KnotRoute: Hashable {
+    let name: String
+}
+
+/// Saved knots, stored as a newline-separated list of names.
+enum KnotFavourites {
+    static func decode(_ raw: String) -> Set<String> {
+        Set(raw.split(separator: "\n").map(String.init))
+    }
+
+    static func encode(_ set: Set<String>) -> String {
+        set.sorted().joined(separator: "\n")
+    }
+}
+
+/// The knot's bundled illustration on white, or its category symbol.
+struct KnotThumb: View {
+    let knot: KnotEntry
+    var size: CGFloat = 56
+
+    var body: some View {
+        if let img = KnotImageStore.image(knot.imageName) {
+            Image(uiImage: img)
+                .resizable().scaledToFill()
+                .frame(width: size, height: size)
+                .background(Color.white)
+                .clipShape(RoundedRectangle(cornerRadius: DS.Radius.thumb, style: .continuous))
+                .accessibilityHidden(true)
+        } else {
+            ThumbView(systemImage: knot.category.icon, tint: .cyan, size: size)
         }
     }
 }
 
 struct KnotDetailView: View {
     let knot: KnotEntry
+    @AppStorage("favouriteKnots") private var favouritesRaw = ""
+    @State private var stepping: Int?
+    @State private var titleShown = false
+
+    private var isFavourite: Bool { KnotFavourites.decode(favouritesRaw).contains(knot.name) }
+
+    private var shareText: String {
+        let steps = knot.steps.enumerated().map { "\($0.offset + 1). \($0.element)" }.joined(separator: "\n")
+        return "\(knot.name)\n\(knot.useCase)\n\n\(steps)" + (knot.tip.isEmpty ? "" : "\n\nTip: \(knot.tip)")
+    }
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: DS.Space.s6) {
+                VStack(alignment: .leading, spacing: DS.Space.s4) {
+                    DetailHeader(over: knot.category.rawValue, title: knot.name, subtitle: knot.useCase)
+                    ActionTriple {
+                        Button { stepping = 0 } label: {
+                            Label("Step through", systemImage: "play.fill")
+                        }
+                        .buttonStyle(ActionTileStyle(.primary))
+                        Button { toggleFavourite() } label: {
+                            Label(isFavourite ? "Saved" : "Save", systemImage: isFavourite ? "star.fill" : "star")
+                        }
+                        .buttonStyle(ActionTileStyle())
+                        ShareLink(item: shareText) {
+                            ActionTileLabel("Share", systemImage: "square.and.arrow.up")
+                        }
+                        .buttonStyle(.dim)
+                    }
+                }
+
                 if let img = KnotImageStore.image(knot.imageName) {
-                    VStack(alignment: .leading, spacing: 4) {
+                    VStack(alignment: .leading, spacing: DS.Space.s2) {
                         Image(uiImage: img)
                             .resizable().scaledToFit()
                             .frame(maxWidth: .infinity)
-                            .background(Color.white)
-                            .clipShape(RoundedRectangle(cornerRadius: 16))
+                            .padding(DS.Space.s3)
+                            .background(Color.white, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
+                            .accessibilityLabel("Diagram of the \(knot.name.lowercased())")
                         if let credit = knot.attribution {
                             Text(credit)
                                 .font(.caption2)
-                                .foregroundStyle(.tertiary)
+                                .foregroundStyle(.dsText3)
                         }
                     }
+                    .padding(.horizontal, DS.gutter)
                 }
 
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(knot.useCase).font(.subheadline)
-                    HStack(spacing: 10) {
-                        Label(knot.category.rawValue, systemImage: knot.category.icon)
-                        Label(knot.strength, systemImage: "gauge.with.needle")
-                    }
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                }
+                PFKeyValueCard(rows: [("Strength", knot.strength), ("Type", knot.category.rawValue)])
 
-                VStack(alignment: .leading, spacing: 12) {
-                    SectionHeaderView(title: "Steps", systemImage: "list.number")
-                    ForEach(Array(knot.steps.enumerated()), id: \.offset) { i, step in
-                        HStack(alignment: .top, spacing: 10) {
-                            Text("\(i + 1)")
-                                .font(.caption.bold())
-                                .frame(width: 22, height: 22)
-                                .background(CurrentsTheme.accent, in: Circle())
-                                .foregroundStyle(.white)
-                            Text(step).font(.subheadline)
+                VStack(alignment: .leading, spacing: 0) {
+                    SectionTitle("Steps")
+                    VStack(spacing: DS.Space.s2) {
+                        ForEach(Array(knot.steps.enumerated()), id: \.offset) { i, step in
+                            Button { stepping = i } label: {
+                                HStack(alignment: .top, spacing: 12) {
+                                    Text("\(i + 1)")
+                                        .font(.subheadline.weight(.semibold))
+                                        .monospacedDigit()
+                                        .frame(width: 28, height: 28)
+                                        .background(Color.dsFill2, in: Circle())
+                                        .foregroundStyle(.dsText)
+                                    Text(step)
+                                        .foregroundStyle(.dsText)
+                                        .multilineTextAlignment(.leading)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                }
+                                .padding(DS.Space.s3)
+                                .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.button, style: .continuous))
+                            }
+                            .buttonStyle(.dim)
+                            .accessibilityLabel("Step \(i + 1). \(step)")
                         }
                     }
+                    .padding(.horizontal, DS.gutter)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .glassCard()
 
                 if !knot.tip.isEmpty {
-                    Label(knot.tip, systemImage: "lightbulb")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .glassCard()
+                    VStack(alignment: .leading, spacing: 0) {
+                        SectionTitle("Tip")
+                        Text(knot.tip)
+                            .foregroundStyle(.dsText)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(DS.Space.s4)
+                            .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
+                            .padding(.horizontal, DS.gutter)
+                    }
                 }
             }
-            .padding()
+            .padding(.bottom, DS.Space.s8)
         }
-        .navigationTitle(knot.name)
-        .navigationBarTitleDisplayMode(.inline)
+        .detailTint(.cyan)
+        .pfTrackScroll($titleShown, threshold: 100)
+        .pfScrollTitle(knot.name, shown: titleShown)
+        .sensoryFeedback(.selection, trigger: favouritesRaw)
+        .sheet(isPresented: Binding(get: { stepping != nil }, set: { if !$0 { stepping = nil } })) {
+            KnotStepSheet(knot: knot, step: stepping ?? 0)
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+        }
+    }
+
+    private func toggleFavourite() {
+        var set = KnotFavourites.decode(favouritesRaw)
+        if set.contains(knot.name) {
+            set.remove(knot.name)
+        } else {
+            set.insert(knot.name)
+            ToastCenter.shared.show("Saved to your knots", haptic: false)
+        }
+        favouritesRaw = KnotFavourites.encode(set)
+    }
+}
+
+/// One step at a time, with Back and Next, for tying at the water.
+private struct KnotStepSheet: View {
+    let knot: KnotEntry
+    @State private var step: Int
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    init(knot: KnotEntry, step: Int) {
+        self.knot = knot
+        _step = State(initialValue: min(max(step, 0), max(knot.steps.count - 1, 0)))
+    }
+
+    private var isLast: Bool { step >= knot.steps.count - 1 }
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: DS.Space.s4) {
+                if let img = KnotImageStore.image(knot.imageName) {
+                    Image(uiImage: img)
+                        .resizable().scaledToFit()
+                        .frame(maxHeight: 180)
+                        .padding(DS.Space.s3)
+                        .frame(maxWidth: .infinity)
+                        .background(Color.white, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
+                        .accessibilityHidden(true)
+                }
+                HStack(spacing: 6) {
+                    ForEach(knot.steps.indices, id: \.self) { i in
+                        Circle()
+                            .fill(i == step ? Color.dsText : Color.dsFill2)
+                            .frame(width: 7, height: 7)
+                    }
+                }
+                .accessibilityHidden(true)
+                Text("Step \(step + 1) of \(knot.steps.count)")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.dsText2)
+                Text(knot.steps.indices.contains(step) ? knot.steps[step] : "")
+                    .font(.title3)
+                    .foregroundStyle(.dsText)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity)
+                    .id(step)
+                    .transition(reduceMotion ? .opacity : .push(from: .trailing))
+                Spacer(minLength: 0)
+                HStack(spacing: DS.Space.s3) {
+                    Button {
+                        withAnimation(reduceMotion ? nil : DS.Motion.spring) { step -= 1 }
+                    } label: {
+                        Label("Back", systemImage: "chevron.left")
+                    }
+                    .buttonStyle(.dsTonal)
+                    .disabled(step == 0)
+                    Button {
+                        if isLast { dismiss() } else {
+                            withAnimation(reduceMotion ? nil : DS.Motion.spring) { step += 1 }
+                        }
+                    } label: {
+                        Label(isLast ? "Done" : "Next", systemImage: isLast ? "checkmark" : "chevron.right")
+                    }
+                    .buttonStyle(.dsPrimary)
+                }
+            }
+            .padding(DS.gutter)
+            .sensoryFeedback(.selection, trigger: step)
+            .navigationTitle(knot.name)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Close") { dismiss() }
+                }
+            }
+        }
     }
 }
 
@@ -165,9 +355,9 @@ struct KnotEntry: Identifiable {
     let attribution: String?
 
     enum Category: String, CaseIterable {
-        case terminal = "Line to Hook"
+        case terminal = "Line to hook"
         case loop = "Loops"
-        case join = "Line to Line"
+        case join = "Line to line"
         case rig = "Rigs"
 
         var icon: String {
@@ -187,7 +377,7 @@ struct KnotEntry: Identifiable {
 
     static let all: [KnotEntry] = [
         KnotEntry(
-            name: "Clinch Knot",
+            name: "Clinch knot",
             category: .terminal,
             useCase: "The classic tie to an eyed hook, swivel or lure.",
             strength: "~85% line strength",
@@ -202,7 +392,7 @@ struct KnotEntry: Identifiable {
             attribution: credit
         ),
         KnotEntry(
-            name: "Improved Jam Knot",
+            name: "Improved jam knot",
             category: .terminal,
             useCase: "A more secure clinch that tucks the tag for extra grip.",
             strength: "~90% line strength",
@@ -217,7 +407,7 @@ struct KnotEntry: Identifiable {
             attribution: credit
         ),
         KnotEntry(
-            name: "Fishing Gazette Knot",
+            name: "Fishing Gazette knot",
             category: .terminal,
             useCase: "A neat loop-and-jam tie for eyed hooks and flies.",
             strength: "Reliable on eyed hooks",
@@ -232,7 +422,7 @@ struct KnotEntry: Identifiable {
             attribution: credit
         ),
         KnotEntry(
-            name: "Jam Knot (Pennell)",
+            name: "Jam knot (Pennell)",
             category: .terminal,
             useCase: "A simple, strong jam knot for eyed hooks.",
             strength: "Strong on the eye",
@@ -247,7 +437,7 @@ struct KnotEntry: Identifiable {
             attribution: credit
         ),
         KnotEntry(
-            name: "Turle Knot",
+            name: "Turle knot",
             category: .terminal,
             useCase: "Seats a fly or eyed hook so it rides in line with the leader.",
             strength: "Classic fly knot",
@@ -262,7 +452,7 @@ struct KnotEntry: Identifiable {
             attribution: credit
         ),
         KnotEntry(
-            name: "Whipping a Hook (Snell)",
+            name: "Whipping a hook (snell)",
             category: .terminal,
             useCase: "Binds the line along the hook shank for a straight-line hookset.",
             strength: "Very strong on the shank",
@@ -277,7 +467,7 @@ struct KnotEntry: Identifiable {
             attribution: credit
         ),
         KnotEntry(
-            name: "Dropper Loop",
+            name: "Dropper loop",
             category: .loop,
             useCase: "A standing loop for a dropper fly, second hook or sinker.",
             strength: "Strong mid-line loop",
@@ -292,7 +482,7 @@ struct KnotEntry: Identifiable {
             attribution: credit
         ),
         KnotEntry(
-            name: "Double Loop Knot",
+            name: "Double loop knot",
             category: .loop,
             useCase: "A strong fixed loop at the line's end for a lure or spinning bait.",
             strength: "Strong end loop",
@@ -307,7 +497,7 @@ struct KnotEntry: Identifiable {
             attribution: credit
         ),
         KnotEntry(
-            name: "Joining Two Lines (Water Knot)",
+            name: "Joining two lines (water knot)",
             category: .join,
             useCase: "Join two lengths of line or a leader to the main line.",
             strength: "~90% line strength",

@@ -8,6 +8,9 @@ struct AddLicenseSheet: View {
 
     /// Non-nil when editing an existing licence.
     var editing: FishingLicense? = nil
+    /// Non-nil when adding next year's licence: title, type, holder and region
+    /// carry over; dates and the document start empty. The old one is kept.
+    var renewing: FishingLicense? = nil
 
     @State private var id = UUID().uuidString
     @State private var title = ""
@@ -31,25 +34,25 @@ struct AddLicenseSheet: View {
             Form {
                 documentSection
                 Section("Details") {
-                    TextField("Title (e.g. WCape Recreational Permit)", text: $title)
+                    TextField("Title, for example Western Cape angling licence", text: $title)
                     TextField("Type", text: $licenseType)
                     TextField("Holder name", text: $holderName)
                     TextField("Licence number", text: $licenseNumber)
-                    TextField("Region / authority", text: $region)
+                    TextField("Region or authority", text: $region)
                 }
                 Section("Validity") {
                     optionalDatePicker("Issue date", date: $issueDate)
                     optionalDatePicker("Expiry date", date: $expiryDate)
                     if expiryDate != nil {
-                        Text("You'll be reminded 1 month, 2 weeks, 1 week, 3 days before, and on the day.")
-                            .font(.caption2).foregroundStyle(.secondary)
+                        Text("You get a reminder a month, two weeks, a week and three days before, and on the day.")
+                            .font(.footnote).foregroundStyle(.dsText2)
                     }
                 }
                 Section("Notes") {
                     TextField("Notes", text: $notes, axis: .vertical).lineLimit(2...5)
                 }
             }
-            .navigationTitle(editing == nil ? "Add Licence" : "Edit Licence")
+            .navigationTitle(editing != nil ? "Edit licence" : (renewing != nil ? "Add renewal" : "Add licence"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
@@ -83,13 +86,13 @@ struct AddLicenseSheet: View {
             if let fileName, let fileKind {
                 LicenseDocumentView(license: FishingLicense(title: title, fileName: fileName, fileKind: fileKind))
                     .frame(height: 180)
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .clipShape(RoundedRectangle(cornerRadius: DS.Radius.thumb, style: .continuous))
             }
             if isScanning {
-                HStack(spacing: 8) { ProgressView(); Text("Reading licence…").font(.caption).foregroundStyle(.secondary) }
+                HStack(spacing: 8) { ProgressView(); Text("Reading the licence").font(.footnote).foregroundStyle(.dsText2) }
             }
             HStack {
-                Button { showingFileImporter = true } label: { Label("PDF / File", systemImage: "doc") }
+                Button { showingFileImporter = true } label: { Label("File", systemImage: "doc") }
                     .buttonStyle(.borderless)
                 Spacer()
                 PhotosPicker(selection: $photoItem, matching: .images) { Label("Photo", systemImage: "photo") }
@@ -159,12 +162,18 @@ struct AddLicenseSheet: View {
         if issueDate == nil { issueDate = r.issue }
         if licenseNumber.isEmpty, let n = r.number { licenseNumber = n }
         if holderName.isEmpty, let h = r.holder { holderName = h }
-        if title.isEmpty { title = "Fishing Licence" }
+        if title.isEmpty { title = "Fishing licence" }
     }
 
     // MARK: - Load / save
 
     private func loadIfEditing() {
+        if editing == nil, let r = renewing {
+            title = r.title
+            licenseType = r.licenseType ?? ""; holderName = r.holderName ?? ""
+            region = r.region ?? ""
+            return
+        }
         guard let e = editing else { return }
         id = e.id; title = e.title
         licenseType = e.licenseType ?? ""; holderName = e.holderName ?? ""
@@ -176,7 +185,7 @@ struct AddLicenseSheet: View {
     private func save() {
         var license = FishingLicense(
             id: id,
-            title: title.isEmpty ? "Fishing Licence" : title,
+            title: title.isEmpty ? "Fishing licence" : title,
             licenseType: licenseType.isEmpty ? nil : licenseType,
             holderName: holderName.isEmpty ? nil : holderName,
             licenseNumber: licenseNumber.isEmpty ? nil : licenseNumber,
@@ -191,7 +200,7 @@ struct AddLicenseSheet: View {
         try? appState.licenseRepository.save(&license)
         let all = (try? appState.licenseRepository.fetchAll()) ?? []
         Task { await NotificationManager.shared.scheduleLicenseExpiryAlerts(licenses: all) }
-        ToastCenter.shared.show(editing == nil ? "Licence added" : "Licence updated")
+        ToastCenter.shared.show(editing != nil ? "Licence updated" : (renewing != nil ? "Renewal added" : "Licence added"))
         dismiss()
     }
 }

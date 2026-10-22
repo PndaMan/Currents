@@ -3,63 +3,137 @@ import PhotosUI
 import PDFKit
 import UniformTypeIdentifiers
 
-/// Wallet of fishing licences / permits with document storage, OCR-assisted
-/// detail capture, and expiry reminders.
+/// Wallet of fishing licences and permits with document storage, OCR-assisted
+/// detail capture, and expiry reminders. Pushed from Profile (`AppRoute.licenses`).
 struct LicenseWalletView: View {
     @Environment(AppState.self) private var appState
     @State private var licenses: [FishingLicense] = []
     @State private var showingAdd = false
+    @State private var didLoad = false
+    @State private var titleShown = false
+    @State private var toDelete: FishingLicense?
+
+    /// The licence closest to expiring within 30 days, for the notice.
+    private var expiringSoon: FishingLicense? {
+        licenses
+            .filter { ($0.daysUntilExpiry ?? -1) >= 0 && ($0.daysUntilExpiry ?? 99) <= 30 }
+            .min { ($0.daysUntilExpiry ?? 0) < ($1.daysUntilExpiry ?? 0) }
+    }
 
     var body: some View {
-        Group {
-            if licenses.isEmpty {
-                ContentUnavailableView {
-                    Label("No Licences Yet", systemImage: "doc.text.image")
-                } description: {
-                    Text("Add your fishing licence or permit — Currents reads the expiry and reminds you before it lapses.")
-                } actions: {
-                    Button("Add Licence") { showingAdd = true }
-                        .buttonStyle(.borderedProminent).labelStyle(.prominentButton)
-                        .tint(CurrentsTheme.accent)
-                }
-            } else {
-                List {
-                    ForEach(licenses) { license in
-                        NavigationLink {
-                            LicenseDetailView(license: license) { reload() }
-                        } label: {
-                            LicenseRow(license: license)
+        ScrollView {
+            VStack(alignment: .leading, spacing: DS.Space.s4) {
+                DetailHeader(title: "Licences", subtitle: "Angling licences and permits")
+
+                if didLoad && licenses.isEmpty {
+                    ContentUnavailableView {
+                        Label("No licences yet", systemImage: "person.text.rectangle")
+                    } description: {
+                        Text("Keep your angling licences and permits here. Currents reads the expiry date and reminds you before it lapses.")
+                    } actions: {
+                        Button("Add licence") { showingAdd = true }
+                            .buttonStyle(PrimaryButtonStyle(fullWidth: false))
+                    }
+                    .padding(.top, DS.Space.s6)
+                } else {
+                    if let soon = expiringSoon, let days = soon.daysUntilExpiry {
+                        NavigationLink(value: LicenseRoute(id: soon.id)) {
+                            PFNotice(systemImage: "calendar.badge.clock", tint: .dsScoreLow,
+                                     title: days == 0 ? "\(soon.title) expires today"
+                                        : (days == 1 ? "\(soon.title) expires tomorrow" : "\(soon.title) expires in \(days) days"),
+                                     message: "Renew it before your next trip.") {
+                                Image(systemName: "chevron.right")
+                                    .font(.footnote.weight(.semibold))
+                                    .foregroundStyle(.dsText3)
+                            }
+                        }
+                        .buttonStyle(.dim)
+                    }
+
+                    LazyVStack(spacing: 0) {
+                        ForEach(licenses) { license in
+                            NavigationLink(value: LicenseRoute(id: license.id)) {
+                                LicenseRow(license: license)
+                            }
+                            .buttonStyle(.dim)
+                            .contextMenu {
+                                Button(role: .destructive) { toDelete = license } label: {
+                                    Label("Delete", systemImage: "trash")
+                                }
+                            }
                         }
                     }
-                    .onDelete(perform: delete)
+
+                    if !licenses.isEmpty {
+                        PFFootnote("Stored on this phone only. Works with no signal, so you can show it at the water.")
+                    }
                 }
-                .listStyle(.plain)
+            }
+            .padding(.bottom, DS.Space.s8)
+        }
+        .detailTint(.green)
+        .pfTrackScroll($titleShown, threshold: 60)
+        .pfScrollTitle("Licences", shown: titleShown)
+        .navigationDestination(for: LicenseRoute.self) { route in
+            if let license = licenses.first(where: { $0.id == route.id }) {
+                LicenseDetailView(license: license) { reload() }
             }
         }
-        .navigationTitle("Licences & Permits")
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button { showingAdd = true } label: { Image(systemName: "plus") }
+                    .accessibilityLabel("Add licence")
             }
         }
         .sheet(isPresented: $showingAdd, onDismiss: reload) {
             AddLicenseSheet()
+        }
+        .confirmationDialog("Delete this licence?",
+                            isPresented: Binding(get: { toDelete != nil }, set: { if !$0 { toDelete = nil } }),
+                            titleVisibility: .visible,
+                            presenting: toDelete) { license in
+            Button("Delete licence", role: .destructive) { delete(license) }
+        } message: { _ in
+            Text("The licence, its document and its reminders are removed from this phone.")
         }
         .task { reload() }
     }
 
     private func reload() {
         licenses = (try? appState.licenseRepository.fetchAll()) ?? []
+        didLoad = true
         Task { await NotificationManager.shared.scheduleLicenseExpiryAlerts(licenses: licenses) }
     }
 
-    private func delete(at offsets: IndexSet) {
-        for index in offsets {
-            try? appState.licenseRepository.delete(licenses[index])
-        }
+    private func delete(_ license: FishingLicense) {
+        try? appState.licenseRepository.delete(license)
         Haptics.warning()
         ToastCenter.shared.show("Licence deleted", style: .info, haptic: false)
         reload()
+    }
+}
+
+struct LicenseRoute: Hashable {
+    let id: String
+}
+
+// MARK: - Expiry status
+
+extension FishingLicense {
+    /// Short status for rows and the profile: Expired, Expires today, 12 days
+    /// left, Valid until 3 Mar 2027.
+    var expiryStatus: (text: String, color: Color)? {
+        guard let days = daysUntilExpiry, let expiryDate else { return nil }
+        if days < 0 { return ("Expired", .dsScoreSlow) }
+        if days == 0 { return ("Expires today", .dsScoreSlow) }
+        if days <= 30 { return (days == 1 ? "1 day left" : "\(days) days left", .dsScoreLow) }
+        return ("Valid until \(expiryDate.formatted(date: .abbreviated, time: .omitted))", .dsText2)
+    }
+
+    /// Freshwater or marine look for the row card, guessed from the type and title.
+    var isMarine: Bool {
+        let text = "\(title) \(licenseType ?? "")".lowercased()
+        return ["marine", "sea", "coastal", "salt", "ocean"].contains { text.contains($0) }
     }
 }
 
@@ -69,35 +143,33 @@ struct LicenseRow: View {
     let license: FishingLicense
 
     var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: license.fileKind == "pdf" ? "doc.richtext" : "photo")
-                .font(.title2)
-                .foregroundStyle(CurrentsTheme.accent)
-                .frame(width: 40)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(license.title).font(.subheadline.bold())
-                if let region = license.region, !region.isEmpty {
-                    Text(region).font(.caption).foregroundStyle(.secondary)
+        HStack(spacing: 14) {
+            ThumbView(systemImage: license.isMarine ? "water.waves" : "tree.fill",
+                      tint: license.isMarine ? .blue : .green, size: 56)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(license.title)
+                    .foregroundStyle(.dsText)
+                    .lineLimit(1)
+                if let sub = license.region ?? license.licenseType, !sub.isEmpty {
+                    Text(sub)
+                        .font(.subheadline)
+                        .foregroundStyle(.dsText2)
+                        .lineLimit(1)
+                }
+                if let status = license.expiryStatus {
+                    Text(status.text)
+                        .font(.footnote)
+                        .foregroundStyle(status.color)
                 }
             }
-            Spacer()
-            expiryBadge
+            Spacer(minLength: 4)
+            Image(systemName: "chevron.right")
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(.dsText3)
         }
-        .padding(.vertical, 4)
-    }
-
-    @ViewBuilder private var expiryBadge: some View {
-        if let days = license.daysUntilExpiry {
-            let (text, color): (String, Color) = {
-                if days < 0 { return ("Expired", .red) }
-                if days == 0 { return ("Expires today", .red) }
-                if days <= 30 { return ("\(days)d left", .orange) }
-                return ("\(days)d left", .secondary)
-            }()
-            Text(text)
-                .font(.caption2.bold())
-                .foregroundStyle(color)
-        }
+        .padding(.horizontal, DS.gutter)
+        .padding(.vertical, DS.Space.s2)
+        .contentShape(Rectangle())
     }
 }
 
@@ -109,87 +181,120 @@ struct LicenseDetailView: View {
     @State var license: FishingLicense
     var onChange: () -> Void
     @State private var showingEdit = false
+    @State private var showingRenewal = false
     @State private var showingDeleteConfirm = false
     @State private var showingDocument = false
+    @State private var titleShown = false
+
+    private var rows: [(String, String)] {
+        var result: [(String, String)] = []
+        func add(_ label: String, _ value: String?) {
+            if let value, !value.isEmpty { result.append((label, value)) }
+        }
+        add("Type", license.licenseType)
+        add("Holder", license.holderName)
+        add("Number", license.licenseNumber)
+        add("Region", license.region)
+        add("Issued", license.issueDate.map { $0.formatted(date: .abbreviated, time: .omitted) })
+        add("Expires", license.expiryDate.map { $0.formatted(date: .abbreviated, time: .omitted) })
+        return result
+    }
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: CurrentsTheme.paddingM) {
+            VStack(alignment: .leading, spacing: DS.Space.s6) {
+                VStack(alignment: .leading, spacing: DS.Space.s4) {
+                    DetailHeader(over: license.licenseType, title: license.title,
+                                 subtitle: license.expiryStatus?.text)
+                    ActionTriple {
+                        Button { showingRenewal = true } label: {
+                            Label("Add renewal", systemImage: "arrow.clockwise")
+                        }
+                        .buttonStyle(ActionTileStyle(.primary))
+                        Button { showingEdit = true } label: {
+                            Label("Edit", systemImage: "pencil")
+                        }
+                        .buttonStyle(ActionTileStyle())
+                        Button { showingDeleteConfirm = true } label: {
+                            Label("Delete", systemImage: "trash")
+                        }
+                        .buttonStyle(ActionTileStyle(.destructive))
+                    }
+                }
+
                 if license.fileName != nil {
                     Button { showingDocument = true } label: {
                         LicenseDocumentView(license: license)
                             .frame(height: 320)
-                            .clipShape(RoundedRectangle(cornerRadius: 16))
+                            .frame(maxWidth: .infinity)
+                            .background(Color.dsFill)
+                            .clipShape(RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
                             .overlay(alignment: .bottomTrailing) {
-                                Label("Tap to view", systemImage: "arrow.up.left.and.arrow.down.right")
-                                    .font(.caption2.bold())
-                                    .padding(.horizontal, 8).padding(.vertical, 5)
-                                    .background(.ultraThinMaterial, in: Capsule())
-                                    .padding(8)
+                                Label("View full screen", systemImage: "arrow.up.left.and.arrow.down.right")
+                                    .font(.caption.weight(.semibold))
+                                    .padding(.horizontal, 10).padding(.vertical, 6)
+                                    .background(.regularMaterial, in: Capsule()) // ui-lint: allow, label floats over the licence document
+                                    .padding(10)
                             }
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.dim)
+                    .padding(.horizontal, DS.gutter)
+                    .accessibilityLabel("View the licence document full screen")
                 }
 
-                VStack(alignment: .leading, spacing: 10) {
-                    detailRow("Type", license.licenseType)
-                    detailRow("Holder", license.holderName)
-                    detailRow("Number", license.licenseNumber)
-                    detailRow("Region", license.region)
-                    detailRow("Issued", license.issueDate.map { $0.formatted(date: .abbreviated, time: .omitted) })
-                    detailRow("Expires", license.expiryDate.map { $0.formatted(date: .abbreviated, time: .omitted) })
-                    if let notes = license.notes, !notes.isEmpty {
-                        detailRow("Notes", notes)
+                if !rows.isEmpty {
+                    VStack(alignment: .leading, spacing: 0) {
+                        SectionTitle("Details")
+                        PFKeyValueCard(rows: rows)
                     }
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .glassCard()
 
-                Button(role: .destructive) {
-                    showingDeleteConfirm = true
-                } label: {
-                    Label("Delete Licence", systemImage: "trash").frame(maxWidth: .infinity)
+                if let notes = license.notes, !notes.isEmpty {
+                    VStack(alignment: .leading, spacing: 0) {
+                        SectionTitle("Notes")
+                        Text(notes)
+                            .foregroundStyle(.dsText)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(DS.Space.s4)
+                            .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
+                            .padding(.horizontal, DS.gutter)
+                    }
                 }
-                .buttonStyle(.bordered)
+
+                if license.expiryDate != nil {
+                    PFFootnote("Reminders come a month, two weeks, a week and three days before it expires, and on the day.")
+                }
             }
-            .padding()
+            .padding(.bottom, DS.Space.s8)
         }
-        .navigationTitle(license.title)
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button("Edit") { showingEdit = true }
-            }
-        }
-        .sheet(isPresented: $showingEdit, onDismiss: {
-            license = (try? appState.licenseRepository.fetchAll())?.first { $0.id == license.id } ?? license
-            onChange()
-        }) {
+        .detailTint(license.isMarine ? .blue : .green)
+        .pfTrackScroll($titleShown, threshold: 80)
+        .pfScrollTitle(license.title, shown: titleShown)
+        .sheet(isPresented: $showingEdit, onDismiss: refresh) {
             AddLicenseSheet(editing: license)
         }
-        .alert("Delete Licence?", isPresented: $showingDeleteConfirm) {
-            Button("Delete", role: .destructive) {
+        .sheet(isPresented: $showingRenewal, onDismiss: onChange) {
+            AddLicenseSheet(renewing: license)
+        }
+        .confirmationDialog("Delete this licence?", isPresented: $showingDeleteConfirm, titleVisibility: .visible) {
+            Button("Delete licence", role: .destructive) {
                 try? appState.licenseRepository.delete(license)
                 Haptics.warning()
                 ToastCenter.shared.show("Licence deleted", style: .info, haptic: false)
                 onChange()
                 dismiss()
             }
-            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("The licence, its document and its reminders are removed from this phone.")
         }
         .fullScreenCover(isPresented: $showingDocument) {
             LicenseDocumentFullScreen(license: license)
         }
     }
 
-    @ViewBuilder private func detailRow(_ label: String, _ value: String?) -> some View {
-        if let value, !value.isEmpty {
-            HStack(alignment: .top) {
-                Text(label).font(.caption).foregroundStyle(.secondary).frame(width: 70, alignment: .leading)
-                Text(value).font(.subheadline)
-                Spacer()
-            }
-        }
+    private func refresh() {
+        license = (try? appState.licenseRepository.fetchAll())?.first { $0.id == license.id } ?? license
+        onChange()
     }
 }
 
@@ -215,8 +320,8 @@ struct LicenseDocumentView: View {
 
     private var placeholder: some View {
         ZStack {
-            Rectangle().fill(.ultraThinMaterial)
-            Image(systemName: "doc.text.image").font(.largeTitle).foregroundStyle(.secondary)
+            Rectangle().fill(Color.dsFill)
+            Image(systemName: "doc.text.image").font(.largeTitle).foregroundStyle(.dsText2)
         }
     }
 }
@@ -237,8 +342,8 @@ struct PDFKitView: UIViewRepresentable {
 
 // MARK: - Fullscreen document viewer
 
-/// Full-screen, zoomable view of the licence document — the whole PDF (scrolls +
-/// pinch-zooms) or the photo (pinch-zooms), with a Done button.
+/// Full-screen, zoomable view of the licence document: the whole PDF (scrolls
+/// and pinch-zooms) or the photo (pinch-zooms), with a Done button.
 struct LicenseDocumentFullScreen: View {
     let license: FishingLicense
     @Environment(\.dismiss) private var dismiss
@@ -253,7 +358,7 @@ struct LicenseDocumentFullScreen: View {
                     } else if let img = UIImage(contentsOfFile: url.path) {
                         ZoomableImage(image: img)
                     } else {
-                        ContentUnavailableView("Can't open document", systemImage: "doc.text.image")
+                        ContentUnavailableView("Can't open the document", systemImage: "doc.text.image")
                     }
                 } else {
                     ContentUnavailableView("No document", systemImage: "doc.text.image")

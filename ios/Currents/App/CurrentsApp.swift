@@ -5,13 +5,15 @@ struct CurrentsApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var appState = AppState()
     @AppStorage("selectedTheme") private var selectedTheme = ThemeOption.ocean.rawValue
+    /// System, light or dark, chosen in Settings > Appearance.
+    @AppStorage("appearanceMode") private var appearanceMode = AppearanceMode.dark.rawValue
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some Scene {
         WindowGroup {
             ContentView()
                 .environment(appState)
-                .preferredColorScheme(.dark)
+                .preferredColorScheme((AppearanceMode(rawValue: appearanceMode) ?? .dark).colorScheme)
                 .tint(ThemeOption(rawValue: selectedTheme)?.primary ?? .blue)
         }
         .onChange(of: scenePhase) { _, phase in
