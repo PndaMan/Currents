@@ -897,6 +897,7 @@ struct LogCatchView: View {
             }
             .buttonStyle(.dim)
             .padding(.horizontal, DS.gutter)
+            .accessibilityLabel("Change the spot")
 
             // Standing at a saved spot: one tap files the catch under it.
             if locationMode == .current, let near = nearbySpot, near.metres < 300 {
@@ -914,7 +915,6 @@ struct LogCatchView: View {
                 .padding(.top, 10)
                 .transition(.opacity)
             }
-            .accessibilityLabel("Change the spot")
         }
     }
 
