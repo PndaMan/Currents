@@ -116,10 +116,20 @@ struct BadgeMetrics {
 
     /// The locked, visible badge nearest to being earned.
     func closest(in badges: [BadgeDefinition]) -> BadgeDefinition? {
-        badges
-            .filter { !$0.earned && !$0.hidden }
-            .compactMap { b in progress(for: b.title).map { (b, $0.fraction) } }
-            .max { a, b in a.1 == b.1 ? a.0.rarity.rawValue > b.0.rarity.rawValue : a.1 < b.1 }?.0
+        var best: BadgeDefinition?
+        var bestFraction: Double = -1
+        for badge in badges where !badge.earned && !badge.hidden {
+            guard let p = progress(for: badge.title) else { continue }
+            let fraction: Double = p.fraction
+            let isCloser = fraction > bestFraction
+            let tieWithLowerRarity = fraction == bestFraction
+                && badge.rarity.rawValue < (best?.rarity.rawValue ?? Int.max)
+            if isCloser || tieWithLowerRarity {
+                best = badge
+                bestFraction = fraction
+            }
+        }
+        return best
     }
 }
 
