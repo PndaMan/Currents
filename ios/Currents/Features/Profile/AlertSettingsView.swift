@@ -21,6 +21,15 @@ struct AlertSettingsView: View {
 
     private var svc: CommunityService { .shared }
 
+    /// The test notification and push status rows. Built for tracking down
+    /// delivery problems, not shown in the app.
+    private static let showsDiagnostics = false
+
+    /// Crew pushes need the phone registered and both subscription sets made.
+    private var crewAlertsWorking: Bool {
+        svc.apnsRegistered && svc.pushSubscriptionsCreated && svc.eventSubscriptionsSynced
+    }
+
     private var allowed: Bool {
         switch permissionStatus {
         case .authorized, .provisional, .ephemeral: return true
@@ -150,11 +159,17 @@ struct AlertSettingsView: View {
             } header: {
                 Text("Kit")
             } footer: {
-                Text("Licence reminders come a month, two weeks, a week and three days before each licence expires, and on the day.")
+                Text("Licence reminders start a month before expiry.")
             }
             .pfRows()
 
-            diagnostics
+            if svc.joined {
+                crewSection
+            }
+
+            if Self.showsDiagnostics {
+                diagnostics
+            }
         }
         .pfGroupedList()
         .detailTint(.red)
@@ -166,6 +181,50 @@ struct AlertSettingsView: View {
             await loadScores()
             await reschedulePrimeWindows()
         }
+    }
+
+    // MARK: - Crew
+
+    /// Friend requests and trip invites arrive by push. When that has stopped
+    /// working, one button sets it up again.
+    private var crewSection: some View {
+        Section {
+            HStack(spacing: 14) {
+                PFIcon(systemImage: "person.2.fill", color: .blue)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Friend requests and invites")
+                        .foregroundStyle(.dsText)
+                    Text(crewAlertsWorking ? "On" : "Not arriving on this phone")
+                        .font(.subheadline)
+                        .foregroundStyle(crewAlertsWorking ? Color.dsText2 : Color.dsScoreLow)
+                }
+                Spacer(minLength: 8)
+                if !crewAlertsWorking {
+                    Button {
+                        Haptics.tap()
+                        busyPush = true
+                        Task {
+                            await svc.forcePushReenable()
+                            busyPush = false
+                            pushTick += 1
+                        }
+                    } label: {
+                        if busyPush {
+                            ProgressView()
+                        } else {
+                            Text("Turn on")
+                        }
+                    }
+                    .buttonStyle(TonalButtonStyle(fullWidth: false))
+                    .disabled(busyPush || !allowed)
+                }
+            }
+            .accessibilityElement(children: .contain)
+        } header: {
+            Text("Crew")
+        }
+        .pfRows()
+        .id(pushTick)
     }
 
     // MARK: - Diagnostics

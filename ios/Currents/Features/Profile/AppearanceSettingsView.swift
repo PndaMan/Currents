@@ -69,6 +69,7 @@ struct AppearanceSettingsView: View {
                 }
             }
             .padding(.bottom, DS.Space.s8)
+            .pageWidth()
         }
         .detailTint(theme.primary)
         .pfTrackScroll($titleShown, threshold: 60)

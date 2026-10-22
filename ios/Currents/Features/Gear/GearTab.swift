@@ -55,6 +55,7 @@ struct GearTab: View {
             .padding(.bottom, DS.Space.s8)
             .animation(reduceMotion ? nil : .easeOut(duration: DS.Motion.fast), value: viewMode)
             .animation(reduceMotion ? nil : .easeOut(duration: DS.Motion.fast), value: categoryFilter)
+            .pageWidth()
         }
         .detailTint(.orange)
         .pfTrackScroll($titleShown, threshold: 60)
@@ -181,7 +182,9 @@ struct GearTab: View {
     @ViewBuilder
     private var ownedGearContent: some View {
         if !didLoad {
-            EmptyView()
+            ProgressView()
+                .frame(maxWidth: .infinity)
+                .padding(.top, DS.Space.s8)
         } else if ownedGear.isEmpty {
             ContentUnavailableView {
                 Label("No gear yet", systemImage: "shippingbox")
@@ -354,7 +357,9 @@ struct GearTab: View {
     @ViewBuilder
     private var presetContent: some View {
         if !didLoad {
-            EmptyView()
+            ProgressView()
+                .frame(maxWidth: .infinity)
+                .padding(.top, DS.Space.s8)
         } else if loadouts.isEmpty {
             ContentUnavailableView {
                 Label("No presets yet", systemImage: "square.stack.3d.up")
@@ -390,7 +395,7 @@ struct GearTab: View {
                     }
                 }
             }
-            PFFootnote("Pick a preset when you log a catch and the whole setup is saved with it.")
+            PFFootnote("Pick a preset when you log a catch to save the whole setup.")
         }
     }
 
@@ -433,6 +438,8 @@ struct PresetCard: View {
         HStack(spacing: 14) {
             if let lureItem {
                 GearThumb(item: lureItem, size: 56)
+            } else if let lure = loadout.lure, !lure.isEmpty {
+                LureArtView(name: lure, size: 56)
             } else {
                 ThumbView(systemImage: "square.stack.3d.up.fill", tint: .orange, size: 56)
             }
@@ -489,25 +496,24 @@ struct AddOwnedGearSheet: View {
                         .listRowInsets(EdgeInsets())
                         .listRowBackground(Color.clear)
                 }
-                Section("Type") {
-                    Picker("Category", selection: $category) {
-                        // Glyph in the dropdown so the category is recognisable
-                        // before you read it.
-                        ForEach(OwnedGear.Category.allCases, id: \.self) { cat in
-                            GearCategoryLabel(category: cat).tag(cat)
-                        }
-                    }
+                Section {
+                    GearCategoryChips(selection: $category, inset: 0)
+                        .gearFormBareRow()
+                } header: {
+                    Text("Type")
                 }
                 Section("Details") {
                     TextField("Name, for example Shimano Stradic", text: $name)
                     TextField("Brand (optional)", text: $brand)
                     TextField("Specs or notes (optional)", text: $specs)
                 }
+                .pfRows()
                 if category.isConsumable {
                     Section("Stock") {
-                        Stepper("In stock: \(stock)", value: $stock, in: 0...999)
-                        Stepper("Remind me at: \(lowStockThreshold)", value: $lowStockThreshold, in: 0...99)
+                        GearStockRow(title: "In stock", value: $stock, range: 0...999)
+                        GearStockRow(title: "Remind me at", value: $lowStockThreshold, range: 0...99)
                     }
+                    .pfRows()
                 }
                 if BarcodeScannerView.isSupported {
                     Section {
@@ -519,10 +525,12 @@ struct AddOwnedGearSheet: View {
                         }
                         BarcodeLookupStatus(state: lookupState)
                     } footer: {
-                        Text("Scan a product barcode to fill in the name and brand, and keep it on the item for re-ordering.")
+                        Text("Fills in the name and brand.")
                     }
+                    .pfRows()
                 }
             }
+            .gearFormStyle()
             .sheet(isPresented: $showingScanner) {
                 NavigationStack {
                     BarcodeScannerView { code in
@@ -718,9 +726,12 @@ struct GearCatalogBrowser: View {
                                     .monospacedDigit()
                             }
                         }
+                        .pfRows()
                     }
                 }
                 .listStyle(.insetGrouped)
+                .scrollContentBackground(.hidden)
+                .detailScrollEdge()
                 .task {
                     // Pull the latest published catalog in the background; once
                     // synced it's stored locally, so browsing works offline.
@@ -729,6 +740,7 @@ struct GearCatalogBrowser: View {
                 }
             }
         }
+        .dsScreenBackground()
         .searchable(text: $searchText, prompt: "Brand, model, type or species")
         .task {
             items = (try? appState.gearCatalogRepository.fetchAll()) ?? []
@@ -768,7 +780,12 @@ struct GearCatalogRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            ThumbView(systemImage: GearItem.icon(for: item.category), tint: .orange, size: 44)
+            if item.category == .lure || item.category == .bait {
+                LureArtView(name: item.displayName, size: 44)
+                    .accessibilityHidden(true)
+            } else {
+                ThumbView(systemImage: GearItem.icon(for: item.category), tint: .orange, size: 44)
+            }
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(item.displayName)
@@ -844,7 +861,7 @@ struct GearCatalogRow: View {
             name: item.model,
             brand: item.brand,
             specs: {
-                let s = [item.type, item.specs].compactMap { $0 }.joined(separator: " — ")
+                let s = [item.type, item.specs].compactMap { $0 }.joined(separator: ", ")
                 return s.isEmpty ? nil : s
             }()
         )
@@ -875,9 +892,15 @@ struct AddGearSheet: View {
     var body: some View {
         NavigationStack {
             Form {
+                Section {
+                    PresetDraftHeader(name: name, lure: lure)
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
+                }
                 Section("Name") {
                     TextField("For example, bass finesse setup", text: $name)
                 }
+                .pfRows()
                 Section("Rod and reel") {
                     loadoutGearPicker(category: .rod, selection: $rod, placeholder: "Rod")
                     loadoutGearPicker(category: .reel, selection: $reel, placeholder: "Reel")
@@ -892,6 +915,7 @@ struct AddGearSheet: View {
                         Text("lb").foregroundStyle(.secondary)
                     }
                 }
+                .pfRows()
                 Section("Lure or bait") {
                     loadoutGearPicker(category: .lure, selection: $lure, placeholder: "Lure or bait")
                     TextField("Colour", text: $lureColor)
@@ -901,10 +925,13 @@ struct AddGearSheet: View {
                         Text("g").foregroundStyle(.secondary)
                     }
                 }
+                .pfRows()
                 Section("Technique") {
                     TechniquePicker(selection: $technique)
                 }
+                .pfRows()
             }
+            .gearFormStyle()
             .navigationTitle("New preset")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -981,7 +1008,14 @@ struct GearDetailSheet: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: DS.Space.s5) {
-                    DetailHeader(over: "Preset", title: loadout.name, subtitle: caughtLine)
+                    VStack(alignment: .leading, spacing: DS.Space.s4) {
+                        if let lure = loadout.lure, !lure.isEmpty {
+                            LureArtView(name: lure, size: 96)
+                                .padding(.horizontal, DS.gutter)
+                                .accessibilityHidden(true)
+                        }
+                        DetailHeader(over: "Preset", title: loadout.name, subtitle: caughtLine)
+                    }
 
                     if onEdit != nil || onDelete != nil {
                         ActionTriple {
@@ -1010,8 +1044,9 @@ struct GearDetailSheet: View {
                     }
                 }
                 .padding(.vertical, DS.Space.s4)
+                .pageWidth()
             }
-            .dsScreenBackground()
+            .detailTint(.orange)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
@@ -1065,25 +1100,24 @@ struct EditOwnedGearSheet: View {
                         .listRowInsets(EdgeInsets())
                         .listRowBackground(Color.clear)
                 }
-                Section("Type") {
-                    Picker("Category", selection: $category) {
-                        // Glyph in the dropdown so the category is recognisable
-                        // before you read it.
-                        ForEach(OwnedGear.Category.allCases, id: \.self) { cat in
-                            GearCategoryLabel(category: cat).tag(cat)
-                        }
-                    }
+                Section {
+                    GearCategoryChips(selection: $category, inset: 0)
+                        .gearFormBareRow()
+                } header: {
+                    Text("Type")
                 }
                 Section("Details") {
                     TextField("Name", text: $name)
                     TextField("Brand (optional)", text: $brand)
                     TextField("Specs or notes (optional)", text: $specs)
                 }
+                .pfRows()
                 if category.isConsumable {
                     Section("Stock") {
-                        Stepper("In stock: \(stock)", value: $stock, in: 0...999)
-                        Stepper("Remind me at: \(lowStockThreshold)", value: $lowStockThreshold, in: 0...99)
+                        GearStockRow(title: "In stock", value: $stock, range: 0...999)
+                        GearStockRow(title: "Remind me at", value: $lowStockThreshold, range: 0...99)
                     }
+                    .pfRows()
                 }
                 if let code = gear.barcode {
                     Section("Barcode") {
@@ -1091,8 +1125,10 @@ struct EditOwnedGearSheet: View {
                             .font(.subheadline.monospaced())
                             .textSelection(.enabled)
                     }
+                    .pfRows()
                 }
             }
+            .gearFormStyle()
             .navigationTitle("Edit gear")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -1166,9 +1202,15 @@ struct EditLoadoutSheet: View {
     var body: some View {
         NavigationStack {
             Form {
+                Section {
+                    PresetDraftHeader(name: name, lure: lure)
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
+                }
                 Section("Name") {
                     TextField("Preset name", text: $name)
                 }
+                .pfRows()
                 Section("Rod and reel") {
                     loadoutGearPicker(category: .rod, selection: $rod, placeholder: "Rod")
                     loadoutGearPicker(category: .reel, selection: $reel, placeholder: "Reel")
@@ -1183,6 +1225,7 @@ struct EditLoadoutSheet: View {
                         Text("lb").foregroundStyle(.secondary)
                     }
                 }
+                .pfRows()
                 Section("Lure or bait") {
                     loadoutGearPicker(category: .lure, selection: $lure, placeholder: "Lure or bait")
                     TextField("Colour", text: $lureColor)
@@ -1192,10 +1235,13 @@ struct EditLoadoutSheet: View {
                         Text("g").foregroundStyle(.secondary)
                     }
                 }
+                .pfRows()
                 Section("Technique") {
                     TechniquePicker(selection: $technique)
                 }
+                .pfRows()
             }
+            .gearFormStyle()
             .navigationTitle("Edit preset")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -1241,6 +1287,99 @@ struct EditLoadoutSheet: View {
             // value, so typing a custom name doesn't dismiss the field.
             GearFieldPicker(placeholder: placeholder, items: items, selection: selection)
         }
+    }
+}
+
+// MARK: - Sheet pieces
+
+extension View {
+    /// The add and edit gear forms on the page background with `dsFill`
+    /// rows, like the settings pages, and a hard edge under the title.
+    func gearFormStyle() -> some View {
+        scrollContentBackground(.hidden)
+            .dsScreenBackground()
+            .detailScrollEdge()
+    }
+
+    /// A clear, full-width form row for content that brings its own
+    /// background (chips). It stays inside the row, so nothing pokes past
+    /// the screen edge.
+    func gearFormBareRow() -> some View {
+        listRowInsets(EdgeInsets())
+            .listRowBackground(Color.clear)
+            .listRowSeparator(.hidden)
+    }
+}
+
+/// The gear categories as chips, so the type is one tap instead of a menu.
+struct GearCategoryChips: View {
+    @Binding var selection: OwnedGear.Category
+    /// Leading and trailing space inside the scroller.
+    var inset: CGFloat = DS.gutter
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                ForEach(OwnedGear.Category.allCases, id: \.self) { cat in
+                    Chip(cat.rawValue, isSelected: selection == cat) { selection = cat }
+                }
+            }
+            .padding(.horizontal, inset)
+            .padding(.vertical, DS.Space.s1)
+        }
+        .scrollBounceBehavior(.basedOnSize, axes: [.horizontal])
+        .sensoryFeedback(.selection, trigger: selection)
+    }
+}
+
+/// A count with the tackle box's minus and plus capsule.
+struct GearStockRow: View {
+    let title: String
+    @Binding var value: Int
+    let range: ClosedRange<Int>
+
+    var body: some View {
+        HStack {
+            Text(title).foregroundStyle(.dsText)
+            Spacer()
+            PFStepper(value: "\(value)", canDecrement: value > range.lowerBound, label: title) { delta in
+                value = min(max(value + delta, range.lowerBound), range.upperBound)
+            }
+        }
+    }
+}
+
+/// The top of the preset form: the lure's picture and the name as typed.
+struct PresetDraftHeader: View {
+    let name: String
+    let lure: String
+
+    private var lureName: String? {
+        let trimmed = lure.trimmingCharacters(in: .whitespaces)
+        return trimmed.isEmpty || trimmed == "__custom__" ? nil : trimmed
+    }
+
+    var body: some View {
+        HStack(spacing: 14) {
+            if let lureName {
+                LureArtView(name: lureName, size: 64)
+            } else {
+                ThumbView(systemImage: "square.stack.3d.up.fill", tint: .orange, size: 64)
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                Text(name.isEmpty ? "New preset" : name)
+                    .font(.title3.bold())
+                    .foregroundStyle(name.isEmpty ? Color.dsText3 : Color.dsText)
+                    .lineLimit(2)
+                Text(lureName ?? "Add a lure or bait below")
+                    .font(.subheadline)
+                    .foregroundStyle(.dsText2)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, DS.Space.s1)
+        .accessibilityElement(children: .combine)
     }
 }
 

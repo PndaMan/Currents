@@ -3,6 +3,7 @@ import MapKit
 import PhotosUI
 import StoreKit
 import UniformTypeIdentifiers
+import Charts
 
 /// Pages pushed from Profile and settings.
 enum SettingsRoute: Hashable {
@@ -25,7 +26,6 @@ struct SettingsView: View {
     @AppStorage("appearanceMode") private var appearanceMode = "dark"
     @AppStorage("units") private var units = "metric"
     @AppStorage("alertsEnabled") private var alertsEnabled = false
-    @AppStorage("hasOnboarded") private var hasOnboarded = false
 
     @State private var catches: [CatchDetail] = []
     @State private var speciesCount = 0
@@ -97,10 +97,10 @@ struct SettingsView: View {
                 }
                 NavigationLink(value: SettingsRoute.knots) {
                     PFRowLabel(title: "Knots and rigs", systemImage: "link", color: .cyan,
-                               value: "\(KnotEntry.all.count)")
+                               value: "\(KnotCatalog.shared.entries.count)")
                 }
                 NavigationLink(value: SettingsRoute.regulations) {
-                    PFRowLabel(title: "Size and bag limits", systemImage: "ruler.fill", color: .purple)
+                    PFRowLabel(title: "Size and bag limits", systemImage: "list.bullet.clipboard.fill", color: .purple)
                 }
             }
             .pfRows()
@@ -133,18 +133,9 @@ struct SettingsView: View {
 
             Section {
                 NavigationLink(value: SettingsRoute.about) {
-                    PFRowLabel(title: "About Currents", systemImage: "info.circle.fill", color: .teal)
+                    PFRowLabel(title: "About Currents", systemImage: "info.circle.fill", color: .teal,
+                               value: AboutView.shortVersion)
                 }
-                Button {
-                    Haptics.tap()
-                    hasOnboarded = false
-                } label: {
-                    PFRowLabel(title: "Show welcome again", systemImage: "play.fill", color: .green)
-                }
-            } header: {
-                Text("Support")
-            } footer: {
-                Text("Your logbook lives on this phone. Nothing is shared unless you turn it on.")
             }
             .pfRows()
         }
@@ -197,8 +188,10 @@ struct SettingsView: View {
                     AchievementsCard(catches: catches, topCount: 50)
                         .padding(.horizontal, DS.gutter)
                         .padding(.vertical, DS.Space.s4)
+                        .pageWidth()
                 }
                 .dsScreenBackground()
+                .detailScrollEdge()
                 .navigationTitle("Achievements")
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
@@ -403,6 +396,7 @@ private struct LocalProfileEditSheet: View {
             }
             .scrollContentBackground(.hidden)
             .dsScreenBackground()
+            .detailScrollEdge()
             .navigationTitle("Edit profile")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -601,25 +595,39 @@ struct StorageSettingsView: View {
     @State private var importMessage: String?
     @State private var showingImportAlert = false
     @State private var titleShown = false
+    @State private var usage: StorageUsage?
 
     var body: some View {
         List {
             Section {
                 DetailHeader(title: "Offline maps and storage",
-                             subtitle: "Everything you need with no signal.")
+                             subtitle: usage.map { "\(StorageUsage.format($0.total)) on this phone" }
+                                ?? "Everything you need with no signal.")
+                    .padding(.bottom, DS.Space.s2)
+                    .pfBareRow()
+                StorageUsageBar(usage: usage)
+                    .padding(.horizontal, DS.gutter)
                     .padding(.bottom, DS.Space.s2)
                     .pfBareRow()
             }
 
             Section {
                 if mapRegions.isEmpty {
-                    Text("No offline regions. Save one before you head somewhere with no signal.")
-                        .font(.subheadline)
-                        .foregroundStyle(.dsText2)
+                    HStack(spacing: 14) {
+                        ThumbView(systemImage: "map", tint: DS.accent, size: 44)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("No offline regions")
+                                .foregroundStyle(.dsText)
+                            Text("Save one before you head out of signal.")
+                                .font(.subheadline)
+                                .foregroundStyle(.dsText2)
+                        }
+                    }
+                    .accessibilityElement(children: .combine)
                 } else {
                     ForEach(mapRegions) { region in
                         HStack(spacing: 14) {
-                            ThumbView(systemImage: "map.fill", tint: DS.accent, size: 40)
+                            ThumbView(systemImage: "map.fill", tint: DS.accent, size: 44)
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(region.name).foregroundStyle(.dsText)
                                 Text("\(region.formattedSize), saved \(region.downloadedAt.formatted(date: .abbreviated, time: .omitted))")
@@ -648,8 +656,6 @@ struct StorageSettingsView: View {
                 .disabled(appState.mapManager.isDownloading)
             } header: {
                 Text("Offline regions")
-            } footer: {
-                Text("A saved region keeps the satellite map for that area on this phone.")
             }
             .pfRows()
 
@@ -750,7 +756,7 @@ struct StorageSettingsView: View {
     private var backupSection: some View {
         Section {
             PFToggleRow(title: "Automatic daily backup",
-                        detail: iCloudAvailable ? "On this phone and to iCloud" : "On this phone",
+                        detail: iCloudAvailable ? "Daily, on this phone and to iCloud" : "Daily, on this phone",
                         isOn: $autoBackupEnabled)
 
             Button { backUpNow() } label: {
@@ -801,9 +807,7 @@ struct StorageSettingsView: View {
             if let msg = backupMessage {
                 Text(msg)
             } else {
-                Text(iCloudAvailable
-                     ? "Backs up once a day when you leave the app, on this phone and to iCloud. Backups include catches, photos, spots, gear and licences."
-                     : "Backs up once a day when you leave the app. Snapshots live in the app's documents, which your phone's own backup includes.")
+                Text("Backups include catches, photos, spots, gear and licences.")
             }
         }
         .pfRows()
@@ -829,12 +833,13 @@ struct StorageSettingsView: View {
                         }
                     }
                 } footer: {
-                    Text("The most recent automatic backups are kept on this phone.")
+                    Text("The latest automatic backups on this phone.")
                 }
                 .pfRows()
             }
             .pfGroupedList()
             .dsScreenBackground()
+            .detailScrollEdge()
             .navigationTitle("Backup history")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -858,6 +863,7 @@ struct StorageSettingsView: View {
         }
         dbSize = await FileBackup.shared.databaseSize
         snapshots = await FileBackup.shared.snapshots()
+        await measure()
     }
 
     private func refreshMaps() {
@@ -865,6 +871,16 @@ struct StorageSettingsView: View {
         mapRegions = appState.mapManager.downloadedRegions
         tileCacheSize = ByteCountFormatter.string(
             fromByteCount: appState.mapManager.tileCacheSizeBytes, countStyle: .file)
+        if usage != nil { Task { await measure() } }
+    }
+
+    /// Fills the storage bar. Map and backup sizes are already known; the
+    /// photo folder and database are measured off the main thread.
+    private func measure() async {
+        let files = await StorageUsage.measureFiles()
+        let maps = mapRegions.reduce(Int64(0)) { $0 + $1.sizeBytes } + appState.mapManager.tileCacheSizeBytes
+        let backups = snapshots.reduce(Int64(0)) { $0 + $1.sizeBytes }
+        usage = StorageUsage(maps: maps, photos: files.photos, logbook: files.logbook, backups: backups)
     }
 
     private func exportAllData() {
@@ -956,6 +972,109 @@ struct StorageSettingsView: View {
     }
 }
 
+// MARK: - Storage bar
+
+/// What Currents keeps on this phone, by kind.
+struct StorageUsage: Equatable {
+    var maps: Int64
+    var photos: Int64
+    var logbook: Int64
+    var backups: Int64
+
+    var total: Int64 { maps + photos + logbook + backups }
+
+    static func format(_ bytes: Int64) -> String {
+        ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
+    }
+
+    /// The catch photo folder and the database files, which nothing else
+    /// tracks. Same locations as PhotoManager and FileBackup use.
+    static func measureFiles() async -> (photos: Int64, logbook: Int64) {
+        await Task.detached(priority: .utility) {
+            let fm = FileManager.default
+            var photos: Int64 = 0
+            if let docs = fm.urls(for: .documentDirectory, in: .userDomainMask).first,
+               let files = fm.enumerator(at: docs.appendingPathComponent("catch_photos", isDirectory: true),
+                                         includingPropertiesForKeys: [.fileSizeKey]) {
+                for case let url as URL in files {
+                    photos += Int64((try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
+                }
+            }
+            var logbook: Int64 = 0
+            if let support = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
+                for name in ["currents.sqlite", "currents.sqlite-wal", "currents.sqlite-shm"] {
+                    let path = support.appendingPathComponent(name).path
+                    logbook += (try? fm.attributesOfItem(atPath: path)[.size] as? Int64) ?? 0
+                }
+            }
+            return (photos, logbook)
+        }.value
+    }
+}
+
+/// One stacked bar of storage by kind, with a legend, like iPhone Storage.
+private struct StorageUsageBar: View {
+    let usage: StorageUsage?
+
+    private struct Part: Identifiable {
+        let name: String
+        let bytes: Int64
+        let color: Color
+        var id: String { name }
+    }
+
+    private var parts: [Part] {
+        guard let usage else { return [] }
+        return [
+            Part(name: "Offline maps", bytes: usage.maps, color: DS.accent),
+            Part(name: "Catch photos", bytes: usage.photos, color: .dsScoreGood),
+            Part(name: "Logbook", bytes: usage.logbook, color: .dsScoreFair),
+            Part(name: "Backups", bytes: usage.backups, color: .gray),
+        ].filter { $0.bytes > 0 }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: DS.Space.s3) {
+            if parts.isEmpty {
+                Capsule()
+                    .fill(Color.dsFill2)
+                    .frame(height: 14)
+                    .overlay {
+                        if usage == nil { ProgressView().controlSize(.mini) }
+                    }
+            } else {
+                Chart(parts) { part in
+                    BarMark(x: .value("Size", Double(part.bytes)), y: .value("Storage", "Currents"))
+                        .foregroundStyle(part.color)
+                }
+                .chartXAxis(.hidden)
+                .chartYAxis(.hidden)
+                .chartLegend(.hidden)
+                .chartXScale(domain: 0...Double(max(usage?.total ?? 1, 1)))
+                .frame(height: 14)
+                .clipShape(Capsule())
+                .accessibilityHidden(true)
+
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: DS.Space.s3, alignment: .leading)],
+                          alignment: .leading, spacing: DS.Space.s2) {
+                    ForEach(parts) { part in
+                        HStack(spacing: 6) {
+                            Circle().fill(part.color).frame(width: 8, height: 8)
+                            Text(part.name)
+                                .foregroundStyle(.dsText2)
+                            Text(StorageUsage.format(part.bytes))
+                                .monospacedDigit()
+                                .foregroundStyle(.dsText)
+                        }
+                        .font(.footnote)
+                        .accessibilityElement(children: .combine)
+                    }
+                }
+            }
+        }
+    }
+}
+
 // MARK: - Save Region Sheet
 
 struct SaveRegionSheet: View {
@@ -988,11 +1107,12 @@ struct SaveRegionSheet: View {
                     Section {
                         TextField("Region name, for example Vaal Dam", text: $regionName)
                     } footer: {
-                        Text("Move the map so the area you want is in the frame. The satellite map, about 15 km across, is saved to this phone.")
+                        Text("Frame the area to save. About 15 km across.")
                     }
                     .pfRows()
                 }
                 .scrollContentBackground(.hidden)
+                .detailScrollEdge()
             }
             .dsScreenBackground()
             .navigationTitle("Save map region")
@@ -1036,54 +1156,90 @@ struct UnitsSettingsView: View {
     @AppStorage("dateOrder") private var dateOrder = "auto"
     @State private var titleShown = false
 
-    private var imperial: Bool { units == "imperial" }
-
     var body: some View {
-        List {
-            Section {
-                DetailHeader(title: "Units")
-                    .padding(.bottom, DS.Space.s2)
-                    .pfBareRow()
-            }
+        ScrollView {
+            VStack(alignment: .leading, spacing: DS.Space.s6) {
+                DetailHeader(title: "Units", subtitle: "How catches, weather and dates read.")
 
-            Section {
-                Picker("Measurements", selection: $units) {
-                    Text("Metric").tag("metric")
-                    Text("Imperial").tag("imperial")
+                VStack(alignment: .leading, spacing: DS.Space.s3) {
+                    SectionTitle("Measurements")
+                    HStack(spacing: DS.Space.s3) {
+                        systemCard("Metric", tag: "metric")
+                        systemCard("Imperial", tag: "imperial")
+                    }
+                    .padding(.horizontal, DS.gutter)
                 }
-                .pickerStyle(.segmented)
-                .listRowBackground(Color.clear)
-                .listRowInsets(EdgeInsets())
-            } header: {
-                Text("Measurements")
-            } footer: {
-                Text("A catch shows as \(Units.length(cm: 38, imperial: imperial)), \(Units.weight(kg: 1.2, imperial: imperial)). Water as \(imperial ? "64 °F" : "18 °C").")
-            }
 
-            Section {
-                PFToggleRow(title: "24-hour time", detail: use24HourTime ? "17:30" : "5:30 PM", isOn: $use24HourTime)
-            } header: {
-                Text("Time")
-            }
-            .pfRows()
+                VStack(alignment: .leading, spacing: DS.Space.s3) {
+                    SectionTitle("Time")
+                    PFToggleRow(title: "24-hour time", detail: use24HourTime ? "17:30" : "5:30 PM", isOn: $use24HourTime)
+                        .pfCard()
+                }
 
-            Section {
-                dateRow("Automatic", detail: Date.now.formatted(date: .numeric, time: .omitted), tag: "auto")
-                dateRow("Day, month, year", detail: sample(dayFirst: true), tag: "dayFirst")
-                dateRow("Month, day, year", detail: sample(dayFirst: false), tag: "monthFirst")
-            } header: {
-                Text("Date format")
-            } footer: {
-                Text("Used when reading dates off scanned licences and permits. Most countries, South Africa included, write the day first; the US writes the month first.")
+                VStack(alignment: .leading, spacing: DS.Space.s3) {
+                    SectionTitle("Date format")
+                    VStack(spacing: 0) {
+                        dateRow("Automatic", detail: Date.now.formatted(date: .numeric, time: .omitted), tag: "auto")
+                        PFDivider()
+                        dateRow("Day, month, year", detail: sample(dayFirst: true), tag: "dayFirst")
+                        PFDivider()
+                        dateRow("Month, day, year", detail: sample(dayFirst: false), tag: "monthFirst")
+                    }
+                    .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
+                    .padding(.horizontal, DS.gutter)
+                    PFFootnote("Used to read dates off scanned licences.")
+                }
             }
-            .pfRows()
+            .padding(.bottom, DS.Space.s8)
+            .pageWidth()
         }
-        .pfGroupedList()
         .detailTint(.orange)
         .pfTrackScroll($titleShown, threshold: 60)
         .pfScrollTitle("Units", shown: titleShown)
         .sensoryFeedback(.selection, trigger: units)
         .sensoryFeedback(.selection, trigger: dateOrder)
+    }
+
+    /// A choice card that shows a real catch in that system, so the choice
+    /// explains itself.
+    private func systemCard(_ title: String, tag: String) -> some View {
+        let isActive = units == tag
+        let imperial = tag == "imperial"
+        return Button {
+            units = tag
+        } label: {
+            VStack(alignment: .leading, spacing: DS.Space.s1) {
+                HStack {
+                    Text(title)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(isActive ? Color.dsText : Color.dsText2)
+                    Spacer(minLength: 4)
+                    Image(systemName: isActive ? "checkmark.circle.fill" : "circle")
+                        .foregroundStyle(isActive ? AnyShapeStyle(.tint) : AnyShapeStyle(Color.dsText3))
+                        .accessibilityHidden(true)
+                }
+                Text(Units.length(cm: 38, imperial: imperial))
+                    .font(.title2.bold())
+                    .monospacedDigit()
+                    .foregroundStyle(.dsText)
+                    .padding(.top, DS.Space.s2)
+                Text("\(Units.weight(kg: 1.2, imperial: imperial)), water \(Units.temperature(18, imperial: imperial))")
+                    .font(.subheadline)
+                    .foregroundStyle(.dsText2)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(DS.Space.s4)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous)
+                    .strokeBorder(isActive ? AnyShapeStyle(.tint) : AnyShapeStyle(Color.clear), lineWidth: 2)
+            )
+        }
+        .buttonStyle(.dim)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(isActive ? .isSelected : [])
     }
 
     private func sample(dayFirst: Bool) -> String {
@@ -1108,7 +1264,11 @@ struct UnitsSettingsView: View {
                         .foregroundStyle(.tint)
                 }
             }
+            .padding(.horizontal, DS.Space.s4)
+            .padding(.vertical, 12)
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.dim)
         .accessibilityAddTraits(dateOrder == tag ? .isSelected : [])
     }
 }
@@ -1146,7 +1306,7 @@ struct PrivacySettingsView: View {
             } header: {
                 Text("Crew and friends")
             } footer: {
-                Text("These apply to all your friends. Your best catches always appear on the friends leaderboard.")
+                Text("Your best catches always show on the friends leaderboard.")
             }
             .pfRows()
             .onChange(of: shareCatches) { _, _ in reapplySharing() }
@@ -1154,42 +1314,62 @@ struct PrivacySettingsView: View {
             .onChange(of: shareSpotExact) { _, _ in reapplySharing() }
 
             Section {
-                VStack(alignment: .leading, spacing: DS.Space.s2) {
-                    HStack {
-                        Text("Move shared pins up to")
-                            .foregroundStyle(.dsText)
-                        Spacer()
-                        Text(privacyRadius == 0 ? "Exact" : "\(Int(privacyRadius)) km")
-                            .font(.body.weight(.semibold))
-                            .monospacedDigit()
-                            .contentTransition(.numericText())
-                            .foregroundStyle(.dsText)
+                HStack(spacing: 14) {
+                    BlurRadiusPreview(radiusKm: privacyRadius, tint: .blue)
+                    VStack(alignment: .leading, spacing: DS.Space.s2) {
+                        HStack {
+                            Text("Move pins up to")
+                                .foregroundStyle(.dsText)
+                            Spacer(minLength: 4)
+                            Text(privacyRadius == 0 ? "Exact" : "\(Int(privacyRadius)) km")
+                                .font(.body.weight(.semibold))
+                                .monospacedDigit()
+                                .contentTransition(.numericText())
+                                .foregroundStyle(.dsText)
+                        }
+                        Slider(value: $privacyRadius, in: 0...20, step: 1)
+                            .accessibilityLabel("Honey-hole blur")
+                            .accessibilityValue(privacyRadius == 0 ? "Exact" : "\(Int(privacyRadius)) kilometres")
                     }
-                    Slider(value: $privacyRadius, in: 0...20, step: 1)
-                        .accessibilityLabel("Honey-hole blur")
-                        .accessibilityValue(privacyRadius == 0 ? "Exact" : "\(Int(privacyRadius)) kilometres")
                 }
                 .padding(.vertical, DS.Space.s1)
+                .disabled(!shareCatchLocations)
+                .opacity(shareCatchLocations ? 1 : 0.5)
                 .sensoryFeedback(.selection, trigger: privacyRadius)
             } header: {
                 Text("Honey-hole blur")
             } footer: {
-                Text("Moves your shared catch locations by up to this distance, so friends never see the exact rock you fished from. Works when Share catch locations is on.")
+                Text(shareCatchLocations
+                     ? "Friends see an area this wide, never the exact rock."
+                     : "Turn on Share catch locations to use this.")
             }
             .pfRows()
 
-            Section {
-                PFToggleRow(title: "Sync across my devices", detail: "Your own private iCloud",
-                            systemImage: "icloud.fill", color: .cyan, isOn: $cloudSyncEnabled)
-            } header: {
-                Text("Sync")
-            } footer: {
-                Text("Keeps catches and spots in step on your iPhone and iPad through your own iCloud. Nobody else can see it, including the developer.")
-            }
-            .pfRows()
-            .onChange(of: cloudSyncEnabled) { _, on in
-                CloudSyncEngine.shared.setEnabled(on)
-                ToastCenter.shared.show(on ? "Syncing with your iCloud" : "Sync off. This phone only", style: .info)
+            // Builds without the iCloud entitlement (the sideload build) cannot
+            // sync, so the toggle would do nothing there.
+            if CrewCloud.buildHasCloudKit {
+                Section {
+                    PFToggleRow(title: "Sync across my devices", detail: "Your own private iCloud",
+                                systemImage: "icloud.fill", color: .cyan, isOn: $cloudSyncEnabled)
+                } header: {
+                    Text("Sync")
+                } footer: {
+                    Text("Nobody else can see your iCloud data.")
+                }
+                .pfRows()
+                .onChange(of: cloudSyncEnabled) { _, on in
+                    CloudSyncEngine.shared.setEnabled(on)
+                    ToastCenter.shared.show(on ? "Syncing with your iCloud" : "Sync off. This phone only", style: .info)
+                }
+            } else {
+                Section {
+                    Text("iCloud sync isn't available in this build.")
+                        .font(.subheadline)
+                        .foregroundStyle(.dsText2)
+                } header: {
+                    Text("Sync")
+                }
+                .pfRows()
             }
 
             Section {
@@ -1199,7 +1379,7 @@ struct PrivacySettingsView: View {
             } header: {
                 Text("Your data")
             } footer: {
-                Text("Currents works on this phone by default. If you join Crew, only your angler profile, leaderboard catches, friend requests and the spots you choose to share go through Apple's CloudKit, so friends can see them. You can leave Crew at any time.")
+                Text("Joining Crew shares only your profile, leaderboard catches and the spots you choose.")
             }
             .pfRows()
         }
@@ -1219,18 +1399,47 @@ struct PrivacySettingsView: View {
     }
 }
 
+/// What a friend sees for a shared catch: the pin itself, or a circle that
+/// grows with the blur distance.
+private struct BlurRadiusPreview: View {
+    let radiusKm: Double
+    let tint: Color
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private let size: CGFloat = 64
+
+    var body: some View {
+        let diameter = 14 + (size - 18) * CGFloat(min(max(radiusKm, 0), 20) / 20)
+        ZStack {
+            Color.dsFill2
+            if radiusKm == 0 {
+                Image(systemName: "mappin")
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(tint)
+                    .transition(.opacity)
+            } else {
+                Circle()
+                    .fill(tint.opacity(0.22))
+                    .overlay(Circle().strokeBorder(tint.opacity(0.7), lineWidth: 1.5))
+                    .frame(width: diameter, height: diameter)
+                    .transition(.opacity)
+            }
+        }
+        .frame(width: size, height: size)
+        .clipShape(RoundedRectangle(cornerRadius: DS.Radius.thumb, style: .continuous))
+        .animation(reduceMotion ? nil : DS.Motion.softSpring, value: radiusKm)
+        .accessibilityHidden(true)
+    }
+}
+
 // MARK: - Widgets and Siri
 
 /// What Currents puts on the Home Screen, Lock Screen and Dynamic Island, and
-/// what you can say to Siri.
+/// what you can say to Siri. The previews read the same snapshot the widgets do,
+/// so they show today's real bite and sessions.
 struct WidgetsSiriView: View {
     @State private var titleShown = false
-
-    private let widgets: [(String, String, String, Color)] = [
-        ("Bite score", "The bite forecast where you are, with its verdict", "gauge.with.dots.needle.67percent", .green),
-        ("Next session", "Your live or next planned session", "calendar", .blue),
-        ("Log a catch", "One tap to the catch log", "plus", .orange),
-    ]
+    @State private var snapshot: CurrentsSnapshot?
 
     private let shortcuts: [(String, String, String, Color)] = [
         ("Bite score", "What's the bite score in Currents", "cloud.sun.fill", .cyan),
@@ -1241,75 +1450,223 @@ struct WidgetsSiriView: View {
         ("Log a fish", "Log a fish in Currents", "mic.fill", .purple),
     ]
 
-    var body: some View {
-        List {
-            Section {
-                DetailHeader(title: "Widgets and Siri",
-                             subtitle: "Check the bite and log a catch without opening the app.")
-                    .padding(.bottom, DS.Space.s2)
-                    .pfBareRow()
-            }
+    private let widgetColumns = [GridItem(.flexible(), spacing: DS.Space.s3),
+                                 GridItem(.flexible(), spacing: DS.Space.s3)]
 
-            Section {
-                ForEach(widgets, id: \.0) { item in
-                    infoRow(item)
-                }
-            } header: {
-                Text("Home Screen and Lock Screen")
-            } footer: {
-                Text("Touch and hold the Home Screen, tap Edit, then Add widget and search for Currents. The bite score also fits the Lock Screen.")
-            }
-            .pfRows()
-
-            Section {
-                infoRow(("Live session", "Timer, catches and the bite on the Lock Screen and in the Dynamic Island", "record.circle", .red))
-                infoRow(("Tournaments", "Your points against the leader while a tournament runs", "trophy.fill", .yellow))
-            } header: {
-                Text("Live Activities")
-            } footer: {
-                Text("They start on their own when you start a session or join a tournament.")
-            }
-            .pfRows()
-
-            Section {
-                ForEach(shortcuts, id: \.0) { item in
-                    HStack(spacing: 14) {
-                        PFIcon(systemImage: item.2, color: item.3)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(item.0).foregroundStyle(.dsText)
-                            Text("\u{201C}\(item.1)\u{201D}")
-                                .font(.subheadline)
-                                .foregroundStyle(.dsText2)
-                        }
-                    }
-                    .accessibilityElement(children: .combine)
-                }
-                if let url = URL(string: "shortcuts://") {
-                    Link(destination: url) {
-                        Text("Open the Shortcuts app").foregroundStyle(.tint)
-                    }
-                }
-            } header: {
-                Text("Siri and Shortcuts")
-            } footer: {
-                Text("Say any of these to Siri, or add them to the Action button in the Shortcuts app.")
-            }
-            .pfRows()
-        }
-        .pfGroupedList()
-        .detailTint(.indigo)
-        .pfTrackScroll($titleShown)
-        .pfScrollTitle("Widgets and Siri", shown: titleShown)
+    /// The verdict, or nil before the app has worked out a forecast.
+    private var verdict: String? {
+        guard let v = snapshot?.biteVerdict.trimmingCharacters(in: .whitespaces),
+              !v.isEmpty, v != "\u{2014}" else { return nil }
+        return v
     }
 
-    private func infoRow(_ item: (String, String, String, Color)) -> some View {
-        HStack(spacing: 14) {
-            PFIcon(systemImage: item.2, color: item.3)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(item.0).foregroundStyle(.dsText)
-                Text(item.1).font(.subheadline).foregroundStyle(.dsText2)
+    private var score: Int? { verdict == nil ? nil : snapshot?.biteScore }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: DS.Space.s8) {
+                DetailHeader(title: "Widgets and Siri",
+                             subtitle: "Check the bite and log a catch without opening the app.")
+
+                VStack(alignment: .leading, spacing: 0) {
+                    SectionTitle("Home Screen and Lock Screen")
+                    LazyVGrid(columns: widgetColumns, spacing: DS.Space.s4) {
+                        widgetTile("Bite score") { biteWidget }
+                        widgetTile("Next session") { sessionWidget }
+                        widgetTile("Log a catch") { logWidget }
+                        widgetTile("Lock Screen", fill: .dsFill2) { lockWidget }
+                    }
+                    .padding(.horizontal, DS.gutter)
+                    PFFootnote("Touch and hold the Home Screen, tap Edit, then Add widget.")
+                        .padding(.top, DS.Space.s3)
+                }
+
+                VStack(alignment: .leading, spacing: 0) {
+                    SectionTitle("Live Activities")
+                    row("Live session", "Timer, catches and the bite on the Lock Screen and in the Dynamic Island",
+                        "record.circle", .red)
+                    row("Tournaments", "Your points against the leader while a tournament runs",
+                        "trophy.fill", .yellow)
+                    PFFootnote("They start on their own with a session or tournament.")
+                        .padding(.top, DS.Space.s2)
+                }
+
+                VStack(alignment: .leading, spacing: 0) {
+                    SectionTitle("Siri and Shortcuts")
+                    ForEach(shortcuts, id: \.0) { item in
+                        row(item.0, "\u{201C}\(item.1)\u{201D}", item.2, item.3)
+                    }
+                    if let url = URL(string: "shortcuts://") {
+                        Link(destination: url) {
+                            Label("Open Shortcuts", systemImage: "square.2.layers.3d")
+                        }
+                        .buttonStyle(.dsTonal)
+                        .padding(.horizontal, DS.gutter)
+                        .padding(.top, DS.Space.s3)
+                    }
+                }
+            }
+            .padding(.bottom, DS.Space.s8)
+            .pageWidth()
+        }
+        .detailTint(.indigo)
+        .pfTrackScroll($titleShown, threshold: 60)
+        .pfScrollTitle("Widgets and Siri", shown: titleShown)
+        .task { snapshot = SharedStore.load() }
+    }
+
+    // MARK: Widget previews
+
+    /// A square widget-shaped tile with its name underneath, as in the widget gallery.
+    private func widgetTile<Content: View>(_ caption: String, fill: Color = .dsFill,
+                                           @ViewBuilder content: () -> Content) -> some View {
+        VStack(spacing: DS.Space.s2) {
+            fill
+                .aspectRatio(1, contentMode: .fit)
+                .overlay(alignment: .topLeading) {
+                    content()
+                        .padding(DS.Space.s4)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                }
+                .clipShape(RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
+            Text(caption)
+                .font(.footnote)
+                .foregroundStyle(.dsText2)
+                .lineLimit(1)
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    private var biteWidget: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if let score {
+                ScoreRing(score: score, size: 56)
+            } else {
+                ThumbView(systemImage: "fish.fill", tint: DS.accent, size: 56)
+            }
+            Spacer(minLength: DS.Space.s1)
+            Text("Bite score")
+                .font(.caption)
+                .foregroundStyle(.dsText2)
+            Text(verdict ?? "No forecast yet")
+                .font(.headline)
+                .foregroundStyle(.dsText)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+            if let place = snapshot?.locationName, !place.isEmpty {
+                Text(place)
+                    .font(.caption)
+                    .foregroundStyle(.dsText2)
+                    .lineLimit(1)
             }
         }
+    }
+
+    @ViewBuilder
+    private var sessionWidget: some View {
+        if let snapshot, let start = snapshot.activeSessionStart {
+            VStack(alignment: .leading, spacing: 2) {
+                Label("Live session", systemImage: "record.circle")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.dsScoreSlow)
+                Spacer(minLength: DS.Space.s1)
+                Text(snapshot.activeSessionName ?? "Session")
+                    .font(.headline)
+                    .foregroundStyle(.dsText)
+                    .lineLimit(2)
+                Text(start, style: .timer)
+                    .font(.subheadline.weight(.semibold))
+                    .monospacedDigit()
+                    .foregroundStyle(.dsText2)
+            }
+        } else if let snapshot, let name = snapshot.nextSessionName, let date = snapshot.nextSessionDate {
+            VStack(alignment: .leading, spacing: 2) {
+                Label("Next session", systemImage: "calendar")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.tint)
+                Spacer(minLength: DS.Space.s1)
+                Text(name)
+                    .font(.headline)
+                    .foregroundStyle(.dsText)
+                    .lineLimit(2)
+                Text(date.formatted(date: .abbreviated, time: .shortened))
+                    .font(.caption)
+                    .foregroundStyle(.dsText2)
+                    .lineLimit(1)
+            }
+        } else {
+            VStack(alignment: .leading, spacing: 2) {
+                Label("Sessions", systemImage: "figure.fishing")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.tint)
+                Spacer(minLength: DS.Space.s1)
+                Text("No session planned")
+                    .font(.headline)
+                    .foregroundStyle(.dsText)
+                    .lineLimit(2)
+                Text("Plan one in Currents")
+                    .font(.caption)
+                    .foregroundStyle(.dsText2)
+            }
+        }
+    }
+
+    private var logWidget: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Image(systemName: "plus")
+                .font(.title2.weight(.semibold))
+                .foregroundStyle(.dsOnPrimary)
+                .frame(width: 48, height: 48)
+                .background(Color.dsPrimaryButton, in: Circle())
+                .accessibilityHidden(true)
+            Spacer(minLength: DS.Space.s1)
+            Text("Log a catch")
+                .font(.headline)
+                .foregroundStyle(.dsText)
+            Text("One tap to the catch log")
+                .font(.caption)
+                .foregroundStyle(.dsText2)
+                .lineLimit(2)
+        }
+    }
+
+    private var lockWidget: some View {
+        VStack(spacing: DS.Space.s2) {
+            Text(Date.now, format: .dateTime.hour().minute())
+                .font(.title.weight(.semibold))
+                .monospacedDigit()
+                .foregroundStyle(.dsText)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+            Gauge(value: Double(score ?? 0), in: 0...100) {
+                Image(systemName: "fish.fill")
+            } currentValueLabel: {
+                Text(score.map { "\($0)" } ?? "\u{2013}")
+                    .monospacedDigit()
+            }
+            .gaugeStyle(.accessoryCircular)
+            .tint(score.map { DS.scoreColor($0) } ?? .dsText3)
+            .accessibilityLabel(score.map { "Bite score \($0) out of 100" } ?? "No forecast yet")
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    // MARK: Rows
+
+    private func row(_ title: String, _ detail: String, _ icon: String, _ tint: Color) -> some View {
+        HStack(spacing: 14) {
+            ThumbView(systemImage: icon, tint: tint, size: 44)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .foregroundStyle(.dsText)
+                Text(detail)
+                    .font(.subheadline)
+                    .foregroundStyle(.dsText2)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, DS.gutter)
+        .padding(.vertical, DS.Space.s2)
         .accessibilityElement(children: .combine)
     }
 }
@@ -1318,16 +1675,18 @@ struct WidgetsSiriView: View {
 
 struct AboutView: View {
     @Environment(\.requestReview) private var requestReview
-    @AppStorage("hasOnboarded") private var hasOnboarded = false
     @State private var titleShown = false
 
     private static let koFi = URL(string: "https://ko-fi.com/aidanmcconnon")!
 
+    /// "2.4", for the About row in settings.
+    static var shortVersion: String {
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
+    }
+
     private var version: String {
-        let info = Bundle.main.infoDictionary
-        let short = info?["CFBundleShortVersionString"] as? String ?? "1.0"
-        let build = info?["CFBundleVersion"] as? String ?? ""
-        return build.isEmpty ? "Version \(short)" : "Version \(short) (\(build))"
+        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? ""
+        return build.isEmpty ? "Version \(Self.shortVersion)" : "Version \(Self.shortVersion) (\(build))"
     }
 
     var body: some View {
@@ -1350,16 +1709,6 @@ struct AboutView: View {
                 .pfBareRow()
             }
 
-            Section("What it does") {
-                feature("Bite forecasts for your exact water", "gauge.with.dots.needle.67percent", .green)
-                feature("A catch log that learns what works", "book.fill", .blue)
-                feature("Species ID on your phone", "camera.viewfinder", .purple)
-                feature("Crews, tournaments and live trips", "person.3.fill", .orange)
-                feature("Offline maps with depth", "map.fill", .teal)
-                feature("Honey-hole privacy", "hand.raised.fill", .indigo)
-            }
-            .pfRows()
-
             Section {
                 Link(destination: Self.koFi) {
                     PFRowLabel(title: "Support Currents on Ko-fi", systemImage: "cup.and.saucer.fill", color: .orange)
@@ -1369,16 +1718,10 @@ struct AboutView: View {
                 } label: {
                     PFRowLabel(title: "Rate Currents", systemImage: "star.fill", color: .yellow)
                 }
-                Button {
-                    Haptics.tap()
-                    hasOnboarded = false
-                } label: {
-                    PFRowLabel(title: "Show welcome again", systemImage: "play.fill", color: .green)
-                }
             } header: {
                 Text("Support")
             } footer: {
-                Text("Currents is free, with no ads and no account. A coffee helps cover the costs.")
+                Text("Currents is free, with no ads and no account.")
             }
             .pfRows()
 
@@ -1395,13 +1738,6 @@ struct AboutView: View {
         .detailTint(DS.accent)
         .pfTrackScroll($titleShown, threshold: 140)
         .pfScrollTitle("About", shown: titleShown)
-    }
-
-    private func feature(_ text: String, _ icon: String, _ color: Color) -> some View {
-        HStack(spacing: 14) {
-            PFIcon(systemImage: icon, color: color)
-            Text(text).foregroundStyle(.dsText)
-        }
     }
 }
 

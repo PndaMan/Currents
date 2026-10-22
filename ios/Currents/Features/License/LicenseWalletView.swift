@@ -29,7 +29,7 @@ struct LicenseWalletView: View {
                     ContentUnavailableView {
                         Label("No licences yet", systemImage: "person.text.rectangle")
                     } description: {
-                        Text("Keep your angling licences and permits here. Currents reads the expiry date and reminds you before it lapses.")
+                        Text("Keep your licences here, with a reminder before they expire.")
                     } actions: {
                         Button("Add licence") { showingAdd = true }
                             .buttonStyle(PrimaryButtonStyle(fullWidth: false))
@@ -65,11 +65,12 @@ struct LicenseWalletView: View {
                     }
 
                     if !licenses.isEmpty {
-                        PFFootnote("Stored on this phone only. Works with no signal, so you can show it at the water.")
+                        PFFootnote("Works with no signal, so you can show it at the water.")
                     }
                 }
             }
             .padding(.bottom, DS.Space.s8)
+            .pageWidth()
         }
         .detailTint(.green)
         .pfTrackScroll($titleShown, threshold: 60)
@@ -186,26 +187,11 @@ struct LicenseDetailView: View {
     @State private var showingDocument = false
     @State private var titleShown = false
 
-    private var rows: [(String, String)] {
-        var result: [(String, String)] = []
-        func add(_ label: String, _ value: String?) {
-            if let value, !value.isEmpty { result.append((label, value)) }
-        }
-        add("Type", license.licenseType)
-        add("Holder", license.holderName)
-        add("Number", license.licenseNumber)
-        add("Region", license.region)
-        add("Issued", license.issueDate.map { $0.formatted(date: .abbreviated, time: .omitted) })
-        add("Expires", license.expiryDate.map { $0.formatted(date: .abbreviated, time: .omitted) })
-        return result
-    }
-
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: DS.Space.s6) {
                 VStack(alignment: .leading, spacing: DS.Space.s4) {
-                    DetailHeader(over: license.licenseType, title: license.title,
-                                 subtitle: license.expiryStatus?.text)
+                    DetailHeader(title: license.title, subtitle: license.expiryStatus?.text)
                     ActionTriple {
                         Button { showingRenewal = true } label: {
                             Label("Add renewal", systemImage: "arrow.clockwise")
@@ -222,30 +208,30 @@ struct LicenseDetailView: View {
                     }
                 }
 
-                if license.fileName != nil {
-                    Button { showingDocument = true } label: {
-                        LicenseDocumentView(license: license)
-                            .frame(height: 320)
-                            .frame(maxWidth: .infinity)
-                            .background(Color.dsFill)
-                            .clipShape(RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
-                            .overlay(alignment: .bottomTrailing) {
-                                Label("View full screen", systemImage: "arrow.up.left.and.arrow.down.right")
-                                    .font(.caption.weight(.semibold))
-                                    .padding(.horizontal, 10).padding(.vertical, 6)
-                                    .background(.regularMaterial, in: Capsule()) // ui-lint: allow, label floats over the licence document
-                                    .padding(10)
-                            }
-                    }
-                    .buttonStyle(.dim)
+                LicenseCard(license: license, showsTitle: false)
                     .padding(.horizontal, DS.gutter)
-                    .accessibilityLabel("View the licence document full screen")
-                }
 
-                if !rows.isEmpty {
+                if license.fileName != nil {
                     VStack(alignment: .leading, spacing: 0) {
-                        SectionTitle("Details")
-                        PFKeyValueCard(rows: rows)
+                        SectionTitle("Document")
+                        Button { showingDocument = true } label: {
+                            LicenseDocumentView(license: license)
+                                .allowsHitTesting(false)
+                                .frame(height: 300)
+                                .frame(maxWidth: .infinity)
+                                .background(Color.dsFill)
+                                .clipShape(RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
+                                .overlay(alignment: .bottomTrailing) {
+                                    Label("View full screen", systemImage: "arrow.up.left.and.arrow.down.right")
+                                        .font(.caption.weight(.semibold))
+                                        .padding(.horizontal, 10).padding(.vertical, 6)
+                                        .background(.regularMaterial, in: Capsule()) // ui-lint: allow, label floats over the licence document
+                                        .padding(10)
+                                }
+                        }
+                        .buttonStyle(.dim)
+                        .padding(.horizontal, DS.gutter)
+                        .accessibilityLabel("View the licence document full screen")
                     }
                 }
 
@@ -262,10 +248,11 @@ struct LicenseDetailView: View {
                 }
 
                 if license.expiryDate != nil {
-                    PFFootnote("Reminders come a month, two weeks, a week and three days before it expires, and on the day.")
+                    PFFootnote("Reminders start a month before expiry.")
                 }
             }
             .padding(.bottom, DS.Space.s8)
+            .pageWidth()
         }
         .detailTint(license.isMarine ? .blue : .green)
         .pfTrackScroll($titleShown, threshold: 80)
@@ -295,6 +282,100 @@ struct LicenseDetailView: View {
     private func refresh() {
         license = (try? appState.licenseRepository.fetchAll())?.first { $0.id == license.id } ?? license
         onChange()
+    }
+}
+
+// MARK: - Card
+
+/// The licence as a card, like a pass in Wallet: where it is valid, its type
+/// and the facts a ranger asks for. Expired licences go grey. The add sheet
+/// shows it as a live preview, with the title.
+struct LicenseCard: View {
+    let license: FishingLicense
+    var showsTitle = true
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    private var tint: Color {
+        if license.isExpired { return .dsText3 }
+        return license.isMarine ? .blue : .green
+    }
+
+    private var place: String {
+        let region = license.region ?? ""
+        return region.isEmpty ? "Fishing licence" : region
+    }
+
+    private var facts: [(label: String, value: String, color: Color)] {
+        var result: [(label: String, value: String, color: Color)] = []
+        func add(_ label: String, _ value: String?, _ color: Color = .dsText) {
+            if let value, !value.isEmpty { result.append((label, value, color)) }
+        }
+        add("Holder", license.holderName)
+        add("Number", license.licenseNumber)
+        add("Issued", license.issueDate.map { $0.formatted(date: .abbreviated, time: .omitted) })
+        let soon = (license.daysUntilExpiry ?? Int.max) <= 30
+        add("Expires", license.expiryDate.map { $0.formatted(date: .abbreviated, time: .omitted) },
+            soon ? (license.expiryStatus?.color ?? Color.dsText) : Color.dsText)
+        return result
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: DS.Space.s3) {
+            HStack(alignment: .firstTextBaseline, spacing: DS.Space.s2) {
+                Label(place, systemImage: license.isMarine ? "water.waves" : "tree.fill")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(tint)
+                    .lineLimit(2)
+                Spacer(minLength: 0)
+                if let type = license.licenseType, !type.isEmpty {
+                    Text(type)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(tint)
+                        .lineLimit(1)
+                        .padding(.horizontal, DS.Space.s2)
+                        .padding(.vertical, 3)
+                        .background(tint.opacity(0.16), in: Capsule())
+                }
+            }
+
+            if showsTitle {
+                Text(license.title.isEmpty ? "Fishing licence" : license.title)
+                    .font(.title3.bold())
+                    .foregroundStyle(license.title.isEmpty ? .dsText3 : .dsText)
+                    .lineLimit(2)
+            }
+
+            if !facts.isEmpty {
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: DS.Space.s4, alignment: .topLeading),
+                                         count: typeSize.isAccessibilitySize ? 1 : 2),
+                          alignment: .leading, spacing: DS.Space.s3) {
+                    ForEach(facts, id: \.label) { fact in
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(fact.label)
+                                .font(.caption)
+                                .foregroundStyle(.dsText2)
+                            Text(fact.value)
+                                .font(.subheadline.weight(.medium))
+                                .foregroundStyle(fact.color)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+            } else if showsTitle {
+                Text("Scan the licence or fill in the details.")
+                    .font(.footnote)
+                    .foregroundStyle(.dsText2)
+            }
+        }
+        .padding(DS.Space.s4)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(tint.opacity(0.12), in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous)
+                .strokeBorder(tint.opacity(0.3), lineWidth: 1)
+        }
+        .accessibilityElement(children: .combine)
     }
 }
 

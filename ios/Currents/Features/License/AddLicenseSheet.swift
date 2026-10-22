@@ -29,29 +29,78 @@ struct AddLicenseSheet: View {
     @State private var showingCamera = false
     @State private var isScanning = false
 
+    /// The common kinds as one-tap chips. A different type saved earlier
+    /// shows as its own chip, so editing never loses it.
+    private static let types = ["Freshwater", "Marine", "Permit"]
+
+    private var typeOptions: [String] {
+        let current = licenseType.trimmingCharacters(in: .whitespaces)
+        return current.isEmpty || Self.types.contains(current) ? Self.types : Self.types + [current]
+    }
+
+    /// The form as a licence, for the live card at the top.
+    private var draft: FishingLicense {
+        FishingLicense(id: id, title: title,
+                       licenseType: licenseType.isEmpty ? nil : licenseType,
+                       holderName: holderName.isEmpty ? nil : holderName,
+                       licenseNumber: licenseNumber.isEmpty ? nil : licenseNumber,
+                       region: region.isEmpty ? nil : region,
+                       issueDate: issueDate, expiryDate: expiryDate,
+                       fileName: fileName, fileKind: fileKind)
+    }
+
     var body: some View {
         NavigationStack {
             Form {
-                documentSection
-                Section("Details") {
-                    TextField("Title, for example Western Cape angling licence", text: $title)
-                    TextField("Type", text: $licenseType)
-                    TextField("Holder name", text: $holderName)
-                    TextField("Licence number", text: $licenseNumber)
-                    TextField("Region or authority", text: $region)
+                Section {
+                    LicenseCard(license: draft)
+                        .licenseFormBareRow()
                 }
-                Section("Validity") {
-                    optionalDatePicker("Issue date", date: $issueDate)
-                    optionalDatePicker("Expiry date", date: $expiryDate)
+                documentSection
+                Section {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 6) {
+                            ForEach(typeOptions, id: \.self) { type in
+                                Chip(type, isSelected: licenseType == type) {
+                                    Haptics.selection()
+                                    licenseType = licenseType == type ? "" : type
+                                }
+                            }
+                        }
+                        .padding(.vertical, DS.Space.s1)
+                    }
+                    .scrollBounceBehavior(.basedOnSize, axes: [.horizontal])
+                    .licenseFormBareRow()
+                } header: {
+                    Text("Type")
+                }
+                Section("Details") {
+                    TextField("Title", text: $title, prompt: Text("Western Cape freshwater licence"))
+                    field("Holder", text: $holderName, prompt: "Your name")
+                    field("Number", text: $licenseNumber, prompt: "As printed")
+                    field("Region", text: $region, prompt: "Where it is valid")
+                }
+                .pfRows()
+                Section {
+                    dateRow("Issued", date: $issueDate)
+                    dateRow("Expires", date: $expiryDate)
+                } header: {
+                    Text("Validity")
+                } footer: {
                     if expiryDate != nil {
-                        Text("You get a reminder a month, two weeks, a week and three days before, and on the day.")
-                            .font(.footnote).foregroundStyle(.dsText2)
+                        Text("Reminders start a month before expiry.")
                     }
                 }
+                .pfRows()
                 Section("Notes") {
-                    TextField("Notes", text: $notes, axis: .vertical).lineLimit(2...5)
+                    TextField("Notes", text: $notes, prompt: Text("Where you bought it, conditions"), axis: .vertical)
+                        .lineLimit(2...5)
                 }
+                .pfRows()
             }
+            .scrollContentBackground(.hidden)
+            .dsScreenBackground()
+            .detailScrollEdge()
             .navigationTitle(editing != nil ? "Edit licence" : (renewing != nil ? "Add renewal" : "Add licence"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -82,40 +131,92 @@ struct AddLicenseSheet: View {
     // MARK: - Document section
 
     @ViewBuilder private var documentSection: some View {
-        Section("Document") {
-            if let fileName, let fileKind {
-                LicenseDocumentView(license: FishingLicense(title: title, fileName: fileName, fileKind: fileKind))
-                    .frame(height: 180)
-                    .clipShape(RoundedRectangle(cornerRadius: DS.Radius.thumb, style: .continuous))
-            }
-            if isScanning {
-                HStack(spacing: 8) { ProgressView(); Text("Reading the licence").font(.footnote).foregroundStyle(.dsText2) }
-            }
-            HStack {
-                Button { showingFileImporter = true } label: { Label("File", systemImage: "doc") }
-                    .buttonStyle(.borderless)
-                Spacer()
-                PhotosPicker(selection: $photoItem, matching: .images) { Label("Photo", systemImage: "photo") }
-                    .buttonStyle(.borderless)
-                Spacer()
+        Section {
+            HStack(spacing: DS.Space.s2) {
                 if UIImagePickerController.isSourceTypeAvailable(.camera) {
-                    Button { showingCamera = true } label: { Label("Scan", systemImage: "camera") }
-                        .buttonStyle(.borderless)
+                    Button { showingCamera = true } label: {
+                        Label("Scan", systemImage: "camera.viewfinder")
+                    }
+                    .buttonStyle(ActionTileStyle(fileName == nil ? .primary : .tonal))
+                    .accessibilityLabel("Scan the licence with the camera")
                 }
+                PhotosPicker(selection: $photoItem, matching: .images) {
+                    ActionTileLabel("Photo", systemImage: "photo")
+                }
+                .buttonStyle(.dim)
+                .accessibilityLabel("Choose a photo of the licence")
+                Button { showingFileImporter = true } label: {
+                    Label("File", systemImage: "doc")
+                }
+                .buttonStyle(ActionTileStyle())
+                .accessibilityLabel("Choose a PDF or file")
             }
-            .font(.subheadline)
+            .licenseFormBareRow()
+        } header: {
+            Text("Document")
+        }
+
+        if let fileName, let fileKind {
+            Section {
+                HStack(spacing: 12) {
+                    LicenseDocumentView(license: FishingLicense(title: title, fileName: fileName, fileKind: fileKind))
+                        .allowsHitTesting(false)
+                        .frame(width: 56, height: 56)
+                        .background(Color.dsFill2)
+                        .clipShape(RoundedRectangle(cornerRadius: DS.Radius.thumb, style: .continuous))
+                        .accessibilityHidden(true)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(fileKind == "pdf" ? "PDF attached" : "Photo attached")
+                            .foregroundStyle(.dsText)
+                        if isScanning {
+                            Text("Reading the licence")
+                                .font(.footnote)
+                                .foregroundStyle(.dsText2)
+                        }
+                    }
+                    Spacer(minLength: 0)
+                    if isScanning {
+                        ProgressView()
+                    } else {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                            .accessibilityHidden(true)
+                    }
+                }
+                .accessibilityElement(children: .combine)
+            }
+            .pfRows()
         }
     }
 
-    @ViewBuilder private func optionalDatePicker(_ label: String, date: Binding<Date?>) -> some View {
-        Toggle(isOn: Binding(get: { date.wrappedValue != nil },
-                             set: { date.wrappedValue = $0 ? (date.wrappedValue ?? .now) : nil })) {
-            Text(label)
+    private func field(_ label: String, text: Binding<String>, prompt: String) -> some View {
+        LabeledContent(label) {
+            TextField(label, text: text, prompt: Text(prompt))
+                .multilineTextAlignment(.trailing)
         }
-        if let value = date.wrappedValue {
-            DatePicker(label, selection: Binding(get: { value }, set: { date.wrappedValue = $0 }),
-                       displayedComponents: .date)
-                .labelsHidden()
+    }
+
+    /// A date that may be left out: the compact picker with a clear button
+    /// once set, or a button to add it.
+    @ViewBuilder private func dateRow(_ label: String, date: Binding<Date?>) -> some View {
+        LabeledContent(label) {
+            if let value = date.wrappedValue {
+                HStack(spacing: DS.Space.s2) {
+                    DatePicker(label, selection: Binding(get: { value }, set: { date.wrappedValue = $0 }),
+                               displayedComponents: .date)
+                        .labelsHidden()
+                    Button { date.wrappedValue = nil } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.dsText3)
+                    }
+                    .buttonStyle(.borderless)
+                    .accessibilityLabel("Clear the \(label.lowercased()) date")
+                }
+            } else {
+                Button("Add date") { date.wrappedValue = .now }
+                    .buttonStyle(.borderless)
+                    .accessibilityLabel("Add the \(label.lowercased()) date")
+            }
         }
     }
 
@@ -202,5 +303,15 @@ struct AddLicenseSheet: View {
         Task { await NotificationManager.shared.scheduleLicenseExpiryAlerts(licenses: all) }
         ToastCenter.shared.show(editing != nil ? "Licence updated" : (renewing != nil ? "Renewal added" : "Licence added"))
         dismiss()
+    }
+}
+
+private extension View {
+    /// A clear, full-width form row for content that brings its own
+    /// background (the card, the document tiles, the type chips).
+    func licenseFormBareRow() -> some View {
+        listRowInsets(EdgeInsets())
+            .listRowBackground(Color.clear)
+            .listRowSeparator(.hidden)
     }
 }

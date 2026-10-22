@@ -3,17 +3,24 @@ import SwiftUI
 /// First-launch welcome and permission primers. Shown once (gated by
 /// `hasOnboarded`) so the location and notification system prompts are asked
 /// with context, not cold on launch. Each page shows the real feature it is
-/// about: species art, the bite ring, alert banners, a crew card.
+/// about: species art, the bite ring, alert banners. The last page picks the
+/// target species, the same `targetSpeciesId` the forecast pickers write.
 struct OnboardingView: View {
     @Environment(AppState.self) private var appState
     @AppStorage("hasOnboarded") private var hasOnboarded = false
+    @AppStorage("targetSpeciesId") private var targetSpeciesId: Int = 0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var typeSize
     @State private var page = 0
     @State private var posters: [Species] = []
+    @State private var picks: [Species] = []
 
     private let pageCount = 4
     /// Species shown on the welcome posters, in poster order.
     private static let posterSpeciesIDs: [Int64] = [1, 120, 17, 46, 130, 18]
+    /// Species offered on the last page: the common targets in fresh and
+    /// salt water. Any other species can be picked later in the forecast.
+    private static let pickSpeciesIDs: [Int64] = [1, 2, 17, 18, 34, 46, 240, 11, 120, 130, 72, 86]
 
     var body: some View {
         VStack(spacing: 0) {
@@ -23,7 +30,7 @@ struct OnboardingView: View {
                 welcomePage.tag(0)
                 locationPage.tag(1)
                 alertsPage.tag(2)
-                crewsPage.tag(3)
+                speciesPage.tag(3)
             }
             .tabViewStyle(.page(indexDisplayMode: .never))
             .animation(reduceMotion ? nil : DS.Motion.softSpring, value: page)
@@ -57,6 +64,7 @@ struct OnboardingView: View {
         .sensoryFeedback(.selection, trigger: page)
         .task {
             posters = Self.posterSpeciesIDs.compactMap { (try? appState.speciesRepository.fetch(id: $0)) ?? nil }
+            picks = Self.pickSpeciesIDs.compactMap { (try? appState.speciesRepository.fetch(id: $0)) ?? nil }
         }
     }
 
@@ -167,7 +175,7 @@ struct OnboardingView: View {
     private var locationPage: some View {
         primerPage(
             title: "Find the bite near you",
-            body: "Currents uses your location to pick the nearest water for the forecast and to pin your catches. It stays on this phone unless you choose to share."
+            body: "Your location picks the nearest water for the forecast and pins your catches. It stays on this phone unless you share it."
         ) {
             VStack(spacing: DS.Space.s5) {
                 ScoreRing(score: 81, size: 150, caption: "of 100")
@@ -187,7 +195,7 @@ struct OnboardingView: View {
     private var alertsPage: some View {
         primerPage(
             title: "Never miss prime time",
-            body: "Only the alerts you choose: prime windows at your spots, low tackle and licence reminders. No marketing. Change them any time in Settings."
+            body: "Prime windows at your spots, low tackle and licence reminders. Only the ones you choose."
         ) {
             VStack(spacing: 10) {
                 banner(title: "Prime window at your spot",
@@ -217,46 +225,79 @@ struct OnboardingView: View {
         .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
     }
 
-    // MARK: Page 3, crews
+    // MARK: Page 3, target species
 
-    private var crewsPage: some View {
-        primerPage(
-            title: "Fish with friends",
-            body: "Share catches, run crew tournaments and chase weekly challenges. All optional, and off until you join."
-        ) {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(spacing: 10) {
-                    avatar("D", .blue)
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text("Your crew").font(.subheadline.weight(.semibold)).foregroundStyle(.dsText)
-                        Text("Tournament on now").font(.footnote).foregroundStyle(.dsText2)
-                    }
-                    Spacer()
-                    Image(systemName: "trophy.fill").foregroundStyle(.yellow)
+    private var speciesPage: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: DS.Space.s5) {
+                VStack(alignment: .leading, spacing: DS.Space.s3) {
+                    Text("What do you fish for?")
+                        .font(.largeTitle.bold())
+                        .foregroundStyle(.dsText)
+                    Text("Pick the one you target most. The forecast and lure picks tune to it.")
+                        .font(.callout)
+                        .foregroundStyle(.dsText2)
                 }
-                Rectangle().fill(Color.dsSeparator).frame(height: 0.5)
-                HStack(spacing: 10) {
-                    avatar("S", .green)
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text("A friend landed a largemouth bass").font(.subheadline.weight(.semibold)).foregroundStyle(.dsText)
-                        Text("1.8 kg, 5 minutes ago").font(.footnote).foregroundStyle(.dsText2)
+                .padding(.horizontal, DS.gutter)
+
+                if picks.isEmpty {
+                    ProgressView()
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, DS.Space.s6)
+                } else {
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: DS.Space.s3, alignment: .top),
+                                             count: typeSize.isAccessibilitySize ? 2 : 3),
+                              spacing: DS.Space.s4) {
+                        ForEach(picks) { species in
+                            speciesTile(species)
+                        }
                     }
-                    Spacer(minLength: 0)
+                    .padding(.horizontal, DS.gutter)
                 }
             }
-            .padding(DS.Space.s4)
-            .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
-            .padding(.horizontal, DS.gutter)
-            .accessibilityHidden(true)
+            .padding(.top, DS.Space.s4)
+            .padding(.bottom, DS.Space.s5)
+            .pageWidth()
         }
+        .scrollIndicators(.hidden)
     }
 
-    private func avatar(_ initial: String, _ color: Color) -> some View {
-        Text(initial)
-            .font(.subheadline.weight(.semibold))
-            .foregroundStyle(.white)
-            .frame(width: 34, height: 34)
-            .background(color, in: Circle())
+    private func speciesTile(_ species: Species) -> some View {
+        let selected = targetSpeciesId == Int(species.id)
+        return Button {
+            Haptics.selection()
+            withAnimation(reduceMotion ? nil : DS.Motion.spring) {
+                targetSpeciesId = selected ? 0 : Int(species.id)
+            }
+        } label: {
+            VStack(spacing: DS.Space.s2) {
+                ThumbView(species: species, size: 76)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: DS.Radius.thumb, style: .continuous)
+                            .strokeBorder(selected ? Color.dsText : Color.clear, lineWidth: 2.5)
+                    }
+                    .overlay(alignment: .topTrailing) {
+                        if selected {
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.title3)
+                                .symbolRenderingMode(.palette)
+                                .foregroundStyle(Color.dsOnPrimary, Color.dsPrimaryButton)
+                                .offset(x: 6, y: -6)
+                                .transition(.scale.combined(with: .opacity))
+                        }
+                    }
+                Text(species.commonName)
+                    .font(.footnote.weight(selected ? .semibold : .medium))
+                    .foregroundStyle(.dsText)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+            }
+            .frame(maxWidth: .infinity)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.dim)
+        .accessibilityLabel(species.commonName)
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
     // MARK: Scaffold

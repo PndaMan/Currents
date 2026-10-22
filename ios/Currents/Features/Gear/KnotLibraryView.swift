@@ -3,23 +3,28 @@ import SwiftUI
 /// Offline knot and rig reference. Knots that have a real, openly-licensed
 /// diagram or photo (bundled from Wikimedia Commons, with attribution) show it;
 /// the rest show accurate numbered steps only. No invented diagrams, which are
-/// misleading. Content is data-driven so entries are easy to extend.
+/// misleading. Entries come from `KnotCatalog`, so new sources plug in there.
 struct KnotLibraryView: View {
+    private let catalog = KnotCatalog.shared
     @State private var search = ""
     @State private var category: KnotEntry.Category?
     @State private var titleShown = false
     @AppStorage("favouriteKnots") private var favouritesRaw = ""
 
-    private var favourites: Set<String> { KnotFavourites.decode(favouritesRaw) }
+    private var favourites: Set<String> {
+        KnotFeatures.personalTools ? KnotFavourites.decode(favouritesRaw) : []
+    }
 
     private var filtered: [KnotEntry] {
-        KnotEntry.all.filter { entry in
+        let matches = catalog.entries.filter { entry in
             (category == nil || entry.category == category)
             && (search.isEmpty
                 || entry.name.localizedCaseInsensitiveContains(search)
                 || entry.useCase.localizedCaseInsensitiveContains(search))
         }
-        .sorted { favourites.contains($0.name) && !favourites.contains($1.name) }
+        guard KnotFeatures.personalTools else { return matches }
+        let saved = favourites
+        return matches.sorted { KnotFavourites.contains($0, in: saved) && !KnotFavourites.contains($1, in: saved) }
     }
 
     var body: some View {
@@ -46,7 +51,7 @@ struct KnotLibraryView: View {
                 } else {
                     LazyVStack(spacing: 0) {
                         ForEach(filtered) { knot in
-                            NavigationLink(value: KnotRoute(name: knot.name)) {
+                            NavigationLink(value: KnotRoute(id: knot.id)) {
                                 knotRow(knot)
                             }
                             .buttonStyle(.dim)
@@ -55,13 +60,17 @@ struct KnotLibraryView: View {
                 }
             }
             .padding(.bottom, DS.Space.s8)
+            .pageWidth()
         }
         .detailTint(.cyan)
         .pfTrackScroll($titleShown, threshold: 60)
         .pfScrollTitle("Knots and rigs", shown: titleShown)
         .navigationDestination(for: KnotRoute.self) { route in
-            if let knot = KnotEntry.all.first(where: { $0.name == route.name }) {
+            if let knot = catalog.entry(id: route.id) {
                 KnotDetailView(knot: knot)
+            } else {
+                ContentUnavailableView("Knot not found", systemImage: "questionmark.circle",
+                                       description: Text("It may have been removed."))
             }
         }
         .sensoryFeedback(.selection, trigger: category)
@@ -75,7 +84,7 @@ struct KnotLibraryView: View {
                     Text(knot.name)
                         .foregroundStyle(.dsText)
                         .lineLimit(1)
-                    if favourites.contains(knot.name) {
+                    if KnotFavourites.contains(knot, in: favourites) {
                         Image(systemName: "star.fill")
                             .font(.caption)
                             .foregroundStyle(.yellow)
@@ -99,10 +108,17 @@ struct KnotLibraryView: View {
 }
 
 struct KnotRoute: Hashable {
-    let name: String
+    let id: String
 }
 
-/// Saved knots, stored as a newline-separated list of names.
+/// Switches for knot features that are built but not shown yet.
+enum KnotFeatures {
+    /// Save, the saved badge, saved-first sorting and Share. Off until knot
+    /// sharing ships, so the library reads as a clean reference meanwhile.
+    static let personalTools = false
+}
+
+/// Saved knots, stored as a newline-separated list of knot ids.
 enum KnotFavourites {
     static func decode(_ raw: String) -> Set<String> {
         Set(raw.split(separator: "\n").map(String.init))
@@ -110,6 +126,11 @@ enum KnotFavourites {
 
     static func encode(_ set: Set<String>) -> String {
         set.sorted().joined(separator: "\n")
+    }
+
+    /// Older builds saved by name, so a name match still counts.
+    static func contains(_ knot: KnotEntry, in set: Set<String>) -> Bool {
+        set.contains(knot.id) || set.contains(knot.name)
     }
 }
 
@@ -136,13 +157,23 @@ struct KnotDetailView: View {
     let knot: KnotEntry
     @AppStorage("favouriteKnots") private var favouritesRaw = ""
     @State private var stepping: Int?
+    @State private var showsDiagram = false
     @State private var titleShown = false
 
-    private var isFavourite: Bool { KnotFavourites.decode(favouritesRaw).contains(knot.name) }
+    private var isFavourite: Bool { KnotFavourites.contains(knot, in: KnotFavourites.decode(favouritesRaw)) }
+    private var diagram: UIImage? { KnotImageStore.image(knot.imageName) }
 
     private var shareText: String {
         let steps = knot.steps.enumerated().map { "\($0.offset + 1). \($0.element)" }.joined(separator: "\n")
         return "\(knot.name)\n\(knot.useCase)\n\n\(steps)" + (knot.tip.isEmpty ? "" : "\n\nTip: \(knot.tip)")
+    }
+
+    private var facts: [(String, String)] {
+        var rows = [("Strength", knot.strength), ("Type", knot.category.rawValue)]
+        if knot.source == .community, let author = knot.author {
+            rows.append(("Shared by", author))
+        }
+        return rows
     }
 
     var body: some View {
@@ -150,30 +181,21 @@ struct KnotDetailView: View {
             VStack(alignment: .leading, spacing: DS.Space.s6) {
                 VStack(alignment: .leading, spacing: DS.Space.s4) {
                     DetailHeader(over: knot.category.rawValue, title: knot.name, subtitle: knot.useCase)
-                    ActionTriple {
-                        Button { stepping = 0 } label: {
-                            Label("Step through", systemImage: "play.fill")
-                        }
-                        .buttonStyle(ActionTileStyle(.primary))
-                        Button { toggleFavourite() } label: {
-                            Label(isFavourite ? "Saved" : "Save", systemImage: isFavourite ? "star.fill" : "star")
-                        }
-                        .buttonStyle(ActionTileStyle())
-                        ShareLink(item: shareText) {
-                            ActionTileLabel("Share", systemImage: "square.and.arrow.up")
-                        }
-                        .buttonStyle(.dim)
-                    }
+                    actions
                 }
 
-                if let img = KnotImageStore.image(knot.imageName) {
+                if let img = diagram {
                     VStack(alignment: .leading, spacing: DS.Space.s2) {
-                        Image(uiImage: img)
-                            .resizable().scaledToFit()
-                            .frame(maxWidth: .infinity)
-                            .padding(DS.Space.s3)
-                            .background(Color.white, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
-                            .accessibilityLabel("Diagram of the \(knot.name.lowercased())")
+                        Button { showsDiagram = true } label: {
+                            Image(uiImage: img)
+                                .resizable().scaledToFit()
+                                .frame(maxWidth: .infinity)
+                                .padding(DS.Space.s3)
+                                .background(Color.white, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
+                        }
+                        .buttonStyle(.dim)
+                        .accessibilityLabel("Diagram of the \(knot.name.lowercased())")
+                        .accessibilityHint("Opens the diagram full screen")
                         if let credit = knot.attribution {
                             Text(credit)
                                 .font(.caption2)
@@ -183,10 +205,10 @@ struct KnotDetailView: View {
                     .padding(.horizontal, DS.gutter)
                 }
 
-                PFKeyValueCard(rows: [("Strength", knot.strength), ("Type", knot.category.rawValue)])
+                PFKeyValueCard(rows: facts)
 
                 VStack(alignment: .leading, spacing: 0) {
-                    SectionTitle("Steps")
+                    SectionTitle("Steps", detail: "\(knot.steps.count)")
                     VStack(spacing: DS.Space.s2) {
                         ForEach(Array(knot.steps.enumerated()), id: \.offset) { i, step in
                             Button { stepping = i } label: {
@@ -225,6 +247,7 @@ struct KnotDetailView: View {
                 }
             }
             .padding(.bottom, DS.Space.s8)
+            .pageWidth()
         }
         .detailTint(.cyan)
         .pfTrackScroll($titleShown, threshold: 100)
@@ -235,14 +258,54 @@ struct KnotDetailView: View {
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
         }
+        .fullScreenCover(isPresented: $showsDiagram) {
+            if let img = diagram {
+                KnotDiagramViewer(title: knot.name, image: img)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var actions: some View {
+        if KnotFeatures.personalTools {
+            ActionTriple {
+                stepThroughButton
+                Button { toggleFavourite() } label: {
+                    Label(isFavourite ? "Saved" : "Save", systemImage: isFavourite ? "star.fill" : "star")
+                }
+                .buttonStyle(ActionTileStyle())
+                ShareLink(item: shareText) {
+                    ActionTileLabel("Share", systemImage: "square.and.arrow.up")
+                }
+                .buttonStyle(.dim)
+            }
+        } else {
+            ActionTriple {
+                stepThroughButton
+                if diagram != nil {
+                    Button { showsDiagram = true } label: {
+                        Label("Diagram", systemImage: "arrow.up.left.and.arrow.down.right")
+                    }
+                    .buttonStyle(ActionTileStyle())
+                }
+            }
+        }
+    }
+
+    private var stepThroughButton: some View {
+        Button { stepping = 0 } label: {
+            Label("Step through", systemImage: "play.fill")
+        }
+        .buttonStyle(ActionTileStyle(.primary))
     }
 
     private func toggleFavourite() {
         var set = KnotFavourites.decode(favouritesRaw)
-        if set.contains(knot.name) {
+        if KnotFavourites.contains(knot, in: set) {
+            set.remove(knot.id)
             set.remove(knot.name)
         } else {
-            set.insert(knot.name)
+            set.insert(knot.id)
             ToastCenter.shared.show("Saved to your knots", haptic: false)
         }
         favouritesRaw = KnotFavourites.encode(set)
@@ -325,6 +388,34 @@ private struct KnotStepSheet: View {
     }
 }
 
+/// The diagram on its own, pinch or double-tap to zoom, for reading the
+/// wraps at the water. Zooming reuses the photo viewer's `ZoomableImage`.
+private struct KnotDiagramViewer: View {
+    let title: String
+    let image: UIImage
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            ZoomableImage(image: image)
+                .background(Color.white)
+                .clipShape(RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
+                .padding(DS.gutter)
+                .dsScreenBackground()
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Diagram of the \(title.lowercased())")
+                .accessibilityAddTraits(.isImage)
+                .navigationTitle(title)
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Done") { dismiss() }
+                    }
+                }
+        }
+    }
+}
+
 /// Loads bundled knot images from the Resources/Knots folder reference.
 enum KnotImageStore {
     private static var cache: [String: UIImage] = [:]
@@ -341,10 +432,42 @@ enum KnotImageStore {
     }
 }
 
+// MARK: - Catalog
+
+/// The one place screens read knots from. Today it holds the built-in set;
+/// knots shared by other anglers will be passed in as `community` once
+/// sharing exists, and every screen picks them up unchanged.
+struct KnotCatalog {
+    let entries: [KnotEntry]
+
+    init(builtIn: [KnotEntry] = KnotEntry.builtIn, community: [KnotEntry] = []) {
+        // A shared knot can never replace one that ships with the app.
+        let shipped = Set(builtIn.map(\.id))
+        entries = builtIn + community.filter { !shipped.contains($0.id) }
+    }
+
+    static let shared = KnotCatalog()
+
+    func entry(id: String) -> KnotEntry? {
+        entries.first { $0.id == id }
+    }
+
+    func entries(from source: KnotSource) -> [KnotEntry] {
+        entries.filter { $0.source == source }
+    }
+}
+
+/// Where a knot entry came from.
+enum KnotSource: String, Hashable {
+    case builtIn
+    case community
+}
+
 // MARK: - Data
 
-struct KnotEntry: Identifiable {
-    let id = UUID()
+struct KnotEntry: Identifiable, Hashable {
+    /// Stable across app versions and devices, so saves and shared links survive renames.
+    let id: String
     let name: String
     let category: Category
     let useCase: String
@@ -353,6 +476,9 @@ struct KnotEntry: Identifiable {
     let tip: String
     let imageName: String?     // bundled Resources/Knots file, if a real diagram exists
     let attribution: String?
+    var source: KnotSource = .builtIn
+    /// The angler who shared it. Nil for built-in knots.
+    var author: String? = nil
 
     enum Category: String, CaseIterable {
         case terminal = "Line to hook"
@@ -375,38 +501,42 @@ struct KnotEntry: Identifiable {
     // library reads as one consistent style.
     private static let credit = "Illustration: Freshwater and Marine Image Bank (public domain)"
 
-    static let all: [KnotEntry] = [
+    /// The knots that ship with the app. Read them through `KnotCatalog`.
+    static let builtIn: [KnotEntry] = [
         KnotEntry(
+            id: "clinch",
             name: "Clinch knot",
             category: .terminal,
             useCase: "The classic tie to an eyed hook, swivel or lure.",
-            strength: "~85% line strength",
+            strength: "About 85% of line strength",
             steps: [
                 "Pass the tag end through the hook eye.",
-                "Wrap the tag around the standing line 5–7 times.",
+                "Wrap the tag around the standing line 5 to 7 times.",
                 "Pass the tag back through the small loop next to the eye.",
-                "Wet the knot and pull the standing line to seat the coils; trim.",
+                "Wet the knot and pull the standing line to seat the coils, then trim.",
             ],
-            tip: "Always wet the knot before cinching — friction heat weakens line.",
+            tip: "Always wet the knot before cinching. Friction heat weakens line.",
             imageName: "clinch_down.jpeg",
             attribution: credit
         ),
         KnotEntry(
+            id: "improved-jam",
             name: "Improved jam knot",
             category: .terminal,
             useCase: "A more secure clinch that tucks the tag for extra grip.",
-            strength: "~90% line strength",
+            strength: "About 90% of line strength",
             steps: [
-                "Pass the tag through the eye and wrap it around the standing line 5–6 times.",
+                "Pass the tag through the eye and wrap it around the standing line 5 or 6 times.",
                 "Pass the tag back through the loop by the eye.",
                 "Then tuck it through the big loop you just formed.",
-                "Wet and pull to seat; trim the tag.",
+                "Wet and pull to seat, then trim the tag.",
             ],
             tip: "The extra tuck stops the tag slipping under load.",
             imageName: "improved_jam.jpeg",
             attribution: credit
         ),
         KnotEntry(
+            id: "fishing-gazette",
             name: "Fishing Gazette knot",
             category: .terminal,
             useCase: "A neat loop-and-jam tie for eyed hooks and flies.",
@@ -415,13 +545,14 @@ struct KnotEntry: Identifiable {
                 "Double the line and pass the loop through the hook eye.",
                 "Bring the loop back over the hook.",
                 "Draw the standing line to slide the loop up and jam it at the eye.",
-                "Wet, snug down, and trim.",
+                "Wet, snug down and trim.",
             ],
             tip: "A tidy traditional knot for turned-up or turned-down eyes.",
             imageName: "gazette.jpeg",
             attribution: credit
         ),
         KnotEntry(
+            id: "pennell-jam",
             name: "Jam knot (Pennell)",
             category: .terminal,
             useCase: "A simple, strong jam knot for eyed hooks.",
@@ -432,11 +563,12 @@ struct KnotEntry: Identifiable {
                 "Feed the tag back through the loop.",
                 "Wet and pull the standing line to jam the wraps against the eye.",
             ],
-            tip: "Good for bait hooks where you want the pull inline with the shank.",
+            tip: "Good for bait hooks where you want the pull in line with the shank.",
             imageName: "pennell_jam.jpeg",
             attribution: credit
         ),
         KnotEntry(
+            id: "turle",
             name: "Turle knot",
             category: .terminal,
             useCase: "Seats a fly or eyed hook so it rides in line with the leader.",
@@ -445,28 +577,30 @@ struct KnotEntry: Identifiable {
                 "Pass the tippet through the hook eye and slide the fly up out of the way.",
                 "Make a simple loop and tie an overhand knot in the tippet.",
                 "Pass the fly through the loop.",
-                "Draw up so the loop seats behind the eye; trim.",
+                "Draw up so the loop seats behind the eye, then trim.",
             ],
             tip: "Keeps small flies aligned straight for a natural drift.",
             imageName: "turle.jpeg",
             attribution: credit
         ),
         KnotEntry(
+            id: "snell",
             name: "Whipping a hook (snell)",
             category: .terminal,
             useCase: "Binds the line along the hook shank for a straight-line hookset.",
             strength: "Very strong on the shank",
             steps: [
                 "Lay the line along the shank with a loop hanging below.",
-                "Wrap the loop neatly around the shank and line toward the eye 6–8 turns.",
+                "Wrap the loop neatly around the shank and line toward the eye 6 to 8 turns.",
                 "Hold the wraps and draw the standing line through to tighten.",
                 "Seat firmly and trim.",
             ],
-            tip: "Ideal for bait/octopus hooks in bottom fishing.",
+            tip: "Ideal for bait and octopus hooks in bottom fishing.",
             imageName: "whipping.jpeg",
             attribution: credit
         ),
         KnotEntry(
+            id: "dropper-loop",
             name: "Dropper loop",
             category: .loop,
             useCase: "A standing loop for a dropper fly, second hook or sinker.",
@@ -477,11 +611,12 @@ struct KnotEntry: Identifiable {
                 "Open a gap in the middle twists and pass the loop through.",
                 "Wet and pull both ends so the twists gather and the loop stands out.",
             ],
-            tip: "The backbone of a paternoster/two-hook bottom rig.",
+            tip: "The backbone of a two-hook paternoster rig.",
             imageName: "loop_dropper.jpeg",
             attribution: credit
         ),
         KnotEntry(
+            id: "double-loop",
             name: "Double loop knot",
             category: .loop,
             useCase: "A strong fixed loop at the line's end for a lure or spinning bait.",
@@ -497,17 +632,18 @@ struct KnotEntry: Identifiable {
             attribution: credit
         ),
         KnotEntry(
+            id: "water-knot",
             name: "Joining two lines (water knot)",
             category: .join,
             useCase: "Join two lengths of line or a leader to the main line.",
-            strength: "~90% line strength",
+            strength: "About 90% of line strength",
             steps: [
-                "Overlap the two lines by ~20 cm.",
+                "Overlap the two lines by about 20 cm.",
                 "Form a loop with both lines together.",
-                "Pass both ends through the loop twice (a double overhand).",
-                "Wet and pull all four strands evenly to seat; trim the tags.",
+                "Pass both ends through the loop twice to make a double overhand.",
+                "Wet and pull all four strands evenly to seat, then trim the tags.",
             ],
-            tip: "Simple and strong for similar-diameter lines.",
+            tip: "Simple and strong for lines of similar diameter.",
             imageName: "gut_join.jpeg",
             attribution: credit
         ),

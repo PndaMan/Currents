@@ -30,8 +30,8 @@ extension OwnedGear.Category {
     }
 }
 
-/// Rounded square gear thumbnail: the item's photo, or its category symbol on
-/// the category tint.
+/// Rounded square gear thumbnail: the item's photo, the lure art for lures
+/// and bait, or its category symbol on the category tint.
 struct GearThumb: View {
     let item: OwnedGear
     var size: CGFloat = 56
@@ -40,6 +40,8 @@ struct GearThumb: View {
         if item.photoPath != nil {
             GearThumbnail(photoPath: item.photoPath, category: item.category, size: size)
                 .clipShape(RoundedRectangle(cornerRadius: size < 48 ? size * 0.25 : DS.Radius.thumb, style: .continuous))
+        } else if item.category == .lure || item.category == .bait {
+            LureArtView(name: item.name, size: size)
         } else {
             ThumbView(systemImage: item.category.icon, tint: item.category.tint, size: size)
         }
@@ -96,6 +98,7 @@ struct GearItemDetailView: View {
         ScrollView {
             if let item {
                 content(item)
+                    .pageWidth()
             }
         }
         .detailTint(item?.category.tint ?? .orange)
@@ -302,13 +305,14 @@ struct GearEffectivenessView: View {
                     ContentUnavailableView("No gear on your catches yet", systemImage: "chart.bar",
                                            description: Text("Pick a preset or your gear when you log a catch and this fills in."))
                 } else {
-                    bars("Catches by lure", tally { $0.lure }, tint: .orange)
+                    bars("Catches by lure", tally { $0.lure }, tint: .orange, showsLureArt: true)
                     bars("Catches by preset", tally { $0.isAutoCreated ? nil : $0.name }, tint: .blue)
                     bars("Technique breakdown", tally { $0.technique }, tint: .green)
-                    PFFootnote("Catches without gear are left out. Worked out on this phone.")
+                    PFFootnote("Catches logged without gear are left out.")
                 }
             }
             .padding(.bottom, DS.Space.s8)
+            .pageWidth()
         }
         .detailTint(.orange)
         .pfTrackScroll($titleShown, threshold: 60)
@@ -320,7 +324,7 @@ struct GearEffectivenessView: View {
     }
 
     @ViewBuilder
-    private func bars(_ title: String, _ rows: [(String, Int)], tint: Color) -> some View {
+    private func bars(_ title: String, _ rows: [(String, Int)], tint: Color, showsLureArt: Bool = false) -> some View {
         if !rows.isEmpty {
             let top = Array(rows.prefix(8))
             let peak = max(top.first?.1 ?? 1, 1)
@@ -328,23 +332,29 @@ struct GearEffectivenessView: View {
                 SectionTitle(title)
                 VStack(spacing: DS.Space.s3) {
                     ForEach(top, id: \.0) { name, count in
-                        VStack(alignment: .leading, spacing: 6) {
-                            HStack {
-                                Text(name).foregroundStyle(.dsText).lineLimit(1)
-                                Spacer()
-                                Text("\(count)")
-                                    .font(.body.weight(.semibold))
-                                    .monospacedDigit()
-                                    .foregroundStyle(.dsText)
+                        HStack(spacing: 14) {
+                            if showsLureArt {
+                                LureArtView(name: name, size: 44)
+                                    .accessibilityHidden(true)
                             }
-                            GeometryReader { geo in
-                                ZStack(alignment: .leading) {
-                                    Capsule().fill(Color.dsFill2)
-                                    Capsule().fill(tint)
-                                        .frame(width: max(6, geo.size.width * CGFloat(count) / CGFloat(peak)))
+                            VStack(alignment: .leading, spacing: 6) {
+                                HStack {
+                                    Text(name).foregroundStyle(.dsText).lineLimit(1)
+                                    Spacer()
+                                    Text("\(count)")
+                                        .font(.body.weight(.semibold))
+                                        .monospacedDigit()
+                                        .foregroundStyle(.dsText)
                                 }
+                                GeometryReader { geo in
+                                    ZStack(alignment: .leading) {
+                                        Capsule().fill(Color.dsFill2)
+                                        Capsule().fill(tint)
+                                            .frame(width: max(6, geo.size.width * CGFloat(count) / CGFloat(peak)))
+                                    }
+                                }
+                                .frame(height: 6)
                             }
-                            .frame(height: 6)
                         }
                         .accessibilityElement(children: .ignore)
                         .accessibilityLabel(name)

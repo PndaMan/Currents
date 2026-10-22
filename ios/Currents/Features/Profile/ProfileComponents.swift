@@ -86,6 +86,15 @@ extension View {
             .contentMargins(.horizontal, DS.gutter, for: .scrollContent)
     }
 
+    /// One settings row on its own `dsFill` card, in the gutter (a toggle
+    /// under a section title on a scroll page).
+    func pfCard() -> some View {
+        padding(.horizontal, DS.Space.s4)
+            .padding(.vertical, 12)
+            .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
+            .padding(.horizontal, DS.gutter)
+    }
+
     /// Row fill for a Section in a `pfGroupedList`.
     func pfRows() -> some View {
         listRowBackground(Color.dsFill)
@@ -125,6 +134,18 @@ extension View {
         } action: { _, past in
             shown.wrappedValue = past
         }
+    }
+}
+
+/// The hairline between rows on a `dsFill` card, inset like a list separator.
+struct PFDivider: View {
+    var inset: CGFloat = DS.Space.s4
+
+    var body: some View {
+        Rectangle()
+            .fill(Color.dsSeparator)
+            .frame(height: 0.5)
+            .padding(.leading, inset)
     }
 }
 
