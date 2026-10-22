@@ -452,8 +452,8 @@ struct ConditionPage: View {
             }
             .padding(.top, 8)
             .padding(.bottom, 40)
-            .pageWidth()
             .animation(reduceMotion ? nil : DS.Motion.softSpring, value: offset)
+            .pageWidth()
         }
         .detailTint(condition.tint)
         .navigationTitle(condition.title)

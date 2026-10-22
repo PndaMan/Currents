@@ -69,6 +69,7 @@ struct PlanSessionSheet: View {
                     bringSection
                 }
                 .padding(.bottom, DS.Space.s6)
+                .pageWidth()
             }
             .scrollDismissesKeyboard(.interactively)
             .detailScrollEdge()

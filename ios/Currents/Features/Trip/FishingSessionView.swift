@@ -265,6 +265,7 @@ struct EditSessionSheet: View {
                         .padding(.horizontal, DS.gutter)
                 }
                 .padding(.bottom, DS.Space.s6)
+                .pageWidth()
             }
             .scrollDismissesKeyboard(.interactively)
             .detailScrollEdge()
@@ -378,6 +379,7 @@ struct NewSessionSheet: View {
                     SectionFoot("Records your track, catches and bag limits until you end it.")
                 }
                 .padding(.bottom, DS.Space.s6)
+                .pageWidth()
             }
             .scrollDismissesKeyboard(.interactively)
             .detailScrollEdge()

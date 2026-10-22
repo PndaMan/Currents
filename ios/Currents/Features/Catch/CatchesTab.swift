@@ -149,8 +149,8 @@ struct CatchesTab: View {
             .padding(.bottom, DS.Space.s8)
             .pageWidth()
         }
-        .largeTitleChrome("Logbook")
         .dsScreenBackground()
+        .largeTitleChrome("Logbook")
         .navigationDestination(for: LogbookRoute.self) { route in
             destination(route)
         }

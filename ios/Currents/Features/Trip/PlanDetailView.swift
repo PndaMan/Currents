@@ -138,6 +138,7 @@ struct PlanDetailView: View {
                 .padding(.top, DS.Space.s8)
             }
             .padding(.bottom, DS.Space.s8)
+            .pageWidth()
         }
         .scrollDismissesKeyboard(.interactively)
     }

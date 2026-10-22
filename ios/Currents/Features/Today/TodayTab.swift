@@ -124,8 +124,8 @@ struct TodayTab: View {
             .padding(.bottom, DS.Space.s8)
             .pageWidth()
         }
-        .largeTitleChrome("Today")
         .dsScreenBackground()
+        .largeTitleChrome("Today")
         .sensoryFeedback(.selection, trigger: clarityOverride)
         .refreshable { await reload(force: true) }
         .navigationDestination(for: ForecastRoute.self) { route in
