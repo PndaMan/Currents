@@ -166,6 +166,13 @@ enum LureEngine {
                   depth: "Bottom / suspended", technique: "Smallest weight you can get away with, and give them time to eat."),
     ]
 
+    /// Weedless and bass-style families that have no place in the surf or an
+    /// estuary. Skipped only when a saltwater or estuary species is targeted.
+    private static let freshwaterOnly: Set<String> = [
+        "Spinnerbait", "Chatterbait", "Squarebill Crankbait", "Skirted Jig",
+        "Ned Rig", "Texas-Rigged Worm", "Hollow-Body Frog",
+    ]
+
     // MARK: - Colour selection
 
     /// Colour is chosen almost entirely by clarity, then nudged by light —
@@ -211,7 +218,11 @@ enum LureEngine {
 
         var out: [Suggestion] = []
 
+        // A saltwater or estuary target rules out the bass-only families.
+        let saltwater = species?.habitat == .marine || species?.habitat == .brackish
+
         for a in archetypes {
+            if saltwater && freshwaterOnly.contains(a.name) { continue }
             var score = 0.42
             var reasons: [String] = []
 

@@ -244,7 +244,9 @@ struct HourInfoBox: View {
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 14), GridItem(.flexible())], spacing: 6) {
                 MiniFactor(label: "Pressure", value: detail.breakdown.pressure)
                 MiniFactor(label: "Trend", value: detail.breakdown.pressureTrend)
-                MiniFactor(label: "Tide", value: detail.breakdown.tide)
+                if detail.breakdown.weights.tide > 0 {
+                    MiniFactor(label: "Tide", value: detail.breakdown.tide)
+                }
                 MiniFactor(label: "Solunar", value: detail.breakdown.solunar)
                 MiniFactor(label: "Time of day", value: detail.breakdown.timeOfDay)
                 MiniFactor(label: "Wind", value: detail.breakdown.wind)
@@ -351,38 +353,59 @@ struct HourStrip: View {
 
 // MARK: - Score breakdown
 
-/// The engine's nine factors with the points each can add. Tap a row to see
-/// why it matters.
+/// The engine's nine factors with the points each can add, as the engine
+/// weighed them for this forecast (a factor with no reading, or tide for a
+/// freshwater target, is not counted and its share goes to the others). Tap
+/// a row to see why it matters.
 struct FactorBreakdown: View {
     let breakdown: ForecastEngine.ScoreBreakdown
+    var species: Species? = nil
+
+    private var weights: ForecastEngine.FactorWeights { breakdown.weights }
 
     private var rows: [(String, String, Double, Double, String)] {
         [
-            ("Pressure", "gauge.with.dots.needle.50percent", breakdown.pressure, 10,
+            ("Pressure", "gauge.with.dots.needle.50percent", breakdown.pressure, weights.pressure,
              "Steady, moderate pressure keeps fish comfortable at their normal depth. Extremes push them down and make them sluggish."),
-            ("Pressure trend", "chart.line.downtrend.xyaxis", breakdown.pressureTrend, 15,
+            ("Pressure trend", "chart.line.downtrend.xyaxis", breakdown.pressureTrend, weights.pressureTrend,
              "A falling glass ahead of a front is the classic feeding trigger. The bright high-pressure day behind it is the toughest bite there is."),
-            ("Tide", "water.waves", breakdown.tide, 15,
-             "Moving water concentrates bait against structure. Slack water at the top or bottom of the tide is usually the quietest part of the cycle."),
-            ("Moon phase", "moon", breakdown.moon, 10,
+            ("Tide", "water.waves", breakdown.tide, weights.tide, tideExplanation),
+            ("Moon phase", "moon", breakdown.moon, weights.moon,
              "Full and new moons give the biggest tidal movement, and a bright night can shift feeding into darkness and flatten the dawn bite."),
-            ("Solunar window", "clock", breakdown.solunar, 15,
+            ("Solunar window", "clock", breakdown.solunar, weights.solunar,
              "Major and minor periods track when the moon is overhead or underfoot, the windows fish most reliably switch on."),
-            ("Time of day", "sun.max", breakdown.timeOfDay, 15,
-             "Low light at dawn and dusk hands predators the advantage, which is why those hours out-fish the middle of the day."),
-            ("Wind", "wind", breakdown.wind, 8,
+            ("Time of day", "sun.max", breakdown.timeOfDay, weights.timeOfDay, timeExplanation),
+            ("Wind", "wind", breakdown.wind, weights.wind,
              "A ripple breaks up the surface and stacks bait on the windward bank. Dead calm makes fish spooky; a gale makes them unfishable."),
-            ("Temperature", "thermometer.medium", breakdown.temperature, 7,
-             "Scored against your target species' preferred range. Fish are cold-blooded, so water temperature sets how hard they will chase."),
-            ("Season and spawn", "calendar", breakdown.season, 5,
+            ("Temperature", "thermometer.medium", breakdown.temperature, weights.temperature,
+             species.map { "Scored against the range \($0.commonName) prefer. Fish are cold-blooded, so water temperature sets how hard they will chase." }
+                ?? "Scored against the 15 to 25 °C band most game fish like. Target a species to score it against that fish's own range."),
+            ("Season and spawn", "calendar", breakdown.season, weights.season,
              "Pre-spawn fish feed hard, spawning fish guard rather than eat, and post-spawn fish recover before switching back on."),
         ]
+    }
+
+    private var tideExplanation: String {
+        let base = "Moving water concentrates bait against structure. Slack water at the top or bottom of the tide is usually the quietest part of the cycle."
+        switch ForecastEngine.SpeciesTraits(species).tide {
+        case .ignored: return "\(species?.commonName ?? "This fish") live in fresh water, where there is no tide, so it is left out and its share goes to the rest."
+        case .heavier: return base + " It counts for more because \(species?.commonName ?? "this fish") feed on the tide."
+        case .general: return base
+        }
+    }
+
+    private var timeExplanation: String {
+        let base = "Low light at dawn and dusk hands predators the advantage, which is why those hours out-fish the middle of the day."
+        guard ForecastEngine.SpeciesTraits(species).feedsAtNight, let name = species?.commonName else { return base }
+        return base + " \(name) also feed through the night, so dark hours score well too."
     }
 
     var body: some View {
         VStack(spacing: 0) {
             ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
-                FactorRow(name: row.0, icon: row.1, value: row.2, weight: row.3, explanation: row.4)
+                FactorRow(name: row.0, icon: row.1, value: row.2, weight: row.3,
+                          explanation: row.3 > 0 || row.0 == "Tide"
+                              ? row.4 : row.4 + " There is no reading for it yet, so its share goes to the rest.")
                 if index < rows.count - 1 {
                     Divider().overlay(Color.dsSeparator).padding(.leading, 48)
                 }
@@ -402,6 +425,7 @@ private struct FactorRow: View {
     @State private var expanded = false
 
     private var points: Int { Int((min(1, max(0, value)) * weight).rounded()) }
+    private var counted: Bool { weight > 0 }
 
     var body: some View {
         Button {
@@ -419,17 +443,23 @@ private struct FactorRow: View {
                         .lineLimit(1)
                         .layoutPriority(1)
                     Spacer(minLength: 8)
-                    meter.frame(width: 64, height: 6)
-                    HStack(alignment: .firstTextBaseline, spacing: 2) {
-                        Text("\(points)")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(.dsText)
-                        Text("of \(Int(weight))")
-                            .font(.caption)
+                    if counted {
+                        meter.frame(width: 64, height: 6)
+                        HStack(alignment: .firstTextBaseline, spacing: 2) {
+                            Text("\(points)")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.dsText)
+                            Text("of \(Int(weight.rounded()))")
+                                .font(.caption)
+                                .foregroundStyle(.dsText2)
+                        }
+                        .monospacedDigit()
+                        .frame(minWidth: 44, alignment: .trailing)
+                    } else {
+                        Text("Not counted")
+                            .font(.footnote)
                             .foregroundStyle(.dsText2)
                     }
-                    .monospacedDigit()
-                    .frame(minWidth: 44, alignment: .trailing)
                 }
                 if expanded {
                     Text(explanation)
@@ -445,7 +475,7 @@ private struct FactorRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.dim)
-        .accessibilityLabel("\(name), \(points) of \(Int(weight)) points")
+        .accessibilityLabel(counted ? "\(name), \(points) of \(Int(weight.rounded())) points" : "\(name), not counted")
         .accessibilityHint(expanded ? "" : "Shows why it matters")
     }
 

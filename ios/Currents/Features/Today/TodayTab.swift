@@ -105,7 +105,7 @@ struct TodayTab: View {
                 if store.hasLoaded || store.current != nil {
                     hero(today)
                         .padding(.top, 20)
-                    targetRow.padding(.top, 20)
+                    TargetRow(store: store).padding(.top, 20)
                     upNextRow
                     WhatToThrowSection(
                         suggestions: suggestions, weather: weather, clarity: clarity,
@@ -334,22 +334,7 @@ struct TodayTab: View {
         }
     }
 
-    // MARK: - Target and plans
-
-    private var targetRow: some View {
-        NavigationLink(value: ForecastRoute.targetSpecies) {
-            ArtRow(over: "Targeting", title: store.species?.commonName ?? "Any species",
-                   subtitle: store.species == nil ? "General forecast. Choose a species to tune it." : "Score and lures tuned for it",
-                   chevron: true) {
-                if let s = store.species {
-                    ThumbView(species: s, size: 52)
-                } else {
-                    ThumbView(systemImage: "scope", tint: DS.accent, size: 52)
-                }
-            }
-        }
-        .buttonStyle(.dsRow)
-    }
+    // MARK: - Plans
 
     private var upNextRow: some View {
         Button {

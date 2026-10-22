@@ -37,6 +37,73 @@ struct ForecastEngine {
         let timeOfDay: Double
         let wind: Double
         let solunar: Double
+        /// Points each factor could add, out of 100, once the share of any
+        /// factor without data has gone to the others. Zero means not counted.
+        let weights: FactorWeights
+    }
+
+    struct FactorWeights: Sendable {
+        let pressure: Double
+        let pressureTrend: Double
+        let tide: Double
+        let moon: Double
+        let temperature: Double
+        let season: Double
+        let timeOfDay: Double
+        let wind: Double
+        let solunar: Double
+    }
+
+    // MARK: - Species traits
+
+    /// What a targeted species changes beyond its temperature range, read
+    /// from its record. With no target, or a record too thin to trust, every
+    /// factor keeps its general weight, so the untargeted score never moves.
+    struct SpeciesTraits: Sendable, Equatable {
+        enum Tide: Sendable, Equatable {
+            /// General weight: nothing targeted, or the habitat is not known.
+            case general
+            /// Saltwater and estuary fish: moving water brings their food.
+            case heavier
+            /// Freshwater fish never see a tide, so it is left out.
+            case ignored
+        }
+
+        let tide: Tide
+        /// Catfish, eels and burbot do most of their feeding after dark.
+        let feedsAtNight: Bool
+
+        static let untargeted = SpeciesTraits(tide: .general, feedsAtNight: false)
+
+        /// Catfish, freshwater eel and burbot families.
+        static let nightFeedingFamilies: Set<String> = [
+            "Ictaluridae", "Siluridae", "Clariidae", "Ariidae", "Pimelodidae",
+            "Anguillidae", "Lotidae",
+        ]
+
+        init(tide: Tide, feedsAtNight: Bool) {
+            self.tide = tide
+            self.feedsAtNight = feedsAtNight
+        }
+
+        init(_ species: Species?) {
+            guard let species else {
+                self = .untargeted
+                return
+            }
+            switch species.habitat {
+            case .marine, .brackish:
+                tide = .heavier
+            case .freshwater where species.family != nil:
+                // The seed marks every species without a curated record as
+                // freshwater (reef fish included), so only trust it when the
+                // record is curated, which is when the family is known.
+                tide = .ignored
+            default:
+                tide = .general
+            }
+            feedsAtNight = species.family.map { Self.nightFeedingFamilies.contains($0) } ?? false
+        }
     }
 
     // MARK: - Full forecast with per-hour breakdown
@@ -216,6 +283,7 @@ struct ForecastEngine {
         isInSpawningZone: Bool
     ) -> InstantResult {
         var reasons: [String] = []
+        let traits = SpeciesTraits(species)
 
         // Each factor returns (score: 0-1, weight, hasData: Bool).
         // Factors without data get weight 0; their weight is redistributed
@@ -283,16 +351,18 @@ struct ForecastEngine {
         }
 
         // === Tide ===
+        // Left out entirely for a targeted freshwater species.
+        let countsTide = traits.tide != .ignored
         let wTide: Double
         switch tidePhase {
         case .nearHighOrLow:
             wTide = 1.0
-            reasons.append("Tide change — peak feeding period")
+            if countsTide { reasons.append("Tide change — peak feeding period") }
         case .moving:
             wTide = 0.55
         case .slack:
             wTide = 0.1
-            reasons.append("Slack tide — dead water")
+            if countsTide { reasons.append("Slack tide — dead water") }
         }
 
         // === Moon Phase ===
@@ -341,7 +411,10 @@ struct ForecastEngine {
         } else {
             let isNight = date < solunar.sunrise.addingTimeInterval(-1800) ||
                           date > solunar.sunset.addingTimeInterval(1800)
-            if isNight {
+            if isNight && traits.feedsAtNight {
+                wTimeOfDay = 0.8
+                if let species { reasons.append("After dark — prime feeding time for \(species.commonName)") }
+            } else if isNight {
                 wTimeOfDay = 0.15
             } else {
                 // Daytime but not golden hour — score varies.
@@ -451,7 +524,7 @@ struct ForecastEngine {
         let factors: [Factor] = [
             Factor(value: wPressure,      baseWeight: 10, hasData: havePressure),
             Factor(value: wPressureTrend, baseWeight: 18, hasData: havePressureTrend),
-            Factor(value: wTide,          baseWeight: 12, hasData: true),  // always computed
+            Factor(value: wTide,          baseWeight: traits.tide == .heavier ? 18 : 12, hasData: countsTide),
             Factor(value: wMoon,          baseWeight: 8,  hasData: true),
             Factor(value: wSolunar,       baseWeight: 18, hasData: true),
             Factor(value: wTimeOfDay,     baseWeight: 16, hasData: true),
@@ -460,13 +533,16 @@ struct ForecastEngine {
             Factor(value: wSeason,        baseWeight: 4,  hasData: true),
         ]
 
-        let totalBaseWeight = factors.reduce(0.0) { $0 + $1.baseWeight }
+        // Weights are scaled to add up to 100, so a heavier tide takes its
+        // share from the others. Untargeted, the base weights already add up
+        // to 100 and the scale is unchanged.
         let availableWeight = factors.filter(\.hasData).reduce(0.0) { $0 + $1.baseWeight }
-        let scale = availableWeight > 0 ? totalBaseWeight / availableWeight : 1.0
+        let scale = availableWeight > 0 ? 100 / availableWeight : 1.0
+        // Same order as `factors`.
+        let effective = factors.map { $0.hasData ? $0.baseWeight * scale : 0 }
 
         var rawSum = 0.0
-        for f in factors {
-            let w = f.hasData ? f.baseWeight * scale : 0
+        for (f, w) in zip(factors, effective) {
             rawSum += f.value * w
         }
         // rawSum is in 0...100 but clusters around 40-60 in practice.
@@ -492,7 +568,18 @@ struct ForecastEngine {
                 season: wSeason,
                 timeOfDay: wTimeOfDay,
                 wind: wWind,
-                solunar: wSolunar
+                solunar: wSolunar,
+                weights: FactorWeights(
+                    pressure: effective[0],
+                    pressureTrend: effective[1],
+                    tide: effective[2],
+                    moon: effective[3],
+                    temperature: effective[7],
+                    season: effective[8],
+                    timeOfDay: effective[5],
+                    wind: effective[6],
+                    solunar: effective[4]
+                )
             )
         )
     }

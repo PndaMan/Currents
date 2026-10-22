@@ -69,7 +69,7 @@ struct ForecastDayPage: View {
                     VStack(alignment: .leading, spacing: 0) {
                         SectionTitle(day.isToday ? "Why it scores \(day.result.score) now"
                                                  : "Why midday scores \(day.result.score)")
-                        FactorBreakdown(breakdown: day.result.breakdown)
+                        FactorBreakdown(breakdown: day.result.breakdown, species: store.species)
                         Text("Worked out on your phone. No signal needed.")
                             .font(.footnote)
                             .foregroundStyle(.dsText2)
@@ -77,7 +77,7 @@ struct ForecastDayPage: View {
                             .padding(.top, 10)
                     }
 
-                    targetRow
+                    TargetRow(store: store)
                 }
                 .padding(.top, 4)
                 .padding(.bottom, 40)
@@ -152,23 +152,6 @@ struct ForecastDayPage: View {
             text += " Best \(ForecastFormat.range(best, use24: use24))."
         }
         return text + " Forecast from Currents."
-    }
-
-    // MARK: - Target
-
-    private var targetRow: some View {
-        NavigationLink(value: ForecastRoute.targetSpecies) {
-            ArtRow(over: "Targeting", title: store.species?.commonName ?? "Any species",
-                   subtitle: store.species == nil ? "General forecast. Choose a species to tune it." : "Score and lures tuned for it",
-                   chevron: true) {
-                if let s = store.species {
-                    ThumbView(species: s, size: 52)
-                } else {
-                    ThumbView(systemImage: "scope", tint: DS.accent, size: 52)
-                }
-            }
-        }
-        .buttonStyle(.dsRow)
     }
 }
 

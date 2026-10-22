@@ -11,6 +11,9 @@ enum ForecastRoute: Hashable {
     case lures
     /// Choose the species the forecast and lures are tuned for.
     case targetSpecies
+    /// The target page: today's bite for the species, where to find it, the
+    /// rules and your record with it. Explains targeting when none is set.
+    case target
 }
 
 /// The eight condition tiles and their pages.
@@ -352,10 +355,15 @@ private struct TargetSpeciesSync: ViewModifier {
     let store: ForecastStore
     @Environment(AppState.self) private var appState
     @AppStorage("targetSpeciesId") private var targetSpeciesId: Int = 0
+    @AppStorage(RecentTargets.key) private var recentTargets = ""
 
     func body(content: Content) -> some View {
         content.task(id: targetSpeciesId) {
             let id = Int64(targetSpeciesId)
+            // Every writer of the target passes through here (species page,
+            // onboarding, the pickers), so recents are kept in one place.
+            let recents = RecentTargets.adding(id, to: recentTargets)
+            if recents != recentTargets { recentTargets = recents }
             guard id != (store.species?.id ?? 0) else { return }
             let species: Species? = id == 0 ? nil : (try? appState.speciesRepository.fetch(id: id)) ?? nil
             store.setSpecies(species)
@@ -367,5 +375,22 @@ extension View {
     /// Reads the shared target species into `store` now and whenever it changes.
     func syncsTargetSpecies(_ store: ForecastStore) -> some View {
         modifier(TargetSpeciesSync(store: store))
+    }
+}
+
+/// The last few species targeted, newest first, so switching back is one
+/// tap. Stored as comma-separated ids under `recentTargetSpeciesIds`.
+enum RecentTargets {
+    static let key = "recentTargetSpeciesIds"
+    static let limit = 6
+
+    static func ids(_ raw: String) -> [Int64] {
+        raw.split(separator: ",").compactMap { Int64($0) }.filter { $0 != 0 }
+    }
+
+    static func adding(_ id: Int64, to raw: String) -> String {
+        guard id != 0 else { return raw }
+        let list = [id] + ids(raw).filter { $0 != id }
+        return list.prefix(limit).map { String($0) }.joined(separator: ",")
     }
 }

@@ -61,19 +61,23 @@ struct ForecastDestination: View {
             WhatToThrowPage(store: store)
         case .targetSpecies:
             TargetSpeciesPage(store: store)
+        case .target:
+            TargetPage(store: store)
         }
     }
 }
 
 /// Choose the species the forecast and lures are tuned for, or none for a
-/// general forecast. Pushed from Today and the day page. Saves the shared
-/// `targetSpeciesId` the species page's Target button also writes.
+/// general forecast. Pushed from the target page. Saves the shared
+/// `targetSpeciesId` the species page's Target button also writes, with
+/// recent targets at the top.
 struct TargetSpeciesPage: View {
     let store: ForecastStore
 
     @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss
     @AppStorage("targetSpeciesId") private var targetSpeciesId: Int = 0
+    @AppStorage(RecentTargets.key) private var recentTargets = ""
     @State private var all: [Species] = []
     @State private var loaded = false
     @State private var search = ""
@@ -95,8 +99,16 @@ struct TargetSpeciesPage: View {
         return result
     }
 
+    /// Recent targets, shown above the list until a search or filter starts.
+    private var recents: [Species] {
+        guard search.isEmpty, habitat == .all else { return [] }
+        let byId = Dictionary(all.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        return RecentTargets.ids(recentTargets).compactMap { byId[$0] }
+    }
+
     var body: some View {
         let rows = filtered
+        let recent = recents
         List {
             Section {
                 FilterChips(SpeciesHabitatFilter.options, selection: $habitat, title: { $0.title })
@@ -112,6 +124,17 @@ struct TargetSpeciesPage: View {
                 .dsListRow()
             }
 
+            if !recent.isEmpty {
+                Section {
+                    SectionTitle("Recent")
+                        .padding(.top, DS.Space.s4)
+                        .dsListRow()
+                    ForEach(recent) { sp in
+                        speciesRow(sp)
+                    }
+                }
+            }
+
             if !rows.isEmpty {
                 // A row, not a section header: plain-list headers pin and
                 // draw over the rows on this clear background.
@@ -120,15 +143,7 @@ struct TargetSpeciesPage: View {
                         .padding(.top, DS.Space.s4)
                         .dsListRow()
                     ForEach(rows) { sp in
-                        Button { pick(sp) } label: {
-                            ArtRow(title: sp.commonName, subtitle: subtitle(for: sp)) {
-                                ThumbView(species: sp, size: 48)
-                            } trailing: {
-                                SpeciesCheckmark(isOn: store.species?.id == sp.id)
-                            }
-                        }
-                        .buttonStyle(.dsRow)
-                        .dsListRow()
+                        speciesRow(sp)
                     }
                 }
             }
@@ -160,6 +175,18 @@ struct TargetSpeciesPage: View {
         }
     }
 
+    private func speciesRow(_ sp: Species) -> some View {
+        Button { pick(sp) } label: {
+            ArtRow(title: sp.commonName, subtitle: subtitle(for: sp)) {
+                ThumbView(species: sp, size: 48)
+            } trailing: {
+                SpeciesCheckmark(isOn: store.species?.id == sp.id)
+            }
+        }
+        .buttonStyle(.dsRow)
+        .dsListRow()
+    }
+
     private func subtitle(for sp: Species) -> String {
         if let t = sp.optimalTempC {
             return "\(sp.scientificName), best at \(Int(t))°"
@@ -169,9 +196,9 @@ struct TargetSpeciesPage: View {
 
     private func pick(_ sp: Species?) {
         targetSpeciesId = Int(sp?.id ?? 0)
+        if let sp { recentTargets = RecentTargets.adding(sp.id, to: recentTargets) }
         store.setSpecies(sp)
-        ToastCenter.shared.show(sp.map { "Targeting \($0.commonName)" } ?? "Forecast for any species",
-                                style: .info, haptic: false, icon: "scope")
+        TargetText.announce(sp)
         dismiss()
     }
 }
