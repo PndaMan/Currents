@@ -4,6 +4,50 @@ import CoreLocation
 import UIKit
 import UserNotifications
 
+/// Whether this build may touch CloudKit at all. Creating a CKContainer in an
+/// app without the iCloud entitlement raises an Objective-C exception Swift
+/// can't catch, so every container in the app comes from `container()`.
+enum CloudCapability {
+    static let containerID = "iCloud.com.aidanmcconnon.currents"
+
+    /// App Store and TestFlight builds embed no provisioning profile and always
+    /// carry the entitlement. Development and re-signed builds embed one, and
+    /// its entitlements say whether CloudKit is allowed. The CI sideload IPA
+    /// is built with SIDELOAD and never has it. The simulator has no profile,
+    /// so it goes by whether an iCloud account is visible to the app.
+    static let isAvailable: Bool = {
+        #if SIDELOAD
+        return false
+        #elseif targetEnvironment(simulator)
+        return FileManager.default.ubiquityIdentityToken != nil
+        #else
+        guard let url = Bundle.main.url(forResource: "embedded", withExtension: "mobileprovision") else { return true }
+        return profileAllowsCloudKit(at: url)
+        #endif
+    }()
+
+    /// The app's container, or nil when this build can't use CloudKit.
+    static func container() -> CKContainer? {
+        guard isAvailable else { return nil }
+        return CKContainer(identifier: containerID)
+    }
+
+    /// The profile is a signed blob with the plist inside as plain XML.
+    private static func profileAllowsCloudKit(at url: URL) -> Bool {
+        guard let data = try? Data(contentsOf: url),
+              let start = data.range(of: Data("<?xml".utf8)),
+              let end = data.range(of: Data("</plist>".utf8), in: start.upperBound..<data.endIndex),
+              let plist = try? PropertyListSerialization.propertyList(
+                  from: data.subdata(in: start.lowerBound..<end.upperBound), format: nil) as? [String: Any],
+              let entitlements = plist["Entitlements"] as? [String: Any] else { return false }
+        switch entitlements["com.apple.developer.icloud-services"] {
+        case let list as [String]: return list.contains("CloudKit") || list.contains("*")
+        case let single as String: return single == "CloudKit" || single == "*"
+        default: return false
+        }
+    }
+}
+
 /// Serverless multiplayer via CloudKit's PUBLIC database — no backend to run.
 ///
 /// Privacy model (spot-protective by default):
@@ -21,11 +65,18 @@ final class CommunityService: ObservableObject {
     static let shared = CommunityService()
 
     // Lazy so merely constructing the service (e.g. reading `joined`) doesn't
-    // reach CloudKit. In the unsigned simulator TEST build there's no iCloud
-    // entitlement, and touching CloudKit at launch crashes the app before the
-    // test harness connects.
-    private lazy var container = CKContainer(identifier: "iCloud.com.aidanmcconnon.currents")
-    var db: CKDatabase { container.publicCloudDatabase }
+    // reach CloudKit, and nil on a build without the iCloud entitlement.
+    private lazy var container: CKContainer? = CloudCapability.container()
+
+    /// Every CloudKit call goes through here. Without the entitlement, or in
+    /// screenshot mode, it throws instead of creating a container, so each
+    /// caller's existing `try` / `try?` handles it like any offline failure.
+    var db: CKDatabase {
+        get throws {
+            guard !ScreenshotSupport.isActive, let container else { throw CKError(.notAuthenticated) }
+            return container.publicCloudDatabase
+        }
+    }
 
     private let profileType = "AnglerProfile"
     let catchType = "LeaderCatch"
@@ -38,7 +89,7 @@ final class CommunityService: ObservableObject {
     /// simulator build has no iCloud entitlement — any real CloudKit
     /// operation is an uncatchable CKException, so every network entry point
     /// guards on this instead of `joined` alone.
-    var cloudAllowed: Bool { joined && !ScreenshotSupport.isActive && CrewCloud.buildHasCloudKit }
+    var cloudAllowed: Bool { joined && !ScreenshotSupport.isActive && CloudCapability.isAvailable }
 
     /// Bumped whenever the local profile (name/bio/avatar) or friend list
     /// changes, so SwiftUI views observing this service refresh immediately —
@@ -290,6 +341,8 @@ final class CommunityService: ObservableObject {
     // MARK: - Join / leave
 
     func join(name: String, region: String) async {
+        // Crew can't work without iCloud; the UI shows why instead of Join.
+        guard CloudCapability.isAvailable else { return }
         // Settle on a unique friend code before anything is saved or shared.
         await claimFriendCode()
         let clean = name.trimmingCharacters(in: .whitespaces)
@@ -502,7 +555,8 @@ final class CommunityService: ObservableObject {
     // MARK: - Leaderboard
 
     func publish(catchRecord: Catch, speciesName: String, region: String, groupCode: String? = nil) async {
-        guard joined || groupCode != nil else { return }
+        guard CloudCapability.isAvailable, !ScreenshotSupport.isActive,
+              joined || groupCode != nil else { return }
         let id = CKRecord.ID(recordName: "catch-\(friendCode)-\(catchRecord.id)")
         let record = CKRecord(recordType: catchType, recordID: id)
         record["anglerName"] = myName as CKRecordValue
@@ -1098,7 +1152,7 @@ final class CommunityService: ObservableObject {
         Profile(
             id: Self.demoCode,
             name: "Sasha Rivers",
-            bio: "Kayak & shore angler chasing PBs across the Cape. Mostly catch-and-release. Topwater at first light is my religion 🌅",
+            bio: "Kayak & shore angler chasing PBs across the Cape. Mostly catch-and-release. Topwater at first light is my religion.",
             region: myRegion,
             homeWater: "Theewaterskloof Dam",
             avatar: Self.demoAvatar,
@@ -1176,13 +1230,8 @@ final class CommunityService: ObservableObject {
         let size = CGSize(width: 240, height: 240)
         return UIGraphicsImageRenderer(size: size).image { ctx in
             let cg = ctx.cgContext
-            let colors = [UIColor(red: 0.13, green: 0.55, blue: 0.95, alpha: 1).cgColor,
-                          UIColor(red: 0.04, green: 0.30, blue: 0.55, alpha: 1).cgColor]
-            if let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(),
-                                         colors: colors as CFArray, locations: [0, 1]) {
-                cg.drawLinearGradient(gradient, start: .zero,
-                                      end: CGPoint(x: size.width, y: size.height), options: [])
-            }
+            cg.setFillColor(UIColor.systemBlue.cgColor)
+            cg.fill(CGRect(origin: .zero, size: size))
             let initials = "SR" as NSString
             let attrs: [NSAttributedString.Key: Any] = [
                 .font: UIFont.systemFont(ofSize: 110, weight: .bold),
@@ -1202,7 +1251,7 @@ final class CommunityService: ObservableObject {
     let crewReactionType = "CrewReaction"
 
     /// Emoji offered as one-tap reactions in a crew feed.
-    static let crewReactionEmojis = ["🔥", "🎣", "👏", "😮", "🐟"]
+    static let crewReactionEmojis = ["🔥", "🎣", "👏", "😮", "🐟"] // ui-lint: allow, reactions are user content stored as emoji
 
     struct Crew: Codable, Identifiable, Equatable {
         let code: String
@@ -1357,7 +1406,7 @@ final class CommunityService: ObservableObject {
         return Crew(
             code: r["code"] as? String ?? code,
             name: r["name"] as? String ?? "Crew",
-            emoji: r["emoji"] as? String ?? "🎣",
+            emoji: r["emoji"] as? String ?? "🎣", // ui-lint: allow, fallback for stored crew icon data
             createdByCode: r["createdByCode"] as? String ?? "",
             createdByName: r["createdByName"] as? String ?? "Angler",
             joinedAt: existing?.joinedAt ?? Date(),
@@ -1427,7 +1476,7 @@ final class CommunityService: ObservableObject {
                         CrewReaction(id: r.recordID.recordName,
                                      reactorCode: r["reactorCode"] as? String ?? "",
                                      reactorName: r["reactorName"] as? String ?? "",
-                                     emoji: r["emoji"] as? String ?? "🔥"))
+                                     emoji: r["emoji"] as? String ?? "🔥")) // ui-lint: allow, fallback for stored reaction data
             }
             let byPost = Dictionary(grouping: all, by: { $0.0 })
             posts = posts.map { post in
