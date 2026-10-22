@@ -162,7 +162,7 @@ struct OfflineMapsView: View {
                 }
                 if suggestions.count > 5 {
                     Button(showAllSuggestions ? "Show fewer" : "Show all \(suggestions.count)") {
-                        withAnimation(DS.Motion.fast) { showAllSuggestions.toggle() }
+                        withAnimation(.easeInOut(duration: DS.Motion.fast)) { showAllSuggestions.toggle() }
                     }
                 }
             } header: {
