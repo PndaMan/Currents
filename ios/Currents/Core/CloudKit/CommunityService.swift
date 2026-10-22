@@ -38,7 +38,7 @@ final class CommunityService: ObservableObject {
     /// simulator build has no iCloud entitlement — any real CloudKit
     /// operation is an uncatchable CKException, so every network entry point
     /// guards on this instead of `joined` alone.
-    var cloudAllowed: Bool { joined && !ScreenshotSupport.isActive }
+    var cloudAllowed: Bool { joined && !ScreenshotSupport.isActive && CrewCloud.buildHasCloudKit }
 
     /// Bumped whenever the local profile (name/bio/avatar) or friend list
     /// changes, so SwiftUI views observing this service refresh immediately —

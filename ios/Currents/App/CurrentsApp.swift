@@ -26,7 +26,7 @@ struct CurrentsApp: App {
             // joined, but the unsigned simulator build has no iCloud
             // entitlement — any CloudKit op is an uncatchable crash.
             if phase == .active, UserDefaults.standard.bool(forKey: "communityJoined"),
-               !ScreenshotSupport.isActive {
+               !ScreenshotSupport.isActive, CrewCloud.buildHasCloudKit {
                 Task {
                     // Ensure APNs registration + CloudKit push subscriptions are
                     // in place, then reconcile the in-app lists.

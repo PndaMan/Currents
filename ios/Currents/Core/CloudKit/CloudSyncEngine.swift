@@ -31,7 +31,7 @@ final class CloudSyncEngine: NSObject, CKSyncEngineDelegate, @unchecked Sendable
     /// callbacks can read/write it without hopping to the main actor.
     private var dbQueue: DatabaseQueue?
 
-    var isEnabled: Bool { UserDefaults.standard.bool(forKey: "cloudSyncEnabled") }
+    var isEnabled: Bool { CrewCloud.buildHasCloudKit && UserDefaults.standard.bool(forKey: "cloudSyncEnabled") }
 
     // MARK: - Lifecycle
 
@@ -45,6 +45,8 @@ final class CloudSyncEngine: NSObject, CKSyncEngineDelegate, @unchecked Sendable
     /// Toggle from Settings. Turning on kicks off an initial upload of everything.
     func setEnabled(_ on: Bool) {
         UserDefaults.standard.set(on, forKey: "cloudSyncEnabled")
+        // A build without the iCloud entitlement crashes on any CloudKit call.
+        guard CrewCloud.buildHasCloudKit else { engine = nil; return }
         if on { start(initialUpload: true) } else { engine = nil }
     }
 

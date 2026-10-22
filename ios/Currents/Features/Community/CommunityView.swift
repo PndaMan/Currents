@@ -7,15 +7,15 @@ import MapKit
 /// push on this tab's stack.
 struct CommunityView: View {
     @Environment(AppState.self) private var appState
+    @Environment(\.scenePhase) private var scenePhase
     @StateObject private var svc = CommunityService.shared
+    @ObservedObject private var cloud = CrewCloud.shared
 
     private enum CrewSheet: String, Identifiable {
         case add, newCrew, joinCrew, addFriend
         var id: String { rawValue }
     }
 
-    @State private var name = ""
-    @State private var joining = false
     @State private var sheet: CrewSheet?
     /// Set by the Add sheet; runs once that sheet has gone.
     @State private var pendingChoice: CrewAddChoice?
@@ -43,12 +43,17 @@ struct CommunityView: View {
     @State private var feedLoadingMore = false
 
     private var region: String { svc.myRegion }
+    /// Joined and iCloud reachable: the only time anything here may load.
+    private var canSync: Bool { svc.joined && cloud.isAvailable }
     private var notificationCount: Int { pendingRequests.count + pendingInvites.count }
 
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
-                if svc.joined {
+                if !cloud.isAvailable {
+                    LargeTitleHeader("Crew")
+                    CrewUnavailableState(status: cloud.status)
+                } else if svc.joined {
                     LargeTitleHeader("Crew") {
                         NavigationLink(value: CrewRoute.requests) {
                             HeaderIconLabel(systemImage: "bell", showsDot: notificationCount > 0)
@@ -64,11 +69,12 @@ struct CommunityView: View {
                 }
             }
             .padding(.bottom, DS.Space.s8)
+            .pageWidth()
         }
+        .largeTitleChrome("Crew")
         .dsScreenBackground()
-        .toolbar(.hidden, for: .navigationBar)
-        .navigationDestination(for: CrewRoute.self) { destination($0) }
-        .navigationDestination(item: $deepLinkedCrew) { code in CrewDetailView(code: code) }
+        .navigationDestination(for: CrewRoute.self) { route in CrewCloudGate { destination(route) } }
+        .navigationDestination(item: $deepLinkedCrew) { code in CrewCloudGate { CrewDetailView(code: code) } }
         .navigationDestination(isPresented: $showingTripSetup) { GroupTripSetupView() }
         .sheet(item: $sheet, onDismiss: runPendingChoice) { s in
             switch s {
@@ -98,9 +104,14 @@ struct CommunityView: View {
         } message: { _ in
             Text("You leave the trip. A planned session that never started is deleted too.")
         }
-        .task(id: svc.joined) {
+        .task { await cloud.refresh() }
+        .onChange(of: scenePhase) { _, phase in
+            // Signing in to iCloud happens in Settings; pick it up on return.
+            if phase == .active { Task { await cloud.refresh() } }
+        }
+        .task(id: canSync) {
             refreshStats()
-            guard svc.joined else { return }
+            guard canSync else { return }
             // Visible content first: cached friends and feed, then the network.
             friendProfiles = CrewFriendsLoader.cached()
             await loadMergedFeed()
@@ -119,7 +130,7 @@ struct CommunityView: View {
             // subscriptions can't cover.
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 45_000_000_000)
-                guard !Task.isCancelled, svc.joined else { continue }
+                guard !Task.isCancelled, canSync else { continue }
                 await loadMergedFeed()
                 await loadNotifications()
                 await loadLive()
@@ -127,6 +138,7 @@ struct CommunityView: View {
         }
         // Pushes bump the revision; no pull-to-refresh needed.
         .onChange(of: svc.revision) { _, _ in
+            guard canSync else { return }
             Task {
                 refreshStats()
                 friendProfiles = CrewFriendsLoader.cached()
@@ -174,48 +186,26 @@ struct CommunityView: View {
     // MARK: Join gate
 
     private var joinGate: some View {
-        VStack(alignment: .leading, spacing: DS.Space.s4) {
-            HStack(spacing: -14) {
-                ThumbView(systemImage: "person.3.fill", tint: .dsScoreGood, size: 72)
-                    .rotationEffect(.degrees(-6))
-                ThumbView(systemImage: "trophy.fill", tint: .dsScoreFair, size: 72)
-                    .offset(y: -6)
-                ThumbView(systemImage: "figure.fishing", tint: DS.accent, size: 72)
-                    .rotationEffect(.degrees(6))
-            }
-            .padding(.top, DS.Space.s4)
-            .accessibilityHidden(true)
-
+        VStack(spacing: DS.Space.s3) {
+            CrewGateArt()
+                .padding(.top, DS.Space.s6)
+                .padding(.bottom, DS.Space.s3)
             Text("Fish with friends")
                 .font(.title.bold())
                 .foregroundStyle(.dsText)
-            Text("Crews, tournaments and group trips with the anglers you fish with. Pick the name your crew will see. Spots you keep private stay private.")
+                .multilineTextAlignment(.center)
+            Text("Crews, tournaments and group trips. Pick the name your crew will see.")
                 .font(.body)
                 .foregroundStyle(.dsText2)
-
-            CrewTextField(label: "Angler name", placeholder: "Your name", text: $name)
-                .textContentType(.givenName)
-
-            Button {
-                joining = true
-                Task {
-                    await svc.join(name: name, region: region)
-                    await svc.updateProfile(name: svc.myName, bio: svc.myBio, homeWater: svc.myHomeWater,
-                                            region: region, avatar: nil, stats: stats)
-                    joining = false
-                    ToastCenter.shared.show("You're in. Add a friend or start a crew.", style: .success)
-                }
-            } label: {
-                if joining { ProgressView() } else { Text("Continue") }
+                .multilineTextAlignment(.center)
+            CrewJoinForm {
+                await svc.updateProfile(name: svc.myName, bio: svc.myBio, homeWater: svc.myHomeWater,
+                                        region: region, avatar: nil, stats: stats)
+                ToastCenter.shared.show("You're in. Add a friend or start a crew.", style: .success, haptic: false)
             }
-            .buttonStyle(.dsPrimary)
-            // Without this you silently became "Angler XXXXXX".
-            .disabled(joining || name.trimmingCharacters(in: .whitespaces).isEmpty)
-
-            Text("Until you join, everything stays on this phone. When you join, your best catches (species, size and broad region), your angler profile and the spots you choose to share sync through Apple's CloudKit so friends can see them. Coordinates are never shared unless you turn on location sharing, and even then they're offset by your honey-hole radius.")
-                .font(.footnote)
-                .foregroundStyle(.dsText2)
+            .padding(.top, DS.Space.s3)
         }
+        .frame(maxWidth: .infinity)
         .padding(.horizontal, DS.gutter)
     }
 
@@ -238,19 +228,7 @@ struct CommunityView: View {
             .padding(.bottom, DS.Space.s2)
 
         if !hasAnything {
-            ContentUnavailableView {
-                Label("Fish with friends", systemImage: "person.3")
-            } description: {
-                Text("Start a crew or add a friend. Their catches, trips and tournaments land here.")
-            } actions: {
-                Button("Start a crew") { sheet = .newCrew }
-                    .buttonStyle(PrimaryButtonStyle(fullWidth: false))
-                Button("Add a friend") { sheet = .addFriend }
-                    .buttonStyle(TonalButtonStyle(fullWidth: false))
-                Button("Join a crew with a code") { sheet = .joinCrew }
-                    .buttonStyle(TonalButtonStyle(fullWidth: false))
-            }
-            .padding(.top, DS.Space.s8)
+            emptyState
         } else {
             inboxRow
             happeningNow
@@ -259,6 +237,41 @@ struct CommunityView: View {
             friendsSection
             feedSection
         }
+    }
+
+    /// Joined, but no crews, friends or trips yet.
+    private var emptyState: some View {
+        VStack(spacing: DS.Space.s3) {
+            CrewGateArt()
+                .padding(.bottom, DS.Space.s3)
+            Text("Fish with friends")
+                .font(.title2.bold())
+                .foregroundStyle(.dsText)
+            Text("Start a crew or add a friend. Their catches, trips and tournaments land here.")
+                .font(.body)
+                .foregroundStyle(.dsText2)
+                .multilineTextAlignment(.center)
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: DS.Space.s2) { emptyStateButtons }
+                VStack(spacing: DS.Space.s2) { emptyStateButtons }
+            }
+            .padding(.top, DS.Space.s2)
+            Button("Join a crew with a code") { sheet = .joinCrew }
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(DS.accent)
+                .buttonStyle(.dim)
+                .padding(.top, DS.Space.s1)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, DS.gutter)
+        .padding(.top, DS.Space.s6)
+    }
+
+    @ViewBuilder private var emptyStateButtons: some View {
+        Button("Start a crew") { sheet = .newCrew }
+            .buttonStyle(PrimaryButtonStyle(fullWidth: true))
+        Button("Add a friend") { sheet = .addFriend }
+            .buttonStyle(TonalButtonStyle(fullWidth: true))
     }
 
     // MARK: Inbox
@@ -496,7 +509,7 @@ struct CommunityView: View {
     private var stats: CommunityService.MyStats { cachedStats ?? computeStats() }
 
     private func loadNotifications() async {
-        guard svc.joined else { return }
+        guard canSync else { return }
         pendingRequests = await svc.refreshFriendRequests()
         pendingInvites = await svc.refreshTripInvites()
     }
@@ -504,7 +517,7 @@ struct CommunityView: View {
     /// Each crew's tournament (with standings, for the rank pill) and live
     /// trips. Crews are few, so one crew at a time keeps this simple.
     private func loadLive() async {
-        guard svc.joined, !ScreenshotSupport.isActive else { return }
+        guard canSync, !ScreenshotSupport.isActive else { return }
         var next: [String: CrewLive] = [:]
         for crew in svc.myCrews {
             async let tourney = svc.activeTournament(crewCode: crew.code)
@@ -523,7 +536,7 @@ struct CommunityView: View {
     /// Publish the full local catch history so the leaderboards reflect
     /// everything, not just catches logged after joining. Throttled service-side.
     private func syncCatches() async {
-        guard svc.joined else { return }
+        guard canSync else { return }
         let catches = (try? appState.catchRepository.fetchAll(limit: 100000)) ?? []
         let details = catches.map {
             (id: $0.catchRecord.id,
@@ -547,7 +560,7 @@ struct CommunityView: View {
 
     /// One page from every crew, fetched concurrently and merged newest first.
     private func loadMergedFeed() async {
-        guard svc.joined else { return }
+        guard canSync else { return }
         let crews = svc.myCrews
         guard !crews.isEmpty else { mergedFeed = []; return }
         // Instant: last-seen pages from disk, so the feed is on screen before
@@ -582,7 +595,7 @@ struct CommunityView: View {
     /// merge, and keep going until each crew's history runs dry, 30 at a time
     /// per crew.
     private func loadMoreFeed() async {
-        guard !feedLoadingMore, feedHasMore.values.contains(true) else { return }
+        guard canSync, !feedLoadingMore, feedHasMore.values.contains(true) else { return }
         feedLoadingMore = true
         var appended: [CommunityService.CrewPost] = []
         for crew in svc.myCrews where feedHasMore[crew.code] == true {
@@ -712,6 +725,7 @@ struct MyProfileView: View {
                 .padding(.top, DS.Space.s8)
             }
             .padding(.bottom, DS.Space.s8)
+            .pageWidth()
         }
         .detailTint(DS.accent)
         .navigationTitle("Profile")
@@ -725,7 +739,7 @@ struct MyProfileView: View {
                 dismiss()
             }
         } message: {
-            Text("Notifications stop and nothing new is shared. What you've already published stays visible to friends until you delete those catches. Rejoining picks everything back up.")
+            Text("Nothing new is shared and notifications stop. What you've already shared stays until you delete it.")
         }
     }
 }
@@ -861,82 +875,39 @@ struct ProfileEditView: View {
     @State private var avatar: UIImage?
     @State private var saving = false
 
+    @ObservedObject private var cloud = CrewCloud.shared
+    private var flair: TitleFlair? { TitleFlair.resolve(title) }
+
     var body: some View {
         NavigationStack {
-            Form {
-                Section {
-                    HStack {
-                        Spacer()
-                        PhotosPicker(selection: $avatarItem, matching: .images) {
-                            ZStack(alignment: .bottomTrailing) {
-                                CrewAvatar(image: avatar, name: name.isEmpty ? svc.myName : name, size: 96)
-                                Image(systemName: "camera.fill")
-                                    .font(.footnote.weight(.semibold))
-                                    .foregroundStyle(.dsOnPrimary)
-                                    .frame(width: 32, height: 32)
-                                    .background(Color.dsPrimaryButton, in: Circle())
-                                    .overlay(Circle().stroke(Color.dsBackground, lineWidth: 2.5))
-                            }
-                        }
-                        .buttonStyle(.dim)
-                        .accessibilityLabel("Change profile photo")
-                        Spacer()
+            CrewCloudGate {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: DS.Space.s5) {
+                        avatarPicker
+                        CrewTextField(label: "Angler name", placeholder: "Your name", text: $name)
+                            .textContentType(.name)
+                        CrewTextField(label: "Bio", placeholder: "What you fish for and where", text: $bio,
+                                      multiline: true)
+                        CrewTextField(label: "Home water", placeholder: "Theewaterskloof Dam", text: $homeWater)
+                        CrewTextField(label: "Region", placeholder: "Western Cape", text: $region)
+                        titleRow
                     }
-                    .listRowBackground(Color.clear)
+                    .padding(.horizontal, DS.gutter)
+                    .padding(.top, DS.Space.s2)
+                    .padding(.bottom, DS.Space.s8)
+                    .pageWidth()
                 }
-                Section("About you") {
-                    TextField("Angler name", text: $name)
-                    TextField("Bio", text: $bio, axis: .vertical).lineLimit(2...4)
-                    TextField("Home water, like Theewaterskloof Dam", text: $homeWater)
-                    TextField("Region", text: $region)
-                }
-                Section {
-                    Button {
-                        showingTitlePicker = true
-                    } label: {
-                        HStack {
-                            Text("Title").foregroundStyle(.dsText)
-                            Spacer()
-                            if let flair = TitleFlair.resolve(title) {
-                                Label(flair.name, systemImage: flair.icon)
-                                    .font(.subheadline.weight(.semibold))
-                                    .foregroundStyle(flair.rarity.color)
-                            } else {
-                                Text("None").foregroundStyle(.dsText2)
-                            }
-                            Image(systemName: "chevron.right")
-                                .font(.footnote.weight(.semibold)).foregroundStyle(.dsText3)
-                        }
-                    }
-                    .disabled(earnedFlairs.isEmpty)
-                } header: {
-                    Text("Title flair")
-                } footer: {
-                    Text(earnedFlairs.isEmpty
-                         ? "Earn achievements to unlock titles you can wear under your name."
-                         : "Worn under your name on your profile. Each one is unlocked by an achievement you've earned.")
-                }
-                Section {
-                    LabeledContent("Catches", value: "\(stats.totalCatches)")
-                    LabeledContent("Species", value: "\(stats.speciesCount)")
-                    if !stats.favoriteSpecies.isEmpty {
-                        LabeledContent("Favourite", value: stats.favoriteSpecies)
-                    }
-                } header: {
-                    Text("Your stats")
-                } footer: {
-                    Text("Worked out from your catch log.")
-                }
+                .scrollDismissesKeyboard(.interactively)
+                .dsScreenBackground()
+                .detailScrollEdge()
             }
-            .scrollContentBackground(.hidden)
-            .background(Color.dsBackground)
             .navigationTitle("Edit profile")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") { save() }.bold()
-                        .disabled(saving || name.trimmingCharacters(in: .whitespaces).isEmpty)
+                        .disabled(saving || !cloud.isAvailable || name.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
             }
             .task {
@@ -970,6 +941,64 @@ struct ProfileEditView: View {
         }
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)
+    }
+
+    /// The photo, centred, with a camera badge; tap to pick a new one.
+    private var avatarPicker: some View {
+        PhotosPicker(selection: $avatarItem, matching: .images) {
+            VStack(spacing: DS.Space.s2) {
+                ZStack(alignment: .bottomTrailing) {
+                    CrewAvatar(image: avatar, name: name.isEmpty ? svc.myName : name, size: 104)
+                    Image(systemName: "camera.fill")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(.dsOnPrimary)
+                        .frame(width: 34, height: 34)
+                        .background(Color.dsPrimaryButton, in: Circle())
+                        .overlay(Circle().stroke(Color.dsBackground, lineWidth: 3))
+                }
+                Text(avatar == nil ? "Add photo" : "Change photo")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(DS.accent)
+            }
+            .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.dim)
+        .accessibilityLabel(avatar == nil ? "Add profile photo" : "Change profile photo")
+    }
+
+    /// The title worn under your name, as a row that opens the picker.
+    private var titleRow: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Title")
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.dsText2)
+            Button { showingTitlePicker = true } label: {
+                HStack(spacing: DS.Space.s3) {
+                    ThumbView(systemImage: flair?.icon ?? "rosette",
+                              tint: flair?.rarity.color ?? .dsText2, size: 44)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(flair?.name ?? "No title")
+                            .font(.body.weight(.medium))
+                            .foregroundStyle(.dsText)
+                        Text(earnedFlairs.isEmpty ? "Earn achievements to unlock titles"
+                                                  : "\(earnedFlairs.count) unlocked")
+                            .font(.subheadline)
+                            .foregroundStyle(.dsText2)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    if !earnedFlairs.isEmpty {
+                        Image(systemName: "chevron.right")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.dsText3)
+                    }
+                }
+                .padding(DS.Space.s3)
+                .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
+            }
+            .buttonStyle(.dim)
+            .disabled(earnedFlairs.isEmpty)
+            .accessibilityHint("Choose the title shown under your name")
+        }
     }
 
     private func save() {
@@ -1028,6 +1057,7 @@ struct TitleFlairPickerSheet: View {
                 }
             }
             .dsPlainList()
+            .detailScrollEdge()
             .navigationTitle("Title")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -1086,6 +1116,10 @@ struct FriendProfileView: View {
     private var displayName: String { isSelf ? svc.myName : (profile?.name ?? "Angler \(code)") }
 
     var body: some View {
+        CrewCloudGate { page }
+    }
+
+    private var page: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
                 CrewAvatar(image: isSelf ? (svc.myAvatar ?? profile?.avatar) : profile?.avatar,
@@ -1138,6 +1172,7 @@ struct FriendProfileView: View {
                 }
             }
             .padding(.bottom, DS.Space.s8)
+            .pageWidth()
         }
         .detailTint(DS.accent)
         .navigationTitle("")
@@ -1157,7 +1192,7 @@ struct FriendProfileView: View {
                 ToastCenter.shared.show("Friend removed", style: .info, haptic: false)
             }
         } message: {
-            Text("They stop seeing your catches and the spots you shared with them. You can add them again with their code.")
+            Text("They stop seeing your catches and shared spots. You can add them again later.")
         }
         .task { await load() }
     }
@@ -1393,32 +1428,41 @@ struct FriendProfileView: View {
 
     private var friendSettingsSheet: some View {
         NavigationStack {
-            Form {
-                Section("Nickname") {
-                    TextField("Nickname (optional)", text: $privacy.nickname)
+            ScrollView {
+                VStack(alignment: .leading, spacing: DS.Space.s5) {
+                    CrewTextField(label: "Nickname", placeholder: "Only you see it", text: $privacy.nickname)
+                        .submitLabel(.done)
                         .onSubmit { svc.setNickname(privacy.nickname, for: code) }
-                }
-                if isFriend {
-                    Section {
-                        overrideRow("See my catch history",
-                                    globalOn: svc.shareCatchesWithFriends,
-                                    value: $override.shareCatches)
-                        overrideRow("Share my spots",
-                                    globalOn: svc.shareSpotsWithFriends,
-                                    value: $override.shareSpots)
-                        overrideRow("Share my exact spot locations",
-                                    globalOn: svc.shareSpotExactLocations,
-                                    value: $override.shareExactLocations)
-                    } header: {
-                        Text("What you share with \(profile?.name ?? "this friend")")
-                    } footer: {
-                        Text("Default follows your Privacy settings. Override any of these to share more or less with just this friend, like exact spots for a trusted friend while everyone else sees an approximate area. Your honey-hole radius stays the same for everyone.")
+                    if isFriend {
+                        VStack(alignment: .leading, spacing: DS.Space.s3) {
+                            Text("What you share")
+                                .font(.title3.weight(.semibold))
+                                .foregroundStyle(.dsText)
+                                .accessibilityAddTraits(.isHeader)
+                            overrideRow("Catch history", systemImage: "fish",
+                                        globalOn: svc.shareCatchesWithFriends,
+                                        value: $override.shareCatches)
+                            overrideRow("Spots", systemImage: "mappin.and.ellipse",
+                                        globalOn: svc.shareSpotsWithFriends,
+                                        value: $override.shareSpots)
+                            overrideRow("Exact spot locations", systemImage: "scope",
+                                        globalOn: svc.shareSpotExactLocations,
+                                        value: $override.shareExactLocations)
+                            Text("Default follows your privacy settings.")
+                                .font(.footnote)
+                                .foregroundStyle(.dsText2)
+                        }
                     }
                 }
+                .padding(.horizontal, DS.gutter)
+                .padding(.top, DS.Space.s2)
+                .padding(.bottom, DS.Space.s8)
+                .pageWidth()
             }
-            .scrollContentBackground(.hidden)
-            .background(Color.dsBackground)
-            .navigationTitle(profile?.name ?? "Friend")
+            .scrollDismissesKeyboard(.interactively)
+            .dsScreenBackground()
+            .detailScrollEdge()
+            .navigationTitle(displayName)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
@@ -1440,22 +1484,27 @@ struct FriendProfileView: View {
         .presentationDragIndicator(.visible)
     }
 
-    /// A three-way per-friend override: Default (follow global), Share, Hide.
-    private func overrideRow(_ title: String, globalOn: Bool, value: Binding<Bool?>) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(title).font(.subheadline)
+    /// A three-way per-friend override on its own card: Default (follow the
+    /// global setting), Share or Hide.
+    private func overrideRow(_ title: String, systemImage: String, globalOn: Bool,
+                             value: Binding<Bool?>) -> some View {
+        VStack(alignment: .leading, spacing: DS.Space.s2) {
+            Label(title, systemImage: systemImage)
+                .font(.body.weight(.medium))
+                .foregroundStyle(.dsText)
             Picker(title, selection: Binding(
                 get: { value.wrappedValue == nil ? 0 : (value.wrappedValue! ? 1 : 2) },
                 set: { value.wrappedValue = $0 == 0 ? nil : ($0 == 1) }
             )) {
-                Text("Default (\(globalOn ? "on" : "off"))").tag(0)
+                Text(globalOn ? "Default, on" : "Default, off").tag(0)
                 Text("Share").tag(1)
                 Text("Hide").tag(2)
             }
             .pickerStyle(.segmented)
             .labelsHidden()
         }
-        .padding(.vertical, 2)
+        .padding(DS.Space.s3)
+        .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
     }
 }
 
@@ -1480,7 +1529,7 @@ struct FriendBadgesCard: View {
                 .font(.subheadline)
                 .foregroundStyle(.dsText2)
             if earned.isEmpty {
-                Text("No badges yet. Their trophy shelf is waiting.")
+                Text("No badges yet.")
                     .font(.subheadline).foregroundStyle(.dsText2)
             } else {
                 ScrollView(.horizontal, showsIndicators: false) {
@@ -1672,8 +1721,10 @@ struct SharedSpotDetailView: View {
                 }
             }
             .padding(.bottom, DS.Space.s6)
+            .pageWidth()
         }
-        .background(Color.dsBackground)
+        .dsScreenBackground()
+        .detailScrollEdge()
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
@@ -1718,6 +1769,10 @@ struct CommunityCatchDetailView: View {
     @State private var showingFullscreen = false
 
     var body: some View {
+        CrewCloudGate { page }
+    }
+
+    private var page: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 hero
@@ -1764,6 +1819,7 @@ struct CommunityCatchDetailView: View {
                 }
             }
             .padding(.bottom, DS.Space.s6)
+            .pageWidth()
         }
         .detailTint(species?.artTint)
         .navigationTitle("Catch")
@@ -1850,7 +1906,7 @@ struct CommunityCatchThumb: View {
                 let px = size * displayScale
                 let scale = displayScale
                 photo = await Task.detached { PhotoManager.thumbnail(path, maxPixel: px, scale: scale) }.value
-            } else if row.hasRemotePhoto {
+            } else if row.hasRemotePhoto, CrewCloud.shared.isAvailable {
                 photo = await CommunityService.shared.catchPhoto(recordName: row.id)
             }
             if photo == nil {
@@ -1874,26 +1930,29 @@ struct AddFriendConfirmView: View {
     @State private var loading = true
     @State private var added = false
     @State private var sending = false
-    @State private var joinName = ""
-    @State private var joining = false
     @AppStorage("units") private var units = "metric"
     private var imperial: Bool { units == "imperial" }
 
     private var isFriend: Bool { svc.friends.contains(code.uppercased()) }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                if svc.joined { confirmBody } else { joinGate }
+        CrewCloudGate(closeButton: true) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    if svc.joined { confirmBody } else { joinGate }
+                }
+                .padding(.bottom, DS.Space.s6)
+                .pageWidth()
             }
-            .padding(.bottom, DS.Space.s6)
-        }
-        .background(Color.dsBackground)
-        .navigationTitle(svc.joined ? "Add friend" : "Join the community")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
-                Button(isFriend || added ? "Done" : "Cancel") { dismiss() }
+            .scrollDismissesKeyboard(.interactively)
+            .dsScreenBackground()
+            .detailScrollEdge()
+            .navigationTitle("")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(isFriend || added ? "Done" : "Cancel") { dismiss() }
+                }
             }
         }
         .presentationDragIndicator(.visible)
@@ -1901,33 +1960,24 @@ struct AddFriendConfirmView: View {
 
     /// Set up a community profile before revealing the angler's profile.
     private var joinGate: some View {
-        VStack(alignment: .leading, spacing: DS.Space.s4) {
-            ThumbView(systemImage: "person.crop.circle.badge.plus", tint: DS.accent, size: 72)
-                .accessibilityHidden(true)
-            Text("Join to add \(code)")
-                .font(.title2.bold())
+        VStack(spacing: DS.Space.s3) {
+            CrewGateArt()
+                .padding(.top, DS.Space.s4)
+                .padding(.bottom, DS.Space.s3)
+            Text("Add a friend")
+                .font(.title.bold())
                 .foregroundStyle(.dsText)
-            Text("Someone shared their angler code with you. Set up your free Currents profile to send them a friend request. No account or password, just a name.")
-                .font(.body).foregroundStyle(.dsText2)
-            CrewTextField(label: "Angler name", placeholder: "Your name", text: $joinName)
-                .textContentType(.givenName)
-            Button {
-                joining = true
-                Task {
-                    await svc.join(name: joinName, region: svc.myRegion)
-                    Haptics.success()
-                    joining = false
-                    // svc.joined flips, confirmBody appears and its .task loads
-                    // the shared angler's profile.
-                }
-            } label: {
-                if joining { ProgressView() } else { Text("Join and continue") }
-            }
-            .buttonStyle(.dsPrimary)
-            .disabled(joinName.trimmingCharacters(in: .whitespaces).isEmpty || joining)
+            Text("Someone shared their angler code with you. Pick the name they'll see, then send a request.")
+                .font(.body)
+                .foregroundStyle(.dsText2)
+                .multilineTextAlignment(.center)
+            // svc.joined flips, confirmBody appears and its .task loads the
+            // shared angler's profile.
+            CrewJoinForm(buttonTitle: "Join and continue")
+                .padding(.top, DS.Space.s3)
         }
+        .frame(maxWidth: .infinity)
         .padding(.horizontal, DS.gutter)
-        .padding(.top, DS.Space.s4)
     }
 
     @ViewBuilder private var confirmBody: some View {
@@ -1994,7 +2044,7 @@ struct AddFriendConfirmView: View {
                 .padding(.horizontal, DS.gutter)
                 .padding(.top, DS.Space.s5)
                 .sensoryFeedback(.success, trigger: added)
-                CrewFootnote(text: "They get your request in Crew and can accept it. Your spots stay private unless you choose to share them, per friend.")
+                CrewFootnote(text: "They'll see your request on their Crew tab.")
             } else {
                 ContentUnavailableView(
                     "Angler not found",

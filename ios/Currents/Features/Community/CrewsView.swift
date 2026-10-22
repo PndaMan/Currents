@@ -20,9 +20,13 @@ struct CrewsListPage: View {
                     }
                     .buttonStyle(ActionTileStyle(.primary))
                     Button { setup = .join } label: {
-                        Label("Join with code", systemImage: "person.badge.plus")
+                        Label("Join crew", systemImage: "person.badge.plus")
                     }
                     .buttonStyle(ActionTileStyle())
+                    NavigationLink(value: CrewRoute.tripSetup(crewCode: nil)) {
+                        ActionTileLabel("Group trip", systemImage: "calendar.badge.plus")
+                    }
+                    .buttonStyle(.dim)
                 }
                 .padding(.top, DS.Space.s5)
 
@@ -30,7 +34,7 @@ struct CrewsListPage: View {
                     ContentUnavailableView {
                         Label("No crews yet", systemImage: "person.3")
                     } description: {
-                        Text("A crew is your fishing group: a shared catch feed, weekly challenges, tournaments and live sessions.")
+                        Text("Start a crew or join one with its code.")
                     }
                     .padding(.top, DS.Space.s8)
                 } else {
@@ -41,6 +45,8 @@ struct CrewsListPage: View {
                                        subtitle: CrewText.crewSubtitle(crew, tournamentLive: false),
                                        chevron: true) {
                                     CrewThumb(code: crew.code, emoji: crew.emoji)
+                                } trailing: {
+                                    CrewAvatarStack(members: svc.cachedCrewMembers(crew.code))
                                 }
                             }
                             .buttonStyle(.dsRow)
@@ -50,6 +56,7 @@ struct CrewsListPage: View {
                 }
             }
             .padding(.bottom, DS.Space.s8)
+            .pageWidth()
         }
         .detailTint(DS.accent)
         .navigationTitle("")
@@ -73,14 +80,10 @@ struct CrewSetupView: View {
 
     @State private var mode: CrewSetupMode = .start
     @State private var name = ""
-    @State private var emoji = "🎣"  // ui-lint: allow, default stored crew icon value
+    @State private var art: Species?
     @State private var joinCode = ""
     @State private var busy = false
     @State private var joinError: String?
-
-    /// The crew's own icon when it has no photo. Stored as an emoji on the
-    /// crew record, so older builds still show it.
-    private let emojis = ["🎣", "🐟", "🐠", "🦈", "🌊", "⚓️", "🛥️", "🏆"]  // ui-lint: allow, crew icon emoji is stored crew data
 
     init(joining: Bool = false) {
         self.joining = joining
@@ -89,62 +92,58 @@ struct CrewSetupView: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: DS.Space.s5) {
-                    Picker("Start or join", selection: $mode) {
-                        Text("Start a crew").tag(CrewSetupMode.start)
-                        Text("Join a crew").tag(CrewSetupMode.join)
-                    }
-                    .pickerStyle(.segmented)
-                    .labelsHidden()
-
-                    if mode == .start { startForm } else { joinForm }
-                }
-                .padding(.horizontal, DS.gutter)
-                .padding(.top, DS.Space.s3)
-                .padding(.bottom, DS.Space.s6)
-            }
-            .background(Color.dsBackground)
-            .navigationTitle(mode == .start ? "New crew" : "Join a crew")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
-            }
+            CrewCloudGate(closeButton: true) { form }
         }
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
+    }
+
+    private var form: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: DS.Space.s5) {
+                Picker("Start or join", selection: $mode) {
+                    Text("Start a crew").tag(CrewSetupMode.start)
+                    Text("Join a crew").tag(CrewSetupMode.join)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+
+                if mode == .start { startForm } else { joinForm }
+            }
+            .padding(.horizontal, DS.gutter)
+            .padding(.top, DS.Space.s3)
+            .padding(.bottom, DS.Space.s6)
+            .pageWidth()
+        }
+        .scrollDismissesKeyboard(.interactively)
+        .dsScreenBackground()
+        .detailScrollEdge()
+        .navigationTitle(mode == .start ? "New crew" : "Join a crew")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+        }
     }
 
     private var startForm: some View {
         VStack(alignment: .leading, spacing: DS.Space.s4) {
             CrewTextField(label: "Crew name", placeholder: "The Usual Suspects", text: $name)
             VStack(alignment: .leading, spacing: 6) {
-                Text("Crew icon")
+                Text("Crew art")
                     .font(.subheadline.weight(.medium))
                     .foregroundStyle(.dsText2)
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 10) {
-                        ForEach(emojis, id: \.self) { e in
-                            Button { emoji = e } label: {
-                                Text(e)
-                                    .font(.title2)
-                                    .frame(width: 52, height: 52)
-                                    .background(emoji == e ? DS.accent.opacity(0.22) : Color.dsFill,
-                                                in: RoundedRectangle(cornerRadius: DS.Radius.thumb, style: .continuous))
-                                    .overlay(RoundedRectangle(cornerRadius: DS.Radius.thumb, style: .continuous)
-                                        .stroke(emoji == e ? DS.accent : .clear, lineWidth: 2))
-                            }
-                            .buttonStyle(.dim)
-                            .accessibilityAddTraits(emoji == e ? .isSelected : [])
-                        }
-                    }
-                }
-                .sensoryFeedback(.selection, trigger: emoji)
+                CrewArtPicker(selection: $art)
             }
             Button {
                 Task {
                     busy = true
-                    let crew = await svc.createCrew(name: name.trimmingCharacters(in: .whitespaces), emoji: emoji)
+                    let crew = await svc.createCrew(name: name.trimmingCharacters(in: .whitespaces),
+                                                    emoji: CrewArt.legacyEmoji)
+                    // The art rides on the crew's icon photo, which every
+                    // build shows.
+                    if let crew, let art, let icon = CrewArt.image(for: art) {
+                        _ = await svc.updateCrewIdentity(crew, iconPhoto: icon)
+                    }
                     busy = false
                     if crew != nil {
                         Haptics.success()
@@ -159,7 +158,7 @@ struct CrewSetupView: View {
             }
             .buttonStyle(.dsPrimary)
             .disabled(busy || name.trimmingCharacters(in: .whitespaces).isEmpty)
-            Text("Invite friends afterwards. Everyone's catches show up in the crew's feed automatically. You can turn that off per crew.")
+            Text("Invite friends once it's made.")
                 .font(.footnote)
                 .foregroundStyle(.dsText2)
         }
@@ -167,7 +166,7 @@ struct CrewSetupView: View {
 
     private var joinForm: some View {
         VStack(alignment: .leading, spacing: DS.Space.s4) {
-            Text("Enter the 6-character code a friend shared with you.")
+            Text("Enter the 6-character code from your crew.")
                 .font(.body)
                 .foregroundStyle(.dsText2)
             CodeField(text: $joinCode, placeholder: "Crew code")
@@ -254,6 +253,7 @@ struct CrewDetailView: View {
                 .padding(.top, DS.Space.s8)
             }
             .padding(.bottom, DS.Space.s8)
+            .pageWidth()
         }
         .detailTint(DS.accent)
         .navigationTitle("")
@@ -419,12 +419,7 @@ struct CrewDetailView: View {
 
     @ViewBuilder private var cover: some View {
         if let banner {
-            Image(uiImage: banner)
-                .resizable().scaledToFill()
-                .frame(height: 160)
-                .frame(maxWidth: .infinity)
-                .clipShape(RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
-                .contentShape(RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
+            CrewHeroImage(image: banner, height: 160)
                 .zoomableOnTap(banner)
                 .padding(.horizontal, DS.gutter)
                 .padding(.top, DS.Space.s2)
@@ -686,7 +681,7 @@ struct CrewDetailView: View {
                         .labelsHidden()
                         .tint(DS.accent)
                     }
-                    Divider().overlay(Color.dsSeparator).padding(.leading, 56)
+                    CrewRowDivider()
                     Button { copyCode() } label: {
                         CrewListRow(title: "Crew code", systemImage: "number") {
                             Text(crew.code)
@@ -696,7 +691,7 @@ struct CrewDetailView: View {
                     }
                     .buttonStyle(.dim)
                     .accessibilityHint("Copies the crew code")
-                    Divider().overlay(Color.dsSeparator).padding(.leading, 56)
+                    CrewRowDivider()
                     Button { showingSettings = true } label: {
                         CrewListRow(title: "Crew settings", systemImage: "gearshape") {
                             Image(systemName: "chevron.right")
@@ -708,7 +703,6 @@ struct CrewDetailView: View {
                 }
                 .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
                 .padding(.horizontal, DS.gutter)
-                CrewFootnote(text: "New catches you log are shared to this crew's feed while posting is on.")
             }
         }
     }
@@ -735,7 +729,6 @@ struct CrewSettingsView: View {
 
     @State private var currentCrew: CommunityService.Crew
     @State private var name: String
-    @State private var emoji: String
     @State private var iconItem: PhotosPickerItem?
     @State private var bannerItem: PhotosPickerItem?
     @State private var newIcon: UIImage?
@@ -749,11 +742,8 @@ struct CrewSettingsView: View {
     @State private var confirmingTransfer: CommunityService.GroupMember?
     @State private var showingIconPicker = false
     @State private var showingBannerPicker = false
-    @State private var showingEmojiRow = false
-
-    /// The crew's own icon when it has no photo, stored as an emoji on the
-    /// crew record.
-    private let emojis = ["🎣", "🐟", "🐠", "🦈", "🌊", "⚓️", "🛥️", "🏆"]  // ui-lint: allow, crew icon emoji is stored crew data
+    @State private var showingArt = false
+    @State private var art: Species?
 
     init(crew: CommunityService.Crew, members: [CommunityService.GroupMember],
          onChange: @escaping () -> Void) {
@@ -762,27 +752,43 @@ struct CrewSettingsView: View {
         self.onChange = onChange
         _currentCrew = State(initialValue: crew)
         _name = State(initialValue: crew.name)
-        _emoji = State(initialValue: crew.emoji)
         _hasIcon = State(initialValue: CommunityDiskCache.loadImage(key: "crewicon-\(crew.code)") != nil)
         _hasBanner = State(initialValue: CommunityDiskCache.loadImage(key: "crewbanner-\(crew.code)") != nil)
     }
 
     private var myRole: CrewRole { svc.myRole(in: currentCrew) }
 
+    private var hasChanges: Bool {
+        name.trimmingCharacters(in: .whitespaces) != currentCrew.name
+            || newIcon != nil || newBanner != nil || removeIcon || removeBanner
+    }
+
     var body: some View {
         NavigationStack {
-            Form {
-                yourRoleSection
-                if myRole.canManage { identitySection }
-                membersSection
-                rolesGuideSection
-            }
-            .scrollContentBackground(.hidden)
-            .background(Color.dsBackground)
-            .navigationTitle("Crew settings")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
+            CrewCloudGate(closeButton: true) {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 0) {
+                        if myRole.canManage {
+                            identityEditor
+                                .padding(.horizontal, DS.gutter)
+                                .padding(.top, DS.Space.s2)
+                        } else {
+                            identitySummary
+                        }
+                        membersSection
+                        rolesSection
+                    }
+                    .padding(.bottom, DS.Space.s8)
+                    .pageWidth()
+                }
+                .scrollDismissesKeyboard(.interactively)
+                .dsScreenBackground()
+                .detailScrollEdge()
+                .navigationTitle("Crew settings")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
+                }
             }
             .photosPicker(isPresented: $showingBannerPicker, selection: $bannerItem, matching: .images)
             .photosPicker(isPresented: $showingIconPicker, selection: $iconItem, matching: .images)
@@ -804,6 +810,11 @@ struct CrewSettingsView: View {
                     }
                 }
             }
+            .onChange(of: art) { _, picked in
+                guard let picked, let img = CrewArt.image(for: picked) else { return }
+                newIcon = img
+                removeIcon = false
+            }
         }
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)
@@ -822,78 +833,81 @@ struct CrewSettingsView: View {
                     : CommunityDiskCache.loadImage(key: "crewicon-\(crew.code)"))
     }
 
-    /// The banner is the banner control, the icon is the icon control (photo
-    /// or emoji), and the name sits beneath: edit what you're looking at.
-    private var identitySection: some View {
-        Section {
-            VStack(alignment: .leading, spacing: 12) {
-                ZStack(alignment: .bottomLeading) {
-                    bannerCanvas
-                    iconTile
-                        .padding(.leading, 14)
-                        .offset(y: 32)
-                }
-                .padding(.bottom, 34)
-
-                TextField("Crew name", text: $name)
-                    .font(.headline)
-                    .padding(.horizontal, 12).padding(.vertical, 10)
-                    .background(Color.dsFill2,
-                                in: RoundedRectangle(cornerRadius: DS.Radius.button, style: .continuous))
-
-                if showingEmojiRow { emojiRow }
-
-                Button {
-                    save()
-                } label: {
-                    if saving { ProgressView() } else { Text("Save changes") }
-                }
-                .buttonStyle(.dsPrimary)
-                .disabled(saving || name.trimmingCharacters(in: .whitespaces).isEmpty)
+    /// The banner is the banner control, the icon is the icon control, and
+    /// the name sits beneath: edit what you're looking at.
+    private var identityEditor: some View {
+        VStack(alignment: .leading, spacing: DS.Space.s4) {
+            ZStack(alignment: .bottomLeading) {
+                bannerCanvas
+                iconTile
+                    .padding(.leading, 14)
+                    .offset(y: 34)
             }
-            .listRowInsets(EdgeInsets(top: 10, leading: 12, bottom: 10, trailing: 12))
-        } header: {
-            Text("Identity")
-        } footer: {
-            Text("Tap the banner or the icon to change them. Only the captain and mates can change the crew's name and look.")
+            .padding(.bottom, 36)
+
+            if showingArt {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Crew art")
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(.dsText2)
+                    CrewArtPicker(selection: $art, preselect: false)
+                }
+                .transition(.opacity)
+            }
+
+            CrewTextField(label: "Crew name", placeholder: "Crew name", text: $name)
+
+            Button {
+                save()
+            } label: {
+                if saving { ProgressView() } else { Text("Save changes") }
+            }
+            .buttonStyle(.dsPrimary)
+            .disabled(saving || !hasChanges || name.trimmingCharacters(in: .whitespaces).isEmpty)
         }
+    }
+
+    /// For members who can't edit: the crew as it looks, and who can change it.
+    private var identitySummary: some View {
+        ArtRow(over: "Crew code \(currentCrew.code)", title: currentCrew.name,
+               subtitle: "The captain and mates can change the crew's look") {
+            CrewThumb(code: currentCrew.code, emoji: currentCrew.emoji)
+        }
+        .padding(.top, DS.Space.s2)
     }
 
     private var bannerCanvas: some View {
         ZStack(alignment: .topTrailing) {
-            // A real Button, not onTapGesture: in a Form row a bare tap
-            // gesture becomes the whole row's primary action.
             Button {
                 showingBannerPicker = true
             } label: {
                 Group {
                     if let banner = currentBanner {
-                        Image(uiImage: banner).resizable().scaledToFill()
+                        CrewHeroImage(image: banner, height: 128)
                     } else {
-                        DS.accent.opacity(0.25)
+                        Color.dsFill
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 128)
                             .overlay {
                                 Label("Add a banner", systemImage: "photo.badge.plus")
                                     .font(.subheadline.weight(.semibold))
                                     .foregroundStyle(.dsText2)
                             }
+                            .clipShape(RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
                     }
                 }
-                .frame(height: 110)
-                .frame(maxWidth: .infinity)
-                .clipShape(RoundedRectangle(cornerRadius: DS.Radius.thumb, style: .continuous))
-                .contentShape(RoundedRectangle(cornerRadius: DS.Radius.thumb, style: .continuous))
+                .contentShape(RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
             }
             .buttonStyle(.dim)
             .accessibilityLabel(currentBanner == nil ? "Add a banner" : "Change banner")
 
-            Menu {
-                Button {
-                    showingBannerPicker = true
-                } label: {
-                    Label(currentBanner == nil ? "Choose banner" : "Change banner",
-                          systemImage: "photo")
-                }
-                if currentBanner != nil {
+            if currentBanner != nil {
+                Menu {
+                    Button {
+                        showingBannerPicker = true
+                    } label: {
+                        Label("Change banner", systemImage: "photo")
+                    }
                     Button(role: .destructive) {
                         removeBanner = true
                         newBanner = nil
@@ -901,84 +915,63 @@ struct CrewSettingsView: View {
                     } label: {
                         Label("Remove banner", systemImage: "trash")
                     }
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.dsText)
+                        .frame(width: 36, height: 36)
+                        .glassEffect(.regular.interactive(), in: Circle())
                 }
-            } label: {
-                Image(systemName: "camera.fill")
-                    .font(.footnote)
-                    .foregroundStyle(.dsText)
-                    .frame(width: 32, height: 32)
-                    .glassEffect(.regular.interactive(), in: Circle())
+                .accessibilityLabel("Banner options")
+                .padding(DS.Space.s2)
             }
-            .accessibilityLabel("Banner options")
-            .padding(8)
         }
     }
 
     private var iconTile: some View {
         Menu {
             Button {
+                withAnimation(DS.Motion.softSpring) { showingArt = true }
+            } label: {
+                Label("Choose fish art", systemImage: "fish")
+            }
+            Button {
                 showingIconPicker = true
             } label: {
                 Label(currentIcon == nil ? "Choose a photo" : "Change photo", systemImage: "photo")
-            }
-            Button {
-                withAnimation(DS.Motion.spring) { showingEmojiRow.toggle() }
-            } label: {
-                Label("Pick an icon", systemImage: "square.grid.2x2")
             }
             if currentIcon != nil {
                 Button(role: .destructive) {
                     removeIcon = true
                     newIcon = nil
                     iconItem = nil
+                    art = nil
                 } label: {
-                    Label("Remove photo", systemImage: "trash")
+                    Label("Remove icon", systemImage: "trash")
                 }
             }
         } label: {
             ZStack(alignment: .bottomTrailing) {
                 Group {
                     if let icon = currentIcon {
-                        ThumbView(image: icon, tint: DS.accent, size: 66)
+                        ThumbView(image: icon, tint: DS.accent, size: 72)
                     } else {
-                        ThumbView(tint: DS.accent, size: 66) {
-                            Text(emoji).font(.system(size: 30))  // ui-lint: allow, crew icon emoji is stored crew data and scales with the thumb
-                        }
+                        CrewThumb(code: crew.code, emoji: currentCrew.emoji, size: 72)
                     }
                 }
                 .overlay(RoundedRectangle(cornerRadius: DS.Radius.thumb, style: .continuous)
                     .stroke(Color.dsBackground, lineWidth: 3))
 
-                Image(systemName: "plus")
-                    .font(.caption2.weight(.bold))
+                Image(systemName: "pencil")
+                    .font(.caption.weight(.bold))
                     .foregroundStyle(.dsOnPrimary)
-                    .frame(width: 22, height: 22)
+                    .frame(width: 26, height: 26)
                     .background(Color.dsPrimaryButton, in: Circle())
-                    .offset(x: 4, y: 4)
+                    .overlay(Circle().stroke(Color.dsBackground, lineWidth: 2))
+                    .offset(x: 6, y: 6)
             }
         }
         .accessibilityLabel("Crew icon options")
-    }
-
-    private var emojiRow: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 10) {
-                ForEach(emojis, id: \.self) { e in
-                    Button { emoji = e } label: {
-                        Text(e)
-                            .font(.title2)
-                            .frame(width: 48, height: 48)
-                            .background(emoji == e ? DS.accent.opacity(0.22) : Color.dsFill2,
-                                        in: RoundedRectangle(cornerRadius: DS.Radius.thumb, style: .continuous))
-                            .overlay(RoundedRectangle(cornerRadius: DS.Radius.thumb, style: .continuous)
-                                .stroke(emoji == e ? DS.accent : .clear, lineWidth: 2))
-                    }
-                    .buttonStyle(.dim)
-                }
-            }
-            .padding(.vertical, 2)
-        }
-        .sensoryFeedback(.selection, trigger: emoji)
     }
 
     private func save() {
@@ -988,7 +981,6 @@ struct CrewSettingsView: View {
             let ok = await svc.updateCrewIdentity(
                 currentCrew,
                 name: trimmedName != currentCrew.name ? trimmedName : nil,
-                emoji: emoji != currentCrew.emoji && !emoji.isEmpty ? emoji : nil,
                 banner: newBanner, iconPhoto: newIcon,
                 removeBanner: removeBanner, removeIcon: removeIcon)
             saving = false
@@ -996,12 +988,12 @@ struct CrewSettingsView: View {
                 Haptics.success()
                 ToastCenter.shared.show("Crew updated", style: .success)
                 currentCrew.name = trimmedName
-                if !emoji.isEmpty { currentCrew.emoji = emoji }
                 if newIcon != nil { hasIcon = true }
                 if removeIcon { hasIcon = false; removeIcon = false }
                 if newBanner != nil { hasBanner = true }
                 if removeBanner { hasBanner = false; removeBanner = false }
                 newIcon = nil; newBanner = nil
+                withAnimation(DS.Motion.softSpring) { showingArt = false }
                 onChange()
             } else {
                 ToastCenter.shared.show("Couldn't update the crew", style: .error)
@@ -1009,59 +1001,10 @@ struct CrewSettingsView: View {
         }
     }
 
-    // MARK: Roles
-
-    /// What you are in this crew and what that lets you do.
-    private var yourRoleSection: some View {
-        Section {
-            HStack(spacing: 12) {
-                ThumbView(systemImage: myRole.icon, tint: CrewDetailView.roleColor(myRole), size: 44)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("You're \(myRole == .admin ? "an" : myRole == .member ? "a" : "the") \(myRole.label.lowercased())")
-                        .font(.headline)
-                    Text(Self.roleSummary(myRole))
-                        .font(.subheadline).foregroundStyle(.dsText2)
-                }
-            }
-        }
-    }
-
-    static func roleSummary(_ role: CrewRole) -> String {
-        switch role {
-        case .captain: "Full control: identity, roles, members, posts and tournaments. You can also hand the crew over."
-        case .mate:    "Everything but the wheel: edit the crew's look, manage roles, moderate posts and members, run tournaments."
-        case .admin:   "Keeper of the peace: delete any post, remove members, run tournaments."
-        case .member:  "Post catches, react, join sessions and tournaments."
-        }
-    }
-
-    /// The whole ladder, so everyone knows what each role means.
-    private var rolesGuideSection: some View {
-        Section {
-            DisclosureGroup {
-                ForEach([CrewRole.captain, .mate, .admin, .member], id: \.self) { role in
-                    HStack(alignment: .top, spacing: 10) {
-                        Image(systemName: role.icon)
-                            .font(.subheadline)
-                            .foregroundStyle(CrewDetailView.roleColor(role))
-                            .frame(width: 24)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(role.label).font(.subheadline.weight(.semibold))
-                            Text(Self.roleSummary(role)).font(.footnote).foregroundStyle(.dsText2)
-                        }
-                    }
-                    .padding(.vertical, 2)
-                }
-            } label: {
-                Label("How roles work", systemImage: "person.badge.shield.checkmark")
-            }
-        } footer: {
-            Text("The captain and mates set roles from the More button beside a member. Admins and up can remove members and delete posts.")
-        }
-    }
+    // MARK: Members
 
     private var membersSection: some View {
-        Section("Members (\(members.count))") {
+        CrewSection(title: "Members", detail: "\(members.count)") {
             ForEach(members) { m in memberRow(m) }
         }
         .confirmationDialog(
@@ -1110,56 +1053,70 @@ struct CrewSettingsView: View {
         }
     }
 
-    @ViewBuilder private func memberRow(_ m: CommunityService.GroupMember) -> some View {
+    private func memberRow(_ m: CommunityService.GroupMember) -> some View {
         let role = svc.role(of: m.id, in: currentCrew)
         let isSelf = m.id == svc.friendCode
         let isCaptain = m.id == currentCrew.createdByCode
-        HStack(spacing: 12) {
-            CrewAvatar(image: svc.cachedProfiles(for: [m.id]).first?.avatar, name: m.name, size: 40)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(isSelf ? "You" : m.name).font(.body.weight(.medium))
-                Text(role.label).font(.subheadline)
+        return HStack(spacing: 14) {
+            CrewAvatar(image: isSelf ? svc.myAvatar : svc.cachedProfiles(for: [m.id]).first?.avatar,
+                       name: m.name, size: 48)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(isSelf ? "You" : m.name)
+                    .font(.body.weight(.medium))
+                    .foregroundStyle(.dsText)
+                    .lineLimit(1)
+                Text(role.label)
+                    .font(.subheadline)
                     .foregroundStyle(CrewDetailView.roleColor(role))
             }
-            Spacer()
+            .frame(maxWidth: .infinity, alignment: .leading)
             if !isSelf, !isCaptain, myRole.canModerate {
-                Menu {
-                    if myRole.canManage {
-                        if myRole == .captain {
-                            Button { confirmingTransfer = m } label: {
-                                Label("Make captain", systemImage: CrewRole.captain.icon)
-                            }
-                        }
-                        if myRole == .captain, role != .mate {
-                            Button { apply(.mate, to: m) } label: {
-                                Label("Make mate", systemImage: CrewRole.mate.icon)
-                            }
-                        }
-                        if role != .admin {
-                            Button { apply(.admin, to: m) } label: {
-                                Label("Make admin", systemImage: CrewRole.admin.icon)
-                            }
-                        }
-                        if role != .member {
-                            Button { apply(.member, to: m) } label: {
-                                Label("Remove role", systemImage: "person.fill")
-                            }
-                        }
-                        Divider()
-                    }
-                    Button(role: .destructive) { confirmingRemove = m } label: {
-                        Label("Remove from crew", systemImage: "person.fill.xmark")
-                    }
-                } label: {
-                    Image(systemName: "ellipsis.circle")
-                        .font(.title3)
-                        .foregroundStyle(.dsText2)
-                        .frame(width: 44, height: 44)
-                        .contentShape(Rectangle())
-                }
-                .accessibilityLabel("More for \(m.name)")
+                memberMenu(m, role: role)
             }
         }
+        .padding(.horizontal, DS.gutter)
+        .padding(.vertical, 8)
+        .accessibilityElement(children: .contain)
+    }
+
+    private func memberMenu(_ m: CommunityService.GroupMember, role: CrewRole) -> some View {
+        Menu {
+            if myRole.canManage {
+                if myRole == .captain {
+                    Button { confirmingTransfer = m } label: {
+                        Label("Make captain", systemImage: CrewRole.captain.icon)
+                    }
+                }
+                if myRole == .captain, role != .mate {
+                    Button { apply(.mate, to: m) } label: {
+                        Label("Make mate", systemImage: CrewRole.mate.icon)
+                    }
+                }
+                if role != .admin {
+                    Button { apply(.admin, to: m) } label: {
+                        Label("Make admin", systemImage: CrewRole.admin.icon)
+                    }
+                }
+                if role != .member {
+                    Button { apply(.member, to: m) } label: {
+                        Label("Remove role", systemImage: "person.fill")
+                    }
+                }
+                Divider()
+            }
+            Button(role: .destructive) { confirmingRemove = m } label: {
+                Label("Remove from crew", systemImage: "person.fill.xmark")
+            }
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.body.weight(.semibold))
+                .foregroundStyle(.dsText2)
+                .frame(width: 36, height: 36)
+                .background(Color.dsFill, in: Circle())
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
+        }
+        .accessibilityLabel("More for \(m.name)")
     }
 
     private func apply(_ role: CrewRole, to m: CommunityService.GroupMember) {
@@ -1173,6 +1130,42 @@ struct CrewSettingsView: View {
                 onChange()
             } else {
                 ToastCenter.shared.show("Couldn't change that role", style: .error)
+            }
+        }
+    }
+
+    // MARK: Roles
+
+    static func roleSummary(_ role: CrewRole) -> String {
+        switch role {
+        case .captain: "Full control, and can hand the crew over."
+        case .mate:    "Edits the crew's look, sets roles, manages members and runs tournaments."
+        case .admin:   "Deletes posts, removes members and runs tournaments."
+        case .member:  "Posts catches, reacts and joins sessions and tournaments."
+        }
+    }
+
+    /// The whole ladder with yours marked, so everyone knows what each role means.
+    private var rolesSection: some View {
+        CrewSection(title: "Roles") {
+            ForEach([CrewRole.captain, .mate, .admin, .member], id: \.self) { role in
+                HStack(alignment: .top, spacing: 14) {
+                    ThumbView(systemImage: role.icon, tint: CrewDetailView.roleColor(role), size: 48)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(role.label)
+                            .font(.body.weight(.medium))
+                            .foregroundStyle(.dsText)
+                        Text(Self.roleSummary(role))
+                            .font(.subheadline)
+                            .foregroundStyle(.dsText2)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    if role == myRole { CrewPill(text: "You") }
+                }
+                .padding(.horizontal, DS.gutter)
+                .padding(.vertical, 8)
+                .accessibilityElement(children: .combine)
             }
         }
     }
@@ -1260,8 +1253,10 @@ struct CrewPostSheet: View {
                     sizeTiles
                 }
                 .padding(.bottom, DS.Space.s6)
+                .pageWidth()
             }
-            .background(Color.dsBackground)
+            .dsScreenBackground()
+            .detailScrollEdge()
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -1272,7 +1267,7 @@ struct CrewPostSheet: View {
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
         .task(id: post.id) {
-            if post.hasPhoto, photo == nil {
+            if post.hasPhoto, photo == nil, CrewCloud.shared.isAvailable {
                 photo = await svc.crewPostImage(recordName: post.id)
             }
         }
@@ -1315,15 +1310,15 @@ struct CrewPostSheet: View {
         if post.hasPhoto {
             Group {
                 if let photo {
-                    Image(uiImage: photo).resizable().scaledToFill()
+                    CrewHeroImage(image: photo, height: 260)
                 } else {
-                    Rectangle().fill(Color.dsFill).overlay(ProgressView())
+                    Color.dsFill
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 260)
+                        .overlay(ProgressView())
+                        .clipShape(RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
                 }
             }
-            .frame(maxWidth: .infinity)
-            .frame(height: 260)
-            .clipShape(RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
-            .contentShape(RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
             .zoomableOnTap(photo)
             .accessibilityLabel("Catch photo")
         } else if let sp = SpeciesArtLookup.species(named: post.species, appState: appState) {
@@ -1552,7 +1547,7 @@ struct CrewCommentsSheet: View {
                 }
                 composer
             }
-            .background(Color.dsBackground)
+            .dsScreenBackground()
             .navigationTitle("Comments")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -1754,36 +1749,44 @@ struct JoinCrewConfirmView: View {
     @State private var loading = true
     @State private var joining = false
     @State private var joined = false
-    @State private var joinName = ""
 
     private var alreadyIn: Bool { svc.myCrews.contains { $0.code == code.uppercased() } }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                CrewThumb(code: code.uppercased(), emoji: crew?.emoji, size: 96)
-                    .padding(.horizontal, DS.gutter)
-                    .padding(.top, DS.Space.s4)
-                DetailHeader(over: svc.joined ? "Crew invite" : "Join the community",
-                             title: crew?.name ?? (loading ? "Loading crew" : "Crew"),
-                             subtitle: subtitle)
-                    .padding(.top, DS.Space.s4)
-                if svc.joined { confirmBody } else { joinGate }
+        CrewCloudGate(closeButton: true) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    if svc.joined {
+                        CrewThumb(code: code.uppercased(), emoji: crew?.emoji, size: 96)
+                            .padding(.horizontal, DS.gutter)
+                            .padding(.top, DS.Space.s4)
+                        DetailHeader(over: "Crew invite",
+                                     title: crew?.name ?? (loading ? "Loading crew" : "Crew"),
+                                     subtitle: subtitle)
+                            .padding(.top, DS.Space.s4)
+                        confirmBody
+                    } else {
+                        joinGate
+                    }
+                }
+                .padding(.bottom, DS.Space.s6)
+                .pageWidth()
             }
-            .padding(.bottom, DS.Space.s6)
-        }
-        .background(Color.dsBackground)
-        .navigationTitle("")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .cancellationAction) { Button(joined || alreadyIn ? "Done" : "Cancel") { dismiss() } }
+            .scrollDismissesKeyboard(.interactively)
+            .dsScreenBackground()
+            .detailScrollEdge()
+            .navigationTitle("")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button(joined || alreadyIn ? "Done" : "Cancel") { dismiss() } }
+            }
+            .task {
+                crew = await svc.fetchCrew(code: code)
+                members = await svc.crewMembers(code: code).count
+                loading = false
+            }
         }
         .presentationDragIndicator(.visible)
-        .task {
-            crew = await svc.fetchCrew(code: code)
-            members = await svc.crewMembers(code: code).count
-            loading = false
-        }
     }
 
     private var subtitle: String? {
@@ -1792,27 +1795,26 @@ struct JoinCrewConfirmView: View {
         return "\(CrewText.anglers(members)). Started by \(crew.createdByName)."
     }
 
+    /// Not on Crew yet: the invite up top, then pick a name. Once joined,
+    /// confirmBody takes over with the Join crew button.
     private var joinGate: some View {
-        VStack(alignment: .leading, spacing: DS.Space.s4) {
-            Text("Set up your free Currents profile to join this crew and share catches. No account or password, just a name.")
-                .font(.body).foregroundStyle(.dsText2)
-            CrewTextField(label: "Angler name", placeholder: "Your name", text: $joinName)
-                .textContentType(.givenName)
-            Button {
-                joining = true
-                Task {
-                    await svc.join(name: joinName, region: svc.myRegion)
-                    Haptics.success()
-                    joining = false
-                }
-            } label: {
-                if joining { ProgressView() } else { Text("Join and continue") }
-            }
-            .buttonStyle(.dsPrimary)
-            .disabled(joining || joinName.trimmingCharacters(in: .whitespaces).isEmpty)
+        VStack(spacing: DS.Space.s3) {
+            CrewThumb(code: code.uppercased(), emoji: crew?.emoji, size: 96)
+                .padding(.top, DS.Space.s4)
+                .padding(.bottom, DS.Space.s2)
+            Text(crew.map { "Join \($0.name)" } ?? "Join a crew")
+                .font(.title.bold())
+                .foregroundStyle(.dsText)
+                .multilineTextAlignment(.center)
+            Text("Pick the name your crew will see.")
+                .font(.body)
+                .foregroundStyle(.dsText2)
+                .multilineTextAlignment(.center)
+            CrewJoinForm(buttonTitle: "Continue")
+                .padding(.top, DS.Space.s3)
         }
+        .frame(maxWidth: .infinity)
         .padding(.horizontal, DS.gutter)
-        .padding(.top, DS.Space.s5)
     }
 
     private var confirmBody: some View {
@@ -1842,8 +1844,11 @@ struct JoinCrewConfirmView: View {
                 .buttonStyle(.dsPrimary)
                 .disabled(joining || crew == nil)
             }
-            Text("Find the crew on the Crew tab once you've joined.")
-                .font(.footnote).foregroundStyle(.dsText2)
+            if joined || alreadyIn {
+                Text("It's on your Crew tab.")
+                    .font(.footnote).foregroundStyle(.dsText2)
+                    .frame(maxWidth: .infinity)
+            }
         }
         .padding(.horizontal, DS.gutter)
         .padding(.top, DS.Space.s5)

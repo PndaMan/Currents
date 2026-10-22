@@ -144,7 +144,7 @@ struct ContentView: View {
             // CloudKit at launch in the unsigned test build — and never in
             // screenshot mode, where the permission dialog would cover a capture.
             guard UserDefaults.standard.bool(forKey: "communityJoined"),
-                  !ScreenshotSupport.isActive else { return }
+                  !ScreenshotSupport.isActive, CrewCloud.buildHasCloudKit else { return }
             await CommunityService.shared.enablePush()
             await CommunityService.shared.refreshTripInvites()
             await CommunityService.shared.refreshFriendRequests()

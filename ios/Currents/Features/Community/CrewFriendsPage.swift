@@ -130,7 +130,7 @@ struct CrewFriendsPage: View {
                     }
                     if svc.friends.isEmpty {
                         CrewInlineEmpty(systemImage: "person.2",
-                                        text: "No friends yet. Send a request with their angler code to compare catches and share spots privately.",
+                                        text: "No friends yet. Add one with their angler code.",
                                         actionTitle: "Add a friend") { showingAdd = true }
                     } else if isLoading && friends.isEmpty {
                         FishLoader(message: "Loading friends")
@@ -172,6 +172,7 @@ struct CrewFriendsPage: View {
                 }
             }
             .padding(.bottom, DS.Space.s8)
+            .pageWidth()
         }
         .detailTint(DS.accent)
         .navigationTitle("")
@@ -192,7 +193,7 @@ struct CrewFriendsPage: View {
                 Task { await load() }
             }
         } message: { _ in
-            Text("They stop seeing your catches and the spots you shared with them. You can add them again with their code.")
+            Text("They stop seeing your catches and shared spots. You can add them again later.")
         }
         .task { await load() }
         .onChange(of: svc.revision) { _, _ in Task { await load() } }
@@ -271,6 +272,7 @@ struct CrewRequestsPage: View {
                 }
             }
             .padding(.bottom, DS.Space.s8)
+            .pageWidth()
         }
         .detailTint(nil)
         .navigationTitle("")
@@ -411,7 +413,8 @@ struct CrewAddSheet: View {
                 Spacer(minLength: 0)
             }
             .padding(.top, DS.Space.s2)
-            .background(Color.dsBackground)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .dsScreenBackground()
             .navigationTitle("Start something")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -454,7 +457,7 @@ struct CrewAddFriendSheet: View {
                 VStack(alignment: .leading, spacing: DS.Space.s5) {
                     VStack(alignment: .leading, spacing: DS.Space.s2) {
                         Text("Their angler code")
-                            .font(.headline)
+                            .font(.title3.weight(.semibold))
                             .foregroundStyle(.dsText)
                         CodeField(text: $addCode, placeholder: "Angler code")
                             .onChange(of: addCode) { _, _ in error = nil }
@@ -474,19 +477,24 @@ struct CrewAddFriendSheet: View {
 
                     VStack(alignment: .leading, spacing: DS.Space.s2) {
                         Text("Your angler code")
-                            .font(.headline)
+                            .font(.title3.weight(.semibold))
                             .foregroundStyle(.dsText)
-                        HStack {
-                            CopyableCode(code: svc.friendCode, font: .title2.monospaced().bold())
-                            Spacer()
-                            ShareLink(item: svc.friendInviteMessage()) {
-                                Label("Share invite", systemImage: "square.and.arrow.up")
+                        // Side by side when it fits, stacked at large text
+                        // sizes so the row never runs off the screen.
+                        ViewThatFits(in: .horizontal) {
+                            HStack {
+                                CopyableCode(code: svc.friendCode, font: .title2.monospaced().bold())
+                                Spacer(minLength: DS.Space.s3)
+                                shareInvite
                             }
-                            .buttonStyle(TonalButtonStyle(fullWidth: false))
+                            VStack(alignment: .leading, spacing: DS.Space.s3) {
+                                CopyableCode(code: svc.friendCode, font: .title2.monospaced().bold())
+                                shareInvite
+                            }
                         }
                         .padding(DS.Space.s4)
                         .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
-                        Text("Friends see your best catches and any spots you choose to share with them.")
+                        Text("Friends see your best catches. You choose which spots they see.")
                             .font(.footnote)
                             .foregroundStyle(.dsText2)
                     }
@@ -494,8 +502,11 @@ struct CrewAddFriendSheet: View {
                 .padding(.horizontal, DS.gutter)
                 .padding(.top, DS.Space.s3)
                 .padding(.bottom, DS.Space.s6)
+                .pageWidth()
             }
-            .background(Color.dsBackground)
+            .scrollDismissesKeyboard(.interactively)
+            .dsScreenBackground()
+            .detailScrollEdge()
             .navigationTitle("Add a friend")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -505,6 +516,13 @@ struct CrewAddFriendSheet: View {
         }
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
+    }
+
+    private var shareInvite: some View {
+        ShareLink(item: svc.friendInviteMessage()) {
+            Label("Share invite", systemImage: "square.and.arrow.up")
+        }
+        .buttonStyle(TonalButtonStyle(fullWidth: false))
     }
 
     private func send() {

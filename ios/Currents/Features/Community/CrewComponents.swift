@@ -1,4 +1,5 @@
 import SwiftUI
+import CloudKit
 
 // MARK: - Routes
 
@@ -128,7 +129,7 @@ struct CrewThumb: View {
         .accessibilityHidden(true)
         .task(id: code) {
             icon = CommunityDiskCache.loadImage(key: "crewicon-\(code)")
-            if icon == nil {
+            if icon == nil, CrewCloud.shared.isAvailable {
                 icon = await CommunityService.shared.crewArt(code: code).icon
             }
         }
@@ -359,7 +360,7 @@ struct CrewFeedRow: View {
             }
         }
         .task(id: post.id) {
-            if post.hasPhoto, photo == nil {
+            if post.hasPhoto, photo == nil, CrewCloud.shared.isAvailable {
                 photo = await svc.crewPostImage(recordName: post.id)
             }
         }
@@ -463,20 +464,25 @@ struct CrewEventRow<Leading: View>: View {
 
 // MARK: - Inputs and buttons
 
-/// A labelled single-line field on a filled rounded rectangle.
+/// A labelled field on a filled rounded rectangle. `multiline` grows it to
+/// four lines (bios, notes).
 struct CrewTextField: View {
     let label: String
     var placeholder = ""
     @Binding var text: String
+    var multiline = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(label)
                 .font(.subheadline.weight(.medium))
                 .foregroundStyle(.dsText2)
-            TextField(placeholder.isEmpty ? label : placeholder, text: $text)
+            TextField(placeholder.isEmpty ? label : placeholder, text: $text,
+                      axis: multiline ? .vertical : .horizontal)
+                .lineLimit(multiline ? 2...4 : 1...1)
                 .font(.body)
                 .padding(.horizontal, DS.Space.s4)
+                .padding(.vertical, multiline ? 14 : 0)
                 .frame(minHeight: 50)
                 .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.button, style: .continuous))
                 .accessibilityLabel(label)
@@ -536,5 +542,395 @@ extension CrewText {
         let n = CommunityService.shared.cachedCrewMembers(crew.code).count
         let people = n > 0 ? anglers(n) : "Crew code \(crew.code)"
         return tournamentLive ? "\(people), tournament live" : people
+    }
+}
+
+// MARK: - iCloud availability
+
+/// Whether Crew can reach iCloud on this install. Crews, friends and the feed
+/// all live in CloudKit, and a build re-signed for sideloading carries no
+/// iCloud entitlement: any CloudKit call there is an uncatchable crash. Crew
+/// asks here first and shows a calm state instead of touching the container.
+@MainActor
+final class CrewCloud: ObservableObject {
+    enum Status: Equatable {
+        case available
+        /// This build has no iCloud entitlement (sideloaded or unsigned).
+        case unsupportedBuild
+        case signedOut
+        case restricted
+        /// Signed in, but iCloud wants the account confirmed in Settings.
+        case needsVerification
+    }
+
+    static let shared = CrewCloud()
+    static let containerID = "iCloud.com.aidanmcconnon.currents"
+
+    @Published private(set) var status: Status
+    var isAvailable: Bool { status == .available }
+
+    private init() {
+        // Screenshot mode seeds a joined account and never calls CloudKit.
+        let usable = ScreenshotSupport.isActive || Self.buildHasCloudKit
+        status = usable ? .available : .unsupportedBuild
+        if Self.buildHasCloudKit && !ScreenshotSupport.isActive {
+            NotificationCenter.default.addObserver(forName: .CKAccountChanged, object: nil, queue: .main) { _ in
+                Task { @MainActor in await CrewCloud.shared.refresh() }
+            }
+        }
+    }
+
+    /// Asks CloudKit for the account state, only on builds that carry the
+    /// entitlement, so the container is never created where it would crash.
+    func refresh() async {
+        guard !ScreenshotSupport.isActive else { status = .available; return }
+        guard Self.buildHasCloudKit else { status = .unsupportedBuild; return }
+        guard let account = try? await CKContainer(identifier: Self.containerID).accountStatus() else { return }
+        switch account {
+        case .available: status = .available
+        case .noAccount: status = .signedOut
+        case .restricted: status = .restricted
+        case .temporarilyUnavailable: status = .needsVerification
+        default: break  // Could not determine: keep the last answer.
+        }
+    }
+
+    /// App Store and TestFlight builds embed no provisioning profile and always
+    /// carry the entitlement. Development and re-signed builds embed one, and
+    /// its entitlements say whether CloudKit is allowed. The simulator has
+    /// neither, so it goes by whether an iCloud account is visible at all.
+    nonisolated static let buildHasCloudKit: Bool = {
+        #if SIDELOAD
+        // The CI sideload IPA is built with this flag and has no iCloud.
+        return false
+        #elseif targetEnvironment(simulator)
+        return FileManager.default.ubiquityIdentityToken != nil
+        #else
+        guard let url = Bundle.main.url(forResource: "embedded", withExtension: "mobileprovision") else { return true }
+        return profileAllowsCloudKit(at: url)
+        #endif
+    }()
+
+    /// The profile is a signed blob with the plist inside as plain XML.
+    nonisolated private static func profileAllowsCloudKit(at url: URL) -> Bool {
+        guard let data = try? Data(contentsOf: url),
+              let start = data.range(of: Data("<?xml".utf8)),
+              let end = data.range(of: Data("</plist>".utf8), in: start.upperBound..<data.endIndex),
+              let plist = try? PropertyListSerialization.propertyList(
+                  from: data.subdata(in: start.lowerBound..<end.upperBound), format: nil) as? [String: Any],
+              let entitlements = plist["Entitlements"] as? [String: Any] else { return false }
+        switch entitlements["com.apple.developer.icloud-services"] {
+        case let list as [String]: return list.contains("CloudKit") || list.contains("*")
+        case let single as String: return single == "CloudKit" || single == "*"
+        default: return false
+        }
+    }
+}
+
+/// What Crew shows when iCloud can't be reached: the sign-up art with a cloud
+/// badge, why, and a way to check again when the user can fix it.
+struct CrewUnavailableState: View {
+    let status: CrewCloud.Status
+    @State private var checking = false
+
+    private var title: String {
+        switch status {
+        case .signedOut: "Sign in to iCloud"
+        case .restricted: "iCloud is restricted"
+        case .needsVerification: "Confirm your iCloud account"
+        case .available, .unsupportedBuild: "Crew needs iCloud"
+        }
+    }
+
+    private var message: String {
+        switch status {
+        case .signedOut: "Crews and friends sync through iCloud. Sign in from the Settings app, then come back."
+        case .restricted: "This iPhone doesn't allow iCloud, so crews and friends can't sync."
+        case .needsVerification: "Open the Settings app and confirm your Apple Account, then come back."
+        case .available, .unsupportedBuild:
+            "Crews, friends and the catch feed sync through iCloud, which this version of Currents can't use. Everything else works as normal."
+        }
+    }
+
+    var body: some View {
+        VStack(spacing: DS.Space.s3) {
+            CrewGateArt(badge: "icloud.slash")
+                .padding(.bottom, DS.Space.s3)
+            Text(title)
+                .font(.title2.bold())
+                .foregroundStyle(.dsText)
+                .multilineTextAlignment(.center)
+                .accessibilityAddTraits(.isHeader)
+            Text(message)
+                .font(.body)
+                .foregroundStyle(.dsText2)
+                .multilineTextAlignment(.center)
+            if status != .unsupportedBuild {
+                Button {
+                    checking = true
+                    Task {
+                        await CrewCloud.shared.refresh()
+                        checking = false
+                    }
+                } label: {
+                    if checking { ProgressView() } else { Text("Check again") }
+                }
+                .buttonStyle(TonalButtonStyle(fullWidth: false))
+                .disabled(checking)
+                .padding(.top, DS.Space.s2)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, DS.gutter + DS.Space.s3)
+        .padding(.top, DS.Space.s8)
+    }
+}
+
+/// A Crew page or sheet that needs iCloud. Without it the unavailable state
+/// shows instead, and the content (with every load it starts) is never built.
+struct CrewCloudGate<Content: View>: View {
+    /// Sheets get a Close button; pushed pages already have Back.
+    var closeButton = false
+    private let content: () -> Content
+    @ObservedObject private var cloud = CrewCloud.shared
+    @Environment(\.dismiss) private var dismiss
+
+    init(closeButton: Bool = false, @ViewBuilder content: @escaping () -> Content) {
+        self.closeButton = closeButton
+        self.content = content
+    }
+
+    var body: some View {
+        if cloud.isAvailable {
+            content()
+        } else {
+            ScrollView {
+                CrewUnavailableState(status: cloud.status)
+                    .padding(.bottom, DS.Space.s8)
+            }
+            .dsScreenBackground()
+            .detailScrollEdge()
+            .navigationTitle("")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                if closeButton {
+                    ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } }
+                }
+            }
+            .task { await cloud.refresh() }
+        }
+    }
+}
+
+// MARK: - Sign-up art and form
+
+/// Three species cards fanned out, from the bundled species art: the picture
+/// on the Crew sign-up and unavailable states. `badge` pins a symbol to the
+/// middle card.
+struct CrewGateArt: View {
+    var badge: String? = nil
+    @Environment(AppState.self) private var appState
+    @State private var species: [Species] = []
+
+    private let size: CGFloat = 84
+    /// Largemouth bass, galjoen and snoek: fresh water and both coasts.
+    private static let ids: [Int64] = [1, 122, 130]
+
+    var body: some View {
+        HStack(spacing: -size * 0.2) {
+            card(0, fallback: "fish.fill", tint: .dsScoreGood)
+                .rotationEffect(.degrees(-7))
+                .offset(y: 6)
+            card(2, fallback: "water.waves", tint: DS.accent)
+                .rotationEffect(.degrees(7))
+                .offset(y: 6)
+        }
+        .overlay {
+            card(1, fallback: "figure.fishing", tint: .dsScoreFair)
+                .overlay(RoundedRectangle(cornerRadius: DS.Radius.thumb, style: .continuous)
+                    .stroke(Color.dsBackground, lineWidth: 4))
+                .overlay(alignment: .bottomTrailing) {
+                    if let badge {
+                        Image(systemName: badge)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.dsText)
+                            .frame(width: 36, height: 36)
+                            .background(Color.dsElevated, in: Circle())
+                            .overlay(Circle().stroke(Color.dsBackground, lineWidth: 3))
+                            .offset(x: 10, y: 10)
+                    }
+                }
+        }
+        .padding(.horizontal, size * 0.3)
+        .accessibilityHidden(true)
+        .task {
+            species = Self.ids.compactMap { (try? appState.speciesRepository.fetch(id: $0)) ?? nil }
+        }
+    }
+
+    @ViewBuilder private func card(_ index: Int, fallback: String, tint: Color) -> some View {
+        if species.count == Self.ids.count {
+            ThumbView(species: species[index], size: size)
+        } else {
+            ThumbView(systemImage: fallback, tint: tint, size: size)
+        }
+    }
+}
+
+/// Joining the community: one name and a button. Shared by the Crew tab and
+/// the invite-link sheets.
+struct CrewJoinForm: View {
+    var buttonTitle = "Continue"
+    /// Runs once the join lands (publish the profile, say so).
+    var afterJoin: () async -> Void = {}
+
+    private var svc: CommunityService { .shared }
+    @State private var name = ""
+    @State private var joining = false
+
+    private var trimmed: String { name.trimmingCharacters(in: .whitespaces) }
+
+    var body: some View {
+        VStack(spacing: DS.Space.s4) {
+            CrewTextField(label: "Angler name", placeholder: "Your name", text: $name)
+                .textContentType(.givenName)
+                .submitLabel(.continue)
+                .onSubmit(join)
+            Button(action: join) {
+                if joining { ProgressView() } else { Text(buttonTitle) }
+            }
+            .buttonStyle(.dsPrimary)
+            // Without a name you'd silently become "Angler XXXXXX".
+            .disabled(joining || trimmed.isEmpty)
+            Text("Your name, best catches and region sync through iCloud. Spots stay private unless you share them.")
+                .font(.footnote)
+                .foregroundStyle(.dsText2)
+                .multilineTextAlignment(.center)
+        }
+    }
+
+    private func join() {
+        guard !joining, !trimmed.isEmpty else { return }
+        joining = true
+        Task {
+            await svc.join(name: trimmed, region: svc.myRegion)
+            await afterJoin()
+            Haptics.success()
+            joining = false
+        }
+    }
+}
+
+// MARK: - Photos and avatar stacks
+
+/// A photo filling a fixed-height rounded box. The image sits in an overlay,
+/// so a wide photo can never make the page wider than the screen.
+struct CrewHeroImage: View {
+    let image: UIImage
+    let height: CGFloat
+    var radius: CGFloat = DS.Radius.card
+
+    var body: some View {
+        Color.dsFill
+            .frame(maxWidth: .infinity)
+            .frame(height: height)
+            .overlay {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+            }
+            .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
+    }
+}
+
+/// Up to three overlapping member avatars for the end of a crew row.
+struct CrewAvatarStack: View {
+    let members: [CommunityService.GroupMember]
+    var size: CGFloat = 26
+
+    var body: some View {
+        HStack(spacing: -size * 0.3) {
+            ForEach(members.prefix(3)) { m in
+                CrewAvatar(image: CommunityService.shared.cachedProfiles(for: [m.id]).first?.avatar,
+                           name: m.name, size: size)
+                    .overlay(Circle().stroke(Color.dsBackground, lineWidth: 2))
+            }
+        }
+        .accessibilityHidden(true)
+    }
+}
+
+/// The hairline between rows on a filled settings card, inset past the icon.
+struct CrewRowDivider: View {
+    var inset: CGFloat = 56
+    var body: some View {
+        Divider().overlay(Color.dsSeparator).padding(.leading, inset)
+    }
+}
+
+// MARK: - Crew art
+
+/// Species art a crew can wear as its icon. It is saved as the crew's icon
+/// photo, so every build shows it; the stored emoji stays for older builds.
+enum CrewArt {
+    /// Galjoen, largemouth bass, snoek, dusky kob, rainbow trout, common
+    /// carp, yellowfin tuna, northern pike, bluegill and striped bass.
+    static let speciesIDs: [Int64] = [122, 1, 130, 120, 17, 34, 75, 11, 6, 26]
+    /// Written to new crews for builds that predate crew art.
+    static let legacyEmoji = "🎣"  // ui-lint: allow, stored crew icon value read by older builds
+
+    /// The thumbnail as a square image, drawn on the dark tile so it reads the
+    /// same on every phone.
+    @MainActor static func image(for species: Species) -> UIImage? {
+        let renderer = ImageRenderer(content: ThumbView(species: species, size: 400)
+            .environment(\.colorScheme, .dark))
+        renderer.scale = 1
+        return renderer.uiImage
+    }
+}
+
+/// A row of species art to pick a crew icon from, each with its name.
+struct CrewArtPicker: View {
+    @Binding var selection: Species?
+    /// Pick the first option when nothing is chosen yet (a new crew).
+    var preselect = true
+    @Environment(AppState.self) private var appState
+    @State private var options: [Species] = []
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(alignment: .top, spacing: DS.Space.s3) {
+                ForEach(options) { sp in
+                    let picked = selection?.id == sp.id
+                    Button { selection = sp } label: {
+                        VStack(spacing: 6) {
+                            ThumbView(species: sp, size: 76)
+                                .overlay(RoundedRectangle(cornerRadius: DS.Radius.thumb, style: .continuous)
+                                    .stroke(picked ? DS.accent : Color.clear, lineWidth: 3))
+                            Text(sp.commonName)
+                                .font(picked ? .footnote.weight(.semibold) : .footnote)
+                                .foregroundStyle(picked ? Color.dsText : Color.dsText2)
+                                .lineLimit(2)
+                                .multilineTextAlignment(.center)
+                                .frame(width: 84)
+                        }
+                    }
+                    .buttonStyle(.dim)
+                    .accessibilityLabel(sp.commonName)
+                    .accessibilityAddTraits(picked ? .isSelected : [])
+                }
+            }
+            .padding(.horizontal, DS.gutter)
+            .padding(.vertical, 3)
+        }
+        // Bleeds to the screen edges from inside a padded form; the layout
+        // width stays the container's, so nothing overflows.
+        .padding(.horizontal, -DS.gutter)
+        .sensoryFeedback(.selection, trigger: selection?.id)
+        .task {
+            options = CrewArt.speciesIDs.compactMap { (try? appState.speciesRepository.fetch(id: $0)) ?? nil }
+            if preselect, selection == nil { selection = options.first }
+        }
     }
 }
