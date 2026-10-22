@@ -9,74 +9,105 @@ import SceneKit
 struct ARMeasureView: View {
     var onMeasured: (Double) -> Void
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @AppStorage("units") private var units = "metric"
+    @ScaledMetric(relativeTo: .largeTitle) private var numeralSize: CGFloat = 52
     @State private var measuredCm: Double?
     @State private var pointCount = 0
     @State private var resetToken = 0
 
     static var isSupported: Bool { ARWorldTrackingConfiguration.isSupported }
 
+    private var imperial: Bool { units == "imperial" }
+
     var body: some View {
         ZStack {
             ARMeasureContainer(measuredCm: $measuredCm, pointCount: $pointCount, resetToken: resetToken)
                 .ignoresSafeArea()
 
-            VStack {
+            VStack(spacing: DS.Space.s3) {
+                HStack {
+                    Button { dismiss() } label: {
+                        Image(systemName: "xmark")
+                            .font(.body.weight(.semibold))
+                            .foregroundStyle(.white)
+                            .frame(width: 40, height: 40)
+                            .background(Color.black.opacity(0.5), in: Circle())
+                    }
+                    .buttonStyle(.dim)
+                    .accessibilityLabel("Close")
+                    Spacer()
+                    Text("Measure")
+                        .font(.headline)
+                        .foregroundStyle(.white)
+                    Spacer()
+                    Color.clear.frame(width: 40, height: 40)
+                }
+                .padding(.horizontal, DS.Space.s4)
+
                 Text(instruction)
                     .font(.subheadline.weight(.semibold))
-                    .padding(10)
-                    .background(.black.opacity(0.55), in: Capsule())
                     .foregroundStyle(.white)
-                    .padding(.top, 12)
+                    .padding(.horizontal, DS.Space.s3)
+                    .padding(.vertical, 6)
+                    .background(Color.black.opacity(0.55), in: Capsule())
+                    .contentTransition(.opacity)
+                    .animation(reduceMotion ? nil : DS.Motion.easeOut, value: pointCount)
 
                 Spacer()
 
-                if let cm = measuredCm {
-                    Text(String(format: "%.1f cm", cm))
-                        .font(.largeTitle.bold().monospacedDigit())
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 20).padding(.vertical, 10)
-                        .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 14))
-                }
-
-                HStack(spacing: 12) {
-                    Button {
-                        measuredCm = nil; pointCount = 0; resetToken += 1
-                    } label: {
-                        Label("Reset", systemImage: "arrow.counterclockwise")
-                            .padding(.horizontal, 16).padding(.vertical, 10)
-                            .background(.ultraThinMaterial, in: Capsule())
-                    }
+                VStack(spacing: DS.Space.s3) {
                     if let cm = measuredCm {
+                        let parts = Units.lengthParts(cm: cm, imperial: imperial)
+                        HStack(alignment: .firstTextBaseline, spacing: 4) {
+                            Text(parts.0)
+                                .font(.system(size: numeralSize, weight: .bold, design: .rounded)) // ui-lint: allow, measurement numeral scaled with @ScaledMetric
+                                .monospacedDigit()
+                                .contentTransition(.numericText())
+                            Text(parts.1)
+                                .font(.title3.weight(.semibold))
+                                .foregroundStyle(Color.dsText2)
+                        }
+                        .foregroundStyle(Color.dsText)
+                        .accessibilityElement(children: .combine)
+
                         Button {
                             onMeasured((cm * 10).rounded() / 10)
                             dismiss()
                         } label: {
-                            Label("Use \(String(format: "%.1f", cm)) cm", systemImage: "checkmark")
-                                .padding(.horizontal, 16).padding(.vertical, 10)
-                                .background(CurrentsTheme.accent, in: Capsule())
-                                .foregroundStyle(.white)
+                            Label("Use \(Units.length(cm: cm, imperial: imperial))", systemImage: "checkmark")
                         }
+                        .buttonStyle(.dsPrimary)
+                    } else {
+                        Label("Lay the fish flat and point the camera straight down", systemImage: "camera.metering.center.weighted")
+                            .font(.subheadline)
+                            .foregroundStyle(Color.dsText2)
+                            .multilineTextAlignment(.center)
                     }
+                    Button {
+                        measuredCm = nil; pointCount = 0; resetToken += 1
+                    } label: {
+                        Label("Start again", systemImage: "arrow.counterclockwise")
+                    }
+                    .buttonStyle(.dsTonal)
+                    .disabled(pointCount == 0)
                 }
-                .padding(.bottom, 24)
+                .padding(DS.Space.s4)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: DS.Radius.sheet, style: .continuous)) // ui-lint: allow, floating panel over the AR camera
+                .padding(.horizontal, DS.Space.s3)
+                .padding(.bottom, DS.Space.s2)
             }
         }
-        .overlay(alignment: .topTrailing) {
-            Button { dismiss() } label: {
-                Image(systemName: "xmark")
-                    .font(.body.bold()).foregroundStyle(.white)
-                    .frame(width: 36, height: 36)
-                    .background(.black.opacity(0.5), in: Circle())
-            }
-            .padding()
-        }
+        .environment(\.colorScheme, .dark)
+        .sensoryFeedback(.selection, trigger: pointCount)
+        .sensoryFeedback(.success, trigger: measuredCm != nil) { _, new in new }
     }
 
     private var instruction: String {
         switch pointCount {
-        case 0: return "Tap the fish's nose"
+        case 0: return "Tap the nose"
         case 1: return "Now tap the tail"
-        default: return "Tap Reset to measure again"
+        default: return "Measured. Tap again to start over."
         }
     }
 }
