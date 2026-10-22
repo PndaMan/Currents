@@ -106,9 +106,8 @@ struct AppearanceSettingsView: View {
                     .fill(Color(.secondarySystemBackground))
                     .frame(width: 72, height: 72)
                     .overlay(
-                        CurrentsMark()
-                            .stroke(tint, style: StrokeStyle(lineWidth: 5, lineCap: .round, lineJoin: .round))
-                            .frame(width: 46, height: 46)
+                        CurrentsMark(tint: tint)
+                            .frame(width: 54, height: 54)
                     )
                     .overlay(
                         RoundedRectangle(cornerRadius: 16, style: .continuous)

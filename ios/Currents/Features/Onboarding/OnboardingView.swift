@@ -75,10 +75,8 @@ struct OnboardingView: View {
             VStack(spacing: 18) {
                 ZStack {
                     Circle().fill(CurrentsTheme.accent.opacity(0.15)).frame(width: 132, height: 132)
-                    CurrentsMark()
-                        .stroke(CurrentsTheme.accent,
-                                style: StrokeStyle(lineWidth: 8, lineCap: .round, lineJoin: .round))
-                        .frame(width: 76, height: 76)
+                    CurrentsMark(tint: CurrentsTheme.accent)
+                        .frame(width: 84, height: 84)
                 }
                 VStack(spacing: 8) {
                     featureRow("gauge.medium", "Bite forecasts for your exact water")

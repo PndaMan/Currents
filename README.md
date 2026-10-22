@@ -172,7 +172,8 @@ currents/
 │   ├── Tests/                    XCTest unit tests
 │   └── project.yml               XcodeGen spec
 ├── ml/                           Model training + CoreML conversion
-├── scripts/                      Seed-data generators (Python → Swift)
+├── scripts/                      Seed-data generators (Python → Swift), app-icon renderer
+├── design/icon/                  Icon source (SVG + Icon Composer layers) and design notes
 ├── docs/                         Architecture, data model, ML notes
 ├── .github/workflows/            iOS build + TestFlight, screenshots, ML pipelines
 ├── Makefile                      Common commands
