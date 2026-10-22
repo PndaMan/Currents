@@ -7,7 +7,7 @@ import Charts
 
 /// Pages pushed from Profile and settings.
 enum SettingsRoute: Hashable {
-    case appearance, units, notifications, privacy, widgets, storage, about, knots, regulations
+    case appearance, units, notifications, privacy, widgets, offlineMaps, storage, about, knots, regulations
 }
 
 /// Profile and settings, pushed from the avatar at the top of every tab
@@ -124,9 +124,12 @@ struct SettingsView: View {
                 NavigationLink(value: SettingsRoute.widgets) {
                     PFRowLabel(title: "Widgets and Siri", systemImage: "square.grid.2x2.fill", color: .indigo)
                 }
-                NavigationLink(value: SettingsRoute.storage) {
-                    PFRowLabel(title: "Offline maps and storage", systemImage: "externaldrive.fill", color: .gray,
+                NavigationLink(value: SettingsRoute.offlineMaps) {
+                    PFRowLabel(title: "Offline maps", systemImage: "map.fill", color: .green,
                                value: regionsValue)
+                }
+                NavigationLink(value: SettingsRoute.storage) {
+                    PFRowLabel(title: "Storage and backups", systemImage: "externaldrive.fill", color: .gray)
                 }
             }
             .pfRows()
@@ -150,6 +153,7 @@ struct SettingsView: View {
             case .notifications: AlertSettingsView()
             case .privacy: PrivacySettingsView()
             case .widgets: WidgetsSiriView()
+            case .offlineMaps: OfflineMapsView()
             case .storage: StorageSettingsView()
             case .about: AboutView()
             case .knots: KnotLibraryView()
@@ -289,8 +293,10 @@ struct SettingsView: View {
     }
 
     private var regionsValue: String {
-        let n = appState.mapManager.downloadedRegions.count
-        return n == 0 ? "" : (n == 1 ? "1 region" : "\(n) regions")
+        let manager = appState.mapManager
+        if manager.isDownloading { return "Downloading" }
+        let n = manager.downloadedRegions.count
+        return n == 0 ? "" : (n == 1 ? "1 map" : "\(n) maps")
     }
 
     private var myStats: CommunityService.MyStats {
@@ -566,18 +572,13 @@ private struct ProfileShareSheet: View {
     }
 }
 
-// MARK: - Offline maps and storage
+// MARK: - Storage and backups
 
-/// Offline map regions, the map cache, backups and CSV import and export.
+/// What Currents keeps on this phone, a way into offline maps, backups, and
+/// CSV import and export.
 struct StorageSettingsView: View {
     @Environment(AppState.self) private var appState
     @AppStorage("autoBackupEnabled") private var autoBackupEnabled = true
-
-    @State private var mapRegions: [OfflineRegion] = []
-    @State private var tileCacheSize = "0 KB"
-    @State private var showingSaveRegion = false
-    @State private var regionToDelete: OfflineRegion?
-    @State private var confirmClearCache = false
 
     @State private var isBackingUp = false
     @State private var isRestoring = false
@@ -600,9 +601,9 @@ struct StorageSettingsView: View {
     var body: some View {
         List {
             Section {
-                DetailHeader(title: "Offline maps and storage",
+                DetailHeader(title: "Storage and backups",
                              subtitle: usage.map { "\(StorageUsage.format($0.total)) on this phone" }
-                                ?? "Everything you need with no signal.")
+                                ?? "What Currents keeps on this phone.")
                     .padding(.bottom, DS.Space.s2)
                     .pfBareRow()
                 StorageUsageBar(usage: usage)
@@ -612,62 +613,12 @@ struct StorageSettingsView: View {
             }
 
             Section {
-                if mapRegions.isEmpty {
-                    HStack(spacing: 14) {
-                        ThumbView(systemImage: "map", tint: DS.accent, size: 44)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("No offline regions")
-                                .foregroundStyle(.dsText)
-                            Text("Save one before you head out of signal.")
-                                .font(.subheadline)
-                                .foregroundStyle(.dsText2)
-                        }
-                    }
-                    .accessibilityElement(children: .combine)
-                } else {
-                    ForEach(mapRegions) { region in
-                        HStack(spacing: 14) {
-                            ThumbView(systemImage: "map.fill", tint: DS.accent, size: 44)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(region.name).foregroundStyle(.dsText)
-                                Text("\(region.formattedSize), saved \(region.downloadedAt.formatted(date: .abbreviated, time: .omitted))")
-                                    .font(.subheadline)
-                                    .foregroundStyle(.dsText2)
-                            }
-                            Spacer()
-                            Button { regionToDelete = region } label: {
-                                Image(systemName: "trash")
-                                    .foregroundStyle(.dsText2)
-                                    .frame(width: 36, height: 36)
-                            }
-                            .buttonStyle(.dim)
-                            .accessibilityLabel("Remove \(region.name)")
-                        }
-                    }
+                NavigationLink(value: SettingsRoute.offlineMaps) {
+                    PFRowLabel(title: "Offline maps", systemImage: "map.fill", color: .green,
+                               value: usage.map { StorageUsage.format($0.maps) })
                 }
-                Button { showingSaveRegion = true } label: {
-                    HStack {
-                        Label("Save a map region", systemImage: "plus")
-                            .foregroundStyle(.tint)
-                        Spacer()
-                        if appState.mapManager.isDownloading { ProgressView() }
-                    }
-                }
-                .disabled(appState.mapManager.isDownloading)
-            } header: {
-                Text("Offline regions")
-            }
-            .pfRows()
-
-            Section {
-                PFToggleRow(title: "Cache maps as I browse",
-                            detail: "Keeps satellite tiles around you for no signal",
-                            isOn: Binding(get: { appState.mapManager.autoCacheEnabled },
-                                          set: { appState.mapManager.autoCacheEnabled = $0 }))
-                LabeledContent("Cached tiles", value: tileCacheSize)
-                Button("Clear tile cache", role: .destructive) { confirmClearCache = true }
-            } header: {
-                Text("Map cache")
+            } footer: {
+                Text("Downloaded maps and the satellite tiles cached as you browse.")
             }
             .pfRows()
 
@@ -686,11 +637,8 @@ struct StorageSettingsView: View {
         .pfGroupedList()
         .detailTint(.gray)
         .pfTrackScroll($titleShown)
-        .pfScrollTitle("Storage", shown: titleShown)
+        .pfScrollTitle("Storage and backups", shown: titleShown)
         .task { await load() }
-        .sheet(isPresented: $showingSaveRegion) {
-            SaveRegionSheet { refreshMaps() }
-        }
         .sheet(isPresented: $showingHistory) { historySheet }
         .sheet(item: $exportURL) { url in
             ShareSheet(url: url)
@@ -701,30 +649,6 @@ struct StorageSettingsView: View {
             allowsMultipleSelection: false
         ) { result in
             handleCSVImport(result)
-        }
-        .confirmationDialog("Remove this region?",
-                            isPresented: Binding(get: { regionToDelete != nil },
-                                                 set: { if !$0 { regionToDelete = nil } }),
-                            titleVisibility: .visible,
-                            presenting: regionToDelete) { region in
-            Button("Remove region", role: .destructive) {
-                appState.mapManager.deleteRegion(region)
-                Haptics.warning()
-                ToastCenter.shared.show("\(region.name) removed", style: .info, haptic: false)
-                refreshMaps()
-            }
-        } message: { region in
-            Text("Frees \(region.formattedSize). The map there will need signal until you save it again.")
-        }
-        .confirmationDialog("Clear the tile cache?", isPresented: $confirmClearCache, titleVisibility: .visible) {
-            Button("Remove cached tiles", role: .destructive) {
-                Haptics.warning()
-                appState.mapManager.clearTileCache()
-                refreshMaps()
-                ToastCenter.shared.show("Tile cache cleared", style: .info, haptic: false)
-            }
-        } message: {
-            Text("Frees \(tileCacheSize). Saved regions are kept.")
         }
         .alert("Import complete", isPresented: $showingImportAlert) {
             Button("OK") {}
@@ -853,7 +777,6 @@ struct StorageSettingsView: View {
     // MARK: Actions
 
     private func load() async {
-        refreshMaps()
         iCloudAvailable = await CloudBackup.shared.isAvailable
         if iCloudAvailable {
             lastBackupDate = await CloudBackup.shared.lastBackupDate
@@ -866,19 +789,16 @@ struct StorageSettingsView: View {
         await measure()
     }
 
-    private func refreshMaps() {
-        appState.mapManager.refreshDownloadedRegions()
-        mapRegions = appState.mapManager.downloadedRegions
-        tileCacheSize = ByteCountFormatter.string(
-            fromByteCount: appState.mapManager.tileCacheSizeBytes, countStyle: .file)
-        if usage != nil { Task { await measure() } }
-    }
-
-    /// Fills the storage bar. Map and backup sizes are already known; the
-    /// photo folder and database are measured off the main thread.
+    /// Fills the storage bar. Downloaded map and backup sizes are already
+    /// known; the photo folder, database and map cache are measured off the
+    /// main thread.
     private func measure() async {
         let files = await StorageUsage.measureFiles()
-        let maps = mapRegions.reduce(Int64(0)) { $0 + $1.sizeBytes } + appState.mapManager.tileCacheSizeBytes
+        let manager = appState.mapManager
+        manager.refreshDownloadedRegions()
+        let overlay = manager.offlineOverlay
+        let cache = await Task.detached(priority: .utility) { overlay.cacheSizeBytes }.value
+        let maps = manager.packBytes + manager.legacyMaps.reduce(Int64(0)) { $0 + $1.sizeBytes } + cache
         let backups = snapshots.reduce(Int64(0)) { $0 + $1.sizeBytes }
         usage = StorageUsage(maps: maps, photos: files.photos, logbook: files.logbook, backups: backups)
     }
@@ -1069,75 +989,6 @@ private struct StorageUsageBar: View {
                         .font(.footnote)
                         .accessibilityElement(children: .combine)
                     }
-                }
-            }
-        }
-    }
-}
-
-// MARK: - Save Region Sheet
-
-struct SaveRegionSheet: View {
-    @Environment(AppState.self) private var appState
-    @Environment(\.dismiss) private var dismiss
-    @State private var regionName = ""
-    @State private var cameraPosition: MapCameraPosition = .userLocation(fallback: .automatic)
-    @State private var centerCoord: CLLocationCoordinate2D?
-    @State private var isSaving = false
-    let onSave: () -> Void
-
-    var body: some View {
-        NavigationStack {
-            VStack(spacing: 0) {
-                Map(position: $cameraPosition)
-                    .mapStyle(.hybrid(elevation: .realistic))
-                    .mapControls { MapCompass(); MapScaleView() }
-                    .frame(height: 300)
-                    .onMapCameraChange(frequency: .onEnd) { context in
-                        centerCoord = context.camera.centerCoordinate
-                    }
-                    .overlay {
-                        Image(systemName: "viewfinder")
-                            .font(.largeTitle)
-                            .foregroundStyle(.white.opacity(0.6))
-                            .accessibilityHidden(true)
-                    }
-
-                Form {
-                    Section {
-                        TextField("Region name, for example Vaal Dam", text: $regionName)
-                    } footer: {
-                        Text("Frame the area to save. About 15 km across.")
-                    }
-                    .pfRows()
-                }
-                .scrollContentBackground(.hidden)
-                .detailScrollEdge()
-            }
-            .dsScreenBackground()
-            .navigationTitle("Save map region")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
-                        guard let coord = centerCoord, !regionName.isEmpty else { return }
-                        isSaving = true
-                        Task {
-                            await appState.mapManager.saveRegion(
-                                name: regionName,
-                                center: coord,
-                                spanDegrees: 0.15
-                            )
-                            onSave()
-                            ToastCenter.shared.show("\(regionName) saved for offline")
-                            dismiss()
-                        }
-                    }
-                    .bold()
-                    .disabled(regionName.isEmpty || isSaving || centerCoord == nil)
                 }
             }
         }
@@ -1728,7 +1579,8 @@ struct AboutView: View {
             Section("Data sources") {
                 LabeledContent("Species", value: "FishBase")
                 LabeledContent("Weather", value: "Open-Meteo")
-                LabeledContent("Satellite map", value: "Esri World Imagery")
+                LabeledContent("Satellite map", value: TileSources.current.name)
+                LabeledContent("Countries and provinces", value: "Natural Earth")
                 LabeledContent("Rain radar", value: "RainViewer")
                 LabeledContent("Bathymetry", value: "GLOBathy")
                 LabeledContent("Water, ramps and access", value: "OpenStreetMap contributors")
