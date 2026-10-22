@@ -69,10 +69,15 @@ struct SeasonChart: View {
                         Text(String(SpeciesSeason.shortMonths[i].prefix(1)))
                             .font(.caption.weight(isNow ? .bold : .regular))
                             .foregroundStyle(isNow ? Color.dsText : Color.dsText2)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.5)
                     }
                     .frame(maxWidth: .infinity)
                 }
             }
+            // Twelve letters side by side outgrow a phone at the largest
+            // accessibility sizes; the chart reads as a whole for VoiceOver.
+            .dynamicTypeSize(...DynamicTypeSize.accessibility2)
         }
         .padding(.horizontal, DS.gutter)
         .onAppear { grown = true }

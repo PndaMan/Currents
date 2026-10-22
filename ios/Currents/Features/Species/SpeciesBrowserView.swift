@@ -75,6 +75,7 @@ struct SpeciesBrowserView: View {
                 list
             }
             .padding(.bottom, DS.Space.s8)
+            .pageWidth()
         }
         .detailTint(DS.accent)
         .speciesScrollTitle("Species guide")
@@ -189,17 +190,8 @@ struct SpeciesBrowserView: View {
     }
 
     private func groupLabel(_ title: String, count: Int) -> some View {
-        HStack(spacing: 6) {
-            Text(title)
-            Text(count.formatted())
-                .foregroundStyle(.dsText3)
-        }
-        .font(.subheadline)
-        .foregroundStyle(.dsText2)
-        .padding(.horizontal, DS.gutter)
-        .padding(.top, DS.Space.s6)
-        .padding(.bottom, DS.Space.s1)
-        .accessibilityAddTraits(.isHeader)
+        SectionTitle(title, detail: count.formatted())
+            .padding(.top, DS.Space.s6)
     }
 
     private func row(_ sp: Species, index: Int) -> some View {
