@@ -136,13 +136,14 @@ struct OfflinePackDetailView: View {
         .accessibilityLabel("Map of the area \(pack.name) covers")
     }
 
-    private func progress(_ pack: OfflinePack, live: OfflineDownloader.Progress?) -> some View {
-        let done = live?.done ?? pack.savedTiles
-        let total = max(live?.total ?? pack.tileCount, 1)
+    private func progress(_ pack: OfflinePack, live: OfflineProgress?) -> some View {
+        let done = live?.done ?? pack.doneUnits
+        let total = max(live?.total ?? pack.totalUnits, 1)
+        let bytes = live?.bytes ?? pack.bytes
         return VStack(alignment: .leading, spacing: DS.Space.s2) {
             ProgressView(value: Double(done), total: Double(total))
                 .tint(pack.status == .paused ? Color.dsText3 : DS.accent)
-            Text(pack.pauseReason ?? "\(done.formatted()) of \(total.formatted()) tiles. Keep Currents open to finish sooner.")
+            Text(pack.pauseReason ?? "\(OfflineFormat.bytes(bytes)) of about \(OfflineFormat.bytes(max(pack.estimatedBytes, bytes))). Keep Currents open to finish sooner.")
                 .font(.footnote)
                 .foregroundStyle(.dsText2)
                 .fixedSize(horizontal: false, vertical: true)

@@ -16,13 +16,14 @@ final class MapManager {
     /// Downloaded maps, newest first, including ones still downloading.
     private(set) var packs: [OfflinePack] = []
     /// Live progress for maps downloading right now.
-    private(set) var liveProgress: [String: OfflineDownloader.Progress] = [:]
+    private(set) var liveProgress: [String: OfflineProgress] = [:]
     /// Saved map pictures from before offline maps (not used by the map).
     private(set) var legacyMaps: [OfflineRegion] = []
 
     @ObservationIgnored private var tasks: [String: Task<Void, Never>] = [:]
     @ObservationIgnored private var stopping: [String: StopReason] = [:]
     @ObservationIgnored private var loaded = false
+    @ObservationIgnored private var lastSaved = Date.distantPast
     @ObservationIgnored private var backgroundTask: UIBackgroundTaskIdentifier = .invalid
     /// Downloads iOS stopped when the app went to the background, to carry
     /// on when it comes back (or at the next launch).
@@ -65,7 +66,7 @@ final class MapManager {
     var downloadedRegions: [OfflineRegion] {
         packs.filter { $0.status == .complete || $0.isUpdating }.map { pack in
             OfflineRegion(name: pack.name,
-                          fileURL: OfflinePackStore.shared.fileURL(pack.id),
+                          fileURL: OfflinePackStore.shared.directory.appendingPathComponent(pack.id),
                           sizeBytes: pack.bytes,
                           downloadedAt: pack.completedAt ?? pack.createdAt)
         }
@@ -116,7 +117,7 @@ final class MapManager {
         if !loaded {
             loaded = true
             packs = OfflinePackStore.shared.loadPacks().sorted { $0.createdAt > $1.createdAt }
-            for pack in packs { OfflinePackStore.shared.register(pack) }
+            for pack in packs { engine.register(pack) }
             for i in packs.indices where packs[i].status == .downloading {
                 adoptCurrentSource(i)
                 run(packs[i].id)
@@ -138,10 +139,11 @@ final class MapManager {
             id: UUID().uuidString, name: name, kind: kind, regionId: regionId, bounds: bounds,
             detail: plan.detail, overviewZoom: plan.overviewZoom, closeUpZoom: plan.closeUpZoom,
             closeUps: plan.closeUps, watersIncluded: plan.watersIncluded, placesIncluded: plan.placesIncluded,
-            tileCount: plan.tileCount, savedTiles: 0, bytes: 0, status: .downloading, pauseReason: nil,
+            doneUnits: 0, totalUnits: plan.tileCount, estimatedBytes: plan.estimatedBytes, bytes: 0,
+            status: .downloading, pauseReason: nil,
             updateCursor: nil, createdAt: .now, completedAt: nil, source: TileSources.current.id)
         packs.insert(pack, at: 0)
-        OfflinePackStore.shared.register(pack)
+        engine.register(pack)
         persist()
         run(pack.id)
         return pack.id
@@ -198,7 +200,7 @@ final class MapManager {
         packs[i].source = source.id
         packs[i].closeUpZoom = min(packs[i].closeUpZoom, source.maxDownloadZoom)
         if packs[i].updateCursor == nil { packs[i].updateCursor = 0 }
-        OfflinePackStore.shared.register(packs[i])
+        engine.register(packs[i])
     }
 
     func rename(_ id: String, to name: String) {
@@ -230,15 +232,20 @@ final class MapManager {
         refreshDownloadedRegions()
     }
 
-    /// Bytes per tile from maps already saved, or the browse cache, so size
-    /// estimates match what this source really sends.
-    func measuredTileBytes() -> Int64 {
-        let done = packs.filter { $0.status == .complete && $0.savedTiles > 200 && $0.source == TileSources.current.id }
-        let tiles = done.reduce(0) { $0 + $1.savedTiles }
-        let bytes = done.reduce(Int64(0)) { $0 + $1.bytes }
-        if tiles > 200 { return max(bytes / Int64(tiles), 4_000) }
-        return OfflinePlanner.defaultTileBytes
+    /// How far finished downloads from the current source came out from
+    /// their estimates, so new estimates match what the source really sends.
+    func estimateScale() -> Double {
+        let done = packs.filter {
+            $0.status == .complete && !$0.isFromEarlierSource && $0.estimatedBytes > 0 && $0.bytes > 2_000_000
+        }
+        let estimated = done.reduce(Int64(0)) { $0 + $1.estimatedBytes }
+        let actual = done.reduce(Int64(0)) { $0 + $1.bytes }
+        guard estimated > 0 else { return 1 }
+        return min(max(Double(actual) / Double(estimated), 0.25), 4)
     }
+
+    /// The engine the current tile source saves maps with.
+    private var engine: any OfflineEngine { TileSources.current.offlineEngine }
 
     // MARK: Running downloads
 
@@ -246,34 +253,31 @@ final class MapManager {
         guard let pack = pack(id), tasks[id] == nil else { return }
         beginBackgroundTime()
         let allowCellular = downloadOnCellular
-        let source = TileSources.current
+        let engine = self.engine
         tasks[id] = Task { [weak self] in
-            let tiles = await Task.detached(priority: .utility) { () -> [Int64] in
-                let rings = pack.kind == .region ? (pack.regionId.map(OfflineRegionCatalog.outline) ?? []) : []
-                return OfflinePlanner.tiles(for: pack, rings: rings)
+            let outline = await Task.detached(priority: .utility) { () -> [[CLLocationCoordinate2D]] in
+                pack.kind == .region ? (pack.regionId.map(OfflineRegionCatalog.outline) ?? []) : []
             }.value
-            let outcome = await OfflineDownloader.run(
-                packId: id, tiles: tiles, refresh: pack.isUpdating, startAt: pack.updateCursor ?? 0,
-                source: source, allowCellular: allowCellular
-            ) { progress in
+            let job = OfflineJob(pack: pack, outline: outline, refresh: pack.isUpdating, allowCellular: allowCellular)
+            let outcome = await engine.download(job) { progress in
                 await MainActor.run { self?.apply(progress, to: id) }
             }
-            self?.finish(id, outcome: outcome, total: tiles.count)
+            self?.finish(id, outcome: outcome)
         }
     }
 
-    private func apply(_ progress: OfflineDownloader.Progress, to id: String) {
+    private func apply(_ progress: OfflineProgress, to id: String) {
         liveProgress[id] = progress
         guard let i = packs.firstIndex(where: { $0.id == id }) else { return }
-        packs[i].savedTiles = progress.done
-        packs[i].tileCount = progress.total
+        packs[i].doneUnits = progress.done
+        packs[i].totalUnits = progress.total
         packs[i].bytes = progress.bytes
         if packs[i].isUpdating { packs[i].updateCursor = progress.cursor }
         // Write the list now and then so a crash loses little.
-        if progress.done % 480 < 48 { persist() }
+        if Date.now.timeIntervalSince(lastSaved) > 5 { persist() }
     }
 
-    private func finish(_ id: String, outcome: OfflineDownloader.Outcome, total: Int) {
+    private func finish(_ id: String, outcome: OfflineOutcome) {
         tasks[id] = nil
         liveProgress[id] = nil
         let reason = stopping.removeValue(forKey: id)
@@ -295,8 +299,7 @@ final class MapManager {
         switch outcome {
         case .finished:
             packs[i].status = .complete
-            packs[i].savedTiles = total
-            packs[i].tileCount = total
+            packs[i].doneUnits = packs[i].totalUnits
             packs[i].updateCursor = nil
             packs[i].completedAt = .now
             packs[i].pauseReason = nil
@@ -336,7 +339,8 @@ final class MapManager {
     }
 
     private func removePack(_ id: String) {
-        OfflinePackStore.shared.remove(id)
+        engine.close(id)
+        OfflinePackStore.shared.removeFiles(id)
         packs.removeAll { $0.id == id }
         liveProgress[id] = nil
         persist()
@@ -350,6 +354,7 @@ final class MapManager {
             return p
         }
         OfflinePackStore.shared.savePacks(saved)
+        lastSaved = .now
     }
 
     /// A little time to keep going after the app is switched away; when it

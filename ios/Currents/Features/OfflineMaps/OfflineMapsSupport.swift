@@ -95,15 +95,15 @@ enum OfflineFormat {
         return "Close-ups of " + parts.joined(separator: " and ")
     }
 
-    static func status(_ pack: OfflinePack, live: OfflineDownloader.Progress?) -> String {
-        let percent = Int((Double(live?.done ?? pack.savedTiles) / Double(max(live?.total ?? pack.tileCount, 1)) * 100).rounded(.down))
+    static func status(_ pack: OfflinePack, live: OfflineProgress?) -> String {
+        let percent = Int((Double(live?.done ?? pack.doneUnits) / Double(max(live?.total ?? pack.totalUnits, 1)) * 100).rounded(.down))
         switch pack.status {
         case .downloading:
             return pack.isUpdating ? "Updating, \(percent) percent" : "Downloading, \(percent) percent"
         case .paused:
             return "Paused at \(percent) percent"
         case .complete:
-            if pack.source != TileSources.current.id {
+            if pack.isFromEarlierSource {
                 return "Saved from an earlier map source. Update it to show it on the map."
             }
             return "\(bytes(pack.bytes)), saved \(date(pack.completedAt ?? pack.createdAt))"
@@ -212,14 +212,14 @@ enum OfflineSuggestions {
     /// thread (it reads the bundled outlines).
     @MainActor
     static func build(appState: AppState, places: OfflineUserPlaces, homeRegion: OfflineAdminRegion?,
-                      packs: [OfflinePack], tileBytes: Int64) -> [OfflineSuggestion] {
+                      packs: [OfflinePack], scale: Double) -> [OfflineSuggestion] {
         var out: [OfflineSuggestion] = []
         let waterRepo = appState.waterbodyRepository
 
         func square(_ id: String, _ title: String, _ subtitle: String, _ icon: String, _ tint: Color,
                     _ center: CLLocationCoordinate2D, sideKm: Double, name: String) {
             let rect = GeoRect(center: center, sideKm: sideKm)
-            let estimate = OfflinePlanner.areaPlan(rect, detail: .standard, tileBytes: tileBytes).estimatedBytes
+            let estimate = OfflinePlanner.areaPlan(rect, detail: .standard, scale: scale).estimatedBytes
             out.append(OfflineSuggestion(id: id, title: title, subtitle: subtitle, systemImage: icon, tint: tint,
                                          center: center, target: .area(rect, name: name), estimate: estimate))
         }
@@ -345,74 +345,34 @@ enum OfflineSuggestions {
 
 // MARK: - Thumbnails
 
-/// A small picture of a downloaded map, stitched from its own saved tiles,
-/// so it works with no signal.
+/// A small picture of a downloaded map, drawn by its download engine from
+/// the map's own saved data, so it works with no signal.
 enum OfflinePackThumbnail {
     private static let cache = NSCache<NSString, UIImage>()
 
     static func cached(_ pack: OfflinePack) -> UIImage? {
-        cache.object(forKey: key(pack))
+        cache.object(forKey: key(pack, stage: stage(pack, live: nil)))
     }
 
     /// `points` is the output size in pixels (44 pt at 3x by default).
     static func image(for pack: OfflinePack, points: CGFloat = 132) async -> UIImage? {
         if let hit = cached(pack) { return hit }
-        let image = await Task.detached(priority: .utility) { OfflinePackThumbnail.render(pack, points: points) }.value
-        if let image { cache.setObject(image, forKey: key(pack)) }
+        let image = await Task.detached(priority: .utility) {
+            TileSources.current.offlineEngine.preview(pack, pixels: points)
+        }.value
+        if let image { cache.setObject(image, forKey: key(pack, stage: stage(pack, live: nil))) }
         return image
     }
 
-    private static func key(_ pack: OfflinePack) -> NSString {
-        // A new picture as more of the map comes down.
-        "\(pack.id)-\(pack.savedTiles > 0 ? min(pack.savedTiles / 500, 4) : -1)" as NSString
+    /// How far along the map is, in fifths, so the picture is redrawn as
+    /// more of it comes down.
+    static func stage(_ pack: OfflinePack, live: OfflineProgress?) -> Int {
+        let done = Double(live?.done ?? pack.doneUnits), total = Double(max(live?.total ?? pack.totalUnits, 1))
+        return pack.status == .complete ? 5 : Int(done / total * 5)
     }
 
-    private static func render(_ pack: OfflinePack, points: CGFloat) -> UIImage? {
-        let b = pack.bounds
-        var z = min(pack.overviewZoom, 14)
-        while z > OfflinePlanner.minZoom {
-            let cols = TileMath.x(b.maxLon, z) - TileMath.x(b.minLon, z) + 1
-            let rows = TileMath.y(b.minLat, z) - TileMath.y(b.maxLat, z) + 1
-            if cols <= 3 && rows <= 3 { break }
-            z -= 1
-        }
-        let x0 = TileMath.x(b.minLon, z), x1 = TileMath.x(b.maxLon, z)
-        let y0 = TileMath.y(b.maxLat, z), y1 = TileMath.y(b.minLat, z)
-        guard x1 >= x0, y1 >= y0 else { return nil }
-        let tile: CGFloat = 256
-        let canvas = CGSize(width: CGFloat(x1 - x0 + 1) * tile, height: CGFloat(y1 - y0 + 1) * tile)
-        var found = false
-        let format = UIGraphicsImageRendererFormat()
-        format.scale = 1
-        let renderer = UIGraphicsImageRenderer(size: canvas, format: format)
-        let full = renderer.image { _ in
-            for tx in x0...x1 {
-                for ty in y0...y1 {
-                    guard let data = OfflinePackStore.shared.tile(z: z, x: TileMath.wrap(tx, z), y: ty),
-                          let img = UIImage(data: data) else { continue }
-                    found = true
-                    img.draw(in: CGRect(x: CGFloat(tx - x0) * tile, y: CGFloat(ty - y0) * tile, width: tile, height: tile))
-                }
-            }
-        }
-        guard found, let cg = full.cgImage else { return nil }
-        // Crop to a square on the area's middle.
-        let n = Double(1 << z)
-        func px(_ lon: Double) -> CGFloat { CGFloat(((lon + 180) / 360 * n - Double(x0)) * 256) }
-        func py(_ lat: Double) -> CGFloat {
-            let l = min(max(lat, -TileMath.maxLatitude), TileMath.maxLatitude) * .pi / 180
-            return CGFloat(((1 - log(tan(l) + 1 / cos(l)) / .pi) / 2 * n - Double(y0)) * 256)
-        }
-        let rect = CGRect(x: px(b.minLon), y: py(b.maxLat), width: px(b.maxLon) - px(b.minLon), height: py(b.minLat) - py(b.maxLat))
-        let sideLength = min(max(rect.width, rect.height, 64), canvas.width, canvas.height)
-        var crop = CGRect(x: rect.midX - sideLength / 2, y: rect.midY - sideLength / 2, width: sideLength, height: sideLength)
-        crop.origin.x = min(max(crop.origin.x, 0), canvas.width - sideLength)
-        crop.origin.y = min(max(crop.origin.y, 0), canvas.height - sideLength)
-        guard let cut = cg.cropping(to: crop.integral) else { return nil }
-        let out = UIGraphicsImageRenderer(size: CGSize(width: points, height: points), format: format)
-        return out.image { _ in
-            UIImage(cgImage: cut).draw(in: CGRect(x: 0, y: 0, width: points, height: points))
-        }
+    private static func key(_ pack: OfflinePack, stage: Int) -> NSString {
+        "\(pack.id)-\(stage)" as NSString
     }
 }
 

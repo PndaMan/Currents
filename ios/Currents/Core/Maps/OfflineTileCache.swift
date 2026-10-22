@@ -8,8 +8,8 @@ import UIKit
 /// fishing view draws its own satellite layer from `TileSources.current`.
 /// Every tile fetched while online is written to disk keyed by `z/x/y`; when the same
 /// tile is requested again, including with no connectivity, it is served
-/// straight from disk. Tiles from downloaded offline maps
-/// (`OfflinePackStore`) are served the same way.
+/// straight from disk. Tiles from offline maps saved tile by tile
+/// (`OfflineTileFiles`) are served the same way.
 ///
 /// Combined with `OfflineTilePrefetcher`, the area around the user is filled
 /// into the cache in the background so it's visible even without signal.
@@ -71,7 +71,7 @@ final class OfflineTileOverlay: MKTileOverlay {
             }
 
             // 2. A downloaded offline map has it.
-            if let data = OfflinePackStore.shared.tile(z: path.z, x: path.x, y: path.y) {
+            if let data = OfflineTileFiles.shared.tile(z: path.z, x: path.x, y: path.y) {
                 result(data, nil)
                 return
             }
@@ -117,7 +117,7 @@ final class OfflineTileOverlay: MKTileOverlay {
                 contentScaleFactor: path.contentScaleFactor
             )
             if let data = (try? Data(contentsOf: fileURL(for: ancestor)))
-                ?? OfflinePackStore.shared.tile(z: ancestor.z, x: ancestor.x, y: ancestor.y),
+                ?? OfflineTileFiles.shared.tile(z: ancestor.z, x: ancestor.x, y: ancestor.y),
                let img = UIImage(data: data),
                let cg = img.cgImage {
                 let cellW = CGFloat(cg.width) / CGFloat(scale)

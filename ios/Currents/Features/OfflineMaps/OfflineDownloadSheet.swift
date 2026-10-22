@@ -241,7 +241,7 @@ struct OfflineDownloadSheet: View {
         guard let plan = plans[detail] else { return free }
         var text = "\(OfflineFormat.estimate(plan.estimatedBytes)). " + free
         if plan.trimmed {
-            text += " Close-ups stop at about \(OfflineFormat.bytes(Int64(OfflinePlanner.tileCap) * tileBytes)). Pick a smaller region for more."
+            text += " That is the most one map holds, so close-ups cover your places and the biggest waters first. Pick a smaller region for more."
         }
         if !appState.mapManager.downloadOnCellular {
             text += " Downloads use Wi-Fi only."
@@ -278,7 +278,7 @@ struct OfflineDownloadSheet: View {
 
     // MARK: Planning
 
-    private var tileBytes: Int64 { appState.mapManager.measuredTileBytes() }
+    private var estimateScale: Double { appState.mapManager.estimateScale() }
 
     /// Room left after a margin, so a download never fills the phone.
     private var room: Int64 { freeBytes - 300_000_000 }
@@ -301,13 +301,13 @@ struct OfflineDownloadSheet: View {
 
     private func plan() async {
         freeBytes = OfflinePackStore.freeBytes
-        let bytes = tileBytes
+        let scale = estimateScale
         switch target {
         case .area:
             guard let a = area else { plans = [:]; return }
             var out: [OfflineDetail: OfflinePlan] = [:]
             for option in [OfflineDetail.standard, .maximum] {
-                out[option] = OfflinePlanner.areaPlan(a, detail: option, tileBytes: bytes)
+                out[option] = OfflinePlanner.areaPlan(a, detail: option, scale: scale)
             }
             plans = out
             if out[detail]?.tooLarge == true, out[.standard]?.tooLarge == false { detail = .standard }
@@ -329,7 +329,7 @@ struct OfflineDownloadSheet: View {
                 var out: [OfflineDetail: OfflinePlan] = [:]
                 for option in OfflineDetail.allCases {
                     out[option] = OfflinePlanner.regionPlan(shape, detail: option, places: places, waters: ws,
-                                                            tileBytes: bytes)
+                                                            scale: scale)
                 }
                 return (rings, out)
             }.value

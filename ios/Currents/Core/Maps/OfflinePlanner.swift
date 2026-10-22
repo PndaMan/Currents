@@ -58,8 +58,19 @@ enum OfflinePlanner {
     /// Most tiles in one offline map, set by the tile source (30,000 for
     /// satellite imagery is about 650 MB).
     static var tileCap: Int { TileSources.current.maxTilesPerDownload }
-    /// Typical tile when nothing has been measured yet.
-    static var defaultTileBytes: Int64 { TileSources.current.typicalTileBytes }
+    static let maxZoom = 24
+
+    /// Bytes for so many tiles at each zoom (`counts[z]`), from the source's
+    /// typical tile sizes, times `scale` (how far real downloads from this
+    /// source have come out from the estimates).
+    static func estimate(_ counts: [Int], scale: Double) -> Int64 {
+        let source = TileSources.current
+        var bytes = 0.0
+        for (z, n) in counts.enumerated() where n > 0 {
+            bytes += Double(n) * Double(source.typicalTileBytes(zoom: z))
+        }
+        return Int64(bytes * scale)
+    }
 
     /// The area being saved: a box, and for regions the outline inside it.
     struct Shape: Sendable {
@@ -71,26 +82,29 @@ enum OfflinePlanner {
     // MARK: Plans
 
     /// A square picked on the map, saved whole to the detail's zoom.
-    static func areaPlan(_ rect: GeoRect, detail: OfflineDetail, tileBytes: Int64) -> OfflinePlan {
-        let top = detail.closeUpZoom ?? 14
-        var count = 0
-        for z in minZoom...top { count += TileMath.count(rect, z) }
+    static func areaPlan(_ rect: GeoRect, detail: OfflineDetail, scale: Double) -> OfflinePlan {
+        let top = detail.closeUpZoom ?? min(14, TileSources.current.maxDownloadZoom)
+        var counts = Array(repeating: 0, count: maxZoom + 1)
+        for z in minZoom...top { counts[z] = TileMath.count(rect, z) }
+        let count = counts.reduce(0, +)
         return OfflinePlan(detail: detail, overviewZoom: top, closeUpZoom: top, closeUps: [],
                            watersIncluded: 0, watersAvailable: 0, placesIncluded: 0,
-                           tileCount: count, estimatedBytes: Int64(count) * tileBytes,
+                           tileCount: count, estimatedBytes: estimate(counts, scale: scale),
                            trimmed: false, tooLarge: count > tileCap)
     }
 
     /// A country or region: overview over the outline, then close-ups for
     /// the angler's places first and the biggest waters next, until the cap.
     static func regionPlan(_ shape: Shape, detail: OfflineDetail, places: [OfflineCloseUp],
-                           waters: [OfflineCloseUp], tileBytes: Int64) -> OfflinePlan {
+                           waters: [OfflineCloseUp], scale: Double) -> OfflinePlan {
         let (overviewZoom, overview) = overviewTiles(shape)
-        var total = overview
+        var counts = Array(repeating: 0, count: maxZoom + 1)
+        for key in overview { counts[TileMath.unpack(key).z] += 1 }
+        var total = overview.count
         guard let top = detail.closeUpZoom, top > overviewZoom else {
             return OfflinePlan(detail: detail, overviewZoom: overviewZoom, closeUpZoom: overviewZoom, closeUps: [],
                                watersIncluded: 0, watersAvailable: waters.count, placesIncluded: 0,
-                               tileCount: total, estimatedBytes: Int64(total) * tileBytes,
+                               tileCount: total, estimatedBytes: estimate(counts, scale: scale),
                                trimmed: false, tooLarge: false)
         }
         var seen = Set<Int64>()
@@ -100,27 +114,33 @@ enum OfflinePlanner {
         let ordered = places.map { ($0, true) } + waters.sorted { $0.areaKm2 > $1.areaKm2 }.map { ($0, false) }
         for (closeUp, isPlace) in ordered {
             let rect = GeoRect(center: closeUp.coordinate, sideKm: closeUp.radiusKm * 2)
-            var fresh: [Int64] = []
+            var fresh: [(z: Int, keys: Set<Int64>)] = []
+            var added = 0
             for z in (overviewZoom + 1)...top {
+                // A set, as forEachTile can repeat a key across wrapped columns.
+                var level = Set<Int64>()
                 TileMath.forEachTile(in: closeUpRect(rect, z: z), z) { key in
-                    if !seen.contains(key) { fresh.append(key) }
+                    if !seen.contains(key) { level.insert(key) }
                 }
+                fresh.append((z, level))
+                added += level.count
             }
-            // forEachTile can repeat a key only across wrapped columns; dedupe here.
-            let newKeys = Set(fresh)
-            if total + newKeys.count > tileCap {
+            if total + added > tileCap {
                 trimmed = true
                 break
             }
-            seen.formUnion(newKeys)
-            total += newKeys.count
+            for level in fresh {
+                seen.formUnion(level.keys)
+                counts[level.z] += level.keys.count
+            }
+            total += added
             rects.append(rect)
             if isPlace { placesIncluded += 1 } else { watersIncluded += 1 }
         }
         return OfflinePlan(detail: detail, overviewZoom: overviewZoom, closeUpZoom: top, closeUps: rects,
                            watersIncluded: watersIncluded, watersAvailable: waters.count,
                            placesIncluded: placesIncluded, tileCount: total,
-                           estimatedBytes: Int64(total) * tileBytes, trimmed: trimmed, tooLarge: false)
+                           estimatedBytes: estimate(counts, scale: scale), trimmed: trimmed, tooLarge: false)
     }
 
     /// Every tile a pack needs, lowest zoom first, the same each time for
@@ -163,12 +183,12 @@ enum OfflinePlanner {
     // MARK: Overview
 
     /// The deepest overview zoom (5 to 14) that stays inside the budget, and
-    /// its tile count. Guessed from the area first, then counted.
-    static func overviewTiles(_ shape: Shape) -> (zoom: Int, count: Int) {
+    /// its tiles. Guessed from the area first, then counted.
+    static func overviewTiles(_ shape: Shape) -> (zoom: Int, tiles: Set<Int64>) {
         let lat = (shape.bounds.minLat + shape.bounds.maxLat) / 2
         let area = shape.areaKm2 > 0 ? shape.areaKm2 : shape.bounds.areaKm2
         var guess = 5
-        for z in 5...14 {
+        for z in 5...max(5, min(14, TileSources.current.maxDownloadZoom)) {
             var estimate = 0.0
             for k in minZoom...z {
                 let w = 40_075.016 * max(cos(lat * .pi / 180), 0.05) / Double(1 << k)
@@ -178,8 +198,8 @@ enum OfflinePlanner {
         }
         var z = guess
         while true {
-            let count = maskedPyramid(shape, top: z).count
-            if count <= overviewBudget || z <= 5 { return (z, count) }
+            let tiles = maskedPyramid(shape, top: z)
+            if tiles.count <= overviewBudget || z <= 5 { return (z, tiles) }
             z -= 1
         }
     }
@@ -254,148 +274,5 @@ enum OfflinePlanner {
             }
         }
         return keys
-    }
-}
-
-// MARK: - Download
-
-/// Fetches a pack's tiles from the tile source into its file, a few requests
-/// at a time, saved in batches, skipping tiles already there, so a pause, a
-/// lost signal or the app closing never loses what has come down.
-enum OfflineDownloader {
-    struct Progress: Sendable {
-        var done: Int
-        var total: Int
-        var bytes: Int64
-        /// Plan position reached, for updates.
-        var cursor: Int
-    }
-
-    enum Outcome: Sendable {
-        case finished
-        /// Stopped by itself, with the reason to show.
-        case stalled(String)
-        /// Paused or cancelled by the person.
-        case stopped
-    }
-
-    private static let batch = 48
-
-    /// - Parameters:
-    ///   - refresh: fetch every tile again (an update) instead of skipping saved ones.
-    ///   - startAt: plan position to start from when refreshing.
-    static func run(packId: String, tiles: [Int64], refresh: Bool, startAt: Int, source: any TileSource,
-                    allowCellular: Bool, report: @escaping @Sendable (Progress) async -> Void) async -> Outcome {
-        let store = OfflinePackStore.shared
-        let parallel = max(1, source.maxConcurrentRequests)
-        let config = URLSessionConfiguration.default
-        config.allowsCellularAccess = allowCellular
-        config.waitsForConnectivity = false
-        config.timeoutIntervalForRequest = 20
-        config.httpMaximumConnectionsPerHost = parallel
-        config.requestCachePolicy = .reloadIgnoringLocalCacheData
-        config.urlCache = nil
-        let session = URLSession(configuration: config)
-        defer { session.finishTasksAndInvalidate() }
-
-        let existing = refresh ? Set<Int64>() : store.existingKeys(packId)
-        let begin = refresh ? min(max(startAt, 0), tiles.count) : 0
-        let todo = tiles[begin...].filter { !existing.contains($0) }
-        var done = tiles.count - todo.count
-        var failed: [Int64] = []
-        var stalls = 0
-        var lastError: URLError?
-
-        func fetchAll(_ keys: [Int64]) async -> [(Int64, Data?, URLError?)] {
-            await withTaskGroup(of: (Int64, Data?, URLError?).self) { group in
-                var results: [(Int64, Data?, URLError?)] = []
-                var iterator = keys.makeIterator()
-                for _ in 0..<parallel {
-                    guard let key = iterator.next() else { break }
-                    group.addTask { await OfflineDownloader.fetch(key, session: session, source: source) }
-                }
-                while let result = await group.next() {
-                    results.append(result)
-                    if let key = iterator.next() {
-                        group.addTask { await OfflineDownloader.fetch(key, session: session, source: source) }
-                    }
-                }
-                return results
-            }
-        }
-
-        var position = begin
-        var index = todo.startIndex
-        while index < todo.endIndex {
-            if Task.isCancelled { return .stopped }
-            let end = min(index + batch, todo.endIndex)
-            let chunk = Array(todo[index..<end])
-            let results = await fetchAll(chunk)
-            if Task.isCancelled { return .stopped }
-
-            let saved = results.compactMap { key, data, _ in data.map { (key, $0) } }
-            do {
-                try store.write(packId, tiles: saved)
-            } catch {
-                return .stalled("Could not save the map. Free some space and resume.")
-            }
-            let errors = results.filter { $0.2 != nil }
-            failed.append(contentsOf: errors.map { $0.0 })
-            lastError = errors.last?.2 ?? lastError
-            done += chunk.count - errors.count
-            position = refresh ? begin + end : position
-            index = end
-
-            if saved.isEmpty && errors.count == chunk.count {
-                stalls += 1
-                if stalls >= 2 { return .stalled(reason(for: lastError)) }
-            } else {
-                stalls = 0
-            }
-            await report(Progress(done: done, total: tiles.count, bytes: store.size(packId), cursor: position))
-        }
-
-        // One more go at anything a blip dropped.
-        if !failed.isEmpty, !Task.isCancelled {
-            let retry = await fetchAll(failed)
-            let saved = retry.compactMap { key, data, _ in data.map { (key, $0) } }
-            try? store.write(packId, tiles: saved)
-            let stillFailed = retry.filter { $0.2 != nil }
-            done += retry.count - stillFailed.count
-            await report(Progress(done: done, total: tiles.count, bytes: store.size(packId), cursor: tiles.count))
-            if !stillFailed.isEmpty && !refresh {
-                return .stalled(reason(for: stillFailed.last?.2))
-            }
-        }
-        if Task.isCancelled { return .stopped }
-        store.compact(packId)
-        await report(Progress(done: tiles.count, total: tiles.count, bytes: store.size(packId), cursor: tiles.count))
-        return .finished
-    }
-
-    /// One tile. Data on success; no data and no error when the server has
-    /// no imagery there (nothing to retry); an error when it should be retried.
-    private static func fetch(_ key: Int64, session: URLSession, source: any TileSource) async -> (Int64, Data?, URLError?) {
-        let t = TileMath.unpack(key)
-        switch await source.fetch(z: t.z, x: t.x, y: t.y, session: session) {
-        case .tile(let data): return (key, data, nil)
-        case .empty: return (key, nil, nil)
-        case .failed(let error): return (key, nil, error)
-        }
-    }
-
-    private static func reason(for error: URLError?) -> String {
-        guard let error else { return "Some of the map did not download. Resume to try again." }
-        if error.networkUnavailableReason == .cellular {
-            return "Waiting for Wi-Fi. Turn on mobile data downloads to carry on now."
-        }
-        switch error.code {
-        case .notConnectedToInternet, .networkConnectionLost, .timedOut, .cannotConnectToHost, .cannotFindHost:
-            return "Lost signal. Resume when you are back online."
-        case .badServerResponse:
-            return "The imagery server is busy. Resume in a few minutes."
-        default:
-            return "Some of the map did not download. Resume to try again."
-        }
     }
 }

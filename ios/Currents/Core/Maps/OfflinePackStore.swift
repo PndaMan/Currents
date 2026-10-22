@@ -1,6 +1,5 @@
 import Foundation
 import CoreLocation
-import GRDB
 
 /// How much detail an offline map carries.
 enum OfflineDetail: String, Codable, CaseIterable, Sendable {
@@ -58,13 +57,17 @@ struct OfflinePack: Codable, Identifiable, Hashable, Sendable {
     var closeUps: [GeoRect]
     var watersIncluded: Int
     var placesIncluded: Int
-    var tileCount: Int
-    var savedTiles: Int
+    /// Progress in the engine's own units (see `OfflineProgress`).
+    var doneUnits: Int
+    var totalUnits: Int
+    /// The size worked out before downloading.
+    var estimatedBytes: Int64
+    /// On disk.
     var bytes: Int64
     var status: Status
     /// Why it stopped, when it stopped by itself.
     var pauseReason: String?
-    /// Set while updating: how many tiles, in plan order, are already fresh.
+    /// Set while updating: the engine's place in the update.
     var updateCursor: Int?
     var createdAt: Date
     var completedAt: Date?
@@ -72,23 +75,23 @@ struct OfflinePack: Codable, Identifiable, Hashable, Sendable {
     var source: String
 
     var progress: Double {
-        tileCount > 0 ? min(Double(savedTiles) / Double(tileCount), 1) : 0
+        totalUnits > 0 ? min(Double(doneUnits) / Double(totalUnits), 1) : 0
     }
 
     var isUpdating: Bool { updateCursor != nil }
+
+    /// Saved from a source other than the one in use, so hidden until updated.
+    var isFromEarlierSource: Bool { source != TileSources.current.id }
 }
 
-/// The tiles of every offline map, one SQLite file per map under
-/// Application Support/OfflineMaps, plus the list of maps in packs.json.
-/// The tile overlay reads from here on its own queue while a download writes,
-/// so access to the open files is locked.
+/// The list of offline maps (packs.json) and the folder their files live in,
+/// Application Support/OfflineMaps. What is in each map's files is up to the
+/// download engine; every file is named with the map's id as a prefix, so
+/// sizes and deletes here work for any engine.
 final class OfflinePackStore: @unchecked Sendable {
     static let shared = OfflinePackStore()
 
     let directory: URL
-    private let lock = NSLock()
-    private var pools: [String: DatabasePool] = [:]
-    private var coverage: [String: (bounds: GeoRect, maxZoom: Int)] = [:]
 
     init() {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
@@ -119,106 +122,29 @@ final class OfflinePackStore: @unchecked Sendable {
         try? data.write(to: manifestURL, options: .atomic)
     }
 
-    // MARK: Tile files
+    // MARK: Files
 
-    func fileURL(_ id: String) -> URL {
-        directory.appendingPathComponent("\(id).sqlite")
+    /// A file for a map, named `<id>.<suffix>`.
+    func fileURL(_ id: String, suffix: String) -> URL {
+        directory.appendingPathComponent("\(id).\(suffix)")
     }
 
-    /// Opens (creating if needed) the map's tile file.
-    func pool(_ id: String) throws -> DatabasePool {
-        lock.lock()
-        defer { lock.unlock() }
-        if let pool = pools[id] { return pool }
-        var config = Configuration()
-        config.label = "offline-map"
-        let pool = try DatabasePool(path: fileURL(id).path, configuration: config)
-        try pool.write { db in
-            try db.execute(sql: "CREATE TABLE IF NOT EXISTS tiles (k INTEGER PRIMARY KEY, data BLOB NOT NULL)")
-        }
-        pools[id] = pool
-        return pool
+    /// Every file belonging to a map.
+    func files(_ id: String) -> [URL] {
+        let all = (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.fileSizeKey])) ?? []
+        return all.filter { $0.lastPathComponent.hasPrefix(id + ".") }
     }
 
-    /// Lets the tile overlay find this map's tiles. Maps saved from another
-    /// tile source are left out until they are updated.
-    func register(_ pack: OfflinePack) {
-        lock.lock()
-        coverage[pack.id] = pack.source == TileSources.current.id
-            ? (pack.bounds, max(pack.overviewZoom, pack.closeUpZoom)) : nil
-        lock.unlock()
-    }
-
-    /// A saved tile from any offline map that covers it.
-    func tile(z: Int, x: Int, y: Int) -> Data? {
-        let tileRect = GeoRect(minLat: TileMath.lat(ofY: Double(y + 1), z),
-                               minLon: TileMath.lon(ofX: Double(x), z),
-                               maxLat: TileMath.lat(ofY: Double(y), z),
-                               maxLon: TileMath.lon(ofX: Double(x + 1), z))
-        lock.lock()
-        let candidates = coverage.filter { $0.value.maxZoom >= z && $0.value.bounds.intersects(tileRect) }.map { $0.key }
-        lock.unlock()
-        let key = TileMath.key(z, x, y)
-        for id in candidates {
-            guard let pool = try? pool(id) else { continue }
-            if let data = try? pool.read({ db in
-                try Data.fetchOne(db, sql: "SELECT data FROM tiles WHERE k = ?", arguments: [key])
-            }) {
-                return data
-            }
-        }
-        return nil
-    }
-
-    func existingKeys(_ id: String) -> Set<Int64> {
-        guard let pool = try? pool(id),
-              let keys = try? pool.read({ db in try Int64.fetchAll(db, sql: "SELECT k FROM tiles") }) else { return [] }
-        return Set(keys)
-    }
-
-    func write(_ id: String, tiles: [(Int64, Data)]) throws {
-        guard !tiles.isEmpty else { return }
-        let pool = try pool(id)
-        try pool.write { db in
-            for (key, data) in tiles {
-                try db.execute(sql: "INSERT OR REPLACE INTO tiles (k, data) VALUES (?, ?)", arguments: [key, data])
-            }
-        }
-    }
-
-    func tileCount(_ id: String) -> Int {
-        guard let pool = try? pool(id) else { return 0 }
-        return (try? pool.read { db in try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM tiles") }) ?? 0
-    }
-
-    /// Folds the write-ahead log back into the file once a download ends.
-    func compact(_ id: String) {
-        guard let pool = try? pool(id) else { return }
-        try? pool.writeWithoutTransaction { db in
-            _ = try db.checkpoint(.truncate)
-        }
-    }
-
-    /// Bytes on disk, including the write-ahead log while downloading.
+    /// Bytes on disk for a map, whatever its engine keeps.
     func size(_ id: String) -> Int64 {
-        let base = fileURL(id).path
-        return [base, base + "-wal", base + "-shm"].reduce(Int64(0)) { total, path in
-            let size = (try? FileManager.default.attributesOfItem(atPath: path)[.size] as? NSNumber)?.int64Value ?? 0
-            return total + size
+        files(id).reduce(Int64(0)) { total, url in
+            total + Int64((try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0)
         }
     }
 
-    /// Closes the map's file and deletes it.
-    func remove(_ id: String) {
-        lock.lock()
-        let pool = pools.removeValue(forKey: id)
-        coverage.removeValue(forKey: id)
-        lock.unlock()
-        try? pool?.close()
-        let base = fileURL(id).path
-        for path in [base, base + "-wal", base + "-shm"] {
-            try? FileManager.default.removeItem(atPath: path)
-        }
+    /// Deletes a map's files. Close them with the engine first.
+    func removeFiles(_ id: String) {
+        for url in files(id) { try? FileManager.default.removeItem(at: url) }
     }
 
     /// Free space for new maps, as iOS reports it for things the person asked for.

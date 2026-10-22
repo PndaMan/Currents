@@ -290,7 +290,7 @@ struct OfflineMapsView: View {
         }.value
         guard !Task.isCancelled else { return }
         suggestions = OfflineSuggestions.build(appState: appState, places: places, homeRegion: home,
-                                               packs: manager.packs, tileBytes: manager.measuredTileBytes())
+                                               packs: manager.packs, scale: manager.estimateScale())
     }
 
     private func measure() async {
@@ -308,7 +308,7 @@ struct OfflineMapsView: View {
 /// A downloaded map: its own picture, name, and size or progress.
 struct OfflinePackRow: View {
     let pack: OfflinePack
-    let live: OfflineDownloader.Progress?
+    let live: OfflineProgress?
     @State private var thumbnail: UIImage?
 
     var body: some View {
@@ -330,8 +330,8 @@ struct OfflinePackRow: View {
                     .foregroundStyle(pack.pauseReason == nil ? Color.dsText2 : Color.orange)
                     .lineLimit(2)
                 if pack.status != .complete {
-                    ProgressView(value: Double(live?.done ?? pack.savedTiles),
-                                 total: Double(max(live?.total ?? pack.tileCount, 1)))
+                    ProgressView(value: Double(live?.done ?? pack.doneUnits),
+                                 total: Double(max(live?.total ?? pack.totalUnits, 1)))
                         .tint(pack.status == .paused ? Color.dsText3 : DS.accent)
                         .accessibilityHidden(true)
                 }
@@ -346,10 +346,9 @@ struct OfflinePackRow: View {
         }
     }
 
-    /// A fresh picture every few hundred tiles while it downloads.
+    /// A fresh picture every fifth of the way while it downloads.
     private var thumbnailKey: Int {
-        let saved = live?.done ?? pack.savedTiles
-        return pack.status == .complete ? -1 : min(saved / 500, 4)
+        pack.status == .complete ? -1 : OfflinePackThumbnail.stage(pack, live: live)
     }
 }
 
