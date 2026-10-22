@@ -13,14 +13,14 @@ private struct QuickLogProvider: TimelineProvider {
     }
 }
 
-/// A Home-Screen shortcut: one tap opens Currents straight into logging a catch
+/// A Home Screen shortcut: one tap opens Currents straight into logging a catch
 /// (via the `currents://log` deep link).
 struct QuickLogWidget: Widget {
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: "QuickLogWidget", provider: QuickLogProvider()) { _ in
             QuickLogView()
         }
-        .configurationDisplayName("Log a Catch")
+        .configurationDisplayName("Log a catch")
         .description("One tap to log your latest catch.")
         .supportedFamilies([.systemSmall])
     }
@@ -28,22 +28,28 @@ struct QuickLogWidget: Widget {
 
 private struct QuickLogView: View {
     var body: some View {
-        VStack(spacing: 8) {
+        VStack(alignment: .leading, spacing: 2) {
+            // A Luma thumbnail: the symbol on a soft tint of its colour.
             Image(systemName: "fish.fill")
-                .font(.system(size: 34))
-            Text("Log a Catch")
+                .font(.title2)
+                .foregroundStyle(WidgetTheme.scoreBest)
+                .frame(width: 52, height: 52)
+                .background(WidgetTheme.scoreBest.opacity(0.22),
+                            in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .widgetAccentable()
+            Spacer(minLength: 6)
+            Text("Log a catch")
                 .font(.headline)
+                .lineLimit(1)
                 .minimumScaleFactor(0.7)
             Text("Tap to record")
-                .font(.caption2)
-                .opacity(0.9)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .foregroundStyle(.white)
-        .containerBackground(for: .widget) {
-            LinearGradient(colors: [Color.accentColor, Color.accentColor.opacity(0.7)],
-                           startPoint: .topLeading, endPoint: .bottomTrailing)
-        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        .containerBackground(WidgetTheme.background, for: .widget)
         .widgetURL(URL(string: "currents://log"))
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
     }
 }

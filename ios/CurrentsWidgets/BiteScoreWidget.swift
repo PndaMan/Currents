@@ -48,27 +48,34 @@ private func verdict(for score: Int) -> String {
     }
 }
 
-private func scoreColor(_ s: Int) -> Color {
-    switch s {
-    case 80...: return .green
-    case 60..<80: return .teal
-    case 40..<60: return .orange
-    default: return .gray
-    }
-}
-
-// MARK: - Bite Score widget
+// MARK: - Bite score widget
 
 struct BiteScoreWidget: Widget {
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: "BiteScoreWidget", provider: SnapshotProvider()) { entry in
             BiteScoreView(snapshot: entry.snapshot)
-                .containerBackground(.fill.tertiary, for: .widget)
+                .containerBackground(for: .widget) {
+                    ScoreTintBackground(score: entry.snapshot.biteScore)
+                }
         }
-        .configurationDisplayName("Bite Score")
+        .configurationDisplayName("Bite score")
         .description("The current fishing bite forecast at your location.")
         .supportedFamilies([.systemSmall, .systemMedium,
                             .accessoryCircular, .accessoryRectangular, .accessoryInline])
+    }
+}
+
+/// The Luma page tint: the score colour fading into the widget background
+/// from the top, as on the Today hero.
+private struct ScoreTintBackground: View {
+    let score: Int
+
+    var body: some View {
+        ZStack {
+            WidgetTheme.background
+            LinearGradient(colors: [WidgetTheme.scoreColor(score).opacity(0.16), .clear],
+                           startPoint: .top, endPoint: .bottom)
+        }
     }
 }
 
@@ -76,81 +83,123 @@ private struct BiteScoreView: View {
     let snapshot: CurrentsSnapshot
     @Environment(\.widgetFamily) private var family
 
+    /// The verdict, hidden when the app has not written one yet.
+    private var verdict: String? {
+        let v = snapshot.biteVerdict.trimmingCharacters(in: .whitespaces)
+        return v.isEmpty || v == "—" ? nil : v
+    }
+
     var body: some View {
         switch family {
         case .accessoryCircular:
-            // Lock-screen 1-tile: a gauge ringed with the bite score.
-            Gauge(value: Double(snapshot.biteScore), in: 0...100) {
+            // Lock screen circle: a gauge ringed with the bite score.
+            Gauge(value: Double(min(100, max(0, snapshot.biteScore))), in: 0...100) {
                 Image(systemName: "fish.fill")
             } currentValueLabel: {
                 Text("\(snapshot.biteScore)")
-                    .font(.system(.body, design: .rounded).bold())
+                    .font(.system(.body).bold())
+                    .monospacedDigit()
             }
             .gaugeStyle(.accessoryCircular)
-            .tint(scoreColor(snapshot.biteScore))
+            .tint(WidgetTheme.scoreColor(snapshot.biteScore))
             .widgetAccentable()
+            .accessibilityLabel("Bite score \(snapshot.biteScore) out of 100")
         case .accessoryRectangular:
             VStack(alignment: .leading, spacing: 1) {
-                Label("Bite \(snapshot.biteScore)/100", systemImage: "fish.fill")
-                    .font(.headline).widgetAccentable()
-                Text(snapshot.biteVerdict).font(.subheadline)
+                Label("Bite score", systemImage: "fish.fill")
+                    .font(.headline)
+                    .widgetAccentable()
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text("\(snapshot.biteScore)")
+                        .font(.title3.bold())
+                        .monospacedDigit()
+                    if let verdict {
+                        Text(verdict).font(.subheadline)
+                    }
+                }
                 if !snapshot.locationName.isEmpty {
-                    Text(snapshot.locationName).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    Text(snapshot.locationName)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         case .accessoryInline:
-            Label("Bite \(snapshot.biteScore) · \(snapshot.biteVerdict)", systemImage: "fish.fill")
+            Label(inlineText, systemImage: "fish.fill")
+        case .systemMedium:
+            mediumBody
         default:
-            standardBody
+            smallBody
         }
     }
 
-    @ViewBuilder private var standardBody: some View {
-        if family == .systemSmall {
-            VStack(alignment: .leading, spacing: 6) {
-                Label("Bite", systemImage: "cloud.sun.fill").font(.caption2.bold()).foregroundStyle(.secondary)
-                Spacer()
-                Text("\(snapshot.biteScore)").font(.system(size: 44, weight: .bold, design: .rounded))
-                    .foregroundStyle(scoreColor(snapshot.biteScore))
-                Text(snapshot.biteVerdict).font(.caption.bold())
-                if !snapshot.locationName.isEmpty {
-                    Text(snapshot.locationName).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
-                }
+    private var inlineText: String {
+        if let verdict { return "Bite \(snapshot.biteScore), \(verdict.lowercased())" }
+        return "Bite score \(snapshot.biteScore)"
+    }
+
+    // Small: the hero ring on top, the verdict and the place below.
+    private var smallBody: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            WidgetScoreRing(score: snapshot.biteScore, size: 64)
+            Spacer(minLength: 6)
+            Text("Bite score")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Text(verdict ?? "No forecast yet")
+                .font(.headline)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+            if !snapshot.locationName.isEmpty {
+                Text(snapshot.locationName)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-        } else {
-            HStack(spacing: 16) {
-                VStack(spacing: 2) {
-                    Text("\(snapshot.biteScore)").font(.system(size: 52, weight: .bold, design: .rounded))
-                        .foregroundStyle(scoreColor(snapshot.biteScore))
-                    Text("/ 100").font(.caption2).foregroundStyle(.secondary)
-                }
-                VStack(alignment: .leading, spacing: 5) {
-                    Label("Bite Forecast", systemImage: "cloud.sun.fill").font(.subheadline.bold())
-                    Text(snapshot.biteVerdict).font(.headline).foregroundStyle(scoreColor(snapshot.biteScore))
-                    if !snapshot.locationName.isEmpty {
-                        Text(snapshot.locationName).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                    }
-                    Text("Updated \(snapshot.updatedAt.formatted(date: .omitted, time: .shortened))")
-                        .font(.caption2).foregroundStyle(.tertiary)
-                }
-                Spacer(minLength: 0)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+    }
+
+    // Medium: the Today hero, ring on the left, copy on the right.
+    private var mediumBody: some View {
+        HStack(spacing: 16) {
+            WidgetScoreRing(score: snapshot.biteScore, size: 92, caption: "of 100")
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Bite score")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                Text(verdict ?? "No forecast yet")
+                    .font(.title2.bold())
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                if !snapshot.locationName.isEmpty {
+                    Label(snapshot.locationName, systemImage: "mappin.and.ellipse")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 4)
+                Text("Updated \(snapshot.updatedAt.formatted(date: .omitted, time: .shortened))")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(.vertical, 4)
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
     }
 }
 
-// MARK: - Next Session widget
+// MARK: - Next session widget
 
 struct NextSessionWidget: Widget {
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: "NextSessionWidget", provider: SnapshotProvider()) { entry in
             NextSessionView(snapshot: entry.snapshot)
-                .containerBackground(.fill.tertiary, for: .widget)
+                .containerBackground(WidgetTheme.background, for: .widget)
         }
-        .configurationDisplayName("Next Session")
+        .configurationDisplayName("Next session")
         .description("Your next planned fishing session, or the active one.")
         .supportedFamilies([.systemSmall, .systemMedium])
     }
@@ -160,27 +209,69 @@ private struct NextSessionView: View {
     let snapshot: CurrentsSnapshot
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 2) {
             if let start = snapshot.activeSessionStart {
-                Label("Live Session", systemImage: "record.circle").font(.caption2.bold()).foregroundStyle(.red)
-                Text(snapshot.activeSessionName ?? "Session").font(.headline).lineLimit(1)
-                Text(start, style: .timer).font(.system(.title2, design: .rounded).bold()).monospacedDigit()
-                Label("\(snapshot.activeSessionCatches) caught", systemImage: "fish.fill")
-                    .font(.caption).foregroundStyle(.secondary)
+                live(start: start)
             } else if let name = snapshot.nextSessionName, let date = snapshot.nextSessionDate {
-                Label("Next Session", systemImage: "calendar").font(.caption2.bold()).foregroundStyle(.secondary)
-                Text(name).font(.headline).lineLimit(1)
-                Text(date, style: .relative).font(.subheadline.bold())
-                Text(date.formatted(date: .abbreviated, time: .shortened))
-                    .font(.caption2).foregroundStyle(.secondary)
+                planned(name: name, date: date)
             } else {
-                Label("Sessions", systemImage: "figure.fishing").font(.caption2.bold()).foregroundStyle(.secondary)
-                Spacer()
-                Text("No planned session").font(.subheadline).foregroundStyle(.secondary)
-                Text("Plan one in Currents").font(.caption2).foregroundStyle(.tertiary)
+                empty
             }
-            Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+    }
+
+    @ViewBuilder private func live(start: Date) -> some View {
+        HStack(spacing: 6) {
+            Circle().fill(WidgetTheme.scoreSlow).frame(width: 8, height: 8)
+            Text("Live session")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(WidgetTheme.scoreSlow)
+        }
+        Text(snapshot.activeSessionName ?? "Session")
+            .font(.headline)
+            .lineLimit(1)
+            .padding(.top, 4)
+        Spacer(minLength: 4)
+        Text(start, style: .timer)
+            .font(.title.bold())
+            .monospacedDigit()
+            .lineLimit(1)
+            .minimumScaleFactor(0.7)
+        Label(snapshot.activeSessionCatches == 1 ? "1 catch" : "\(snapshot.activeSessionCatches) catches",
+              systemImage: "fish.fill")
+            .font(.subheadline)
+            .foregroundStyle(.secondary)
+    }
+
+    @ViewBuilder private func planned(name: String, date: Date) -> some View {
+        Label("Next session", systemImage: "calendar")
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(.secondary)
+        Text(name)
+            .font(.headline)
+            .lineLimit(2)
+            .padding(.top, 4)
+        Spacer(minLength: 4)
+        Text(date, style: .relative)
+            .font(.title3.bold())
+            .lineLimit(1)
+            .minimumScaleFactor(0.7)
+        Text(date.formatted(date: .abbreviated, time: .shortened))
+            .font(.subheadline)
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+    }
+
+    @ViewBuilder private var empty: some View {
+        Label("Sessions", systemImage: "figure.fishing")
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(.secondary)
+        Spacer()
+        Text("No session planned")
+            .font(.headline)
+        Text("Plan one in Currents")
+            .font(.subheadline)
+            .foregroundStyle(.secondary)
     }
 }
