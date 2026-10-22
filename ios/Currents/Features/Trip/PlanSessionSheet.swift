@@ -37,9 +37,9 @@ struct PlanSessionSheet: View {
     @State private var isSaving = false
 
     static let defaultChecklist: [Trip.ChecklistItem] = [
-        "Rod & reel", "Tackle box / lures", "Bait", "Licence / permit",
-        "Landing net", "Pliers & line cutter", "Sun protection & hat",
-        "Water & snacks", "First-aid kit", "Phone charged / power bank",
+        "Rod and reel", "Tackle box and lures", "Bait", "Licence or permit",
+        "Landing net", "Pliers and line cutter", "Sun protection and hat",
+        "Water and snacks", "First-aid kit", "Phone charged or power bank",
     ].map { Trip.ChecklistItem(name: $0) }
 
     /// A day's bite outlook: peak bite score + the best fishing windows.
@@ -61,11 +61,11 @@ struct PlanSessionSheet: View {
             Form {
                 Section {
                     TextField("Name", text: $name)
-                    DatePicker("Date & time", selection: $date, displayedComponents: [.date, .hourAndMinute])
+                    DatePicker("Date and time", selection: $date, displayedComponents: [.date, .hourAndMinute])
                 } header: {
                     Text("Session")
                 } footer: {
-                    Text("The session records your current location when you start it. The bite outlook below is just a preview — it doesn't change where the session tracks.")
+                    Text("The session records your current location when you start it. The bite outlook below is only a preview and does not change where the session tracks.")
                 }
 
                 Section {
@@ -91,19 +91,19 @@ struct PlanSessionSheet: View {
                 } header: {
                     Text("Best times to fish")
                 } footer: {
-                    Text("Drop a pin to preview the bite forecast anywhere you're thinking of fishing — it only changes the outlook below, not the session. Based on solunar feeding windows, tides, sun and moon for that spot; no internet needed.")
+                    Text("Drop a pin to preview the bite forecast anywhere you are thinking of fishing. It only changes the outlook below, not the session. Worked out on your phone from feeding windows, tides, sun and moon, so it works without signal.")
                 }
 
                 // Every day collapsed to one glanceable row (date + peak
                 // score); tap to expand its windows. Adding days just adds
                 // more collapsed rows — a two-week trip stays one screen.
-                Section("Day-by-day outlook") {
+                Section("Day by day") {
                     ForEach(outlook) { day in
                         DisclosureGroup {
                             dayRows(day)
                         } label: {
                             HStack {
-                                Text(day.date.formatted(.dateTime.weekday(.abbreviated).month().day()))
+                                Text(day.date.formatted(.dateTime.weekday(.wide).day().month(.abbreviated)))
                                     .font(.subheadline)
                                 Spacer()
                                 Text("\(day.peakScore)")
@@ -124,7 +124,7 @@ struct PlanSessionSheet: View {
                             HStack(spacing: 12) {
                                 Image(systemName: item.checked ? "checkmark.circle.fill" : "circle")
                                     .font(.title3)
-                                    .foregroundStyle(item.checked ? CurrentsTheme.accent : .secondary)
+                                    .foregroundStyle(item.checked ? DS.accent : .secondary)
                                     .contentTransition(.symbolEffect(.replace))
                                 Text(item.name)
                                     .strikethrough(item.checked, color: .secondary)
@@ -137,30 +137,30 @@ struct PlanSessionSheet: View {
                     }
                     .onDelete { checklist.remove(atOffsets: $0) }
                     HStack {
-                        Image(systemName: "plus.circle.fill").foregroundStyle(CurrentsTheme.accent)
+                        Image(systemName: "plus.circle.fill").foregroundStyle(DS.accent)
                         TextField("Add an item", text: $newItem)
                             .onSubmit(addChecklistItem)
                         if !newItem.trimmingCharacters(in: .whitespaces).isEmpty {
-                            Button("Add", action: addChecklistItem).font(.caption.bold())
+                            Button("Add item", action: addChecklistItem).font(.footnote.bold())
                         }
                     }
                 } header: {
                     Text("Gear checklist")
                 } footer: {
-                    Text("Ticked items are saved with the session — reopen it any time and your checklist is right where you left it.")
+                    Text("Ticked items are saved with the plan, so your checklist is where you left it when you come back.")
                 }
             }
-            .navigationTitle(editingTrip == nil ? "Plan a Session" : "Edit Session")
+            .navigationTitle(editingTrip == nil ? "Plan a session" : "Edit plan")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(editingTrip == nil ? "Save Plan" : "Save") { savePlan() }
+                    Button("Save plan") { savePlan() }
                         .bold().disabled(name.isEmpty || isSaving)
                 }
             }
             .sheet(isPresented: $showingPinPicker) {
-                LocationPickerSheet(coordinate: $forecastPin, pinLabel: "Forecast Location")
+                LocationPickerSheet(coordinate: $forecastPin, pinLabel: "Forecast location")
             }
             .task {
                 if !loaded { loadEditingTrip(); loaded = true }
@@ -172,6 +172,7 @@ struct PlanSessionSheet: View {
             .sensoryFeedback(.selection, trigger: dayCount)
             .sensoryFeedback(.selection, trigger: checklist.map(\.checked))
         }
+        .presentationDragIndicator(.visible)
     }
 
     /// Where the bite outlook is computed: the dropped forecast pin if set,
@@ -209,7 +210,7 @@ struct PlanSessionSheet: View {
     }
 
     private func rangeLabel(_ start: Date, _ end: Date) -> String {
-        "\(start.formatted(date: .omitted, time: .shortened))–\(end.formatted(date: .omitted, time: .shortened))"
+        "\(start.formatted(date: .omitted, time: .shortened)) to \(end.formatted(date: .omitted, time: .shortened))"
     }
 
     /// One day's outlook rows: peak score + each bite window.
@@ -222,13 +223,13 @@ struct PlanSessionSheet: View {
             Text("/100").font(.caption).foregroundStyle(.secondary)
         }
         if day.windows.isEmpty {
-            Text("No standout windows — fish dawn and dusk.")
+            Text("No standout windows. Fish dawn and dusk.")
                 .font(.caption).foregroundStyle(.secondary)
         } else {
             ForEach(day.windows) { w in
                 HStack {
                     Image(systemName: w.prime ? "star.fill" : "clock")
-                        .font(.caption).foregroundStyle(w.prime ? CurrentsTheme.accent : .secondary)
+                        .font(.caption).foregroundStyle(w.prime ? DS.accent : .secondary)
                     Text(w.label).font(.subheadline)
                     Spacer()
                     Text(w.range).font(.subheadline.monospacedDigit())
@@ -275,18 +276,13 @@ struct PlanSessionSheet: View {
         trip.checklist = Trip.encodeChecklist(checklist)
         try? appState.tripRepository.save(&trip)
         Task { await NotificationManager.shared.schedulePlannedSessionAlert(trip: trip) }
-        ToastCenter.shared.show(editingTrip == nil ? "Session planned" : "Session updated")
+        ToastCenter.shared.show(editingTrip == nil ? "Session planned" : "Plan updated")
         onSaved?(trip.id)
         dismiss()
     }
 
     private func scoreColor(_ score: Int) -> Color {
-        switch score {
-        case 75...: .green
-        case 55..<75: CurrentsTheme.accent
-        case 35..<55: .orange
-        default: .secondary
-        }
+        DS.scoreInk(score)
     }
 
     private static func defaultPlanDate() -> Date {

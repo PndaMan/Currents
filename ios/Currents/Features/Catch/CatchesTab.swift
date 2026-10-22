@@ -1,24 +1,52 @@
 import SwiftUI
 
+/// The Logbook tab root: streak, Fishdex, badges and stats cards, then
+/// Catches / Sessions / Plans. ContentView owns the NavigationStack.
 struct CatchesTab: View {
     @Environment(AppState.self) private var appState
+    @Namespace private var zoom
     @State private var catches: [CatchDetail] = []
+    @State private var loadState: LoadState = .loading
+    @State private var summary = LogbookSummary()
     @State private var showingLogCatch = false
-    @State private var searchText = ""
+    @State private var showingSearch = false
     @AppStorage("catchesSortOrder") private var sortOrder: SortOrder = .recent
     @State private var filter: CatchFilter = .all
-    @FocusState private var searchFocused: Bool
-    /// Gallery (photo-first 2-up grid, the default) or list; the choice sticks.
+    /// Gallery (the default) or list; the choice sticks.
     @AppStorage("catchesLayout") private var layoutRaw = LayoutMode.gallery.rawValue
-    /// Programmatic push target for gallery cells (see the Button note there).
+    @State private var segment: Segment = .catches
+    /// Programmatic push target for the long-press menu's Open.
     @State private var openCatchId: String?
-    /// Deleting is confirmed first — a swipe or long-press should never be
-    /// able to destroy a catch (and its photos) in one accidental gesture.
+    /// Deleting is confirmed first: a long-press should never be able to
+    /// destroy a catch (and its photos) in one accidental gesture.
     @State private var catchToDelete: CatchDetail?
-    private var layout: LayoutMode { LayoutMode(rawValue: layoutRaw) ?? .list }
+    @State private var catchToEdit: CatchDetail?
+    @State private var shareItem: CatchShareItem?
+    @State private var favouriteTick = 0
+
+    // Sessions and plans
+    @State private var sessions: [Trip] = []
+    @State private var planned: [Trip] = []
+    @State private var planScores: [String: Int] = [:]
+    @State private var showingNewSession = false
+    @State private var showingPlanner = false
+    @State private var planToEdit: Trip?
+    @State private var sessionToEdit: Trip?
+    @State private var tripToDelete: Trip?
+
+    private var layout: LayoutMode { LayoutMode(rawValue: layoutRaw) ?? .gallery }
+    private var tracker: TripTracker { appState.tripTracker }
+
+    enum LoadState { case loading, loaded, failed }
 
     enum LayoutMode: String {
         case list, gallery
+    }
+
+    enum Segment: String, CaseIterable {
+        case catches = "Catches"
+        case sessions = "Sessions"
+        case plans = "Plans"
     }
 
     enum CatchFilter: String, CaseIterable {
@@ -28,6 +56,8 @@ struct CatchesTab: View {
         case kept = "Kept"
     }
 
+    /// Raw values are stored in user defaults, so they stay as they were;
+    /// `title` is what the menu shows.
     enum SortOrder: String, CaseIterable {
         case recent = "Recent"
         case oldest = "Oldest"
@@ -38,6 +68,18 @@ struct CatchesTab: View {
         case score = "Best Score"
 
         static let defaultOrder: SortOrder = .recent
+
+        var title: String {
+            switch self {
+            case .recent: "Most recent"
+            case .oldest: "Oldest first"
+            case .species: "Species"
+            case .size: "Heaviest"
+            case .longest: "Longest"
+            case .spot: "Spot"
+            case .score: "Best bite score"
+            }
+        }
     }
 
     var filteredCatches: [CatchDetail] {
@@ -47,14 +89,6 @@ struct CatchesTab: View {
         case .favourites: result = result.filter { $0.catchRecord.isFavorite }
         case .released: result = result.filter { $0.catchRecord.released }
         case .kept: result = result.filter { !$0.catchRecord.released }
-        }
-        if !searchText.isEmpty {
-            result = result.filter { detail in
-                detail.species?.commonName.localizedCaseInsensitiveContains(searchText) == true ||
-                detail.spot?.name.localizedCaseInsensitiveContains(searchText) == true ||
-                detail.catchRecord.notes?.localizedCaseInsensitiveContains(searchText) == true ||
-                detail.gearLoadout?.name.localizedCaseInsensitiveContains(searchText) == true
-            }
         }
         switch sortOrder {
         case .recent:
@@ -75,329 +109,811 @@ struct CatchesTab: View {
         return result
     }
 
-    /// Stats + streak + filter chips, shared by the list and gallery layouts.
-    @ViewBuilder
-    private var headerBlocks: some View {
-        CatchStatsHeader(catches: catches)
+    // MARK: - Body
 
-        if BadgeDefinition.streakWeeks(from: catches) > 0 {
-            FishingStreakView(catches: catches)
-                .padding(.horizontal)
-        }
-
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(CatchFilter.allCases, id: \.self) { f in
-                    FilterChip(title: f.rawValue, isSelected: filter == f) {
-                        withAnimation(.easeInOut(duration: 0.15)) {
-                            filter = f
-                        }
+    var body: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 0) {
+                LargeTitleHeader("Logbook") {
+                    HeaderIconButton("Search catches", systemImage: "magnifyingglass") {
+                        showingSearch = true
+                    }
+                    HeaderIconButton("Log catch", systemImage: "plus") {
+                        showingLogCatch = true
                     }
                 }
+
+                topCards
+                    .padding(.top, DS.Space.s2)
+
+                if FeatureFlags.liveTrips {
+                    Picker("Show", selection: $segment) {
+                        ForEach(Segment.allCases, id: \.self) { s in
+                            Text(s.rawValue).tag(s)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .padding(.horizontal, DS.gutter)
+                    .padding(.top, DS.Space.s6)
+                    .padding(.bottom, DS.Space.s2)
+                }
+
+                switch segment {
+                case .catches: catchesPane
+                case .sessions: sessionsPane
+                case .plans: plansPane
+                }
             }
-            .padding(.horizontal)
-            .padding(.vertical, 4)
+            .padding(.bottom, DS.Space.s8)
+        }
+        .dsScreenBackground()
+        .toolbar(.hidden, for: .navigationBar)
+        .navigationDestination(for: LogbookRoute.self) { route in
+            destination(route)
+        }
+        .navigationDestination(item: $openCatchId) { id in
+            catchDestination(id)
+        }
+        .confirmationDialog("Delete this catch?",
+                            isPresented: Binding(get: { catchToDelete != nil },
+                                                 set: { if !$0 { catchToDelete = nil } }),
+                            titleVisibility: .visible,
+                            presenting: catchToDelete) { detail in
+            Button("Delete catch", role: .destructive) {
+                Haptics.warning()
+                withAnimation(DS.Motion.softSpring) {
+                    CatchActions.delete(detail, appState: appState)
+                    catchToDelete = nil
+                    reload()
+                }
+            }
+            Button("Cancel", role: .cancel) { catchToDelete = nil }
+        } message: { detail in
+            Text("\(detail.species?.commonName ?? "This catch"), \(LogbookFormat.shortDay(detail.catchRecord.caughtAt)). The catch and its photos are removed everywhere, including any shared feeds. This can't be undone.")
+        }
+        .confirmationDialog(tripToDelete?.isPlanned == true ? "Delete this plan?" : "Delete this session?",
+                            isPresented: Binding(get: { tripToDelete != nil },
+                                                 set: { if !$0 { tripToDelete = nil } }),
+                            titleVisibility: .visible,
+                            presenting: tripToDelete) { trip in
+            Button(trip.isPlanned ? "Delete plan" : "Delete session", role: .destructive) {
+                Haptics.warning()
+                try? appState.tripRepository.delete(trip)
+                tripToDelete = nil
+                withAnimation(DS.Motion.softSpring) { reload() }
+                ToastCenter.shared.show(trip.isPlanned ? "Plan deleted" : "Session deleted",
+                                        style: .info, haptic: false, icon: "trash")
+            }
+            Button("Cancel", role: .cancel) { tripToDelete = nil }
+        } message: { trip in
+            Text(trip.isPlanned
+                 ? "The plan and its checklist are removed."
+                 : "Catches you logged are kept. Only the session and its track are removed.")
+        }
+        .fullScreenCover(isPresented: $showingLogCatch, onDismiss: {
+            // A new catch lands at the top of an unfiltered list.
+            filter = .all
+            segment = .catches
+            withAnimation(DS.Motion.softSpring) { reload() }
+        }) {
+            LogCatchView()
+        }
+        .sheet(isPresented: $showingSearch) {
+            LogbookSearchSheet(catches: catches) { id in
+                openCatchId = id
+            }
+        }
+        .fullScreenCover(item: $catchToEdit, onDismiss: reload) { detail in
+            LogCatchView(editing: detail) { updated in
+                CatchActions.saveEdit(updated, appState: appState)
+            }
+        }
+        .sheet(item: $shareItem) { item in
+            ImageShareSheet(image: item.image, filename: item.filename)
+        }
+        .sheet(isPresented: $showingNewSession, onDismiss: reload) { NewSessionSheet() }
+        .sheet(isPresented: $showingPlanner, onDismiss: reload) { PlanSessionSheet() }
+        .sheet(item: $planToEdit, onDismiss: reload) { PlanSessionSheet(editingTrip: $0) }
+        .sheet(item: $sessionToEdit, onDismiss: reload) { EditSessionSheet(trip: $0) }
+        .onChange(of: appState.siriRequestedLogCatch) { _, requested in
+            if requested {
+                showingLogCatch = true
+                appState.siriRequestedLogCatch = false
+            }
+        }
+        .onAppear {
+            // Handle the flag if it was set before this tab appeared.
+            if appState.siriRequestedLogCatch {
+                showingLogCatch = true
+                appState.siriRequestedLogCatch = false
+            }
+            // Coming back from a detail page that edited or deleted something.
+            reload()
+        }
+        .sensoryFeedback(.selection, trigger: filter)
+        .sensoryFeedback(.selection, trigger: sortOrder)
+        .sensoryFeedback(.selection, trigger: segment)
+        .sensoryFeedback(.impact(weight: .light), trigger: favouriteTick)
+    }
+
+    // MARK: - Destinations
+
+    @ViewBuilder
+    private func destination(_ route: LogbookRoute) -> some View {
+        switch route {
+        case .catchDetail(let id):
+            catchDestination(id)
+        case .session(let id):
+            if let trip = try? appState.tripRepository.fetch(id) {
+                SessionDetailView(trip: trip)
+            } else {
+                ContentUnavailableView("Session not found", systemImage: "point.topleft.down.to.point.bottomright.curvepath",
+                                       description: Text("It may have been deleted."))
+            }
+        case .plan(let id):
+            PlanDetailView(tripId: id)
+        case .streak:
+            StreakView(catches: catches)
+        case .achievements:
+            AchievementsView(catches: catches)
+        case .stats:
+            AnalyticsView()
         }
     }
 
-    /// One gallery cell: tap opens the catch (Button + programmatic push, not
-    /// NavigationLink — see the layout notes), long-press for favourite/delete.
-    private func galleryCell(_ detail: CatchDetail) -> some View {
+    @ViewBuilder
+    private func catchDestination(_ id: String) -> some View {
+        if let detail = catches.first(where: { $0.catchRecord.id == id }) {
+            CatchDetailView(detail: detail)
+                .navigationTransition(.zoom(sourceID: id, in: zoom))
+        } else {
+            ContentUnavailableView("Catch not found", systemImage: "fish",
+                                   description: Text("It may have been deleted."))
+        }
+    }
+
+    // MARK: - Top cards
+
+    private var topCards: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 10) {
+                NavigationLink(value: LogbookRoute.streak) {
+                    StatTile("Streak", systemImage: "flame.fill", tint: .dsScoreLow,
+                             value: "\(summary.streak)",
+                             unit: summary.streak == 1 ? "week" : "weeks",
+                             footnote: summary.fishedThisWeek ? "Fished this week" : "Fish by Sunday")
+                }
+                .buttonStyle(.dim)
+
+                NavigationLink(value: AppRoute.fishdex) {
+                    StatTile("Fishdex", systemImage: "book.fill", tint: .dsScoreGood,
+                             value: "\(summary.speciesFound)",
+                             unit: summary.speciesTotal > 0 ? "of \(summary.speciesTotal.formatted())" : nil,
+                             footnote: summary.speciesFound == 0 ? "Catch one to start" : "Species found")
+                }
+                .buttonStyle(.dim)
+
+                NavigationLink(value: LogbookRoute.achievements) {
+                    StatTile("Badges", systemImage: "medal.fill", tint: .dsScoreFair,
+                             value: "\(summary.badgesEarned)",
+                             unit: "of \(summary.badgesVisible)",
+                             footnote: summary.nextBadge.map { "\($0) next" })
+                }
+                .buttonStyle(.dim)
+
+                NavigationLink(value: LogbookRoute.stats) {
+                    StatTile("Stats", systemImage: "chart.bar.fill", tint: DS.accent,
+                             value: "\(summary.thisYear)",
+                             unit: "this year",
+                             footnote: "Patterns and bests")
+                }
+                .buttonStyle(.dim)
+            }
+            .padding(.horizontal, DS.gutter)
+        }
+        .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
+    }
+
+    // MARK: - Catches pane
+
+    @ViewBuilder
+    private var catchesPane: some View {
+        switch loadState {
+        case .loading:
+            ProgressView()
+                .frame(maxWidth: .infinity)
+                .padding(.top, 80)
+        case .failed:
+            ContentUnavailableView {
+                Label("Your logbook could not be read", systemImage: "exclamationmark.triangle")
+            } description: {
+                Text("Nothing is lost. Try again in a moment.")
+            } actions: {
+                Button("Try again") { reload() }
+                    .buttonStyle(TonalButtonStyle(fullWidth: false))
+            }
+            .padding(.top, 24)
+        case .loaded:
+            if catches.isEmpty {
+                ContentUnavailableView {
+                    Label("No catches yet", systemImage: "fish")
+                } description: {
+                    Text("Log your first fish and it shows up here, with the conditions at the time.")
+                } actions: {
+                    Button("Log catch") { showingLogCatch = true }
+                        .buttonStyle(PrimaryButtonStyle(fullWidth: false))
+                }
+                .padding(.top, 24)
+            } else {
+                catchTools
+                let visible = filteredCatches
+                if visible.isEmpty {
+                    ContentUnavailableView {
+                        Label("Nothing matches", systemImage: "line.3.horizontal.decrease.circle")
+                    } description: {
+                        Text(filter == .favourites ? "Star a catch and it shows up here." : "Try a different filter.")
+                    } actions: {
+                        Button("Show all catches") {
+                            withAnimation(DS.Motion.softSpring) { filter = .all }
+                        }
+                        .buttonStyle(TonalButtonStyle(fullWidth: false))
+                    }
+                    .padding(.top, 24)
+                } else {
+                    ForEach(groups(for: visible)) { group in
+                        if let title = group.title {
+                            groupHeader(title, detail: group.detail, count: group.items.count)
+                        }
+                        if layout == .gallery {
+                            LazyVGrid(columns: [GridItem(.flexible(), spacing: 12),
+                                                GridItem(.flexible(), spacing: 12)],
+                                      alignment: .leading, spacing: 18) {
+                                ForEach(group.items) { detail in
+                                    galleryTile(detail)
+                                }
+                            }
+                            .padding(.horizontal, DS.gutter)
+                            .padding(.top, group.title == nil ? DS.Space.s3 : 0)
+                        } else {
+                            ForEach(group.items) { detail in
+                                listRow(detail)
+                            }
+                        }
+                    }
+                    Text("\(visible.count) of \(catches.count) catches. Long-press a catch for more.")
+                        .font(.footnote)
+                        .foregroundStyle(.dsText3)
+                        .frame(maxWidth: .infinity)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, DS.gutter)
+                        .padding(.top, DS.Space.s6)
+                }
+            }
+        }
+    }
+
+    private var catchTools: some View {
+        HStack(spacing: 0) {
+            FilterChips(CatchFilter.allCases, selection: $filter.animation(DS.Motion.softSpring),
+                        title: { $0.rawValue })
+            Menu {
+                Picker("Sort catches", selection: $sortOrder.animation(DS.Motion.softSpring)) {
+                    ForEach(SortOrder.allCases, id: \.self) { order in
+                        Text(order.title).tag(order)
+                    }
+                }
+            } label: {
+                toolIcon("arrow.up.arrow.down")
+            }
+            .accessibilityLabel("Sort catches")
+            Button {
+                withAnimation(DS.Motion.softSpring) {
+                    layoutRaw = (layout == .list ? LayoutMode.gallery : .list).rawValue
+                }
+            } label: {
+                toolIcon(layout == .list ? "square.grid.2x2" : "list.bullet")
+            }
+            .buttonStyle(.dim)
+            .accessibilityLabel(layout == .list ? "Show as gallery" : "Show as list")
+            .padding(.trailing, DS.gutter - 4)
+        }
+        .padding(.top, DS.Space.s2)
+    }
+
+    private func toolIcon(_ systemImage: String) -> some View {
+        Image(systemName: systemImage)
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(.dsText)
+            .frame(width: 36, height: 36)
+            .background(Color.dsFill, in: Circle())
+            .padding(.leading, 6)
+    }
+
+    private func groupHeader(_ title: String, detail: String?, count: Int) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Text(title)
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(.dsText)
+            if let detail {
+                Text(detail)
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(.dsText3)
+            }
+            Spacer()
+            Text("\(count)")
+                .font(.subheadline)
+                .monospacedDigit()
+                .foregroundStyle(.dsText2)
+        }
+        .padding(.horizontal, DS.gutter)
+        .padding(.top, DS.Space.s6)
+        .padding(.bottom, DS.Space.s2)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isHeader)
+    }
+
+    private func galleryTile(_ detail: CatchDetail) -> some View {
+        let id = detail.catchRecord.id
+        return NavigationLink(value: LogbookRoute.catchDetail(id)) {
+            VStack(alignment: .leading, spacing: 2) {
+                CatchTileArt(detail: detail)
+                    .overlay(alignment: .topTrailing) {
+                        if detail.catchRecord.isFavorite {
+                            Image(systemName: "star.fill")
+                                .font(.caption.weight(.bold))
+                                .foregroundStyle(Color.dsScoreFair)
+                                .frame(width: 26, height: 26)
+                                .background(Color.dsScrim, in: Circle())
+                                .padding(8)
+                                .accessibilityLabel("Favourite")
+                        }
+                    }
+                    .matchedTransitionSource(id: id, in: zoom)
+                    .padding(.bottom, 6)
+                Text(detail.species?.commonName ?? "Unknown species")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.dsText)
+                    .lineLimit(1)
+                if let size = LogbookFormat.size(detail.catchRecord) {
+                    Text(size)
+                        .font(.footnote)
+                        .foregroundStyle(.dsText2)
+                        .lineLimit(1)
+                }
+                Text(LogbookFormat.relativeDay(detail.catchRecord.caughtAt))
+                    .font(.footnote)
+                    .foregroundStyle(.dsText3)
+                    .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.dim)
+        .contextMenu {
+            catchMenu(detail)
+        } preview: {
+            CatchContextPreview(detail: detail)
+        }
+    }
+
+    private func listRow(_ detail: CatchDetail) -> some View {
+        let id = detail.catchRecord.id
+        let record = detail.catchRecord
+        var sub = LogbookFormat.size(record) ?? ""
+        if record.released { sub += sub.isEmpty ? "Released" : ", released" }
+        let over = [LogbookFormat.relativeDay(record.caughtAt), detail.spot?.name]
+            .compactMap { $0 }.joined(separator: ", ")
+        return NavigationLink(value: LogbookRoute.catchDetail(id)) {
+            ArtRow(over: over, title: detail.species?.commonName ?? "Unknown species", subtitle: sub) {
+                CatchThumb(detail: detail)
+                    .matchedTransitionSource(id: id, in: zoom)
+            } trailing: {
+                HStack(spacing: 6) {
+                    if record.isFavorite {
+                        Image(systemName: "star.fill")
+                            .font(.footnote)
+                            .foregroundStyle(Color.dsScoreFair)
+                            .accessibilityLabel("Favourite")
+                    }
+                    if let score = record.forecastScoreAtCapture {
+                        Text("\(score)")
+                            .foregroundStyle(DS.scoreInk(score))
+                            .accessibilityLabel("Bite score \(score)")
+                    }
+                }
+            }
+        }
+        .buttonStyle(.dsRow)
+        .contextMenu {
+            catchMenu(detail)
+        } preview: {
+            CatchContextPreview(detail: detail)
+        }
+    }
+
+    @ViewBuilder
+    private func catchMenu(_ detail: CatchDetail) -> some View {
         Button {
             openCatchId = detail.catchRecord.id
         } label: {
-            CatchGalleryCell(detail: detail)
-                // scaledToFill photos hit-test far beyond their clipped
-                // frame — without this a tall photo's cell covers its
-                // neighbours.
-                .contentShape(Rectangle())
+            Label("Open", systemImage: "arrow.up.right")
         }
-        .buttonStyle(.plain)
+        Button {
+            toggleFavourite(detail)
+        } label: {
+            Label(detail.catchRecord.isFavorite ? "Unfavourite" : "Favourite",
+                  systemImage: detail.catchRecord.isFavorite ? "star.slash" : "star")
+        }
+        Button {
+            share(detail)
+        } label: {
+            Label("Share", systemImage: "square.and.arrow.up")
+        }
+        Button {
+            catchToEdit = detail
+        } label: {
+            Label("Edit", systemImage: "pencil")
+        }
+        Divider()
+        Button(role: .destructive) {
+            catchToDelete = detail
+        } label: {
+            Label("Delete catch", systemImage: "trash")
+        }
+    }
+
+    private struct CatchGroup: Identifiable {
+        let id: String
+        let title: String?
+        let detail: String?
+        var items: [CatchDetail]
+    }
+
+    /// Month groups for date sorts, name groups for species and spot sorts,
+    /// one flat group for the measured sorts.
+    private func groups(for list: [CatchDetail]) -> [CatchGroup] {
+        var result: [CatchGroup] = []
+        for d in list {
+            let key: (id: String, title: String?, detail: String?)
+            switch sortOrder {
+            case .recent, .oldest:
+                let date = d.catchRecord.caughtAt
+                let month = date.formatted(.dateTime.month(.wide))
+                let year = date.formatted(.dateTime.year())
+                key = ("\(month)-\(year)", month, year)
+            case .species:
+                let name = d.species?.commonName ?? "Unknown species"
+                key = (name, name, nil)
+            case .spot:
+                let name = d.spot?.name ?? "No spot"
+                key = (name, name, nil)
+            case .size, .longest, .score:
+                key = ("all", nil, nil)
+            }
+            if let last = result.indices.last, result[last].id == key.id {
+                result[last].items.append(d)
+            } else {
+                result.append(CatchGroup(id: key.id, title: key.title, detail: key.detail, items: [d]))
+            }
+        }
+        return result
+    }
+
+    // MARK: - Sessions pane
+
+    @ViewBuilder
+    private var sessionsPane: some View {
+        if let active = tracker.activeTrip {
+            NavigationLink {
+                ActiveSessionView()
+            } label: {
+                ArtRow(over: "Session running", title: active.name,
+                       subtitle: "Started \(LogbookFormat.time(active.startDate))", chevron: true) {
+                    ThumbView(systemImage: "dot.radiowaves.left.and.right", tint: .dsScoreSlow)
+                } trailing: {
+                    let n = summary.catchesByTrip[active.id] ?? 0
+                    Text("\(n) \(n == 1 ? "catch" : "catches")")
+                        .font(.subheadline)
+                        .foregroundStyle(.dsText2)
+                }
+            }
+            .buttonStyle(.dsRow)
+        } else {
+            Button {
+                showingNewSession = true
+            } label: {
+                ArtRow(title: "Start a session",
+                       subtitle: "Records your track, catches and the bite while you fish",
+                       chevron: true) {
+                    ThumbView(systemImage: "play.fill", tint: .dsScoreGood)
+                }
+            }
+            .buttonStyle(.dsRow)
+        }
+
+        let past = sessions.filter(\.isCompleted)
+        if past.isEmpty {
+            ContentUnavailableView("No sessions yet", systemImage: "point.topleft.down.to.point.bottomright.curvepath",
+                                   description: Text("Start a session when you get to the water. Your track and catches are saved here when you end it."))
+                .padding(.top, 12)
+        } else {
+            ForEach(sessionGroups(past), id: \.id) { group in
+                groupHeader(group.month, detail: group.year, count: group.trips.count)
+                ForEach(group.trips) { trip in
+                    sessionRow(trip)
+                }
+            }
+        }
+    }
+
+    private struct SessionGroup {
+        let id: String
+        let month: String
+        let year: String
+        var trips: [Trip]
+    }
+
+    private func sessionGroups(_ trips: [Trip]) -> [SessionGroup] {
+        var result: [SessionGroup] = []
+        for t in trips {
+            let month = t.startDate.formatted(.dateTime.month(.wide))
+            let year = t.startDate.formatted(.dateTime.year())
+            let id = "\(month)-\(year)"
+            if let last = result.indices.last, result[last].id == id {
+                result[last].trips.append(t)
+            } else {
+                result.append(SessionGroup(id: id, month: month, year: year, trips: [t]))
+            }
+        }
+        return result
+    }
+
+    private func sessionRow(_ trip: Trip) -> some View {
+        let n = summary.catchesByTrip[trip.id] ?? 0
+        let best = summary.bestScoreByTrip[trip.id]
+        return NavigationLink(value: LogbookRoute.session(trip.id)) {
+            ArtRow(over: sessionOver(trip), title: trip.name,
+                   subtitle: "\(LogbookFormat.duration(trip.totalDurationSeconds)), \(n) \(n == 1 ? "catch" : "catches")",
+                   chevron: best == nil) {
+                TrackThumb(points: trip.allTrackPoints, tint: best.map { DS.scoreColor($0) } ?? DS.accent)
+            } trailing: {
+                if let best {
+                    Text("\(best)")
+                        .foregroundStyle(DS.scoreInk(best))
+                        .accessibilityLabel("Best bite score \(best)")
+                }
+            }
+        }
+        .buttonStyle(.dsRow)
+        .contextMenu {
+            Button { sessionToEdit = trip } label: { Label("Edit", systemImage: "pencil") }
+            Divider()
+            Button(role: .destructive) { tripToDelete = trip } label: { Label("Delete session", systemImage: "trash") }
+        }
+    }
+
+    /// The day, plus which shared trip it was: a tournament team, a crew trip
+    /// or a plain shared trip.
+    private func sessionOver(_ trip: Trip) -> String {
+        let day = LogbookFormat.longDay(trip.startDate)
+        guard let code = CommunityService.shared.groupCode(forTripId: trip.id),
+              let ref = CommunityService.shared.myGroups.first(where: { $0.code == code }) else { return day }
+        if let team = ref.teamName { return "\(day), team \(team)" }
+        if ref.crewCode != nil { return "\(day), crew trip" }
+        return "\(day), shared"
+    }
+
+    // MARK: - Plans pane
+
+    @ViewBuilder
+    private var plansPane: some View {
+        Button {
+            showingPlanner = true
+        } label: {
+            ArtRow(title: "Plan a session",
+                   subtitle: "Pick a day and spot, see the best hours",
+                   chevron: true) {
+                ThumbView(systemImage: "calendar.badge.plus", tint: DS.accent)
+            }
+        }
+        .buttonStyle(.dsRow)
+
+        if planned.isEmpty {
+            ContentUnavailableView("Nothing planned", systemImage: "calendar",
+                                   description: Text("Plans show the forecast for the day and a gear checklist, and remind you 30 minutes before."))
+                .padding(.top, 12)
+        } else {
+            groupHeader("Upcoming", detail: nil, count: planned.count)
+            ForEach(planned.sorted { ($0.plannedDate ?? $0.startDate) < ($1.plannedDate ?? $1.startDate) }) { trip in
+                planRow(trip)
+            }
+        }
+    }
+
+    private func planRow(_ trip: Trip) -> some View {
+        let date = trip.plannedDate ?? trip.startDate
+        let score = planScores[trip.id]
+        return NavigationLink(value: LogbookRoute.plan(trip.id)) {
+            ArtRow(over: "\(LogbookFormat.time(date)), \(relativePlan(date))",
+                   title: trip.name,
+                   subtitle: score.map { _ in "Forecast for the day" } ?? "Forecast opens a week before",
+                   chevron: score == nil) {
+                ThumbView(tint: score.map { DS.scoreColor($0) } ?? DS.accent) {
+                    VStack(spacing: 0) {
+                        Text(date.formatted(.dateTime.weekday(.abbreviated)))
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.dsText2)
+                        Text(date.formatted(.dateTime.day()))
+                            .font(.title2.weight(.bold))
+                            .foregroundStyle(.dsText)
+                    }
+                }
+            } trailing: {
+                if let score {
+                    Text("\(score)")
+                        .foregroundStyle(DS.scoreInk(score))
+                        .accessibilityLabel("Forecast \(score)")
+                }
+            }
+        }
+        .buttonStyle(.dsRow)
         .contextMenu {
             Button {
-                toggleFavourite(detail)
-            } label: {
-                Label(detail.catchRecord.isFavorite ? "Unfavourite" : "Favourite",
-                      systemImage: detail.catchRecord.isFavorite ? "star.slash.fill" : "star.fill")
-            }
-            Button(role: .destructive) {
-                catchToDelete = detail
-            } label: {
-                Label("Delete", systemImage: "trash")
-            }
-        } preview: {
-            CatchGalleryCell(detail: detail)
-                .frame(width: 250, height: 208)
+                startPlanned(trip)
+            } label: { Label("Start now", systemImage: "play.fill") }
+            .disabled(tracker.isTracking)
+            Button { planToEdit = trip } label: { Label("Edit", systemImage: "pencil") }
+            Divider()
+            Button(role: .destructive) { tripToDelete = trip } label: { Label("Delete plan", systemImage: "trash") }
         }
     }
 
-    var body: some View {
-        NavigationStack {
-            Group {
-                if catches.isEmpty {
-                    ContentUnavailableView(
-                        "No Catches Yet",
-                        systemImage: "fish.fill",
-                        description: Text("Tap + to log your first catch")
-                    )
-                } else if layout == .gallery {
-                    // The gallery lives in a SCROLLVIEW, not a List: inside a
-                    // List the whole grid is one row, so every long-press
-                    // targeted the row — lifting the full grid and always
-                    // opening the FIRST cell's menu. In a ScrollView each cell
-                    // owns its own context menu.
-                    ScrollView {
-                        LazyVStack(spacing: 0) {
-                            headerBlocks
-                            LazyVGrid(columns: [GridItem(.flexible(), spacing: 10),
-                                                GridItem(.flexible(), spacing: 10)],
-                                      spacing: 10) {
-                                ForEach(filteredCatches, id: \.catchRecord.id) { detail in
-                                    galleryCell(detail)
-                                }
-                            }
-                            .padding(.horizontal)
-                            .padding(.top, 5)
-                            if filteredCatches.isEmpty {
-                                ContentUnavailableView(
-                                    "Nothing matches",
-                                    systemImage: "line.3.horizontal.decrease.circle",
-                                    description: Text("Try a different search or filter.")
-                                )
-                                .padding(.top, 30)
-                            }
-                        }
-                        .padding(.bottom, 24)
-                    }
-                } else {
-                    List {
-                        headerBlocks
-                            .listRowBackground(Color.clear)
-                            .listRowInsets(EdgeInsets())
-                            .listRowSeparator(.hidden)
-
-                            ForEach(filteredCatches, id: \.catchRecord.id) { detail in
-                                ZStack {
-                                    // Invisible NavigationLink so the row keeps
-                                    // swipe-to-delete but the card draws its own
-                                    // chevron-free glass styling.
-                                    NavigationLink(value: detail.catchRecord.id) {
-                                        EmptyView()
-                                    }
-                                    .opacity(0)
-                                    CatchRow(detail: detail, style: .card)
-                                }
-                                .listRowBackground(Color.clear)
-                                .listRowSeparator(.hidden)
-                                .listRowInsets(EdgeInsets(top: 5, leading: 16, bottom: 5, trailing: 16))
-                                .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                                    Button(role: .destructive) {
-                                        catchToDelete = detail
-                                    } label: {
-                                        Label("Delete", systemImage: "trash")
-                                    }
-                                    Button {
-                                        toggleFavourite(detail)
-                                    } label: {
-                                        Label(detail.catchRecord.isFavorite ? "Unfavourite" : "Favourite",
-                                              systemImage: detail.catchRecord.isFavorite ? "star.slash.fill" : "star.fill")
-                                    }
-                                    .tint(.yellow)
-                                }
-                            }
-
-                        if filteredCatches.isEmpty {
-                            ContentUnavailableView(
-                                "Nothing matches",
-                                systemImage: "line.3.horizontal.decrease.circle",
-                                description: Text("Try a different search or filter.")
-                            )
-                            .listRowBackground(Color.clear)
-                            .listRowSeparator(.hidden)
-                        }
-                    }
-                    .listStyle(.plain)
-                }
-            }
-            // Shared across both layouts (List and the gallery ScrollView).
-            .searchable(text: $searchText, prompt: "Search catches")
-            .searchFocused($searchFocused)
-            // Pull-to-refresh is gone (the list reloads itself); the
-            // pull-down gesture now opens search with the keyboard up.
-            .onScrollGeometryChange(for: Bool.self) { geo in
-                geo.contentOffset.y + geo.contentInsets.top < -60
-            } action: { wasPulled, isPulled in
-                if isPulled, !wasPulled, !searchFocused {
-                    Haptics.tap()
-                    searchFocused = true
-                }
-            }
-            .smartSwipe(.catches)
-            .confirmationDialog("Delete this catch?",
-                                isPresented: Binding(get: { catchToDelete != nil },
-                                                     set: { if !$0 { catchToDelete = nil } }),
-                                titleVisibility: .visible) {
-                Button("Delete", role: .destructive) {
-                    if let detail = catchToDelete {
-                        Haptics.warning()
-                        delete(detail)
-                    }
-                    catchToDelete = nil
-                }
-            } message: {
-                Text("The catch and its photos are removed everywhere, including any shared feeds. This can't be undone.")
-            }
-            .navigationTitle("Catches")
-            .toolbar {
-                ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        Haptics.tap()
-                        showingLogCatch = true
-                    } label: {
-                        Image(systemName: "plus")
-                    }
-                }
-                // Sessions, analytics and your tackle box are all about your
-                // fishing rather than app settings, so they live here now
-                // instead of in a separate "More" list.
-                ToolbarItem(placement: .topBarLeading) {
-                    Menu {
-                        if FeatureFlags.liveTrips {
-                            NavigationLink { SessionsView() } label: {
-                                Label("Fishing Sessions", systemImage: "figure.fishing")
-                            }
-                        }
-                        NavigationLink { AnalyticsView() } label: {
-                            Label("Analytics & Personal Bests", systemImage: "chart.xyaxis.line")
-                        }
-                        NavigationLink { GearTab() } label: {
-                            Label("Gear & Tackle", systemImage: "wrench.and.screwdriver.fill")
-                        }
-                    } label: {
-                        Image(systemName: "ellipsis.circle")
-                    }
-                }
-                // Gallery ↔ list, one tap, sticky.
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        Haptics.tap()
-                        withAnimation(.snappy(duration: 0.25)) {
-                            layoutRaw = (layout == .list ? LayoutMode.gallery : .list).rawValue
-                        }
-                    } label: {
-                        Image(systemName: layout == .list ? "square.grid.2x2" : "list.bullet")
-                    }
-                    .accessibilityLabel(layout == .list ? "Gallery view" : "List view")
-                }
-                // Sort was the only thing behind the overflow "..." — a menu
-                // wrapping a menu. It's a direct control with a sort glyph now.
-                ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        ForEach(SortOrder.allCases, id: \.self) { order in
-                            Button {
-                                sortOrder = order
-                            } label: {
-                                Label(order.rawValue, systemImage: sortOrder == order ? "checkmark" : "")
-                            }
-                        }
-                        Divider()
-                        Button {
-                            sortOrder = SortOrder.defaultOrder
-                        } label: {
-                            Label("Default (\(SortOrder.defaultOrder.rawValue))", systemImage: "arrow.uturn.backward")
-                        }
-                        .disabled(sortOrder == SortOrder.defaultOrder)
-                    } label: {
-                        Image(systemName: "arrow.up.arrow.down")
-                    }
-                    .accessibilityLabel("Sort")
-                }
-            }
-            .sheet(isPresented: $showingLogCatch, onDismiss: {
-                Task { await loadCatches() }
-            }) {
-                LogCatchView()
-                    .presentationDetents([.large])
-                    .presentationDragIndicator(.visible)
-            }
-            .onChange(of: appState.siriRequestedLogCatch) { _, requested in
-                if requested {
-                    showingLogCatch = true
-                    appState.siriRequestedLogCatch = false
-                }
-            }
-            .onAppear {
-                // Handle the flag if it was set before this tab appeared.
-                if appState.siriRequestedLogCatch {
-                    showingLogCatch = true
-                    appState.siriRequestedLogCatch = false
-                }
-            }
-            .navigationDestination(for: String.self) { catchId in
-                if let detail = filteredCatches.first(where: { $0.catchRecord.id == catchId }) {
-                    CatchDetailView(detail: detail)
-                }
-            }
-            .navigationDestination(item: $openCatchId) { catchId in
-                if let detail = filteredCatches.first(where: { $0.catchRecord.id == catchId }) {
-                    CatchDetailView(detail: detail)
-                }
-            }
-            .task {
-                await loadCatches()
-            }
-            .sensoryFeedback(.selection, trigger: filter)
-            .sensoryFeedback(.selection, trigger: sortOrder)
+    private func relativePlan(_ date: Date) -> String {
+        let cal = Calendar.current
+        let days = cal.dateComponents([.day], from: cal.startOfDay(for: .now), to: cal.startOfDay(for: date)).day ?? 0
+        switch days {
+        case ..<0: return "overdue"
+        case 0: return "today"
+        case 1: return "tomorrow"
+        default: return "in \(days) days"
         }
     }
 
-    private func loadCatches() async {
-        catches = (try? appState.catchRepository.fetchAll()) ?? []
+    // MARK: - Actions
+
+    private func reload() {
+        do {
+            // Every catch: the repository's default page is 50.
+            catches = try appState.catchRepository.fetchAll(limit: 100_000)
+            loadState = .loaded
+        } catch {
+            loadState = .failed
+        }
+        if FeatureFlags.liveTrips {
+            sessions = (try? appState.tripRepository.fetchAll()) ?? []
+            planned = (try? appState.tripRepository.fetchPlanned()) ?? []
+            planScores = Self.planScores(for: planned)
+        }
+        let total = summary.speciesTotal > 0
+            ? summary.speciesTotal
+            : ((try? appState.speciesRepository.fetchAll().count) ?? 0)
+        summary = LogbookSummary(catches: catches, speciesTotal: total)
     }
 
-    private func delete(_ detail: CatchDetail) {
-        PhotoManager.deleteAll(detail.catchRecord.allPhotoPaths)
-        try? appState.catchRepository.delete(detail.catchRecord)
-        let id = detail.catchRecord.id
-        Task {
-            await CommunityService.shared.removeCatch(id: id)
-            await loadCatches()
+    /// Bite score for plans within the 7-day forecast window that have a
+    /// forecast pin. Moon, sun, tide and season only: live weather is not
+    /// known days ahead.
+    private static func planScores(for plans: [Trip]) -> [String: Int] {
+        var result: [String: Int] = [:]
+        for p in plans {
+            guard let date = p.plannedDate, let coord = p.plannedCoordinate,
+                  date.timeIntervalSinceNow < 7 * 86_400,
+                  date.timeIntervalSinceNow > -86_400 else { continue }
+            result[p.id] = ForecastEngine.forecast(
+                date: date, coordinate: coord,
+                currentPressureHpa: nil, pressureChange6h: nil, waterTempC: nil,
+                windSpeedKmh: nil, windDirection: nil, species: nil, isInSpawningZone: false
+            ).score
         }
+        return result
     }
 
     private func toggleFavourite(_ detail: CatchDetail) {
-        var record = detail.catchRecord
-        record.isFavorite.toggle()
-        try? appState.catchRepository.save(&record)
-        Haptics.tap()
-        Task { await loadCatches() }
+        let record = CatchActions.toggleFavourite(detail, appState: appState)
+        favouriteTick += 1
+        withAnimation(DS.Motion.softSpring) {
+            if let i = catches.firstIndex(where: { $0.catchRecord.id == record.id }) {
+                catches[i].catchRecord = record
+            }
+        }
+    }
+
+    private func share(_ detail: CatchDetail) {
+        Task {
+            if let image = await CatchActions.shareImage(for: detail) {
+                shareItem = CatchShareItem(image: image, filename: CatchActions.shareFilename(for: detail))
+            } else {
+                ToastCenter.shared.show("This catch has nothing to share yet", style: .info)
+            }
+        }
+    }
+
+    private func startPlanned(_ trip: Trip) {
+        _ = tracker.startPlanned(trip)
+        reload()
+        ToastCenter.shared.show("Session started", icon: "play.fill")
     }
 }
 
-// MARK: - Catch Stats Header
+// MARK: - Summary for the top cards
 
-struct CatchStatsHeader: View {
-    let catches: [CatchDetail]
+/// Everything the Logbook top cards show, worked out once per reload instead
+/// of on every render.
+struct LogbookSummary {
+    var streak = 0
+    var fishedThisWeek = false
+    var speciesFound = 0
+    var speciesTotal = 0
+    var badgesEarned = 0
+    var badgesVisible = 0
+    var nextBadge: String?
+    var thisYear = 0
+    var catchesByTrip: [String: Int] = [:]
+    var bestScoreByTrip: [String: Int] = [:]
 
-    var totalCatches: Int { catches.count }
-    var uniqueSpecies: Int {
-        Set(catches.compactMap { $0.species?.id }).count
+    init() {}
+
+    init(catches: [CatchDetail], speciesTotal: Int) {
+        let cal = Calendar.current
+        streak = BadgeDefinition.streakWeeks(from: catches)
+        if let week = cal.dateInterval(of: .weekOfYear, for: .now) {
+            fishedThisWeek = catches.contains { week.contains($0.catchRecord.caughtAt) }
+        }
+        speciesFound = Set(catches.compactMap { $0.catchRecord.speciesId }).count
+        self.speciesTotal = speciesTotal
+        let badges = BadgeDefinition.compute(from: catches, streakWeeks: streak)
+        badgesEarned = badges.filter(\.earned).count
+        badgesVisible = badges.filter { $0.earned || !$0.hidden }.count
+        nextBadge = BadgeMetrics(catches: catches, streakWeeks: streak).closest(in: badges)?.title
+        let year = cal.component(.year, from: .now)
+        thisYear = catches.filter { cal.component(.year, from: $0.catchRecord.caughtAt) == year }.count
+        for c in catches {
+            guard let trip = c.catchRecord.tripId else { continue }
+            catchesByTrip[trip, default: 0] += 1
+            if let s = c.catchRecord.forecastScoreAtCapture {
+                bestScoreByTrip[trip] = max(bestScoreByTrip[trip] ?? 0, s)
+            }
+        }
     }
-    var releaseRate: Int {
-        guard !catches.isEmpty else { return 0 }
-        let released = catches.filter { $0.catchRecord.released }.count
-        return Int(Double(released) / Double(catches.count) * 100)
-    }
+}
+
+// MARK: - Long-press preview
+
+/// The lifted preview for a catch's long-press menu: its art and a caption.
+struct CatchContextPreview: View {
+    let detail: CatchDetail
 
     var body: some View {
-        HStack(spacing: 12) {
-            StatCard(value: "\(totalCatches)", label: "Total", icon: "fish.fill")
-            StatCard(value: "\(uniqueSpecies)", label: "Species", icon: "leaf.fill")
-            StatCard(value: "\(releaseRate)%", label: "Released", icon: "arrow.uturn.backward")
+        VStack(alignment: .leading, spacing: 0) {
+            CatchTileArt(detail: detail)
+                .frame(width: 280)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(detail.species?.commonName ?? "Unknown species")
+                    .font(.headline)
+                    .foregroundStyle(.dsText)
+                Text([LogbookFormat.size(detail.catchRecord), LogbookFormat.shortDay(detail.catchRecord.caughtAt)]
+                    .compactMap { $0 }.joined(separator: ", "))
+                    .font(.subheadline)
+                    .foregroundStyle(.dsText2)
+            }
+            .padding(14)
         }
-        .padding()
+        .frame(width: 280, alignment: .leading)
+        .background(Color.dsElevated)
     }
 }
+
+// MARK: - Shared cards and rows (used by other screens)
 
 struct StatCard: View {
     let value: String
@@ -426,243 +942,67 @@ struct StatCard: View {
     }
 }
 
-// MARK: - Gallery cell
-
-/// A photo-first catch card for the 2-up gallery: the image (or the species'
-/// artwork when there's no photo) IS the cell, species and size on a bottom
-/// scrim, status icons floating top-right.
-struct CatchGalleryCell: View {
-    let detail: CatchDetail
-    @Environment(\.displayScale) private var displayScale
-    @State private var photo: UIImage?
-    @AppStorage("selectedTheme") private var selectedTheme = ""
-
-    private static let height: CGFloat = 208
-
-    var body: some View {
-        ZStack(alignment: .bottomLeading) {
-            background
-                .frame(height: Self.height)
-                .frame(maxWidth: .infinity)
-                .clipped()
-
-            LinearGradient(colors: [.clear, .black.opacity(photo == nil ? 0.55 : 0.78)],
-                           startPoint: .top, endPoint: .bottom)
-                .frame(height: 96)
-                .frame(maxWidth: .infinity, alignment: .bottom)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(detail.species?.commonName ?? "Unknown Species")
-                    .font(.subheadline.bold())
-                    .foregroundStyle(.white)
-                    .lineLimit(2)
-                    .multilineTextAlignment(.leading)
-                HStack(spacing: 6) {
-                    if let w = detail.catchRecord.weightKg {
-                        Text(Units.weight(kg: w))
-                    }
-                    if let l = detail.catchRecord.lengthCm {
-                        Text(Units.length(cm: l))
-                    }
-                    Text(detail.catchRecord.caughtAt.formatted(.dateTime.day().month()))
-                }
-                .font(.caption2.weight(.semibold))
-                .foregroundStyle(.white.opacity(0.85))
-            }
-            .padding(10)
-        }
-        .frame(height: Self.height)
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay(alignment: .topTrailing) {
-            HStack(spacing: 4) {
-                if detail.catchRecord.isFavorite {
-                    statusIcon("star.fill", tint: .yellow)
-                }
-                if detail.catchRecord.released {
-                    statusIcon("arrow.uturn.backward", tint: CurrentsTheme.accent)
-                }
-            }
-            .padding(6)
-        }
-        .task(id: detail.catchRecord.id) {
-            guard photo == nil, let path = detail.catchRecord.allPhotoPaths.first else { return }
-            let px = Self.height * displayScale
-            let scale = displayScale
-            photo = await Task.detached { PhotoManager.thumbnail(path, maxPixel: px, scale: scale) }.value
-        }
-    }
-
-    @ViewBuilder private var background: some View {
-        // Color.clear owns the cell's size; the photo is an overlay cropped
-        // to it. Letting scaledToFill size the cell directly stretched the
-        // layout to whatever aspect the photo happened to have.
-        Color.clear
-            .overlay {
-                if let photo {
-                    Image(uiImage: photo)
-                        .resizable()
-                        .scaledToFill()
-                } else if let species = detail.species {
-                    ZStack {
-                        LinearGradient(colors: [CurrentsTheme.accent.opacity(0.30),
-                                                CurrentsTheme.accent.opacity(0.10)],
-                                       startPoint: .topLeading, endPoint: .bottomTrailing)
-                        SpeciesArtworkView(species: species, caught: true, size: 96)
-                            .padding(.bottom, 26)
-                    }
-                } else {
-                    ZStack {
-                        CurrentsTheme.accent.opacity(0.15)
-                        Image(systemName: "fish.fill")
-                            .font(.largeTitle)
-                            .foregroundStyle(CurrentsTheme.accent)
-                    }
-                }
-            }
-    }
-
-    private func statusIcon(_ name: String, tint: Color) -> some View {
-        Image(systemName: name)
-            .font(.system(size: 10, weight: .bold))
-            .foregroundStyle(tint)
-            .frame(width: 22, height: 22)
-            .background(.ultraThinMaterial, in: Circle())
-    }
-}
-
-// MARK: - Catch Row
-
+/// A compact catch row for lists inside other pages (species, spots,
+/// sessions). Square thumbnail, species, size and day, bite score.
 struct CatchRow: View {
     let detail: CatchDetail
-    /// Compact mode (default) is used inside cards/sheets; the Catches tab
-    /// uses the full glass-card styling via `style: .card`.
+    /// Kept for callers; both styles are plain rows now.
     var style: Style = .plain
-    @AppStorage("selectedTheme") private var selectedTheme = ""
 
     enum Style { case plain, card }
 
     var body: some View {
-        HStack(spacing: 12) {
-            thumbnail
+        let record = detail.catchRecord
+        HStack(spacing: 14) {
+            CatchThumb(detail: detail, size: 56)
 
-            VStack(alignment: .leading, spacing: 4) {
-                // Full species name — wraps to two lines instead of clipping.
-                Text(detail.species?.commonName ?? "Unknown Species")
-                    .font(.subheadline.bold())
+            VStack(alignment: .leading, spacing: 2) {
+                Text(LogbookFormat.relativeDay(record.caughtAt))
+                    .font(.footnote)
+                    .foregroundStyle(.dsText2)
+                    .lineLimit(1)
+                Text(detail.species?.commonName ?? "Unknown species")
+                    .font(.body.weight(.medium))
+                    .foregroundStyle(.dsText)
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                HStack(spacing: 8) {
-                    Text(detail.catchRecord.caughtAt.formatted(date: .abbreviated, time: .omitted))
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-
-                    if let spot = detail.spot {
-                        HStack(spacing: 2) {
-                            Image(systemName: "mappin")
-                                .font(.system(size: 9))
-                            Text(spot.name)
-                                .lineLimit(1)
-                        }
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                    }
-                }
-
-                HStack(spacing: 6) {
-                    if let weight = detail.catchRecord.weightKg {
-                        statChip(String(format: "%.1f kg", weight))
-                    }
-                    if let length = detail.catchRecord.lengthCm {
-                        statChip(String(format: "%.0f cm", length))
-                    }
-                    if let score = detail.catchRecord.forecastScoreAtCapture {
-                        HStack(spacing: 2) {
-                            Image(systemName: "gauge.medium")
-                                .font(.system(size: 9))
-                            Text("\(score)")
-                        }
-                        .font(.caption2.bold())
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(CurrentsTheme.scoreColor(score).opacity(0.18))
-                        .foregroundStyle(CurrentsTheme.scoreColor(score))
-                        .clipShape(Capsule())
-                    }
+                if let sub = subtitle {
+                    Text(sub)
+                        .font(.subheadline)
+                        .foregroundStyle(.dsText2)
+                        .lineLimit(1)
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
 
-            Spacer(minLength: 4)
-
-            VStack(alignment: .trailing, spacing: 6) {
-                HStack(spacing: 4) {
-                    if detail.catchRecord.isFavorite {
-                        Image(systemName: "star.fill")
-                            .foregroundStyle(.yellow)
-                            .font(.caption)
-                    }
-                    if detail.catchRecord.released {
-                        Image(systemName: "arrow.uturn.backward.circle.fill")
-                            .foregroundStyle(CurrentsTheme.accent)
-                            .font(.caption)
-                    }
-                }
-                if style == .card {
-                    Image(systemName: "chevron.right")
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                }
+            if record.isFavorite {
+                Image(systemName: "star.fill")
+                    .font(.footnote)
+                    .foregroundStyle(Color.dsScoreFair)
+                    .accessibilityLabel("Favourite")
             }
-        }
-        .padding(style == .card ? 12 : 0)
-        .padding(.vertical, style == .card ? 0 : 6)
-        .background {
+            if let score = record.forecastScoreAtCapture {
+                Text("\(score)")
+                    .font(.headline.monospacedDigit())
+                    .foregroundStyle(DS.scoreInk(score))
+                    .accessibilityLabel("Bite score \(score)")
+            }
             if style == .card {
-                RoundedRectangle(cornerRadius: 16)
-                    .fill(.ultraThinMaterial)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 16)
-                            .stroke(.secondary.opacity(0.12), lineWidth: 1)
-                    )
+                Image(systemName: "chevron.right")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.dsText3)
             }
         }
+        .padding(.vertical, 6)
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
     }
 
-    @ViewBuilder
-    private var thumbnail: some View {
-        if let photoPath = detail.catchRecord.allPhotoPaths.first {
-            PhotoThumbnail(path: photoPath, size: 68) {
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(CurrentsTheme.accent.opacity(0.10))
-            }
-        } else if let species = detail.species {
-            // No photo — fall back to the species artwork, not a generic symbol.
-            ZStack {
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(CurrentsTheme.accent.opacity(0.12))
-                SpeciesArtworkView(species: species, caught: true, size: 60)
-            }
-            .frame(width: 68, height: 68)
-        } else {
-            ZStack {
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(CurrentsTheme.accent.opacity(0.15))
-                Image(systemName: "fish.fill")
-                    .font(.title2)
-                    .foregroundStyle(CurrentsTheme.accent)
-            }
-            .frame(width: 68, height: 68)
-        }
-    }
-
-    private func statChip(_ text: String) -> some View {
-        Text(text)
-            .font(.caption2.bold())
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
-            .background(CurrentsTheme.accent.opacity(0.12))
-            .foregroundStyle(CurrentsTheme.accent)
-            .clipShape(Capsule())
+    private var subtitle: String? {
+        var parts: [String] = []
+        if let size = LogbookFormat.size(detail.catchRecord) { parts.append(size) }
+        if let spot = detail.spot?.name { parts.append(spot) }
+        if detail.catchRecord.released { parts.append("released") }
+        return parts.isEmpty ? nil : parts.joined(separator: ", ")
     }
 }

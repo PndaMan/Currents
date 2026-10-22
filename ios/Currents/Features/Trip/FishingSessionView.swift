@@ -1,16 +1,21 @@
 import SwiftUI
 import MapKit
+import Charts
 
-// The gear checklist lives in the planned-trip editor (PlanSessionSheet) only —
-// the card that used to sit on live sessions and group trips is gone.
+// The gear checklist lives on the plan (PlanSessionSheet, PlanDetailView)
+// only. Live sessions and group trips do not carry one.
 
-// MARK: - Sessions home (list + start + plan)
+// MARK: - Sessions (list, start, plan)
 
+/// Every session: the one running now, plans coming up, and past sessions.
+/// Pushed from Profile and the `sessions` route; the Logbook's Sessions and
+/// Plans segments show the same records inline.
 struct SessionsView: View {
     @Environment(AppState.self) private var appState
     @State private var sessions: [Trip] = []
     @State private var planned: [Trip] = []
     @State private var catchCounts: [String: Int] = [:]
+    @State private var loaded = false
     @State private var showingNew = false
     @State private var showingPlanner = false
     @State private var editingTrip: Trip?
@@ -18,68 +23,102 @@ struct SessionsView: View {
     @State private var tripToDelete: Trip?
 
     private var tracker: TripTracker { appState.tripTracker }
+    private var pastSessions: [Trip] { sessions.filter { $0.isCompleted } }
+
+    private var headerSubtitle: String {
+        let count = pastSessions.count
+        guard count > 0 else { return "Record your track and catches on the water." }
+        let hours = Int((pastSessions.reduce(0) { $0 + $1.totalDurationSeconds } / 3600).rounded())
+        return "\(count) \(count == 1 ? "session" : "sessions"), \(hours) h on the water"
+    }
 
     var body: some View {
-        List {
-            if let active = tracker.activeTrip {
-                Section {
-                    NavigationLink { ActiveSessionView() } label: { ActiveSessionRow(trip: active) }
-                }
-            }
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                DetailHeader(title: "Sessions", subtitle: headerSubtitle)
 
-            Section {
-                Button { showingNew = true } label: {
-                    Label("Start a Session", systemImage: "play.circle.fill")
-                }
-                .disabled(tracker.isTracking)
-                Button { showingPlanner = true } label: {
-                    Label("Plan a Session", systemImage: "calendar.badge.clock")
-                }
-            }
+                HStack(spacing: DS.Space.s2) {
+                    Button { showingNew = true } label: {
+                        Label("Start a session", systemImage: "play.fill")
+                    }
+                    .buttonStyle(ActionTileStyle(.primary))
+                    .disabled(tracker.isTracking)
 
-            if !planned.isEmpty {
-                Section("Planned") {
+                    Button { showingPlanner = true } label: {
+                        Label("Plan a session", systemImage: "calendar.badge.plus")
+                    }
+                    .buttonStyle(ActionTileStyle(.tonal))
+                }
+                .padding(.horizontal, DS.gutter)
+                .padding(.top, DS.Space.s5)
+
+                if let active = tracker.activeTrip {
+                    SectionTitle("Now")
+                        .padding(.top, DS.Space.s8)
+                    NavigationLink { ActiveSessionView() } label: {
+                        ActiveSessionRow(trip: active)
+                    }
+                    .buttonStyle(.dsRow)
+                }
+
+                if !planned.isEmpty {
+                    SectionTitle("Upcoming", detail: "\(planned.count)")
+                        .padding(.top, DS.Space.s8)
                     ForEach(planned) { trip in
                         PlannedRow(trip: trip, canStart: !tracker.isTracking, onStart: {
-                            _ = tracker.startPlanned(trip); reload()
-                            ToastCenter.shared.show("Session started")
+                            start(trip)
                         }, onEdit: { editingPlanned = trip })
                         .contextMenu { rowMenu(trip) }
                     }
                 }
-            }
 
-            if !pastSessions.isEmpty {
-                Section("History") {
+                if !pastSessions.isEmpty {
+                    SectionTitle("History", detail: "\(pastSessions.count)")
+                        .padding(.top, DS.Space.s8)
                     ForEach(pastSessions) { trip in
                         NavigationLink {
                             SessionDetailView(trip: trip)
                         } label: {
                             SessionRow(trip: trip, catchCount: catchCounts[trip.id] ?? 0)
                         }
+                        .buttonStyle(.dsRow)
                         .contextMenu { rowMenu(trip) }
                     }
+                    SectionFoot("Long-press a session to edit or delete it.")
+                }
+
+                if loaded && pastSessions.isEmpty && planned.isEmpty && tracker.activeTrip == nil {
+                    ContentUnavailableView("No sessions yet", systemImage: "figure.fishing",
+                                           description: Text("Start a session when you get to the water. Your track, catches and bag limits are recorded as you fish."))
+                        .padding(.top, DS.Space.s6)
                 }
             }
+            .padding(.bottom, DS.Space.s8)
         }
+        .dsScreenBackground()
         .navigationTitle("Sessions")
+        .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $showingNew, onDismiss: reload) { NewSessionSheet() }
         .sheet(isPresented: $showingPlanner, onDismiss: reload) { PlanSessionSheet() }
         .sheet(item: $editingPlanned, onDismiss: reload) { PlanSessionSheet(editingTrip: $0) }
         .sheet(item: $editingTrip, onDismiss: reload) { EditSessionSheet(trip: $0) }
         .confirmationDialog(
-            "Delete this session?",
+            tripToDelete?.isPlanned == true ? "Delete this plan?" : "Delete this session?",
             isPresented: Binding(get: { tripToDelete != nil }, set: { if !$0 { tripToDelete = nil } }),
+            titleVisibility: .visible,
             presenting: tripToDelete
         ) { trip in
-            Button("Delete", role: .destructive) {
+            Button(trip.isPlanned ? "Delete plan" : "Delete session", role: .destructive) {
                 Haptics.warning()
                 try? appState.tripRepository.delete(trip); tripToDelete = nil; reload()
-                ToastCenter.shared.show("Session deleted", style: .info, haptic: false)
+                ToastCenter.shared.show(trip.isPlanned ? "Plan deleted" : "Session deleted",
+                                        style: .info, haptic: false, icon: "trash")
             }
             Button("Cancel", role: .cancel) { tripToDelete = nil }
-        } message: { _ in
-            Text("Catches you logged are kept — only the session is removed.")
+        } message: { trip in
+            Text(trip.isPlanned
+                 ? "\(trip.name) and its checklist are removed."
+                 : "Catches you logged are kept. Only the session and its track are removed.")
         }
         .task { reload() }
     }
@@ -87,13 +126,22 @@ struct SessionsView: View {
     @ViewBuilder private func rowMenu(_ trip: Trip) -> some View {
         // Planned sessions open the full planner (checklist, location, outlook);
         // completed ones use the lightweight editor.
+        if trip.isPlanned && !tracker.isTracking {
+            Button { start(trip) } label: { Label("Start now", systemImage: "play.fill") }
+        }
         Button {
             if trip.isPlanned { editingPlanned = trip } else { editingTrip = trip }
-        } label: { Label("Edit", systemImage: "pencil") }
-        Button(role: .destructive) { tripToDelete = trip } label: { Label("Delete", systemImage: "trash") }
+        } label: { Label(trip.isPlanned ? "Edit plan" : "Edit session", systemImage: "pencil") }
+        Button(role: .destructive) { tripToDelete = trip } label: {
+            Label(trip.isPlanned ? "Delete plan" : "Delete session", systemImage: "trash")
+        }
     }
 
-    private var pastSessions: [Trip] { sessions.filter { $0.isCompleted } }
+    private func start(_ trip: Trip) {
+        _ = tracker.startPlanned(trip)
+        reload()
+        ToastCenter.shared.show("Session started", icon: "play.fill")
+    }
 
     private func reload() {
         sessions = (try? appState.tripRepository.fetchAll()) ?? []
@@ -101,37 +149,65 @@ struct SessionsView: View {
         for trip in sessions {
             catchCounts[trip.id] = (try? appState.tripRepository.catchCount(tripId: trip.id)) ?? 0
         }
+        loaded = true
     }
 }
 
+/// A plan in a list: a date thumb, name and time, and a Start button. Tapping
+/// the row opens the plan.
 struct PlannedRow: View {
     let trip: Trip
     let canStart: Bool
     let onStart: () -> Void
     let onEdit: () -> Void
+
+    private var date: Date { trip.plannedDate ?? trip.startDate }
+
     var body: some View {
-        HStack(spacing: 12) {
-            // Tapping anywhere but Start opens the planner to edit name, date,
-            // checklist and forecast.
-            Button(action: onEdit) {
-                HStack(spacing: 12) {
-                    Image(systemName: "calendar.badge.clock").foregroundStyle(CurrentsTheme.accent)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(trip.name).font(.subheadline.bold()).foregroundStyle(.primary)
-                        if let d = trip.plannedDate {
-                            Text(d.formatted(date: .abbreviated, time: .shortened))
-                                .font(.caption).foregroundStyle(.secondary)
-                        }
-                    }
-                    Spacer(minLength: 0)
+        HStack(spacing: 0) {
+            NavigationLink {
+                PlanDetailView(tripId: trip.id)
+            } label: {
+                ArtRow(title: trip.name,
+                       subtitle: "\(LogbookFormat.relativeDay(date)), \(LogbookFormat.time(date))") {
+                    PlanDateThumb(date: date, size: 52)
                 }
-                .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.dsRow)
+
             Button("Start", action: onStart)
-                .buttonStyle(.borderedProminent).labelStyle(.prominentButton).tint(CurrentsTheme.accent)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.dsText)
+                .padding(.horizontal, 14)
+                .frame(minHeight: 34)
+                .background(Color.dsTonal, in: Capsule())
+                .buttonStyle(.dim)
                 .disabled(!canStart)
+                .opacity(canStart ? 1 : 0.4)
+                .accessibilityLabel("Start \(trip.name)")
+                .padding(.trailing, DS.gutter)
         }
+    }
+}
+
+/// A calendar-page thumb: month over day number.
+struct PlanDateThumb: View {
+    let date: Date
+    var size: CGFloat = 52
+
+    var body: some View {
+        ThumbView(tint: DS.accent, size: size) {
+            VStack(spacing: 0) {
+                Text(date.formatted(.dateTime.month(.abbreviated)))
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(DS.accent)
+                Text(date.formatted(.dateTime.day()))
+                    .font(.title3.weight(.bold))
+                    .monospacedDigit()
+                    .foregroundStyle(.dsText)
+            }
+        }
+        .accessibilityHidden(true)
     }
 }
 
@@ -148,7 +224,7 @@ struct EditSessionSheet: View {
                 Section("Session") {
                     TextField("Name", text: $trip.name)
                     if trip.isPlanned {
-                        DatePicker("Planned", selection: Binding(
+                        DatePicker("Planned for", selection: Binding(
                             get: { trip.plannedDate ?? .now },
                             set: { trip.plannedDate = $0; trip.startDate = $0 }
                         ), displayedComponents: [.date, .hourAndMinute])
@@ -165,47 +241,55 @@ struct EditSessionSheet: View {
                     ), axis: .vertical).lineLimit(2...5)
                 }
             }
-            .navigationTitle("Edit Session")
+            .navigationTitle(trip.isPlanned ? "Edit plan" : "Edit session")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
-                ToolbarItem(placement: .confirmationAction) { Button("Save") { save() }.bold() }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(trip.isPlanned ? "Save plan" : "Save session") { save() }.bold()
+                }
             }
             .task { spots = (try? appState.spotRepository.fetchAll()) ?? [] }
         }
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
     }
 
     private func save() {
         var t = trip
         try? appState.tripRepository.save(&t)
         if t.isPlanned { Task { await NotificationManager.shared.schedulePlannedSessionAlert(trip: t) } }
-        ToastCenter.shared.show("Session updated")
+        ToastCenter.shared.show(t.isPlanned ? "Plan updated" : "Session updated")
         dismiss()
     }
 }
 
+/// The running session in a list, with a pulsing record dot.
 struct ActiveSessionRow: View {
     let trip: Trip
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "dot.radiowaves.left.and.right")
-                .foregroundStyle(.red)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(trip.name).font(.subheadline.bold())
-                Text("Recording • started \(trip.startDate.formatted(date: .omitted, time: .shortened))")
-                    .font(.caption).foregroundStyle(.secondary)
+        ArtRow(over: "Recording", title: trip.name,
+               subtitle: "Started \(LogbookFormat.time(trip.startDate))",
+               chevron: true) {
+            ThumbView(tint: .dsScoreSlow, size: 52) {
+                Image(systemName: "record.circle")
+                    .font(.title2)
+                    .foregroundStyle(Color.dsScoreSlow)
+                    .symbolEffect(.pulse, isActive: !reduceMotion)
             }
-            Spacer()
-            Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
         }
     }
 }
 
+/// A past session in a list: drawn track, name, date, length and catches,
+/// and which kind of shared trip it was.
 struct SessionRow: View {
     let trip: Trip
     let catchCount: Int
 
-    /// The shared-trip identity of this local session, if any — so the list
+    /// The shared-trip identity of this local session, if any, so the list
     /// says which session was a tournament team, a crew trip, or a plain
     /// shared trip instead of leaving them all indistinguishable.
     private var sharedRef: CommunityService.GroupRef? {
@@ -213,39 +297,26 @@ struct SessionRow: View {
         return CommunityService.shared.myGroups.first { $0.code == code }
     }
 
-    var body: some View {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 6) {
-                    Text(trip.name).font(.subheadline.bold())
-                    if let ref = sharedRef {
-                        if let team = ref.teamName {
-                            badge("🏆 \(team)", tint: .yellow)
-                        } else if ref.crewCode != nil {
-                            badge("Crew trip", tint: CurrentsTheme.accent)
-                        } else {
-                            badge("Shared", tint: CurrentsTheme.accent)
-                        }
-                    }
-                }
-                Text(trip.startDate.formatted(date: .abbreviated, time: .shortened))
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-            Spacer()
-            VStack(alignment: .trailing, spacing: 2) {
-                Text("\(catchCount) 🎣").font(.caption.bold())
-                Text(SessionFormat.duration(trip.durationSeconds))
-                    .font(.caption2).foregroundStyle(.secondary)
+    private var subtitle: String {
+        var parts = [LogbookFormat.relativeDay(trip.startDate),
+                     LogbookFormat.duration(trip.totalDurationSeconds),
+                     "\(catchCount) \(catchCount == 1 ? "catch" : "catches")"]
+        if let ref = sharedRef {
+            if let team = ref.teamName {
+                parts.append("team \(team)")
+            } else if ref.crewCode != nil {
+                parts.append("crew trip")
+            } else {
+                parts.append("shared")
             }
         }
+        return parts.joined(separator: ", ")
     }
 
-    private func badge(_ text: String, tint: Color) -> some View {
-        Text(text)
-            .font(.system(size: 9, weight: .bold))
-            .padding(.horizontal, 5).padding(.vertical, 1)
-            .background(tint.opacity(0.16), in: Capsule())
-            .foregroundStyle(.primary)
+    var body: some View {
+        ArtRow(title: trip.name, subtitle: subtitle, chevron: true) {
+            TrackThumb(points: trip.allTrackPoints, size: 52)
+        }
     }
 }
 
@@ -261,32 +332,34 @@ struct NewSessionSheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Session") {
+                Section {
                     TextField("Name", text: $name)
-                    Picker("Spot (optional)", selection: $spotId) {
+                    Picker("Spot", selection: $spotId) {
                         Text("None").tag(nil as String?)
                         ForEach(spots) { spot in Text(spot.name).tag(spot.id as String?) }
                     }
-                }
-                Section {
-                    Text("Currents records your GPS track, catches, and catch limits for the session.")
-                        .font(.caption).foregroundStyle(.secondary)
+                } header: {
+                    Text("Session")
+                } footer: {
+                    Text("Currents records your GPS track, catches and bag limits until you end the session. The spot is optional.")
                 }
             }
-            .navigationTitle("New Session")
+            .navigationTitle("New session")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Start") {
+                    Button("Start session") {
                         _ = appState.tripTracker.start(name: name.isEmpty ? SessionFormat.defaultName() : name, spotId: spotId)
-                        ToastCenter.shared.show("Session started")
+                        ToastCenter.shared.show("Session started", icon: "play.fill")
                         dismiss()
                     }.bold()
                 }
             }
             .task { spots = (try? appState.spotRepository.fetchAll()) ?? [] }
         }
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
     }
 }
 
@@ -305,57 +378,78 @@ struct ActiveSessionView: View {
 
     var body: some View {
         ScrollView {
-            VStack(spacing: CurrentsTheme.paddingM) {
+            VStack(alignment: .leading, spacing: 0) {
                 if let trip = tracker.activeTrip {
-                    statsHeader(trip)
+                    DetailHeader(over: trip.isMultiDay
+                                    ? (tracker.isDayActive ? "Day \(trip.decodedDays.count + 1)" : "\(trip.decodedDays.count) days, paused")
+                                    : "Recording",
+                                 title: trip.name,
+                                 subtitle: "Started \(LogbookFormat.time(trip.startDate))")
+
                     if tracker.manualPaused {
-                        Label("GPS tracking paused. Your position isn't recording — resume below.",
-                              systemImage: "pause.circle.fill")
-                            .font(.caption).foregroundStyle(.orange)
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                        pauseNote("Tracking is paused, so your position is not being recorded. Resume below.")
                     } else if tracker.autoPaused {
-                        Label("Auto-paused — you've stopped moving. Tracking resumes when you move.",
-                              systemImage: "pause.circle.fill")
-                            .font(.caption).foregroundStyle(.orange)
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                        pauseNote("Paused because you stopped moving. Tracking resumes when you move.")
                     }
+
+                    statsHeader(trip)
+                        .padding(.horizontal, DS.gutter)
+                        .padding(.top, DS.Space.s4)
+
                     sessionMap
+                        .padding(.horizontal, DS.gutter)
+                        .padding(.top, DS.Space.s3)
+
                     if let biteScore {
-                        HStack {
-                            Label("Bite now", systemImage: "gauge.with.needle").font(.subheadline.bold())
-                            Spacer()
-                            ScoreGauge(score: biteScore, label: "", size: 40)
+                        HStack(spacing: 14) {
+                            ScoreRing(score: biteScore, size: 52)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Bite now")
+                                    .font(.headline)
+                                    .foregroundStyle(.dsText)
+                                Text("Worked out on your phone for where you are")
+                                    .font(.footnote)
+                                    .foregroundStyle(.dsText2)
+                            }
+                            Spacer(minLength: 0)
                         }
-                        .glassCard()
+                        .padding(.horizontal, DS.gutter)
+                        .padding(.top, DS.Space.s4)
+                        .accessibilityElement(children: .combine)
                     }
-                    CatchLimitBar(catches: catches)
 
                     Button { Haptics.tap(); showingLog = true } label: {
-                        Label("Log a Catch", systemImage: "plus.circle.fill")
-                            .font(.headline)
-                            .frame(maxWidth: .infinity).padding(.vertical, 4)
+                        Label("Log catch", systemImage: "plus")
                     }
-                    .buttonStyle(.borderedProminent).labelStyle(.prominentButton).tint(CurrentsTheme.accent)
+                    .buttonStyle(PrimaryButtonStyle(fullWidth: true))
+                    .padding(.horizontal, DS.gutter)
+                    .padding(.top, DS.Space.s5)
+
+                    CatchLimitBar(catches: catches)
 
                     if !catches.isEmpty {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Caught this session").font(.headline)
-                            ForEach(catches, id: \.catchRecord.id) { detail in
-                                NavigationLink { CatchDetailView(detail: detail) } label: {
-                                    CatchRow(detail: detail)
-                                }.buttonStyle(.plain)
+                        SectionTitle("Caught this session", detail: "\(catches.count)")
+                            .padding(.top, DS.Space.s8)
+                        ForEach(catches, id: \.catchRecord.id) { detail in
+                            NavigationLink { CatchDetailView(detail: detail) } label: {
+                                SessionCatchRow(detail: detail)
                             }
-                        }.frame(maxWidth: .infinity, alignment: .leading)
+                            .buttonStyle(.dsRow)
+                        }
                     }
 
                     sessionControls(trip)
+                        .padding(.horizontal, DS.gutter)
+                        .padding(.top, DS.Space.s8)
                 } else {
-                    ContentUnavailableView("No Active Session", systemImage: "figure.fishing",
-                        description: Text("Start a session from the map to track your GPS route and log catches."))
+                    ContentUnavailableView("No session running", systemImage: "figure.fishing",
+                        description: Text("Start a session from the map or the Logbook to record your track and catches."))
+                        .padding(.top, DS.Space.s8)
                 }
             }
-            .padding()
+            .padding(.bottom, DS.Space.s8)
         }
+        .dsScreenBackground()
         .navigationTitle(tracker.activeTrip?.name ?? "Session")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -366,98 +460,96 @@ struct ActiveSessionView: View {
                     } label: {
                         Image(systemName: groupLinked(trip) ? "person.3.fill" : "person.badge.plus")
                     }
-                    .accessibilityLabel(groupLinked(trip) ? "Group Trip" : "Invite Friends")
+                    .accessibilityLabel(groupLinked(trip) ? "Group trip" : "Invite friends")
                 }
             }
         }
-        .sheet(isPresented: $showingLog, onDismiss: reload) {
+        .fullScreenCover(isPresented: $showingLog, onDismiss: reload) {
             LogCatchView()
-                .presentationDetents([.large])
-                .presentationDragIndicator(.visible)
         }
-        .alert("End this day?", isPresented: $showingEndDayConfirm) {
-            Button("End Day", role: .destructive) { Haptics.success(); tracker.endDay() }
-            Button("Keep Going", role: .cancel) {}
+        .confirmationDialog("End this day?", isPresented: $showingEndDayConfirm, titleVisibility: .visible) {
+            Button("End day", role: .destructive) { Haptics.success(); tracker.endDay() }
+            Button("Keep going", role: .cancel) {}
         } message: {
-            Text("Saves today's stats and pauses tracking. The trip stays open — start the next day whenever you're back out.")
+            Text("Saves today's stats and pauses tracking. The trip stays open, so start the next day when you are back out.")
         }
-        .alert("End the whole trip?", isPresented: $showingEndConfirm) {
-            Button("End Trip", role: .destructive) { Haptics.warning(); tracker.end(); dismiss() }
-            Button("Keep Going", role: .cancel) {}
+        .confirmationDialog("End the whole trip?", isPresented: $showingEndConfirm, titleVisibility: .visible) {
+            Button("End trip", role: .destructive) { Haptics.warning(); _ = tracker.end(); dismiss() }
+            Button("Keep going", role: .cancel) {}
+        } message: {
+            Text("Saves the track and catches and stops recording.")
         }
         .task { reload(); await refreshBite() }
     }
 
-    /// Compact session controls. One clear primary above (Log a Catch); here a
-    /// small icon row for the rest — Pause/Resume, and a single Finish menu that
-    /// offers End Day / End Trip — so the screen isn't a stack of look-alike
-    /// buttons. Between days, a prominent Start-Day button takes over.
+    private func pauseNote(_ text: String) -> some View {
+        Label(text, systemImage: "pause.circle.fill")
+            .font(.footnote)
+            .foregroundStyle(Color.dsScoreLow)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, DS.gutter)
+            .padding(.top, DS.Space.s3)
+    }
+
+    /// One clear primary above (Log catch); here Pause or Resume, and a
+    /// single Finish menu that offers End day or End trip. Between days a
+    /// Start day button takes over.
     @ViewBuilder private func sessionControls(_ trip: Trip) -> some View {
         if tracker.isDayActive {
-            HStack(spacing: 10) {
-                controlButton(tracker.manualPaused ? "Resume" : "Pause",
-                              icon: tracker.manualPaused ? "play.fill" : "pause.fill",
-                              tint: tracker.manualPaused ? CurrentsTheme.accent : .secondary) {
+            HStack(spacing: DS.Space.s2) {
+                Button {
                     Haptics.tap()
                     if tracker.manualPaused { tracker.resumeTracking() } else { tracker.pauseTracking() }
+                } label: {
+                    Label(tracker.manualPaused ? "Resume" : "Pause",
+                          systemImage: tracker.manualPaused ? "play.fill" : "pause.fill")
                 }
+                .buttonStyle(ActionTileStyle(.tonal))
+
                 Menu {
                     if trip.isMultiDay || tracker.isDayActive {
                         Button { showingEndDayConfirm = true } label: {
-                            Label("End Day \(trip.dayCount)", systemImage: "moon.zzz.fill")
+                            Label("End day \(trip.dayCount)", systemImage: "moon.zzz.fill")
                         }
                     }
                     Button(role: .destructive) { showingEndConfirm = true } label: {
-                        Label("End Trip", systemImage: "stop.circle")
+                        Label("End trip", systemImage: "stop.circle")
                     }
                 } label: {
-                    controlLabel("Finish", icon: "flag.checkered", tint: .red)
+                    ActionTileLabel("Finish", systemImage: "flag.checkered", kind: .destructive)
                 }
             }
         } else {
-            Label("Trip paused between days", systemImage: "pause.circle")
-                .font(.caption).foregroundStyle(.secondary)
-            HStack(spacing: 10) {
-                Button { Haptics.success(); tracker.startNextDay(); Task { await refreshBite() } } label: {
-                    Label("Start Day \(trip.decodedDays.count + 1)", systemImage: "sun.max.fill").frame(maxWidth: .infinity)
-                }.buttonStyle(.borderedProminent).labelStyle(.prominentButton).tint(CurrentsTheme.accent)
-                controlButton("End Trip", icon: "stop.circle", tint: .red) { showingEndConfirm = true }
+            VStack(alignment: .leading, spacing: DS.Space.s3) {
+                Label("Trip paused between days", systemImage: "pause.circle")
+                    .font(.footnote)
+                    .foregroundStyle(.dsText2)
+                HStack(spacing: DS.Space.s2) {
+                    Button { Haptics.success(); tracker.startNextDay(); Task { await refreshBite() } } label: {
+                        Label("Start day \(trip.decodedDays.count + 1)", systemImage: "sun.max.fill")
+                    }
+                    .buttonStyle(ActionTileStyle(.primary))
+                    Button { showingEndConfirm = true } label: {
+                        Label("End trip", systemImage: "stop.circle")
+                    }
+                    .buttonStyle(ActionTileStyle(.destructive))
+                }
             }
         }
-    }
-
-    private func controlButton(_ title: String, icon: String, tint: Color, action: @escaping () -> Void) -> some View {
-        Button(action: action) { controlLabel(title, icon: icon, tint: tint) }
-    }
-
-    private func controlLabel(_ title: String, icon: String, tint: Color) -> some View {
-        Label(title, systemImage: icon)
-            .font(.subheadline.bold())
-            .frame(maxWidth: .infinity).padding(.vertical, 8)
-            .foregroundStyle(tint)
-            .background(tint.opacity(0.14), in: RoundedRectangle(cornerRadius: 12))
     }
 
     private func statsHeader(_ trip: Trip) -> some View {
         let priorDist = trip.decodedDays.reduce(0.0) { $0 + $1.distanceMeters }
         let priorDur = trip.decodedDays.reduce(0.0) { $0 + $1.durationSeconds }
-        return VStack(spacing: 8) {
-            if trip.isMultiDay {
-                HStack(spacing: 6) {
-                    Image(systemName: "calendar")
-                    Text(tracker.isDayActive ? "Day \(trip.decodedDays.count + 1)" : "\(trip.decodedDays.count) days • paused")
-                        .font(.caption.bold())
-                }
-                .foregroundStyle(CurrentsTheme.accent)
-                .frame(maxWidth: .infinity)
-            }
-            TimelineView(.periodic(from: .now, by: 1)) { _ in
-                let curDur = tracker.isDayActive ? Date.now.timeIntervalSince(trip.currentDayStart ?? trip.startDate) : 0
-                HStack(spacing: 12) {
-                    sessionStat(SessionFormat.duration(priorDur + curDur), trip.isMultiDay ? "Total Time" : "Elapsed", "clock")
-                    sessionStat(SessionFormat.distance(priorDist + trackDistance()), "Distance", "point.topleft.down.to.point.bottomright.curvepath")
-                    sessionStat("\(catches.count)", "Catches", "fish.fill")
-                }
+        return TimelineView(.periodic(from: .now, by: 1)) { _ in
+            let curDur = tracker.isDayActive ? Date.now.timeIntervalSince(trip.currentDayStart ?? trip.startDate) : 0
+            HStack(spacing: 10) {
+                StatTile(trip.isMultiDay ? "Total time" : "Time", systemImage: "clock", tint: .dsText2,
+                         value: SessionFormat.duration(priorDur + curDur), width: nil)
+                StatTile("Distance", systemImage: "point.topleft.down.to.point.bottomright.curvepath", tint: .dsText2,
+                         value: SessionFormat.distance(priorDist + trackDistance()), width: nil)
+                StatTile("Catches", systemImage: "fish.fill", tint: .dsText2,
+                         value: "\(catches.count)", width: nil)
             }
         }
     }
@@ -473,21 +565,12 @@ struct ActiveSessionView: View {
         return total
     }
 
-    private func sessionStat(_ value: String, _ label: String, _ icon: String) -> some View {
-        VStack(spacing: 4) {
-            Image(systemName: icon).foregroundStyle(CurrentsTheme.accent)
-            Text(value).font(.headline.monospacedDigit()).lineLimit(1).minimumScaleFactor(0.6)
-            Text(label).font(.caption2).foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity).glassCard()
-    }
-
     private var sessionMap: some View {
         // Prior days (persisted) + the live current day + catch pins.
         let prior = tracker.activeTrip?.decodedDays.flatMap(\.track) ?? []
         return SessionTrackMap(points: prior + tracker.track, showsUser: true, catches: catches)
-            .frame(height: 220)
-            .clipShape(RoundedRectangle(cornerRadius: 16))
+            .frame(height: 240)
+            .clipShape(RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
     }
 
     private func reload() {
@@ -531,6 +614,20 @@ struct ActiveSessionView: View {
     }
 }
 
+/// A catch inside a session: thumb, species, time and size.
+struct SessionCatchRow: View {
+    let detail: CatchDetail
+
+    var body: some View {
+        let r = detail.catchRecord
+        let subtitle = [LogbookFormat.time(r.caughtAt), LogbookFormat.size(r), r.released ? "released" : nil]
+            .compactMap { $0 }.joined(separator: ", ")
+        ArtRow(title: detail.species?.commonName ?? "Unknown species", subtitle: subtitle, chevron: true) {
+            CatchThumb(detail: detail, size: 52)
+        }
+    }
+}
+
 // MARK: - Session detail (past)
 
 struct SessionDetailView: View {
@@ -545,101 +642,159 @@ struct SessionDetailView: View {
     @State private var recapImage: UIImage?
     @State private var showingShare = false
     @State private var generatingRecap = false
+    @State private var replayToken = 0
 
     struct CoordItem: Identifiable {
         let id = UUID()
         let coord: CLLocationCoordinate2D
     }
 
+    private var canReplay: Bool { trip.allTrackPoints.count > 2 }
+
+    private var timeLine: String {
+        if trip.isMultiDay {
+            return "\(trip.dayCount) days, \(LogbookFormat.shortDay(trip.startDate)) to \(LogbookFormat.shortDay(trip.endDate ?? trip.startDate))"
+        }
+        guard let end = trip.endDate else { return "Started \(LogbookFormat.time(trip.startDate))" }
+        return "\(LogbookFormat.time(trip.startDate)) to \(LogbookFormat.time(end))"
+    }
+
     var body: some View {
-        ScrollView {
-            VStack(spacing: CurrentsTheme.paddingM) {
-                SessionTrackMap(points: trip.allTrackPoints, showsUser: false, catches: catches)
-                    .frame(height: 220)
-                    .clipShape(RoundedRectangle(cornerRadius: 16))
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    DetailHeader(over: LogbookFormat.longDay(trip.startDate),
+                                 title: trip.name,
+                                 subtitle: timeLine)
 
-                HStack(spacing: 12) {
-                    stat(SessionFormat.duration(trip.totalDurationSeconds), "Duration", "clock")
-                    stat(SessionFormat.distance(trip.totalTrackDistanceMeters), "Distance", "map")
-                    stat("\(catches.count)", "Catches", "fish.fill")
-                }
+                    ActionTriple {
+                        Button { shareRecap() } label: {
+                            Label(generatingRecap ? "Preparing" : "Share recap", systemImage: "square.and.arrow.up")
+                        }
+                        .buttonStyle(ActionTileStyle(.primary))
+                        .disabled(generatingRecap)
 
-                if trip.allTrackPoints.count > 2 {
-                    TripScrubberCard(trip: trip, catches: catches)
-                }
+                        Button {
+                            withAnimation(DS.Motion.softSpring) { proxy.scrollTo("replay", anchor: .top) }
+                            replayToken += 1
+                        } label: {
+                            Label("Replay", systemImage: "play.circle")
+                        }
+                        .buttonStyle(ActionTileStyle(.tonal))
+                        .disabled(!canReplay)
 
-                if trip.isMultiDay { dayBreakdown }
+                        Button { showingEdit = true } label: {
+                            Label("Edit", systemImage: "pencil")
+                        }
+                        .buttonStyle(ActionTileStyle(.tonal))
+                    }
+                    .padding(.top, DS.Space.s5)
 
-                if !suggestedSpots.isEmpty { suggestedSpotsCard }
+                    SessionTrackMap(points: trip.allTrackPoints, showsUser: false, catches: catches)
+                        .frame(height: 260)
+                        .clipShape(RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
+                        .padding(.horizontal, DS.gutter)
+                        .padding(.top, DS.Space.s6)
+                    TrackLegend()
+                        .padding(.horizontal, DS.gutter)
+                        .padding(.top, DS.Space.s2)
 
-                TripOverviewHighlights(catches: catches)
+                    HStack(spacing: 10) {
+                        StatTile("Duration", systemImage: "clock", tint: .dsText2,
+                                 value: SessionFormat.duration(trip.totalDurationSeconds), width: nil)
+                        StatTile("Distance", systemImage: "point.topleft.down.to.point.bottomright.curvepath", tint: .dsText2,
+                                 value: SessionFormat.distance(trip.totalTrackDistanceMeters), width: nil)
+                        StatTile("Catches", systemImage: "fish.fill", tint: .dsText2,
+                                 value: "\(catches.count)", width: nil)
+                    }
+                    .padding(.horizontal, DS.gutter)
+                    .padding(.top, DS.Space.s4)
 
-                CatchLimitBar(catches: catches)
+                    SessionBiteChart(trip: trip, catches: catches)
 
-                if !catches.isEmpty {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Catches").font(.headline)
+                    if canReplay {
+                        TripScrubberCard(trip: trip, catches: catches, playToken: replayToken)
+                            .id("replay")
+                    }
+
+                    if trip.isMultiDay { dayBreakdown }
+
+                    SectionTitle("Caught this session", detail: catches.isEmpty ? nil : "\(catches.count)")
+                        .padding(.top, DS.Space.s8)
+                    if catches.isEmpty {
+                        Text("No catches this time. The track and conditions are still saved.")
+                            .font(.subheadline)
+                            .foregroundStyle(.dsText2)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, DS.gutter)
+                    } else {
                         ForEach(catches, id: \.catchRecord.id) { detail in
                             NavigationLink { CatchDetailView(detail: detail) } label: {
-                                CatchRow(detail: detail)
-                            }.buttonStyle(.plain)
+                                SessionCatchRow(detail: detail)
+                            }
+                            .buttonStyle(.dsRow)
                         }
-                    }.frame(maxWidth: .infinity, alignment: .leading)
-                }
-
-                if let notes = trip.notes, !notes.isEmpty {
-                    Text(notes).font(.body).foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .leading).glassCard()
-                }
-
-                NavigationLink {
-                    GroupTripView(tripId: trip.id, tripName: trip.name)
-                } label: {
-                    Label(CommunityService.shared.groupCode(forTripId: trip.id) != nil ? "Group Trip" : "Invite Friends",
-                          systemImage: "person.3.fill").frame(maxWidth: .infinity)
-                }.buttonStyle(.bordered).tint(CurrentsTheme.accent)
-
-                Button {
-                    generatingRecap = true
-                    Task {
-                        let image = await TripRecapCard.render(trip: trip, catches: catches)
-                        generatingRecap = false
-                        recapImage = image
-                        if image != nil { showingShare = true }
                     }
-                } label: {
-                    HStack {
-                        if generatingRecap { ProgressView().tint(.white) }
-                        Label(generatingRecap ? "Building Recap…" : "Share Recap",
-                              systemImage: "square.and.arrow.up")
-                    }.frame(maxWidth: .infinity)
-                }.buttonStyle(.borderedProminent).labelStyle(.prominentButton).tint(CurrentsTheme.accent)
-                    .disabled(generatingRecap)
 
-                Button(role: .destructive) { showingDeleteConfirm = true } label: {
-                    Label("Delete Session", systemImage: "trash").frame(maxWidth: .infinity)
-                }.buttonStyle(.bordered)
+                    TripOverviewHighlights(catches: catches)
+
+                    CatchLimitBar(catches: catches)
+
+                    if !suggestedSpots.isEmpty { suggestedSpotsSection }
+
+                    SectionTitle("Fish with friends")
+                        .padding(.top, DS.Space.s8)
+                    NavigationLink {
+                        GroupTripView(tripId: trip.id, tripName: trip.name)
+                    } label: {
+                        let linked = CommunityService.shared.groupCode(forTripId: trip.id) != nil
+                        ArtRow(title: linked ? "Group trip" : "Invite friends",
+                               subtitle: linked ? "See the team's catches and tracks" : "Share this session with your crew",
+                               chevron: true) {
+                            ThumbView(systemImage: "person.3.fill", tint: DS.accent, size: 52)
+                        }
+                    }
+                    .buttonStyle(.dsRow)
+
+                    if let notes = trip.notes, !notes.isEmpty {
+                        SectionTitle("Notes")
+                            .padding(.top, DS.Space.s8)
+                        Text(notes)
+                            .font(.body)
+                            .foregroundStyle(.dsText)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, DS.gutter)
+                    }
+
+                    Button(role: .destructive) { showingDeleteConfirm = true } label: {
+                        Label("Delete session", systemImage: "trash")
+                            .foregroundStyle(Color.dsScoreSlow)
+                    }
+                    .buttonStyle(.dsTonal)
+                    .padding(.horizontal, DS.gutter)
+                    .padding(.top, DS.Space.s8)
+                }
+                .padding(.bottom, DS.Space.s8)
             }
-            .padding()
         }
+        .dsScreenBackground()
         .navigationTitle(trip.name)
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) { Button("Edit") { showingEdit = true } }
-        }
         .sheet(isPresented: $showingEdit, onDismiss: {
             trip = (try? appState.tripRepository.fetch(trip.id)) ?? trip
         }) {
             EditSessionSheet(trip: trip)
         }
-        .alert("Delete Session?", isPresented: $showingDeleteConfirm) {
-            Button("Delete", role: .destructive) {
+        .confirmationDialog("Delete this session?", isPresented: $showingDeleteConfirm, titleVisibility: .visible) {
+            Button("Delete session", role: .destructive) {
                 Haptics.warning()
                 try? appState.tripRepository.delete(trip)
-                ToastCenter.shared.show("Session deleted", style: .info, haptic: false)
+                ToastCenter.shared.show("Session deleted", style: .info, haptic: false, icon: "trash")
                 dismiss()
             }
             Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Catches you logged are kept. Only the session and its track are removed.")
         }
         .sheet(item: $spotToAdd, onDismiss: { load() }) { item in
             AddSpotSheet(prefillCoordinate: item.coord)
@@ -651,6 +806,20 @@ struct SessionDetailView: View {
             }
         }
         .task { load() }
+    }
+
+    private func shareRecap() {
+        generatingRecap = true
+        Task {
+            let image = await TripRecapCard.render(trip: trip, catches: catches)
+            generatingRecap = false
+            recapImage = image
+            if image != nil {
+                showingShare = true
+            } else {
+                ToastCenter.shared.show("Could not build the recap", style: .error)
+            }
+        }
     }
 
     private func load() {
@@ -666,73 +835,162 @@ struct SessionDetailView: View {
         }.map { CoordItem(coord: $0) }
     }
 
-    private var suggestedSpotsCard: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Label("Spots you fished", systemImage: "mappin.and.ellipse")
-                .font(.headline)
-            Text("You lingered at these spots — save them for next time.")
-                .font(.caption).foregroundStyle(.secondary)
-            ForEach(suggestedSpots) { item in
-                HStack {
-                    Image(systemName: "mappin.circle.fill").foregroundStyle(CurrentsTheme.accent)
-                    Text(String(format: "%.4f, %.4f", item.coord.latitude, item.coord.longitude))
-                        .font(.caption).foregroundStyle(.secondary)
-                    Spacer()
-                    Button("Save") { spotToAdd = item }
-                        .font(.caption.bold()).buttonStyle(.bordered).tint(CurrentsTheme.accent)
+    @ViewBuilder private var suggestedSpotsSection: some View {
+        SectionTitle("Spots you fished")
+            .padding(.top, DS.Space.s8)
+        SectionFoot("You stayed a while at these places. Save them for next time.")
+        ForEach(Array(suggestedSpots.enumerated()), id: \.element.id) { index, item in
+            HStack(spacing: 0) {
+                ArtRow(title: "Stop \(index + 1)",
+                       subtitle: String(format: "%.4f, %.4f", item.coord.latitude, item.coord.longitude)) {
+                    ThumbView(systemImage: "mappin", tint: DS.accent, size: 44)
                 }
+                Button("Save spot") { spotToAdd = item }
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.dsText)
+                    .padding(.horizontal, 14)
+                    .frame(minHeight: 34)
+                    .background(Color.dsTonal, in: Capsule())
+                    .buttonStyle(.dim)
+                    .padding(.trailing, DS.gutter)
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .glassCard()
     }
 
     /// Per-day summary for multi-day trips: date, hours, distance, catches.
-    private var dayBreakdown: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Days").font(.headline)
-            ForEach(trip.allDayLogs) { day in
-                let dayCatches = catches.filter { $0.catchRecord.caughtAt >= day.start && $0.catchRecord.caughtAt <= day.end }.count
-                HStack(spacing: 10) {
-                    ZStack {
-                        Circle().fill(CurrentsTheme.accent.opacity(0.15)).frame(width: 34, height: 34)
-                        Text("\(day.index + 1)").font(.subheadline.bold()).foregroundStyle(CurrentsTheme.accent)
+    @ViewBuilder private var dayBreakdown: some View {
+        SectionTitle("Days", detail: "\(trip.allDayLogs.count)")
+            .padding(.top, DS.Space.s8)
+        ForEach(trip.allDayLogs) { day in
+            let dayCatches = catches.filter { $0.catchRecord.caughtAt >= day.start && $0.catchRecord.caughtAt <= day.end }.count
+            ArtRow(title: "Day \(day.index + 1), \(LogbookFormat.shortDay(day.start))",
+                   subtitle: "\(LogbookFormat.duration(day.durationSeconds)), \(SessionFormat.distance(day.distanceMeters)), \(dayCatches) \(dayCatches == 1 ? "catch" : "catches")") {
+                TrackThumb(points: day.track, size: 44)
+            }
+        }
+    }
+}
+
+/// Start, end and catch keys under a session map.
+struct TrackLegend: View {
+    var body: some View {
+        HStack(spacing: 14) {
+            item(.dsScoreGood, "Start")
+            item(.dsScoreSlow, "End")
+            item(DS.accent, "Catch")
+            Spacer(minLength: 0)
+        }
+        .font(.footnote)
+        .foregroundStyle(.dsText2)
+        .accessibilityHidden(true)
+    }
+
+    private func item(_ color: Color, _ label: String) -> some View {
+        HStack(spacing: 5) {
+            Circle().fill(color).frame(width: 8, height: 8)
+            Text(label)
+        }
+    }
+}
+
+// MARK: - Bite during the session
+
+/// The bite score by hour across the session, worked out on the phone for
+/// where it started, with the catches marked at the hour they came in.
+struct SessionBiteChart: View {
+    let trip: Trip
+    let catches: [CatchDetail]
+    @State private var hours: [HourScore] = []
+
+    struct HourScore: Identifiable {
+        let hour: Int
+        let score: Int
+        var id: Int { hour }
+    }
+
+    private var catchHours: Set<Int> {
+        Set(catches.map { Calendar.current.component(.hour, from: $0.catchRecord.caughtAt) })
+    }
+
+    var body: some View {
+        Group {
+            if hours.count > 1, let peak = hours.max(by: { $0.score < $1.score }) {
+                VStack(alignment: .leading, spacing: 0) {
+                    SectionTitle("Bite score during the session")
+                        .padding(.top, DS.Space.s8)
+                    Chart {
+                        ForEach(hours) { h in
+                            BarMark(x: .value("Hour", h.hour), y: .value("Score", h.score), width: .ratio(0.7))
+                                .foregroundStyle(DS.scoreColor(h.score))
+                            if catchHours.contains(h.hour) {
+                                PointMark(x: .value("Hour", h.hour), y: .value("Score", h.score + 8))
+                                    .symbol {
+                                        Image(systemName: "fish.fill")
+                                            .font(.caption2)
+                                            .foregroundStyle(.dsText)
+                                    }
+                            }
+                        }
                     }
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(day.start.formatted(date: .abbreviated, time: .omitted)).font(.subheadline.bold())
-                        Text("\(SessionFormat.duration(day.durationSeconds)) · \(SessionFormat.distance(day.distanceMeters))")
-                            .font(.caption).foregroundStyle(.secondary)
+                    .chartYScale(domain: 0...110)
+                    .chartYAxis(.hidden)
+                    .chartXAxis {
+                        AxisMarks(values: hours.map(\.hour)) { value in
+                            AxisValueLabel {
+                                if let h = value.as(Int.self) { Text(Self.hourLabel(h)) }
+                            }
+                        }
                     }
-                    Spacer()
-                    if dayCatches > 0 {
-                        Label("\(dayCatches)", systemImage: "fish.fill")
-                            .font(.caption.bold()).foregroundStyle(CurrentsTheme.accent)
-                    }
+                    .frame(height: 150)
+                    .padding(.horizontal, DS.gutter)
+                    .accessibilityLabel("Bite score by hour")
+                    .accessibilityValue(hours.map { "\(Self.hourLabel($0.hour)) \($0.score)" }.joined(separator: ", "))
+                    SectionFoot("Peaked at \(peak.score) around \(Self.hourLabel(peak.hour)). Fish marks the hours you caught.")
                 }
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .glassCard()
+        .task(id: trip.id) { compute() }
     }
 
-    private func stat(_ value: String, _ label: String, _ icon: String) -> some View {
-        VStack(spacing: 4) {
-            Image(systemName: icon).foregroundStyle(CurrentsTheme.accent)
-            Text(value).font(.headline.monospacedDigit()).lineLimit(1).minimumScaleFactor(0.6)
-            Text(label).font(.caption2).foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity).glassCard()
+    private func compute() {
+        guard let first = trip.allTrackPoints.first ?? trip.allDayLogs.first?.track.first else { hours = []; return }
+        let coord = CLLocationCoordinate2D(latitude: first.lat, longitude: first.lon)
+        let cal = Calendar.current
+        let start = trip.startDate
+        let end = trip.endDate ?? trip.allTrackPoints.last?.t ?? start
+        // Same calendar day only: the hourly forecast covers one day.
+        let startHour = cal.component(.hour, from: start)
+        let endHour = cal.isDate(end, inSameDayAs: start) ? cal.component(.hour, from: end) : 23
+        guard endHour >= startHour else { hours = []; return }
+        let f = ForecastEngine.forecast(date: start, coordinate: coord,
+                                        currentPressureHpa: nil, pressureChange6h: nil,
+                                        waterTempC: nil, windSpeedKmh: nil, windDirection: nil,
+                                        species: nil, isInSpawningZone: false)
+        hours = f.hourlyScores
+            .filter { $0.hour >= startHour && $0.hour <= endHour }
+            .map { HourScore(hour: $0.hour, score: $0.score) }
+    }
+
+    static func hourLabel(_ hour: Int) -> String {
+        var c = DateComponents()
+        c.hour = hour
+        let date = Calendar.current.date(from: c) ?? .now
+        return date.formatted(.dateTime.hour())
     }
 }
 
 // MARK: - Timeline scrubber
 
 /// Drag along the session timeline to replay it: the playhead moves along the
-/// route and surfaces the catch logged closest to that moment.
+/// route and surfaces the catch logged closest to that moment. Replay plays
+/// it through from the start.
 struct TripScrubberCard: View {
     let trip: Trip
     let catches: [CatchDetail]
+    var playToken: Int = 0
     @State private var progress: Double = 1.0
+    @State private var playTask: Task<Void, Never>?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var track: [Trip.TrackPoint] { trip.allTrackPoints }
 
@@ -756,6 +1014,12 @@ struct TripScrubberCard: View {
         currentPoint.map { CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon) }
     }
 
+    /// The route walked so far, up to the playhead.
+    private var walked: [CLLocationCoordinate2D] {
+        guard let t = currentTime else { return [] }
+        return track.filter { $0.t <= t }.map { CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon) }
+    }
+
     /// Catch logged within 15 min of the scrubbed time (nearest wins).
     private var nearbyCatch: CatchDetail? {
         guard let t = currentTime else { return nil }
@@ -765,62 +1029,107 @@ struct TripScrubberCard: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Label("Replay", systemImage: "timeline.selection").font(.headline)
-                Spacer()
-                if let t = currentTime {
-                    Text(t.formatted(date: .omitted, time: .shortened))
-                        .font(.subheadline.bold().monospacedDigit()).foregroundStyle(CurrentsTheme.accent)
-                }
-            }
+        VStack(alignment: .leading, spacing: 0) {
+            SectionTitle("Replay", detail: currentTime.map { LogbookFormat.time($0) })
+                .padding(.top, DS.Space.s8)
 
-            Map {
+            Map(initialPosition: initialPosition) {
                 MapPolyline(coordinates: track.map { CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon) })
-                    .stroke(CurrentsTheme.accent.opacity(0.5), lineWidth: 3)
+                    .stroke(Color.white.opacity(0.35), lineWidth: 3)
+                if walked.count > 1 {
+                    MapPolyline(coordinates: walked)
+                        .stroke(DS.accent, lineWidth: 4)
+                }
                 if let c = currentCoord {
                     Annotation("", coordinate: c) {
-                        Circle().fill(CurrentsTheme.accent)
+                        Circle().fill(DS.accent)
                             .frame(width: 16, height: 16)
                             .overlay(Circle().stroke(.white, lineWidth: 3))
-                            .shadow(radius: 3)
                     }
                 }
             }
             .mapStyle(.hybrid)
-            .frame(height: 180)
-            .clipShape(RoundedRectangle(cornerRadius: 14))
+            .frame(height: 200)
+            .clipShape(RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
             .allowsHitTesting(false)
+            .padding(.horizontal, DS.gutter)
 
-            Slider(value: $progress, in: 0...1)
-                .tint(CurrentsTheme.accent)
+            HStack(spacing: 12) {
+                Button {
+                    if playTask != nil { stop() } else { play() }
+                } label: {
+                    Image(systemName: playTask != nil ? "pause.fill" : "play.fill")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(.dsText)
+                        .frame(width: 44, height: 44)
+                        .background(Color.dsTonal, in: Circle())
+                        .contentTransition(.symbolEffect(.replace))
+                }
+                .buttonStyle(.dim)
+                .accessibilityLabel(playTask != nil ? "Pause replay" : "Play replay")
+
+                Slider(value: Binding(get: { progress }, set: { stop(); progress = $0 }), in: 0...1)
+                    .tint(DS.accent)
+                    .accessibilityLabel("Replay time")
+                    .accessibilityValue(currentTime.map { LogbookFormat.time($0) } ?? "")
+            }
+            .padding(.horizontal, DS.gutter)
+            .padding(.top, DS.Space.s3)
 
             if let c = nearbyCatch {
                 NavigationLink { CatchDetailView(detail: c) } label: {
-                    HStack(spacing: 10) {
-                        if let sp = c.species { SpeciesArtworkView(species: sp, caught: true, size: 30) }
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(c.species?.commonName ?? "Catch").font(.subheadline.bold())
-                            Text("Caught \(c.catchRecord.caughtAt.formatted(date: .omitted, time: .shortened))")
-                                .font(.caption2).foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                        Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
+                    ArtRow(over: "Caught \(LogbookFormat.time(c.catchRecord.caughtAt))",
+                           title: c.species?.commonName ?? "Catch",
+                           chevron: true) {
+                        CatchThumb(detail: c, size: 44)
                     }
-                }.buttonStyle(.plain)
+                }
+                .buttonStyle(.dsRow)
             } else {
-                Text("No catch around this time").font(.caption).foregroundStyle(.secondary)
+                Text("No catch around this time")
+                    .font(.footnote)
+                    .foregroundStyle(.dsText2)
+                    .padding(.horizontal, DS.gutter)
+                    .padding(.top, DS.Space.s3)
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .glassCard()
+        .onChange(of: playToken) { _, _ in play() }
+        .onDisappear { stop() }
+    }
+
+    private var initialPosition: MapCameraPosition {
+        let coords = track.map { CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon) }
+        guard let region = SessionTrackMap.fittingRegion(for: coords) else { return .automatic }
+        return .region(region)
+    }
+
+    /// Plays the session through in about eight seconds. With Reduce Motion
+    /// it steps in larger jumps instead of gliding.
+    private func play() {
+        stop()
+        progress = 0
+        let steps = reduceMotion ? 8 : 160
+        let interval: UInt64 = reduceMotion ? 900_000_000 : 50_000_000
+        playTask = Task { @MainActor in
+            for i in 1...steps {
+                try? await Task.sleep(nanoseconds: interval)
+                if Task.isCancelled { return }
+                progress = Double(i) / Double(steps)
+            }
+            playTask = nil
+        }
+    }
+
+    private func stop() {
+        playTask?.cancel()
+        playTask = nil
     }
 }
 
 // MARK: - Trip overview highlights
 
-/// Rich session summary: the standout catch (with artwork + photo), a species
-/// breakdown, and the most productive spot & tackle.
+/// Session highlights as plain rows: the standout catch, species, the most
+/// productive spot and tackle, and how many were kept.
 struct TripOverviewHighlights: View {
     let catches: [CatchDetail]
     @AppStorage("units") private var units = "metric"
@@ -828,19 +1137,35 @@ struct TripOverviewHighlights: View {
 
     var body: some View {
         if !catches.isEmpty {
-            VStack(alignment: .leading, spacing: 12) {
-                if let best = largestCatch { largestCard(best) }
-                if speciesCounts.count > 0 { speciesBreakdown }
-                HStack(spacing: 12) {
-                    if let spot = bestSpot { miniStat("Best Spot", spot.0, "\(spot.1) fish", "mappin.circle.fill") }
-                    if let tackle = bestTackle { miniStat("Top Tackle", tackle.0, "\(tackle.1) fish", "wrench.and.screwdriver.fill") }
-                }
+            VStack(alignment: .leading, spacing: 0) {
+                SectionTitle("Highlights")
+                    .padding(.top, DS.Space.s8)
+                KeyValueList(rows: rows)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
-    // MARK: Standout catch
+    private var rows: [(String, String)] {
+        var rows: [(String, String)] = []
+        if let best = largestCatch {
+            let size: String? = {
+                if let w = best.catchRecord.weightKg { return Units.weight(kg: w, imperial: imperial) }
+                if let l = best.catchRecord.lengthCm { return Units.length(cm: l, imperial: imperial) }
+                return nil
+            }()
+            let name = best.species?.commonName ?? "Catch"
+            rows.append((best.catchRecord.weightKg != nil ? "Heaviest" : "Longest",
+                         size.map { "\(name), \($0)" } ?? name))
+        }
+        if !speciesCounts.isEmpty {
+            rows.append(("Species", speciesCounts.map { "\($0.name) \($0.count)" }.joined(separator: ", ")))
+        }
+        if let spot = bestSpot { rows.append(("Best spot", "\(spot.0), \(spot.1) fish")) }
+        if let tackle = bestTackle { rows.append(("Best lure", "\(tackle.0), \(tackle.1) fish")) }
+        let kept = catches.filter { !$0.catchRecord.released }.count
+        rows.append(("Kept", "\(kept) of \(catches.count)"))
+        return rows
+    }
 
     private var largestCatch: CatchDetail? {
         // Rank by weight when any catch is weighed; otherwise by length. Mixing
@@ -848,77 +1173,15 @@ struct TripOverviewHighlights: View {
         if catches.contains(where: { $0.catchRecord.weightKg != nil }) {
             return catches.max { ($0.catchRecord.weightKg ?? 0) < ($1.catchRecord.weightKg ?? 0) }
         }
+        guard catches.contains(where: { $0.catchRecord.lengthCm != nil }) else { return nil }
         return catches.max { ($0.catchRecord.lengthCm ?? 0) < ($1.catchRecord.lengthCm ?? 0) }
     }
 
-    @ViewBuilder private func largestCard(_ detail: CatchDetail) -> some View {
-        HStack(spacing: 12) {
-            ZStack {
-                Circle().fill(CurrentsTheme.accent.opacity(0.12)).frame(width: 62, height: 62)
-                if let photo = detail.catchRecord.allPhotoPaths.first {
-                    PhotoThumbnail(path: photo, size: 62, cornerRadius: 31) {
-                        Circle().fill(CurrentsTheme.accent.opacity(0.12))
-                    }
-                } else if let species = detail.species {
-                    SpeciesArtworkView(species: species, caught: true, size: 54)
-                } else {
-                    Image(systemName: "trophy.fill").font(.title2).foregroundStyle(CurrentsTheme.accent)
-                }
-            }
-            VStack(alignment: .leading, spacing: 3) {
-                Label("Catch of the Trip", systemImage: "trophy.fill")
-                    .font(.caption.bold()).foregroundStyle(CurrentsTheme.accent)
-                Text(detail.species?.commonName ?? "Catch").font(.headline)
-                HStack(spacing: 8) {
-                    if let w = detail.catchRecord.weightKg {
-                        Text(Units.weight(kg: w, imperial: imperial)).font(.subheadline.bold())
-                    }
-                    if let l = detail.catchRecord.lengthCm {
-                        Text(Units.length(cm: l, imperial: imperial))
-                            .font(.subheadline).foregroundStyle(.secondary)
-                    }
-                }
-            }
-            Spacer()
-        }
-        .padding(12)
-        .glassCard()
+    private var speciesCounts: [(name: String, count: Int)] {
+        var acc: [String: Int] = [:]
+        for c in catches { acc[c.species?.commonName ?? "Unknown", default: 0] += 1 }
+        return acc.map { ($0.key, $0.value) }.sorted { $0.count > $1.count }
     }
-
-    // MARK: Species breakdown
-
-    private var speciesCounts: [(name: String, count: Int, species: Species?)] {
-        var acc: [String: (Int, Species?)] = [:]
-        for c in catches {
-            let name = c.species?.commonName ?? "Unknown"
-            let e = acc[name] ?? (0, c.species)
-            acc[name] = (e.0 + 1, e.1)
-        }
-        return acc.map { ($0.key, $0.value.0, $0.value.1) }.sorted { $0.count > $1.count }
-    }
-
-    private var speciesBreakdown: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Species").font(.subheadline.bold())
-            ForEach(speciesCounts, id: \.name) { row in
-                HStack(spacing: 10) {
-                    if let sp = row.species {
-                        SpeciesArtworkView(species: sp, caught: true, size: 30)
-                    } else {
-                        Image(systemName: "fish.fill").foregroundStyle(.secondary).frame(width: 30)
-                    }
-                    Text(row.name).font(.subheadline)
-                    Spacer()
-                    Text("×\(row.count)").font(.subheadline.bold().monospacedDigit())
-                        .foregroundStyle(CurrentsTheme.accent)
-                }
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .glassCard()
-    }
-
-    // MARK: Best spot & tackle
 
     private var bestSpot: (String, Int)? {
         var acc: [String: Int] = [:]
@@ -934,16 +1197,6 @@ struct TripOverviewHighlights: View {
         }
         return acc.max { $0.value < $1.value }.map { ($0.key, $0.value) }
     }
-
-    private func miniStat(_ title: String, _ value: String, _ sub: String, _ icon: String) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Label(title, systemImage: icon).font(.caption2.bold()).foregroundStyle(.secondary)
-            Text(value).font(.subheadline.bold()).lineLimit(1)
-            Text(sub).font(.caption2).foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .glassCard()
-    }
 }
 
 // MARK: - Catch-limit countdown
@@ -954,27 +1207,40 @@ struct CatchLimitBar: View {
     var body: some View {
         let items = limitedSpecies()
         if !items.isEmpty {
-            VStack(alignment: .leading, spacing: 8) {
-                Label("Catch Limits", systemImage: "exclamationmark.shield")
-                    .font(.subheadline.bold())
-                ForEach(items) { item in
-                    HStack {
-                        Text(item.name).font(.caption)
-                        Spacer()
-                        Text("\(item.kept)/\(item.limit) kept")
-                            .font(.caption.bold())
-                            .foregroundStyle(item.remaining == 0 ? .red : (item.remaining <= 1 ? .orange : .secondary))
-                        Text(item.remaining == 0 ? "limit reached" : "\(item.remaining) left")
-                            .font(.caption2)
-                            .foregroundStyle(item.remaining == 0 ? .red : .secondary)
+            VStack(alignment: .leading, spacing: 0) {
+                SectionTitle("Bag limits")
+                    .padding(.top, DS.Space.s8)
+                VStack(spacing: 0) {
+                    ForEach(Array(items.enumerated()), id: \.element.id) { i, item in
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack(alignment: .firstTextBaseline) {
+                                Text(item.name)
+                                    .foregroundStyle(.dsText)
+                                Spacer()
+                                Text(item.remaining == 0 ? "Limit reached" : "\(item.kept) of \(item.limit) kept")
+                                    .fontWeight(.semibold)
+                                    .monospacedDigit()
+                                    .foregroundStyle(tint(item))
+                            }
+                            .font(.body)
+                            ProgressView(value: Double(min(item.kept, item.limit)), total: Double(max(item.limit, 1)))
+                                .tint(tint(item))
+                        }
+                        .padding(.vertical, 12)
+                        .accessibilityElement(children: .combine)
+                        if i < items.count - 1 {
+                            Rectangle().fill(Color.dsSeparator).frame(height: 0.5)
+                        }
                     }
                 }
-                Text("Informational — confirm current local rules.")
-                    .font(.caption2).foregroundStyle(.tertiary)
+                .padding(.horizontal, DS.gutter)
+                SectionFoot("For information. Confirm current local rules before you keep a fish.")
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .glassCard()
         }
+    }
+
+    private func tint(_ item: LimitItem) -> Color {
+        item.remaining == 0 ? .dsScoreSlow : (item.remaining <= 1 ? .dsScoreLow : .dsText2)
     }
 
     struct LimitItem: Identifiable {
@@ -1033,20 +1299,20 @@ struct SessionTrackMap: View {
         Map(initialPosition: initialPosition) {
             if coords.count > 1 {
                 MapPolyline(coordinates: coords)
-                    .stroke(CurrentsTheme.accent, lineWidth: 4)
+                    .stroke(DS.accent, lineWidth: 4)
             }
             if let start = coords.first {
-                Marker("Start", systemImage: "flag.fill", coordinate: start).tint(.green)
+                Marker("Start", systemImage: "flag.fill", coordinate: start).tint(Color.dsScoreGood)
             }
             if coords.count > 1, let end = coords.last {
-                Marker("End", systemImage: "checkered.flag", coordinate: end).tint(.red)
+                Marker("End", systemImage: "flag.checkered", coordinate: end).tint(Color.dsScoreSlow)
             }
             ForEach(catchPins, id: \.catchRecord.id) { detail in
                 Marker(detail.species?.commonName ?? "Catch",
                        systemImage: "fish.fill",
                        coordinate: CLLocationCoordinate2D(latitude: detail.catchRecord.latitude,
                                                           longitude: detail.catchRecord.longitude))
-                    .tint(CurrentsTheme.accent)
+                    .tint(DS.accent)
             }
             if showsUser { UserAnnotation() }
         }
@@ -1104,6 +1370,6 @@ enum SessionFormat {
     static func defaultName() -> String {
         let hour = Calendar.current.component(.hour, from: .now)
         let part = hour < 11 ? "Morning" : (hour < 17 ? "Afternoon" : "Evening")
-        return "\(part) Session"
+        return "\(part) session"
     }
 }

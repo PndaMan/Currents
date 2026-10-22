@@ -1,0 +1,349 @@
+import SwiftUI
+import MapKit
+
+// MARK: - Routes
+
+/// Pages the Logbook stack pushes. Registered once on the Logbook root
+/// (CatchesTab). Records travel by id and are read fresh on push.
+enum LogbookRoute: Hashable {
+    case catchDetail(String)
+    case session(String)
+    case plan(String)
+    case streak
+    case achievements
+    case stats
+}
+
+// MARK: - Formatting
+
+enum LogbookFormat {
+    /// "Today", "Yesterday", a weekday within the last week, else "12 Oct".
+    static func relativeDay(_ date: Date, now: Date = .now) -> String {
+        let cal = Calendar.current
+        if cal.isDateInToday(date) { return "Today" }
+        if cal.isDateInYesterday(date) { return "Yesterday" }
+        let days = cal.dateComponents([.day], from: cal.startOfDay(for: date), to: cal.startOfDay(for: now)).day ?? 99
+        if days > 0 && days < 7 {
+            return date.formatted(.dateTime.weekday(.wide))
+        }
+        if cal.component(.year, from: date) == cal.component(.year, from: now) {
+            return date.formatted(.dateTime.day().month(.abbreviated))
+        }
+        return date.formatted(.dateTime.day().month(.abbreviated).year())
+    }
+
+    /// "Saturday 12 October"
+    static func longDay(_ date: Date) -> String {
+        date.formatted(.dateTime.weekday(.wide).day().month(.wide))
+    }
+
+    /// "12 Oct"
+    static func shortDay(_ date: Date) -> String {
+        date.formatted(.dateTime.day().month(.abbreviated))
+    }
+
+    static func time(_ date: Date) -> String {
+        date.formatted(date: .omitted, time: .shortened)
+    }
+
+    /// "62 cm, 3.4 kg" from whatever was measured, or nil.
+    static func size(_ record: Catch) -> String? {
+        var parts: [String] = []
+        if let l = record.lengthCm { parts.append(Units.length(cm: l)) }
+        if let w = record.weightKg { parts.append(Units.weight(kg: w)) }
+        return parts.isEmpty ? nil : parts.joined(separator: ", ")
+    }
+
+    /// "2 h 5 min" for durations on detail pages.
+    static func duration(_ seconds: TimeInterval) -> String {
+        let s = Int(max(0, seconds))
+        let h = s / 3600, m = (s % 3600) / 60
+        if h == 0 { return "\(m) min" }
+        return m == 0 ? "\(h) h" : "\(h) h \(m) min"
+    }
+}
+
+// MARK: - Catch thumbnail
+
+/// A catch's square thumbnail: its first photo, else the species art on its
+/// art colour, else a fish symbol. Photos decode off the main thread.
+struct CatchThumb: View {
+    let detail: CatchDetail
+    var size: CGFloat = 64
+    @Environment(\.displayScale) private var displayScale
+    @State private var photo: UIImage?
+
+    var body: some View {
+        Group {
+            if let photo {
+                ThumbView(image: photo, tint: detail.species?.artTint ?? .gray, size: size)
+            } else if let species = detail.species {
+                ThumbView(species: species, size: size)
+            } else {
+                ThumbView(systemImage: "fish.fill", tint: DS.accent, size: size)
+            }
+        }
+        .task(id: detail.catchRecord.allPhotoPaths.first) {
+            guard let path = detail.catchRecord.allPhotoPaths.first else { photo = nil; return }
+            let px = size * displayScale
+            let scale = displayScale
+            photo = await Task.detached { PhotoManager.thumbnail(path, maxPixel: px, scale: scale) }.value
+        }
+    }
+}
+
+/// The gallery tile's art: a square photo or species art filling the width.
+struct CatchTileArt: View {
+    let detail: CatchDetail
+    @Environment(\.displayScale) private var displayScale
+    @Environment(\.colorScheme) private var scheme
+    @State private var photo: UIImage?
+
+    var body: some View {
+        Color.clear
+            .aspectRatio(1, contentMode: .fit)
+            .background {
+                ZStack {
+                    Color.dsBackground
+                    (detail.species?.artTint ?? DS.accent).opacity(DS.thumbTintOpacity(scheme))
+                }
+            }
+            .overlay {
+                if let photo {
+                    Image(uiImage: photo)
+                        .resizable()
+                        .scaledToFill()
+                } else if let species = detail.species {
+                    SpeciesArtworkView(species: species, caught: true, size: 120)
+                        .padding(12)
+                } else {
+                    Image(systemName: "fish.fill")
+                        .font(.largeTitle)
+                        .foregroundStyle(DS.accent)
+                }
+            }
+            .clipShape(RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
+            .task(id: detail.catchRecord.allPhotoPaths.first) {
+                guard let path = detail.catchRecord.allPhotoPaths.first else { photo = nil; return }
+                let px: CGFloat = 400 * displayScale
+                let scale = displayScale
+                photo = await Task.detached { PhotoManager.thumbnail(path, maxPixel: px, scale: scale) }.value
+            }
+    }
+}
+
+// MARK: - Search
+
+/// Search across every catch by species, spot, notes or gear. Opens a catch
+/// by handing its id back to the Logbook, which pushes it.
+struct LogbookSearchSheet: View {
+    let catches: [CatchDetail]
+    let onOpen: (String) -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var query = ""
+
+    private var results: [CatchDetail] {
+        let q = query.trimmingCharacters(in: .whitespaces)
+        guard !q.isEmpty else { return Array(catches.prefix(30)) }
+        return catches.filter { d in
+            d.species?.commonName.localizedCaseInsensitiveContains(q) == true ||
+            d.species?.scientificName.localizedCaseInsensitiveContains(q) == true ||
+            d.spot?.name.localizedCaseInsensitiveContains(q) == true ||
+            d.catchRecord.notes?.localizedCaseInsensitiveContains(q) == true ||
+            d.gearLoadout?.name.localizedCaseInsensitiveContains(q) == true ||
+            d.gearLoadout?.lure?.localizedCaseInsensitiveContains(q) == true
+        }
+    }
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if catches.isEmpty {
+                    ContentUnavailableView("No catches yet", systemImage: "fish",
+                                           description: Text("Log your first fish and you can search it here."))
+                } else if results.isEmpty {
+                    ContentUnavailableView("No catches found", systemImage: "magnifyingglass",
+                                           description: Text("Search by species, spot, lure or notes."))
+                } else {
+                    List {
+                        Section {
+                            ForEach(results) { d in
+                                Button {
+                                    dismiss()
+                                    onOpen(d.catchRecord.id)
+                                } label: {
+                                    ArtRow(title: d.species?.commonName ?? "Unknown species",
+                                           subtitle: [LogbookFormat.size(d.catchRecord), d.gearLoadout?.lure]
+                                               .compactMap { $0 }.joined(separator: ", "),
+                                           chevron: true) {
+                                        CatchThumb(detail: d, size: 52)
+                                    }
+                                }
+                                .buttonStyle(.dsRow)
+                                .dsListRow()
+                            }
+                        } header: {
+                            Text(query.isEmpty ? "Recent" : "\(results.count) \(results.count == 1 ? "catch" : "catches")")
+                                .padding(.horizontal, DS.gutter)
+                        }
+                    }
+                    .dsPlainList()
+                }
+            }
+            .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always),
+                        prompt: "Species, spot or lure")
+            .navigationTitle("Search catches")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+        .presentationDetents([.large])
+        .presentationDragIndicator(.visible)
+    }
+}
+
+// MARK: - Track thumbnail
+
+/// A session's GPS track drawn into a square thumbnail, start and end dots
+/// included. Falls back to a route symbol when there is no usable track.
+struct TrackThumb: View {
+    let points: [Trip.TrackPoint]
+    var tint: Color = DS.accent
+    var size: CGFloat = 64
+
+    var body: some View {
+        if points.count > 1 {
+            ThumbView(tint: tint, size: size) {
+                TrackShape(points: points)
+                    .stroke(tint, style: StrokeStyle(lineWidth: max(2, size / 28), lineCap: .round, lineJoin: .round))
+                    .padding(size * 0.18)
+            }
+        } else {
+            ThumbView(systemImage: "point.topleft.down.to.point.bottomright.curvepath", tint: tint, size: size)
+        }
+    }
+}
+
+/// The track normalised into the shape's rect, keeping its aspect ratio.
+struct TrackShape: Shape {
+    let points: [Trip.TrackPoint]
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        guard points.count > 1 else { return path }
+        // Thin very long tracks so the path stays cheap to draw.
+        let step = max(1, points.count / 300)
+        let pts = stride(from: 0, to: points.count, by: step).map { points[$0] } + [points[points.count - 1]]
+        let lats = pts.map(\.lat), lons = pts.map(\.lon)
+        guard let minLat = lats.min(), let maxLat = lats.max(),
+              let minLon = lons.min(), let maxLon = lons.max() else { return path }
+        let w = max(maxLon - minLon, 0.00001), h = max(maxLat - minLat, 0.00001)
+        let scale = min(rect.width / w, rect.height / h)
+        let ox = rect.minX + (rect.width - w * scale) / 2
+        let oy = rect.minY + (rect.height - h * scale) / 2
+        func p(_ t: Trip.TrackPoint) -> CGPoint {
+            CGPoint(x: ox + (t.lon - minLon) * scale, y: oy + (maxLat - t.lat) * scale)
+        }
+        path.move(to: p(pts[0]))
+        for t in pts.dropFirst() { path.addLine(to: p(t)) }
+        return path
+    }
+}
+
+// MARK: - Key-value rows
+
+/// Plain label and value rows with hairlines between, padded to the gutter.
+struct KeyValueList: View {
+    let rows: [(String, String)]
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ForEach(Array(rows.enumerated()), id: \.offset) { i, row in
+                HStack(alignment: .firstTextBaseline) {
+                    Text(row.0)
+                        .foregroundStyle(.dsText2)
+                    Spacer(minLength: 12)
+                    Text(row.1)
+                        .foregroundStyle(.dsText)
+                        .multilineTextAlignment(.trailing)
+                }
+                .font(.body)
+                .padding(.vertical, 12)
+                .accessibilityElement(children: .combine)
+                if i < rows.count - 1 {
+                    Rectangle()
+                        .fill(Color.dsSeparator)
+                        .frame(height: 0.5)
+                }
+            }
+        }
+        .padding(.horizontal, DS.gutter)
+    }
+}
+
+/// A short explanatory note under a section, footnote size.
+struct SectionFoot: View {
+    let text: String
+    init(_ text: String) { self.text = text }
+
+    var body: some View {
+        Text(text)
+            .font(.footnote)
+            .foregroundStyle(.dsText3)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, DS.gutter)
+            .padding(.top, DS.Space.s2)
+    }
+}
+
+// MARK: - Directions
+
+/// A full-width tonal "Directions" menu: Waze, Apple Maps or Google Maps,
+/// opened the same way as the app's Drive to button.
+struct DirectionsButton: View {
+    let coordinate: CLLocationCoordinate2D
+    var name: String = ""
+    @Environment(\.openURL) private var openURL
+
+    var body: some View {
+        Menu {
+            Button { openWaze() } label: { Label("Waze", systemImage: "car.fill") }
+            Button { openAppleMaps() } label: { Label("Apple Maps", systemImage: "map.fill") }
+            Button {
+                let url = URL(string: "https://www.google.com/maps/dir/?api=1&destination=\(coordinate.latitude),\(coordinate.longitude)&travelmode=driving")
+                if let url { Haptics.tap(); openURL(url) }
+            } label: { Label("Google Maps", systemImage: "mappin.and.ellipse") }
+        } label: {
+            Label("Directions", systemImage: "arrow.triangle.turn.up.right.diamond.fill")
+                .font(.body.weight(.semibold))
+                .foregroundStyle(.dsText)
+                .frame(maxWidth: .infinity, minHeight: 50)
+                .background(Color.dsTonal, in: RoundedRectangle(cornerRadius: DS.Radius.button, style: .continuous))
+                .contentShape(RoundedRectangle(cornerRadius: DS.Radius.button, style: .continuous))
+        }
+    }
+
+    private func openWaze() {
+        Haptics.tap()
+        let lat = coordinate.latitude, lon = coordinate.longitude
+        let app = URL(string: "waze://?ll=\(lat),\(lon)&navigate=yes")
+        let web = URL(string: "https://waze.com/ul?ll=\(lat)%2C\(lon)&navigate=yes")
+        if let app {
+            UIApplication.shared.open(app, options: [:]) { opened in
+                if !opened, let web { UIApplication.shared.open(web) }
+            }
+        } else if let web {
+            UIApplication.shared.open(web)
+        }
+    }
+
+    private func openAppleMaps() {
+        let item = MKMapItem(placemark: MKPlacemark(coordinate: coordinate))
+        item.name = name.isEmpty ? "Destination" : name
+        item.openInMaps(launchOptions: [MKLaunchOptionsDirectionsModeKey: MKLaunchOptionsDirectionsModeDriving])
+    }
+}

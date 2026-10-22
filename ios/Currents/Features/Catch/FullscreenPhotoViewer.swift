@@ -35,12 +35,14 @@ struct FullscreenPhotoViewer: View {
                 dismiss()
             } label: {
                 Image(systemName: "xmark")
-                    .font(.body.bold())
+                    .font(.body.weight(.semibold))
                     .foregroundStyle(.white)
-                    .frame(width: 36, height: 36)
-                    .background(.black.opacity(0.5), in: Circle())
+                    .frame(width: 44, height: 44)
+                    .glassEffect(.regular.interactive(), in: Circle())
             }
-            .padding(.trailing, 16)
+            .buttonStyle(.plain)
+            .accessibilityLabel("Close")
+            .padding(.trailing, DS.gutter)
             .padding(.top, 8)
         }
         .statusBarHidden()
@@ -62,12 +64,14 @@ struct FullscreenImageViewer: View {
                 dismiss()
             } label: {
                 Image(systemName: "xmark")
-                    .font(.body.bold())
+                    .font(.body.weight(.semibold))
                     .foregroundStyle(.white)
-                    .frame(width: 36, height: 36)
-                    .background(.black.opacity(0.5), in: Circle())
+                    .frame(width: 44, height: 44)
+                    .glassEffect(.regular.interactive(), in: Circle())
             }
-            .padding(.trailing, 16)
+            .buttonStyle(.plain)
+            .accessibilityLabel("Close")
+            .padding(.trailing, DS.gutter)
             .padding(.top, 8)
         }
         .statusBarHidden()
