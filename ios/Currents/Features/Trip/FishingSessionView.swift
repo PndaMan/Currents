@@ -1140,7 +1140,7 @@ struct TripOverviewHighlights: View {
             VStack(alignment: .leading, spacing: 0) {
                 SectionTitle("Highlights")
                     .padding(.top, DS.Space.s8)
-                KeyValueList(rows: rows)
+                LogbookKeyValueList(rows: rows)
             }
         }
     }

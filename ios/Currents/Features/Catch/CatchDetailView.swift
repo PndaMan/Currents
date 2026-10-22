@@ -466,7 +466,7 @@ struct CatchDetailView: View {
                     .foregroundStyle(.dsText)
                     .padding(.horizontal, DS.gutter)
             }
-            KeyValueList(rows: rows)
+            LogbookKeyValueList(rows: rows)
         }
     }
 
@@ -659,7 +659,7 @@ struct CatchDetailView: View {
            predictions.count > 1 {
             SectionTitle("Species ID")
                 .padding(.top, DS.Space.s8)
-            KeyValueList(rows: predictions.map { ($0.label, "\(Int($0.confidence * 100))%") })
+            LogbookKeyValueList(rows: predictions.map { ($0.label, "\(Int($0.confidence * 100))%") })
             SectionFoot("Identified on your phone when you logged it. Best match first.")
         }
     }

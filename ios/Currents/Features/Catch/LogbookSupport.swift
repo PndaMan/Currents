@@ -257,7 +257,7 @@ struct TrackShape: Shape {
 // MARK: - Key-value rows
 
 /// Plain label and value rows with hairlines between, padded to the gutter.
-struct KeyValueList: View {
+struct LogbookKeyValueList: View {
     let rows: [(String, String)]
 
     var body: some View {

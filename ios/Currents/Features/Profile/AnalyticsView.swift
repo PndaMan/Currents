@@ -206,7 +206,7 @@ struct AnalyticsView: View {
             if !lures.isEmpty {
                 SectionTitle("Best lure by species")
                     .padding(.top, DS.Space.s8)
-                KeyValueList(rows: lures)
+                LogbookKeyValueList(rows: lures)
                 SectionFoot("From catches logged with gear.")
             }
         }
@@ -246,7 +246,7 @@ struct AnalyticsView: View {
             if !techniques.isEmpty {
                 SectionTitle("Techniques")
                     .padding(.top, DS.Space.s8)
-                KeyValueList(rows: techniques.prefix(6).map {
+                LogbookKeyValueList(rows: techniques.prefix(6).map {
                     ($0.key, "\($0.value.count) \($0.value.count == 1 ? "catch" : "catches")")
                 })
             }

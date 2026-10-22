@@ -95,7 +95,7 @@ struct StreakView: View {
                 weekStrip(stats)
                     .padding(.horizontal, DS.gutter)
 
-                KeyValueList(rows: rows(stats))
+                LogbookKeyValueList(rows: rows(stats))
                     .padding(.top, DS.Space.s6)
 
                 if let next, let progress = metrics.progress(for: next.title) {
