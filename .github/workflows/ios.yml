@@ -85,7 +85,8 @@ jobs:
       # (a hash of Package.resolved) can't work: key on project.yml's packages.
       - name: Key the package cache
         id: spm-key
-        run: echo "hash=$(awk '/^[^ #]/{p=($0 ~ /^packages:/)} p' project.yml | shasum -a 256 | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "hash=$(awk '/^[^ #]/{p=($0 ~ /^packages:/)} p' project.yml | shasum -a 256 | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
 
       # DerivedData from this job's newest successful run, with source mtimes
       # restored so the build is incremental, plus the SwiftPM checkouts. Each
@@ -289,7 +290,8 @@ jobs:
 
       - name: Key the package cache
         id: spm-key
-        run: echo "hash=$(awk '/^[^ #]/{p=($0 ~ /^packages:/)} p' project.yml | shasum -a 256 | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "hash=$(awk '/^[^ #]/{p=($0 ~ /^packages:/)} p' project.yml | shasum -a 256 | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
 
       - name: Cache Swift packages
         uses: actions/cache@v4
@@ -732,7 +734,8 @@ jobs:
 
       - name: Key the package cache
         id: spm-key
-        run: echo "hash=$(awk '/^[^ #]/{p=($0 ~ /^packages:/)} p' project.yml | shasum -a 256 | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "hash=$(awk '/^[^ #]/{p=($0 ~ /^packages:/)} p' project.yml | shasum -a 256 | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
 
       - name: Cache Swift packages
         uses: actions/cache@v4
