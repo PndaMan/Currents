@@ -393,14 +393,19 @@ struct ExploreSearchPane: View {
                 && wb.name.localizedStandardContains(query)
                 && seen.insert(wb.id ?? -1).inserted
         }
-        return Array(hits
-            .map { WaterHit(water: $0, metres: metres(to: CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude))) }
-            .sorted { a, b in
-                let ap = a.water.name.lowercased().hasPrefix(q), bp = b.water.name.lowercased().hasPrefix(q)
-                if ap != bp { return ap }
-                return (a.metres ?? .infinity, -(a.water.surfaceAreaKm2 ?? 0)) < (b.metres ?? .infinity, -(b.water.surfaceAreaKm2 ?? 0))
-            }
-            .prefix(category == nil ? 5 : 25))
+        // Names that start with the text first, then nearest, then largest.
+        let ranked: [WaterHit] = hits.map(waterHit).sorted { a, b in
+            let ap = a.water.name.lowercased().hasPrefix(q)
+            let bp = b.water.name.lowercased().hasPrefix(q)
+            if ap != bp { return ap }
+            let am: Double = a.metres ?? .infinity
+            let bm: Double = b.metres ?? .infinity
+            if am != bm { return am < bm }
+            let aArea: Double = a.water.surfaceAreaKm2 ?? 0
+            let bArea: Double = b.water.surfaceAreaKm2 ?? 0
+            return aArea > bArea
+        }
+        return Array(ranked.prefix(category == nil ? 5 : 25))
     }
 
     private var rampMatches: [BoatRamp] {
@@ -571,13 +576,20 @@ struct ExploreSearchPane: View {
     /// The nearest water within about 100 km, of one type or any.
     private func nearestWaters(of types: Set<Waterbody.WaterbodyType>?, limit: Int, includeSaved: Bool) -> [WaterHit] {
         guard origin != nil else { return [] }
-        let saved = includeSaved ? [] : savedWaterIds
-        return Array(waters
-            .filter { (types?.contains($0.type) ?? true) && !saved.contains($0.id ?? -1) }
-            .map { WaterHit(water: $0, metres: metres(to: CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude))) }
-            .filter { ($0.metres ?? .infinity) < 100_000 }
-            .sorted { ($0.metres ?? .infinity) < ($1.metres ?? .infinity) }
-            .prefix(limit))
+        let saved: Set<Int64> = includeSaved ? [] : savedWaterIds
+        var hits: [WaterHit] = []
+        for wb in waters {
+            if let types, !types.contains(wb.type) { continue }
+            if saved.contains(wb.id ?? -1) { continue }
+            let hit = waterHit(wb)
+            if let m = hit.metres, m < 100_000 { hits.append(hit) }
+        }
+        hits.sort { a, b in (a.metres ?? .infinity) < (b.metres ?? .infinity) }
+        return Array(hits.prefix(limit))
+    }
+
+    private func waterHit(_ wb: Waterbody) -> WaterHit {
+        WaterHit(water: wb, metres: metres(to: CLLocationCoordinate2D(latitude: wb.latitude, longitude: wb.longitude)))
     }
 
     private func sortedRamps(_ list: [BoatRamp]) -> [BoatRamp] {

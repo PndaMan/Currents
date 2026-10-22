@@ -20,145 +20,183 @@ struct OfflineMapsView: View {
 
     private var manager: MapManager { appState.mapManager }
 
+    // The page is built in steps (list, routes, then each dialog) so the
+    // type checker handles each part on its own.
     var body: some View {
+        withLegacyDialog
+            .confirmationDialog("Clear the map cache?", isPresented: $confirmClearCache, titleVisibility: .visible) {
+                Button("Clear cache", role: .destructive) {
+                    Haptics.warning()
+                    manager.clearTileCache()
+                    ToastCenter.shared.show("Map cache cleared", style: .info, haptic: false)
+                    Task { await measure() }
+                }
+            } message: {
+                Text("Frees \(OfflineFormat.bytes(cacheBytes)). Downloaded maps are kept.")
+            }
+    }
+
+    private var list: some View {
         List {
-            Section {
-                DetailHeader(title: "Offline maps", subtitle: headerSubtitle)
-                    .padding(.bottom, DS.Space.s2)
-                    .pfBareRow()
-                HStack(spacing: DS.Space.s2) {
-                    StatTile("Maps", systemImage: "map.fill", tint: .green,
-                             value: OfflineFormat.bytes(mapsBytes),
-                             footnote: mapsFootnote, width: nil)
-                    StatTile("Free", systemImage: "internaldrive", tint: .blue,
-                             value: OfflineFormat.bytes(freeBytes),
-                             footnote: "On this phone", width: nil)
-                }
-                .padding(.horizontal, DS.gutter)
-                .padding(.bottom, DS.Space.s2)
-                .pfBareRow()
-            }
-
-            Section {
-                Button {
-                    request = OfflineDownloadRequest(target: .area(nil, name: ""))
-                } label: {
-                    PFRowLabel(title: "Pick an area on the map", systemImage: "square.dashed", color: .green)
-                }
-                NavigationLink(value: OfflineMapsRoute.regions) {
-                    PFRowLabel(title: "Countries and provinces", systemImage: "globe.europe.africa.fill", color: .blue)
-                }
-            } header: {
-                Text("Download a map")
-            } footer: {
-                PFFootnote("Provinces and countries come as an overview with close-ups around their lakes, rivers and coast, and your own spots.")
-            }
-            .pfRows()
-
+            headerSection
+            downloadSection
             yourMaps
-
-            if !suggestions.isEmpty {
-                Section {
-                    ForEach(showAllSuggestions ? suggestions : Array(suggestions.prefix(5))) { s in
-                        Button {
-                            request = OfflineDownloadRequest(target: s.target)
-                        } label: {
-                            SuggestionRow(suggestion: s)
-                        }
-                        .accessibilityHint("Opens the download options")
-                    }
-                    if suggestions.count > 5 {
-                        Button(showAllSuggestions ? "Show fewer" : "Show all \(suggestions.count)") {
-                            withAnimation(DS.Motion.fast) { showAllSuggestions.toggle() }
-                        }
-                    }
-                } header: {
-                    Text("Suggested")
-                }
-                .pfRows()
-            }
-
-            Section {
-                PFToggleRow(title: "Cache maps as I browse",
-                            detail: "Keeps satellite tiles around you for no signal",
-                            isOn: Binding(get: { manager.autoCacheEnabled },
-                                          set: { manager.autoCacheEnabled = $0 }))
-                PFToggleRow(title: "Download on mobile data",
-                            detail: "When off, map downloads wait for Wi-Fi",
-                            isOn: Binding(get: { manager.downloadOnCellular },
-                                          set: { manager.downloadOnCellular = $0 }))
-                LabeledContent("Cached as you browse", value: OfflineFormat.bytes(cacheBytes))
-                Button("Clear map cache", role: .destructive) { confirmClearCache = true }
-                    .disabled(cacheBytes == 0)
-            } header: {
-                Text("Cache and downloads")
-            }
-            .pfRows()
-
+            suggestedSection
+            cacheSection
             if !manager.legacyMaps.isEmpty {
                 legacySection
             }
-
-            Section {
-                PFFootnote("\(OfflineTileOverlay.attribution). Country and province outlines from Natural Earth.")
-                    .padding(.horizontal, DS.gutter)
-                    .padding(.vertical, DS.Space.s2)
-                    .pfBareRow()
-            }
+            attributionSection
         }
         .pfGroupedList()
         .detailTint(.green)
         .pfTrackScroll($titleShown)
         .pfScrollTitle("Offline maps", shown: titleShown)
-        .navigationDestination(for: OfflineMapsRoute.self) { route in
-            switch route {
-            case .regions: OfflineRegionBrowser()
-            case .country(let country): OfflineCountryView(country: country)
-            case .pack(let id): OfflinePackDetailView(packId: id)
+    }
+
+    private var routed: some View {
+        list
+            .navigationDestination(for: OfflineMapsRoute.self) { route in
+                switch route {
+                case .regions: OfflineRegionBrowser()
+                case .country(let country): OfflineCountryView(country: country)
+                case .pack(let id): OfflinePackDetailView(packId: id)
+                }
             }
-        }
-        .sheet(item: $request) { OfflineDownloadSheet(target: $0.target) }
-        .task {
-            manager.refreshDownloadedRegions()
-            await measure()
-        }
-        .task(id: suggestionKey) { await loadSuggestions() }
-        .confirmationDialog("Delete \(packToDelete?.name ?? "this map")?",
-                            isPresented: Binding(get: { packToDelete != nil },
-                                                 set: { if !$0 { packToDelete = nil } }),
-                            titleVisibility: .visible,
-                            presenting: packToDelete) { pack in
-            Button("Delete map", role: .destructive) {
-                Haptics.warning()
-                manager.delete(pack.id)
-                ToastCenter.shared.show("\(pack.name) deleted", style: .info, haptic: false)
-                Task { await measure() }
+            .sheet(item: $request) { OfflineDownloadSheet(target: $0.target) }
+            .task {
+                manager.refreshDownloadedRegions()
+                await measure()
             }
-        } message: { pack in
-            Text("Frees \(OfflineFormat.bytes(manager.liveProgress[pack.id]?.bytes ?? pack.bytes)). The map there will need signal until you download it again.")
-        }
-        .confirmationDialog("Delete \(legacyToDelete?.name ?? "this picture")?",
-                            isPresented: Binding(get: { legacyToDelete != nil },
-                                                 set: { if !$0 { legacyToDelete = nil } }),
-                            titleVisibility: .visible,
-                            presenting: legacyToDelete) { region in
-            Button("Delete picture", role: .destructive) {
-                Haptics.warning()
-                manager.deleteRegion(region)
-                ToastCenter.shared.show("\(region.name) deleted", style: .info, haptic: false)
+            .task(id: suggestionKey) { await loadSuggestions() }
+    }
+
+    private var withPackDialog: some View {
+        routed
+            .confirmationDialog(packDialogTitle,
+                                isPresented: Binding(get: { packToDelete != nil },
+                                                     set: { if !$0 { packToDelete = nil } }),
+                                titleVisibility: .visible,
+                                presenting: packToDelete) { pack in
+                Button("Delete map", role: .destructive) {
+                    Haptics.warning()
+                    manager.delete(pack.id)
+                    ToastCenter.shared.show("\(pack.name) deleted", style: .info, haptic: false)
+                    Task { await measure() }
+                }
+            } message: { pack in
+                Text("Frees \(OfflineFormat.bytes(manager.liveProgress[pack.id]?.bytes ?? pack.bytes)). The map there will need signal until you download it again.")
             }
-        } message: { region in
-            Text("Frees \(region.formattedSize).")
-        }
-        .confirmationDialog("Clear the map cache?", isPresented: $confirmClearCache, titleVisibility: .visible) {
-            Button("Clear cache", role: .destructive) {
-                Haptics.warning()
-                manager.clearTileCache()
-                ToastCenter.shared.show("Map cache cleared", style: .info, haptic: false)
-                Task { await measure() }
+    }
+
+    private var withLegacyDialog: some View {
+        withPackDialog
+            .confirmationDialog(legacyDialogTitle,
+                                isPresented: Binding(get: { legacyToDelete != nil },
+                                                     set: { if !$0 { legacyToDelete = nil } }),
+                                titleVisibility: .visible,
+                                presenting: legacyToDelete) { region in
+                Button("Delete picture", role: .destructive) {
+                    Haptics.warning()
+                    manager.deleteRegion(region)
+                    ToastCenter.shared.show("\(region.name) deleted", style: .info, haptic: false)
+                }
+            } message: { region in
+                Text("Frees \(region.formattedSize).")
             }
-        } message: {
-            Text("Frees \(OfflineFormat.bytes(cacheBytes)). Downloaded maps are kept.")
+    }
+
+    private var packDialogTitle: String { "Delete \(packToDelete?.name ?? "this map")?" }
+    private var legacyDialogTitle: String { "Delete \(legacyToDelete?.name ?? "this picture")?" }
+
+    // MARK: Sections
+
+    private var headerSection: some View {
+        Section {
+            DetailHeader(title: "Offline maps", subtitle: headerSubtitle)
+                .padding(.bottom, DS.Space.s2)
+                .pfBareRow()
+            HStack(spacing: DS.Space.s2) {
+                StatTile("Maps", systemImage: "map.fill", tint: .green,
+                         value: OfflineFormat.bytes(mapsBytes),
+                         footnote: mapsFootnote, width: nil)
+                StatTile("Free", systemImage: "internaldrive", tint: .blue,
+                         value: OfflineFormat.bytes(freeBytes),
+                         footnote: "On this phone", width: nil)
+            }
+            .padding(.horizontal, DS.gutter)
+            .padding(.bottom, DS.Space.s2)
+            .pfBareRow()
+        }
+    }
+
+    private var downloadSection: some View {
+        Section {
+            Button {
+                request = OfflineDownloadRequest(target: .area(nil, name: ""))
+            } label: {
+                PFRowLabel(title: "Pick an area on the map", systemImage: "square.dashed", color: .green)
+            }
+            NavigationLink(value: OfflineMapsRoute.regions) {
+                PFRowLabel(title: "Countries and provinces", systemImage: "globe.europe.africa.fill", color: .blue)
+            }
+        } header: {
+            Text("Download a map")
+        } footer: {
+            PFFootnote("Provinces and countries come as an overview with close-ups around their lakes, rivers and coast, and your own spots.")
+        }
+        .pfRows()
+    }
+
+    @ViewBuilder
+    private var suggestedSection: some View {
+        if !suggestions.isEmpty {
+            Section {
+                ForEach(showAllSuggestions ? suggestions : Array(suggestions.prefix(5))) { s in
+                    Button {
+                        request = OfflineDownloadRequest(target: s.target)
+                    } label: {
+                        SuggestionRow(suggestion: s)
+                    }
+                    .accessibilityHint("Opens the download options")
+                }
+                if suggestions.count > 5 {
+                    Button(showAllSuggestions ? "Show fewer" : "Show all \(suggestions.count)") {
+                        withAnimation(DS.Motion.fast) { showAllSuggestions.toggle() }
+                    }
+                }
+            } header: {
+                Text("Suggested")
+            }
+            .pfRows()
+        }
+    }
+
+    private var cacheSection: some View {
+        Section {
+            PFToggleRow(title: "Cache maps as I browse",
+                        detail: "Keeps satellite tiles around you for no signal",
+                        isOn: Binding(get: { manager.autoCacheEnabled },
+                                      set: { manager.autoCacheEnabled = $0 }))
+            PFToggleRow(title: "Download on mobile data",
+                        detail: "When off, map downloads wait for Wi-Fi",
+                        isOn: Binding(get: { manager.downloadOnCellular },
+                                      set: { manager.downloadOnCellular = $0 }))
+            LabeledContent("Cached as you browse", value: OfflineFormat.bytes(cacheBytes))
+            Button("Clear map cache", role: .destructive) { confirmClearCache = true }
+                .disabled(cacheBytes == 0)
+        } header: {
+            Text("Cache and downloads")
+        }
+        .pfRows()
+    }
+
+    private var attributionSection: some View {
+        Section {
+            PFFootnote("\(OfflineTileOverlay.attribution). Country and province outlines from Natural Earth.")
+                .padding(.horizontal, DS.gutter)
+                .padding(.vertical, DS.Space.s2)
+                .pfBareRow()
         }
     }
 

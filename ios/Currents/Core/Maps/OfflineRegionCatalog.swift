@@ -239,17 +239,18 @@ enum OfflineRegionCatalog {
             }
             return best
         }
-        let countries = index.countryKeys
-            .compactMap { c, keys in rank(keys).map { (c, $0) } }
-            .sorted { $0.1 != $1.1 ? $0.1 < $1.1 : displayName($0.0) < displayName($1.0) }
-            .prefix(limit)
-            .map { $0.0 }
-        let regions = index.regionKeys
-            .compactMap { r, keys in rank(keys).map { (r, $0) } }
-            .sorted { $0.1 != $1.1 ? $0.1 < $1.1 : $0.0.name < $1.0.name }
-            .prefix(limit)
-            .map { $0.0 }
-        return (Array(countries), Array(regions))
+        // Plain loops: the chained version was too slow for the type checker.
+        var countryHits: [(country: OfflineCountry, rank: Int, name: String)] = []
+        for (country, keys) in index.countryKeys {
+            if let r = rank(keys) { countryHits.append((country, r, displayName(country))) }
+        }
+        countryHits.sort { a, b in a.rank != b.rank ? a.rank < b.rank : a.name < b.name }
+        var regionHits: [(region: OfflineAdminRegion, rank: Int)] = []
+        for (region, keys) in index.regionKeys {
+            if let r = rank(keys) { regionHits.append((region, r)) }
+        }
+        regionHits.sort { a, b in a.rank != b.rank ? a.rank < b.rank : a.region.name < b.region.name }
+        return (countryHits.prefix(limit).map { $0.country }, regionHits.prefix(limit).map { $0.region })
     }
 
     /// The region outline as rings of coordinates. Longitudes may pass 180
