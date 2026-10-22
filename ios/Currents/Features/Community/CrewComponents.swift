@@ -97,7 +97,7 @@ enum CrewReactionStyle {
         case "🎣": DS.accent  // ui-lint: allow, reaction emoji are user content
         case "👏": .dsScoreFair  // ui-lint: allow, reaction emoji are user content
         case "😮": .dsScoreGood  // ui-lint: allow, reaction emoji are user content
-        default: Color.cyan
+        default: DS.accent
         }
     }
 }
@@ -108,7 +108,8 @@ enum CrewReactionStyle {
 /// refreshed lazily), otherwise its emoji on the accent tint.
 struct CrewThumb: View {
     let code: String
-    let emoji: String
+    /// The crew's stored icon emoji; nil while the crew is still loading.
+    let emoji: String?
     var size: CGFloat = 64
     @State private var icon: UIImage?
 
@@ -116,10 +117,12 @@ struct CrewThumb: View {
         Group {
             if let icon {
                 ThumbView(image: icon, tint: DS.accent, size: size)
-            } else {
+            } else if let emoji, !emoji.isEmpty {
                 ThumbView(tint: DS.accent, size: size) {
                     Text(emoji).font(.system(size: size * 0.46))  // ui-lint: allow, crew icon emoji is stored crew data and scales with the thumb
                 }
+            } else {
+                ThumbView(systemImage: "person.3.fill", tint: DS.accent, size: size)
             }
         }
         .accessibilityHidden(true)
@@ -215,11 +218,9 @@ struct CrewAvatar: View {
     let name: String
     var size: CGFloat = 44
 
-    private static let palette: [Color] = [
-        Color.cyan, Color.purple,
-        .dsScoreSlow, .dsScoreFair, Color.blue, .dsScoreGood,
-        .dsScoreLow, Color.gray
-    ]
+    private static var palette: [Color] {
+        [DS.accent, .dsScoreSlow, .dsScoreLow, .dsScoreFair, .dsScoreGood, .dsText2]
+    }
 
     private var colour: Color {
         let sum = name.unicodeScalars.reduce(0) { $0 + Int($1.value) }
@@ -234,7 +235,7 @@ struct CrewAvatar: View {
             } else {
                 Text(name.first.map { String($0).uppercased() } ?? "A")
                     .font(.system(size: size * 0.42, weight: .bold))  // ui-lint: allow, initial scales with the avatar, not with text
-                    .foregroundStyle(Color.black)
+                    .foregroundStyle(Color.black)  // ui-lint: allow, initials sit on bright score fills in both modes
             }
         }
         .frame(width: size, height: size)

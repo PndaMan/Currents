@@ -275,7 +275,7 @@ struct CommunityView: View {
                             .font(.caption2.weight(.semibold))
                             .foregroundStyle(.white)
                             .frame(width: 24, height: 24)
-                            .background(Color.blue, in: Circle())
+                            .background(DS.accent, in: Circle())
                             .overlay(Circle().stroke(Color.dsBackground, lineWidth: 2.5))
                             .offset(x: 4, y: 4)
                     }

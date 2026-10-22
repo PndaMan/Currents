@@ -73,7 +73,7 @@ struct CrewSetupView: View {
 
     @State private var mode: CrewSetupMode = .start
     @State private var name = ""
-    @State private var emoji = "🎣"  // ui-lint: allow, crew icon emoji is stored crew data
+    @State private var emoji = "🎣"  // ui-lint: allow, default stored crew icon value
     @State private var joinCode = ""
     @State private var busy = false
     @State private var joinError: String?
@@ -430,7 +430,7 @@ struct CrewDetailView: View {
                 .padding(.top, DS.Space.s2)
                 .accessibilityLabel("Crew banner")
         } else {
-            CrewThumb(code: code, emoji: crew?.emoji ?? "🎣", size: 120)  // ui-lint: allow, crew icon emoji is stored crew data
+            CrewThumb(code: code, emoji: crew?.emoji, size: 120)
                 .padding(.horizontal, DS.gutter)
                 .padding(.top, DS.Space.s2)
         }
@@ -717,7 +717,7 @@ struct CrewDetailView: View {
         switch role {
         case .captain: .dsScoreFair
         case .mate:    .dsScoreLow
-        case .admin:   Color.blue
+        case .admin:   DS.accent
         case .member:  .dsText2
         }
     }
@@ -1761,7 +1761,7 @@ struct JoinCrewConfirmView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                CrewThumb(code: code.uppercased(), emoji: crew?.emoji ?? "🎣", size: 96)  // ui-lint: allow, crew icon emoji is stored crew data
+                CrewThumb(code: code.uppercased(), emoji: crew?.emoji, size: 96)
                     .padding(.horizontal, DS.gutter)
                     .padding(.top, DS.Space.s4)
                 DetailHeader(over: svc.joined ? "Crew invite" : "Join the community",
