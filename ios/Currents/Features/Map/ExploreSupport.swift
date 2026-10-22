@@ -56,7 +56,7 @@ struct ExploreDestination: View {
         case .ramps: RampListView()
         case .speciesGuide: SpeciesBrowserView()
         case .regulations: RegulationsView()
-        case .offlineMaps: StorageSettingsView()
+        case .offlineMaps: OfflineMapsView()
         }
     }
 }

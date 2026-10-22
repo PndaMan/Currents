@@ -81,6 +81,11 @@ struct MapTab: View {
     @State private var pendingCatch: CatchDetail?
     @State private var selectedRamp: BoatRamp?
     @State private var showingLayers = false
+    // Offline download of the area in view, opened from the layers sheet
+    // once that sheet has gone.
+    @State private var downloadRegion: MKCoordinateRegion?
+    @State private var showingDownload = false
+    @State private var pendingDownload = false
     @State private var addSpotAt: AddSpotTarget?
     @State private var isDropping = false
     @State private var pendingRoute: ExploreRoute?
@@ -270,7 +275,12 @@ struct MapTab: View {
             AddSpotSheet(prefillCoordinate: target.coord)
                 .presentationDetents([.large])
         }
-        .sheet(isPresented: $showingLayers) {
+        .sheet(isPresented: $showingLayers, onDismiss: {
+            if pendingDownload {
+                pendingDownload = false
+                showingDownload = true
+            }
+        }) {
             MapLayersSheet(
                 style: Binding(get: { mapStyle }, set: { mapStyle = $0 }),
                 showSpots: $showSpots,
@@ -280,8 +290,15 @@ struct MapTab: View {
                 nautical: $layerNautical,
                 radar: $layerRadar,
                 wind: $layerWind,
-                current: $layerCurrent
+                current: $layerCurrent,
+                onDownloadArea: {
+                    downloadRegion = lastRegion
+                    pendingDownload = true
+                }
             )
+        }
+        .sheet(isPresented: $showingDownload, onDismiss: { appState.mapManager.refreshDownloadedRegions() }) {
+            OfflineDownloadSheet(region: downloadRegion)
         }
         .sheet(isPresented: $showingNewTrip, onDismiss: {
             if appState.tripTracker.isTracking { showingLiveTrip = true }
@@ -758,7 +775,7 @@ struct MapTab: View {
     }
 
     /// Which offline region the map covers, or when scores were last worked
-    /// out if the weather is old. Opens offline maps and storage.
+    /// out if the weather is old. Opens Offline maps.
     private var offlineBadge: some View {
         let regions = appState.mapManager.downloadedRegions
         let stale = weather.map { Date.now.timeIntervalSince($0.fetchedAt) > 3 * 3600 } ?? false
@@ -771,7 +788,7 @@ struct MapTab: View {
             text = "\(region.name) offline"
             icon = "arrow.down.circle"
         } else if regions.count > 1 {
-            text = "\(regions.count) regions offline"
+            text = "\(regions.count) maps offline"
             icon = "arrow.down.circle"
         } else {
             text = "Offline maps"
