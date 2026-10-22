@@ -92,16 +92,9 @@ enum CurrentsTheme {
     static var accent: Color { ThemeOption.current.primary }
     static let danger = Color.red
 
-    /// Score color ramp: red (0) → orange (40) → yellow (60) → green (80) → accent (100)
-    static func scoreColor(_ score: Int) -> Color {
-        switch score {
-        case 0..<25: return .red
-        case 25..<50: return .orange
-        case 50..<75: return .yellow
-        case 75..<90: return .green
-        default: return accent
-        }
-    }
+    /// Score color ramp: red (0) → orange (25) → yellow (50) → green (75) → accent (90).
+    /// Delegates to the design system so old and new screens agree.
+    static func scoreColor(_ score: Int) -> Color { DS.scoreColor(score) }
 
     // MARK: Spacing
 

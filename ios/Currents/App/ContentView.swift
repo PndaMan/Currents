@@ -1,47 +1,74 @@
 import SwiftUI
 
+/// Shell-level navigation values every tab's NavigationStack resolves.
+/// Feature screens push their own value types too; these are the routes the
+/// shell itself needs (the avatar, deep links, the celebration button).
+enum AppRoute: Hashable {
+    /// Profile and settings, pushed from the avatar in any tab.
+    case profile
+    case gear
+    case licenses
+    case sessions
+    case fishdex
+}
+
 struct ContentView: View {
     @Environment(AppState.self) private var appState
-    // Opens straight to a requested tab in screenshot mode, else the map.
-    @State private var selectedTab: Tab = ScreenshotSupport.initialTab ?? .map
+    // Opens straight to a requested tab in screenshot mode, else Today.
+    @State private var selectedTab: Tab = ScreenshotSupport.initialTab ?? .today
+    /// One navigation path per tab, so deep links can push and a second tap
+    /// on the selected tab pops back to its root.
+    @State private var paths: [Tab: NavigationPath] = [:]
 
-    /// Four tabs, one job each. The old "More" tab was a dumping ground of 16
-    /// rows; its contents now live where they're used (spots on the Map,
-    /// sessions and analytics on Catches, the guide and calendar on Fish) with
-    /// genuine settings behind the gear icon on Today.
-    enum Tab: String, CaseIterable {
+    /// Four tabs, each its own NavigationStack. Profile and settings push
+    /// from the avatar at the left of every tab's large title.
+    enum Tab: Hashable, CaseIterable {
         case today
-        case map
-        case catches
-        case fish
-        case community
+        case explore
+        case logbook
+        case crew
+
+        /// Also accepts the old tab names (map, catches, fish, community) so
+        /// SCREENSHOT_TAB values from before the redesign keep working.
+        init?(rawValue: String) {
+            switch rawValue {
+            case "today": self = .today
+            case "explore", "map", "fish": self = .explore
+            case "logbook", "catches": self = .logbook
+            case "crew", "community": self = .crew
+            default: return nil
+            }
+        }
+
+        var rawValue: String {
+            switch self {
+            case .today: "today"
+            case .explore: "explore"
+            case .logbook: "logbook"
+            case .crew: "crew"
+            }
+        }
 
         var title: String {
             switch self {
             case .today: "Today"
-            case .map: "Explore"
-            case .catches: "Catches"
-            case .fish: "Fish"
-            case .community: "Community"
+            case .explore: "Explore"
+            case .logbook: "Logbook"
+            case .crew: "Crew"
             }
         }
 
         var icon: String {
             switch self {
-            case .today: "sun.horizon.fill"
-            case .map: "map.fill"
-            case .catches: "figure.fishing"
-            // The fish glyph Catches used to carry — it belongs to the species
-            // guide now that Catches shows the angler instead.
-            case .fish: "fish.fill"
-            case .community: "person.3.fill"
+            case .today: "sun.max"
+            case .explore: "map"
+            case .logbook: "book.closed"
+            case .crew: "person.2"
             }
         }
     }
 
     @State private var planPrompt: Trip?
-    /// Non-nil while a deep link is showing the Settings sheet at a screen.
-    @State private var settingsDestination: AppState.MoreDestination?
     @State private var joinGroupCode: JoinCode?
     @State private var pendingFriend: JoinCode?
     @State private var pendingCrew: JoinCode?
@@ -49,23 +76,62 @@ struct ContentView: View {
 
     struct JoinCode: Identifiable { let id: String }
 
+    /// Selecting the tab that is already selected pops it to its root.
+    private var tabSelection: Binding<Tab> {
+        Binding(
+            get: { selectedTab },
+            set: { tab in
+                if tab == selectedTab { paths[tab] = NavigationPath() }
+                selectedTab = tab
+            }
+        )
+    }
+
+    private func path(for tab: Tab) -> Binding<NavigationPath> {
+        Binding(
+            get: { paths[tab] ?? NavigationPath() },
+            set: { paths[tab] = $0 }
+        )
+    }
+
+    /// Switch to `tab` and show `routes` on top of its root.
+    private func navigate(_ tab: Tab, _ routes: AppRoute...) {
+        selectedTab = tab
+        var path = NavigationPath()
+        for route in routes { path.append(route) }
+        paths[tab] = path
+    }
+
+    @ViewBuilder
+    private func root(for tab: Tab) -> some View {
+        switch tab {
+        case .today: TodayTab()
+        case .explore: MapTab()
+        case .logbook: CatchesTab()
+        case .crew: CommunityView()
+        }
+    }
+
+    @ViewBuilder
+    private func destination(for route: AppRoute) -> some View {
+        switch route {
+        case .profile: SettingsView()
+        case .gear: GearTab()
+        case .licenses: LicenseWalletView()
+        case .sessions: SessionsView()
+        case .fishdex: FishCollectionView(embedded: true)
+        }
+    }
+
     var body: some View {
-        TabView(selection: $selectedTab) {
+        TabView(selection: tabSelection) {
             ForEach(Tab.allCases, id: \.self) { tab in
                 SwiftUI.Tab(tab.title, systemImage: tab.icon, value: tab) {
-                    switch tab {
-                    case .today:
-                        TodayTab()
-                    case .map:
-                        MapTab()
-                    case .catches:
-                        CatchesTab()
-                    case .fish:
-                        FishTab()
-                    case .community:
-                        // CommunityView expects to live inside a stack (it was
-                        // pushed from Settings before it became a tab).
-                        NavigationStack { CommunityView() }
+                    NavigationStack(path: path(for: tab)) {
+                        root(for: tab)
+                            .navigationDestination(for: AppRoute.self) { route in
+                                destination(for: route)
+                            }
                     }
                 }
             }
@@ -84,14 +150,6 @@ struct ContentView: View {
             await CommunityService.shared.refreshFriendRequests()
         }
         .sensoryFeedback(.selection, trigger: selectedTab)
-        .onChange(of: appState.swipePage) { _, page in
-            // An edge swipe landed on another tab. Segmented tabs (Fish,
-            // Community) read the same value to pick their segment and clear
-            // it themselves once applied.
-            guard let page else { return }
-            selectedTab = page.tab
-            if page.isPlainTab { appState.swipePage = nil }
-        }
         .toastHost()
         .celebrationHost()
         .fullScreenCover(isPresented: Binding(get: { !hasOnboarded && !ScreenshotSupport.isActive },
@@ -127,38 +185,40 @@ struct ContentView: View {
                 JoinCrewConfirmView(code: crew.id)
             }
         }
-        .sheet(item: $settingsDestination) { dest in
-            SettingsView(initialDestination: dest)
-        }
         .onChange(of: appState.siriRequestedLogCatch) { _, requested in
-            // Siri "Log a Catch" shortcut — surface the Catches tab so its
-            // log sheet (which watches the same flag) can present.
-            if requested { selectedTab = .catches }
+            // Siri "Log a Catch" shortcut — surface Logbook so its log
+            // sheet (which watches the same flag) can present.
+            if requested { selectedTab = .logbook }
         }
         .alert("Start planned session?", isPresented: Binding(
             get: { planPrompt != nil }, set: { if !$0 { planPrompt = nil } }
         ), presenting: planPrompt) { trip in
-            Button("Start Now") {
+            Button("Start session") {
                 _ = appState.tripTracker.startPlanned(trip)
                 planPrompt = nil
-                selectedTab = .map
+                selectedTab = .explore
             }
-            Button("Not Now", role: .cancel) { planPrompt = nil }
+            Button("Not now", role: .cancel) { planPrompt = nil }
         } message: { trip in
             Text("\(trip.name) is planned for \(trip.plannedDate?.formatted(date: .omitted, time: .shortened) ?? "now").")
         }
     }
 
-    /// Handle deep links from notifications, the Live Activity, widgets and
-    /// invite links:
-    ///   currents://session       → open the live session (log a catch)
-    ///   currents://sessions      → the Sessions list (start a planned trip)
-    ///   currents://community     → Community (friend requests / trip invites)
-    ///   currents://gear          → Gear (low-stock reorder)
-    ///   currents://licenses      → Licence wallet (expiry)
-    ///   currents://map           → the Explore map (bite alerts)
+    /// Handle deep links from notifications, the Live Activity, widgets,
+    /// invite links and the celebration card:
+    ///   currents://log           → Logbook, log sheet open
+    ///   currents://session       → the live session (Explore presents it)
+    ///   currents://sessions      → Logbook > Sessions (start a planned trip)
+    ///   currents://community     → Crew (friend requests / trip invites)
+    ///   currents://crewfeed/<C>  → Crew, straight into that crew
+    ///   currents://tournament    → Crew (the live tournament lives in its crew)
+    ///   currents://gear          → Profile > Gear (low-stock reorder)
+    ///   currents://licenses      → Profile > Licences (expiry)
+    ///   currents://map           → Explore (bite alerts)
+    ///   currents://fishdex       → Logbook > Fishdex
     ///   currents://trip/<CODE>   → Join Trip confirmation
     ///   currents://friend/<CODE> → Add Friend confirmation
+    ///   currents://crew/<CODE>   → Join Crew confirmation
     private func handleDeepLink(_ url: URL) {
         guard url.scheme == "currents" else { return }
         let host = url.host ?? ""
@@ -166,43 +226,39 @@ struct ContentView: View {
         // Simple screen routes (no code needed).
         switch host {
         case "log":
-            // Quick-log from the widget / shortcut: jump to Catches and present
-            // the log sheet (CatchesTab watches this flag).
-            selectedTab = .catches
+            // Quick-log from the widget / shortcut: Logbook presents the log
+            // sheet (CatchesTab watches this flag).
+            navigate(.logbook)
             appState.siriRequestedLogCatch = true
             return
         case "session":
-            selectedTab = .map
+            // The live session sheet is presented by the Explore root.
+            navigate(.explore)
             appState.openLiveSession = true
             return
-        // These four now live behind the Settings sheet (which still pushes
-        // each destination), so the existing links keep working unchanged.
         case "sessions":
-            settingsDestination = .sessions
+            navigate(.logbook, .sessions)
             return
-        case "community":
-            // Community is a first-class tab now, not a Settings screen.
-            selectedTab = .community
+        case "community", "tournament":
+            navigate(.crew)
             return
         case "crewfeed":
-            // A crew push tap: straight into that crew, not the Community root.
-            selectedTab = .community
+            // A crew push tap: straight into that crew, not the Crew root.
+            navigate(.crew)
             let code = url.lastPathComponent.uppercased()
             if code.count == 6 { appState.openCrewCode = code }
             return
-        case "tournament":
-            // The tournament Live Activity tap: Community is where crews (and
-            // their live tournament) live.
-            selectedTab = .community
-            return
         case "gear":
-            settingsDestination = .gear
+            navigate(selectedTab, .profile, .gear)
             return
         case "licenses":
-            settingsDestination = .licenses
+            navigate(selectedTab, .profile, .licenses)
             return
         case "map":
-            selectedTab = .map
+            navigate(.explore)
+            return
+        case "fishdex":
+            navigate(.logbook, .fishdex)
             return
         default:
             break
