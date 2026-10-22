@@ -1525,10 +1525,7 @@ struct WidgetsSiriView: View {
 // MARK: - About
 
 struct AboutView: View {
-    @Environment(\.requestReview) private var requestReview
     @State private var titleShown = false
-
-    private static let koFi = URL(string: "https://ko-fi.com/aidanmcconnon")!
 
     /// "2.4", for the About row in settings.
     static var shortVersion: String {
@@ -1561,14 +1558,12 @@ struct AboutView: View {
             }
 
             Section {
-                Link(destination: Self.koFi) {
-                    PFRowLabel(title: "Support Currents on Ko-fi", systemImage: "cup.and.saucer.fill", color: .orange)
-                }
-                Button {
-                    requestReview()
-                } label: {
+                // The App Store's write-review page, as Apple recommends for
+                // a permanent Rate button.
+                Link(destination: ReviewPrompt.writeReviewURL) {
                     PFRowLabel(title: "Rate Currents", systemImage: "star.fill", color: .yellow)
                 }
+                .accessibilityHint("Opens the App Store")
             } header: {
                 Text("Support")
             } footer: {
