@@ -1123,17 +1123,16 @@ struct LogCatchView: View {
     // MARK: - Dirty state
 
     private var signature: String {
-        [
-            selectedSpeciesId.map { String($0) } ?? "",
-            lengthCm, weightKg, String(released), String(isFavorite), notes,
-            String(Int(caughtAt.timeIntervalSince1970 / 60)),
-            waterClarity?.rawValue ?? "", depthText,
-            photos.map { $0.id.uuidString }.joined(separator: ","),
-            locationMode.rawValue, selectedSpotId ?? "",
-            pinCoordinate.map { "\($0.latitude),\($0.longitude)" } ?? "",
-            selectedTripId ?? "", selectedGearId ?? "",
-            gearRod, gearReel, gearLure, gearLureColor, gearTechnique,
-        ].joined(separator: "|")
+        let species: String = selectedSpeciesId.map { String($0) } ?? ""
+        let minute: String = String(Int(caughtAt.timeIntervalSince1970 / 60))
+        let clarity: String = waterClarity?.rawValue ?? ""
+        let photoIds: String = photos.map { $0.id.uuidString }.joined(separator: ",")
+        let pin: String = pinCoordinate.map { "\($0.latitude),\($0.longitude)" } ?? ""
+        var parts: [String] = [species, lengthCm, weightKg, String(released), String(isFavorite), notes]
+        parts += [minute, clarity, depthText, photoIds]
+        parts += [locationMode.rawValue, selectedSpotId ?? "", pin, selectedTripId ?? "", selectedGearId ?? ""]
+        parts += [gearRod, gearReel, gearLure, gearLureColor, gearTechnique]
+        return parts.joined(separator: "|")
     }
 
     private var isDirty: Bool {
