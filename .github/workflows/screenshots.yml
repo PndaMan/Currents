@@ -175,6 +175,18 @@ jobs:
           echo "Captured $OUT/06_watch.png"
           ls -la "$OUT"
 
+      - name: Add caption headers
+        # Store-ready copies with a headline above each capture, from
+        # docs/app-store/screenshots/captions.json. Raw captures are kept too.
+        working-directory: ${{ github.workspace }}
+        run: |
+          pip3 install --quiet pillow
+          python3 scripts/caption_screenshots.py \
+            --captions docs/app-store/screenshots/captions.json \
+            --input ios/screenshots/6.9 \
+            --output ios/screenshots/captioned
+          ls -la ios/screenshots/captioned
+
       - name: Collect diagnostics (crash logs + app oslog)
         if: always()
         run: |
@@ -204,6 +216,10 @@ jobs:
           TMP=$(mktemp -d)
           cp ios/screenshots/6.9/*.png "$TMP"/ 2>/dev/null || true
           cp ios/screenshots/watch/*.png "$TMP"/ 2>/dev/null || true
+          # Captioned, upload-ready versions live in a subfolder so the raw
+          # captures keep their existing paths (the README links to them).
+          mkdir -p "$TMP/captioned"
+          cp ios/screenshots/captioned/*.png "$TMP/captioned/" 2>/dev/null || true
           if ! ls "$TMP"/*.png >/dev/null 2>&1; then
             echo "No screenshots to publish"; exit 0
           fi
@@ -212,7 +228,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git checkout -q -b app-store-screenshots
-          git add ./*.png
+          git add ./*.png captioned/*.png 2>/dev/null || git add ./*.png
           git commit -q -m "App Store screenshots (automated, ${GITHUB_SHA})"
           git remote add origin "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git"
           git push -f origin app-store-screenshots
