@@ -62,11 +62,13 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Select Xcode
+        id: xcode
         run: |
           XCODE_PATH=$(ls -d /Applications/Xcode*.app 2>/dev/null | sort -V | tail -1)
           sudo xcode-select -s "$XCODE_PATH"
           xcodebuild -version
           swift --version
+          echo "build=$(xcodebuild -version | awk '/Build version/ {print $3}')" >> "$GITHUB_OUTPUT"
 
       - name: Install XcodeGen
         run: brew install xcodegen
@@ -79,17 +81,26 @@ jobs:
           grep -c "gear_catalog_seed" Currents.xcodeproj/project.pbxproj || echo "WARNING: gear_catalog_seed not found in project!"
 
       # No Package.resolved is committed (XcodeGen regenerates the project each
-      # run), so nothing pins versions: key on the packages section of project.yml.
+      # run), so nothing pins versions, and the cache action's default SwiftPM key
+      # (a hash of Package.resolved) can't work: key on project.yml's packages.
       - name: Key the package cache
         id: spm-key
         run: echo "hash=$(awk '/^[^ #]/{p=($0 ~ /^packages:/)} p' project.yml | shasum -a 256 | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
 
-      - name: Cache Swift packages
-        uses: actions/cache@v4
+      # DerivedData from this job's newest successful run, with source mtimes
+      # restored so the build is incremental, plus the SwiftPM checkouts. Each
+      # job has its own key prefix (test: Debug simulator, sideload: Release
+      # device, archive: Release archive) so they don't overwrite each other, and
+      # the Xcode build is in the key so a new Xcode starts clean.
+      - name: Restore build cache
+        uses: irgaly/xcode-cache@v1.9.2
         with:
-          path: ios/.spm-cache
-          key: spm-${{ runner.os }}-${{ steps.spm-key.outputs.hash }}
-          restore-keys: spm-${{ runner.os }}-
+          key: deriveddata-test-${{ steps.xcode.outputs.build }}-${{ github.sha }}
+          restore-keys: deriveddata-test-${{ steps.xcode.outputs.build }}-
+          deriveddata-directory: ios/DerivedData
+          sourcepackages-directory: ios/.spm-cache
+          swiftpm-cache-key: spm-${{ steps.spm-key.outputs.hash }}
+          swiftpm-cache-restore-keys: spm-
 
       - name: Resolve packages
         run: |
@@ -204,6 +215,10 @@ jobs:
             -derivedDataPath DerivedData \
             -clonedSourcePackagesDirPath .spm-cache \
             2>&1 | tee test.log
+
+      # Drop old build logs and test results so they don't pile up in the cache.
+      - name: Trim build cache
+        run: rm -rf DerivedData/Logs
 
       - name: Upload build logs
         if: always()
