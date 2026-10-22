@@ -255,6 +255,9 @@ struct ContentView: View {
             navigate(selectedTab, .profile, .licenses)
             return
         case "map":
+            // currents://map/spot/<id> and currents://map/water/<id> open
+            // that place's sheet on Explore.
+            ExploreFocus.shared.open(url)
             navigate(.explore)
             return
         case "fishdex":
