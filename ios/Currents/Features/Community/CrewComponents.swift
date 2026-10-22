@@ -564,7 +564,6 @@ final class CrewCloud: ObservableObject {
     }
 
     static let shared = CrewCloud()
-    static let containerID = "iCloud.com.aidanmcconnon.currents"
 
     @Published private(set) var status: Status
     var isAvailable: Bool { status == .available }
@@ -584,8 +583,8 @@ final class CrewCloud: ObservableObject {
     /// entitlement, so the container is never created where it would crash.
     func refresh() async {
         guard !ScreenshotSupport.isActive else { status = .available; return }
-        guard Self.buildHasCloudKit else { status = .unsupportedBuild; return }
-        guard let account = try? await CKContainer(identifier: Self.containerID).accountStatus() else { return }
+        guard let container = CloudCapability.container() else { status = .unsupportedBuild; return }
+        guard let account = try? await container.accountStatus() else { return }
         switch account {
         case .available: status = .available
         case .noAccount: status = .signedOut
@@ -595,36 +594,9 @@ final class CrewCloud: ObservableObject {
         }
     }
 
-    /// App Store and TestFlight builds embed no provisioning profile and always
-    /// carry the entitlement. Development and re-signed builds embed one, and
-    /// its entitlements say whether CloudKit is allowed. The simulator has
-    /// neither, so it goes by whether an iCloud account is visible at all.
-    nonisolated static let buildHasCloudKit: Bool = {
-        #if SIDELOAD
-        // The CI sideload IPA is built with this flag and has no iCloud.
-        return false
-        #elseif targetEnvironment(simulator)
-        return FileManager.default.ubiquityIdentityToken != nil
-        #else
-        guard let url = Bundle.main.url(forResource: "embedded", withExtension: "mobileprovision") else { return true }
-        return profileAllowsCloudKit(at: url)
-        #endif
-    }()
-
-    /// The profile is a signed blob with the plist inside as plain XML.
-    nonisolated private static func profileAllowsCloudKit(at url: URL) -> Bool {
-        guard let data = try? Data(contentsOf: url),
-              let start = data.range(of: Data("<?xml".utf8)),
-              let end = data.range(of: Data("</plist>".utf8), in: start.upperBound..<data.endIndex),
-              let plist = try? PropertyListSerialization.propertyList(
-                  from: data.subdata(in: start.lowerBound..<end.upperBound), format: nil) as? [String: Any],
-              let entitlements = plist["Entitlements"] as? [String: Any] else { return false }
-        switch entitlements["com.apple.developer.icloud-services"] {
-        case let list as [String]: return list.contains("CloudKit") || list.contains("*")
-        case let single as String: return single == "CloudKit" || single == "*"
-        default: return false
-        }
-    }
+    /// Whether this build carries the iCloud entitlement at all. Without it
+    /// nothing may touch CloudKit (see CloudCapability).
+    nonisolated static var buildHasCloudKit: Bool { CloudCapability.isAvailable }
 }
 
 /// What Crew shows when iCloud can't be reached: the sign-up art with a cloud
