@@ -446,14 +446,12 @@ struct GroupTripView: View {
         }
         // No pull-to-refresh: it would swallow the sheet's pull-down-to-collapse
         // gesture. The feed auto-polls every 15s.
-        .sheet(isPresented: $showingLog, onDismiss: {
+        .fullScreenCover(isPresented: $showingLog, onDismiss: {
             Task { await refresh() }
         }) {
             // The override tags the catch to this trip directly, with no linked
             // GPS session required, so members who joined mid-trip can log too.
             LogCatchView(groupCodeOverride: code)
-                .presentationDetents([.large])
-                .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $showingInvite) {
             NavigationStack {

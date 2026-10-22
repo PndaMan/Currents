@@ -229,10 +229,8 @@ struct TournamentView: View {
                                                                      standings: standings))
             }
         }
-        .sheet(isPresented: $showingLog, onDismiss: { Task { await refresh() } }) {
+        .fullScreenCover(isPresented: $showingLog, onDismiss: { Task { await refresh() } }) {
             LogCatchView(groupCodeOverride: myTeam?.id)
-                .presentationDetents([.large])
-                .presentationDragIndicator(.visible)
         }
         .confirmationDialog("Delete this tournament?", isPresented: $confirmingDelete,
                             titleVisibility: .visible) {

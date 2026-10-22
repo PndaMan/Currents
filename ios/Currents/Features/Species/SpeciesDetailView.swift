@@ -75,13 +75,10 @@ struct SpeciesDetailView: View {
                 CatchDetailView(detail: detail)
             }
         }
-        .sheet(isPresented: $showingLogCatch, onDismiss: {
+        .fullScreenCover(isPresented: $showingLogCatch, onDismiss: {
             Task { await load() }
         }) {
-            // LogCatchView has no species preset yet; it opens blank.
-            LogCatchView()
-                .presentationDetents([.large])
-                .presentationDragIndicator(.visible)
+            LogCatchView(presetSpecies: species)
         }
         .task { await load() }
     }
