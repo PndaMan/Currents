@@ -41,6 +41,8 @@ struct ConditionTile<Visual: View>: View {
                     .monospacedDigit()
                     .foregroundStyle(.dsText)
                     .contentTransition(.numericText())
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.5)
                 if let unit {
                     Text(unit)
                         .font(.subheadline)

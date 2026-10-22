@@ -237,10 +237,17 @@ private struct CelebrationHost: ViewModifier {
                         .ignoresSafeArea()
                         .onTapGesture { center.dismiss() }
                         .accessibilityHidden(true)
-                    CelebrationCard(celebration: celebration, species: species,
-                                    onPrimary: { openPrimary(celebration) },
-                                    onDone: { center.dismiss() })
-                        .transition(.scale(scale: 0.7).combined(with: .opacity))
+                    // At the largest text sizes the card can outgrow the
+                    // screen; it scrolls then instead of clipping its buttons.
+                    ViewThatFits(in: .vertical) {
+                        card(celebration)
+                        ScrollView {
+                            card(celebration)
+                                .padding(.vertical, DS.Space.s6)
+                        }
+                        .scrollBounceBehavior(.basedOnSize)
+                    }
+                    .transition(.scale(scale: 0.7).combined(with: .opacity))
                     if !reduceMotion {
                         ConfettiBurst(pieces: pieces, start: burstStart)
                     }
@@ -250,6 +257,12 @@ private struct CelebrationHost: ViewModifier {
                 .onChange(of: celebration.id) { _, _ in prepare(celebration) }
             }
         }
+    }
+
+    private func card(_ celebration: Celebration) -> some View {
+        CelebrationCard(celebration: celebration, species: species,
+                        onPrimary: { openPrimary(celebration) },
+                        onDone: { center.dismiss() })
     }
 
     private func prepare(_ celebration: Celebration) {

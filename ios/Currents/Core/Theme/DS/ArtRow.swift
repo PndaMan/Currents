@@ -12,6 +12,7 @@ struct ArtRow<Leading: View, Trailing: View>: View {
     var showsChevron: Bool = false
     private let leading: Leading
     private let trailing: Trailing
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     init(over: String? = nil, title: String, subtitle: String? = nil, subtitleIcon: String? = nil,
          chevron: Bool = false,
@@ -33,12 +34,12 @@ struct ArtRow<Leading: View, Trailing: View>: View {
                     Text(over)
                         .font(.footnote)
                         .foregroundStyle(.dsText2)
-                        .lineLimit(1)
+                        .lineLimit(isLarge ? 2 : 1)
                 }
                 Text(title)
                     .font(.body.weight(.medium))
                     .foregroundStyle(.dsText)
-                    .lineLimit(2)
+                    .lineLimit(isLarge ? 4 : 2)
                 if let subtitle, !subtitle.isEmpty {
                     HStack(spacing: 5) {
                         if let subtitleIcon {
@@ -49,7 +50,7 @@ struct ArtRow<Leading: View, Trailing: View>: View {
                         Text(subtitle)
                             .font(.subheadline)
                             .foregroundStyle(.dsText2)
-                            .lineLimit(1)
+                            .lineLimit(isLarge ? 3 : 1)
                     }
                 }
             }
@@ -69,6 +70,9 @@ struct ArtRow<Leading: View, Trailing: View>: View {
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
     }
+
+    /// Accessibility text sizes: let lines wrap instead of truncating.
+    private var isLarge: Bool { typeSize.isAccessibilitySize }
 }
 
 extension ArtRow where Trailing == EmptyView {

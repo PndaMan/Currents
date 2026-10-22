@@ -12,6 +12,7 @@ struct StatTile: View {
     var footnote: String? = nil
     var width: CGFloat? = 148
     @ScaledMetric(relativeTo: .title) private var valueSize: CGFloat = 28
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     init(_ label: String, systemImage: String, tint: Color = DS.accent,
          value: String, unit: String? = nil, footnote: String? = nil,
@@ -34,7 +35,7 @@ struct StatTile: View {
                 Text(label)
                     .font(.footnote.weight(.medium))
                     .foregroundStyle(.dsText2)
-                    .lineLimit(1)
+                    .lineLimit(textLines)
             }
             HStack(alignment: .firstTextBaseline, spacing: 4) {
                 Text(value)
@@ -55,7 +56,7 @@ struct StatTile: View {
                 Text(footnote)
                     .font(.footnote)
                     .foregroundStyle(.dsText2)
-                    .lineLimit(1)
+                    .lineLimit(textLines)
             }
         }
         .padding(.horizontal, 14)
@@ -65,4 +66,7 @@ struct StatTile: View {
         .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
         .accessibilityElement(children: .combine)
     }
+
+    /// One line in the tile, two at accessibility sizes rather than truncating.
+    private var textLines: Int { typeSize.isAccessibilitySize ? 2 : 1 }
 }

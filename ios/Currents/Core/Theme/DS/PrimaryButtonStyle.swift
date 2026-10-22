@@ -20,14 +20,18 @@ struct DSFilledButton: View {
     let fill: Color
     let foreground: Color
     @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
         configuration.label
             .font(.headline)
             .labelStyle(.titleAndIcon)
             .foregroundStyle(foreground)
-            .lineLimit(1)
+            // Wrap rather than truncate at accessibility sizes.
+            .lineLimit(typeSize.isAccessibilitySize ? 3 : 1)
+            .multilineTextAlignment(.center)
             .padding(.horizontal, fullWidth ? DS.Space.s4 : 18)
+            .padding(.vertical, DS.Space.s2)
             .frame(maxWidth: fullWidth ? .infinity : nil)
             .frame(minHeight: fullWidth ? 52 : 40)
             .background(fill, in: RoundedRectangle(cornerRadius: DS.Radius.button, style: .continuous))

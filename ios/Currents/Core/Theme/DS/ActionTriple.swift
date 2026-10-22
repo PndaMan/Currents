@@ -3,15 +3,20 @@ import SwiftUI
 /// Luma's row of three equal action buttons under a detail header, icon over
 /// label. Pass `ActionItem`s for plain buttons, or build the row yourself with
 /// `ActionTileStyle` buttons and `ActionTileLabel` (for Menu or ShareLink).
+/// At accessibility text sizes the tiles stack as full-width rows.
 struct ActionTriple<Content: View>: View {
     private let content: Content
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     init(@ViewBuilder content: () -> Content) {
         self.content = content()
     }
 
     var body: some View {
-        HStack(spacing: DS.Space.s2) { content }
+        let layout = typeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(spacing: DS.Space.s2))
+            : AnyLayout(HStackLayout(spacing: DS.Space.s2))
+        layout { content }
             .padding(.horizontal, DS.gutter)
     }
 }
@@ -127,15 +132,40 @@ private struct ActionTileBody<L: View>: View {
 
 private struct ActionTileLabelStyle: LabelStyle {
     func makeBody(configuration: Configuration) -> some View {
-        VStack(spacing: 4) {
-            configuration.icon
-                .font(.system(size: 19, weight: .medium))
-                .imageScale(.medium)
-            configuration.title
-                .font(.footnote.weight(.semibold))
-                .lineLimit(1)
-                .minimumScaleFactor(0.85)
+        ActionTileLabelLayout(icon: configuration.icon, title: configuration.title)
+    }
+}
+
+/// Icon over label in a tile; icon beside a wrapping label at accessibility
+/// sizes, where the tiles are full-width rows.
+private struct ActionTileLabelLayout: View {
+    let icon: LabelStyleConfiguration.Icon
+    let title: LabelStyleConfiguration.Title
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    var body: some View {
+        if typeSize.isAccessibilitySize {
+            HStack(spacing: DS.Space.s3) {
+                icon
+                    .font(.body.weight(.medium))
+                title
+                    .font(.footnote.weight(.semibold))
+                    .lineLimit(3)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, DS.Space.s4)
+            .padding(.vertical, DS.Space.s3)
+        } else {
+            VStack(spacing: 4) {
+                icon
+                    .font(.system(size: 19, weight: .medium))
+                    .imageScale(.medium)
+                title
+                    .font(.footnote.weight(.semibold))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.85)
+            }
+            .padding(.horizontal, 4)
         }
-        .padding(.horizontal, 4)
     }
 }
