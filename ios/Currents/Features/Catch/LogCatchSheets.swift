@@ -227,8 +227,8 @@ struct LogCatchTimeSheet: View {
                     LogCatchFootnote(text: "Conditions and the bite score update to match.")
                         .padding(.horizontal, DS.gutter)
                 }
-                .pageWidth()
                 .padding(.vertical, DS.Space.s3)
+                .pageWidth()
             }
             .sensoryFeedback(.selection, trigger: caughtAt)
         }
@@ -314,8 +314,8 @@ struct LogCatchWaterSheet: View {
                     LogCatchFootnote(text: "Optional. Recording clarity sharpens your lure and colour suggestions.")
                 }
                 .padding(.horizontal, DS.gutter)
-                .pageWidth()
                 .padding(.vertical, DS.Space.s3)
+                .pageWidth()
             }
             .sensoryFeedback(.selection, trigger: clarity)
         }
@@ -614,8 +614,8 @@ struct LogCatchSpotSheet: View {
                     }
                 }
                 .padding(.horizontal, DS.gutter)
-                .pageWidth()
                 .padding(.vertical, DS.Space.s3)
+                .pageWidth()
             }
             .sensoryFeedback(.selection, trigger: mode)
             .sheet(isPresented: $showingPinPicker) {

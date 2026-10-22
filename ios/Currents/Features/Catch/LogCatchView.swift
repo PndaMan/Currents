@@ -178,8 +178,8 @@ struct LogCatchView: View {
                         .padding(.top, 28)
                     sharingSection
                 }
-                .pageWidth()
                 .padding(.bottom, DS.Space.s6)
+                .pageWidth()
             }
             .scrollDismissesKeyboard(.interactively)
             .detailTint(pageTint)
@@ -2227,8 +2227,8 @@ struct SpeciesPickerSheet: View {
                         }
                     }
                 }
-                .pageWidth()
                 .padding(.bottom, DS.Space.s6)
+                .pageWidth()
             }
             .scrollDismissesKeyboard(.immediately)
             .dsScreenBackground()
