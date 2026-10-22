@@ -30,13 +30,13 @@ enum ForecastCondition: String, CaseIterable, Hashable, Identifiable {
 
     var tint: Color {
         switch self {
-        case .water: Color(red: 1.0, green: 0.62, blue: 0.04) // ui-lint: allow, condition colours from the mockup
-        case .air: Color(red: 1.0, green: 0.62, blue: 0.04) // ui-lint: allow, condition colours from the mockup
+        case .water: Color.dsScoreLow
+        case .air: Color.dsScoreLow
         case .wind: Color(red: 0.39, green: 0.82, blue: 1.0) // ui-lint: allow, condition colours from the mockup
         case .pressure: Color(red: 0.75, green: 0.35, blue: 0.95) // ui-lint: allow, condition colours from the mockup
         case .tide: Color(red: 0.04, green: 0.52, blue: 1.0) // ui-lint: allow, condition colours from the mockup
-        case .moon: Color(red: 1.0, green: 0.84, blue: 0.04) // ui-lint: allow, condition colours from the mockup
-        case .sun: Color(red: 1.0, green: 0.62, blue: 0.04) // ui-lint: allow, condition colours from the mockup
+        case .moon: Color.dsScoreFair
+        case .sun: Color.dsScoreLow
         case .sky: Color(red: 0.6, green: 0.6, blue: 0.62) // ui-lint: allow, condition colours from the mockup
         }
     }
