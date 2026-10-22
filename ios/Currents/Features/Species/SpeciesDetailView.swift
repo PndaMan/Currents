@@ -1,12 +1,12 @@
 import SwiftUI
 
-/// A species page: art hero on the species colour, title block, Target / Log
-/// catch / Share, then your stats and catches, season, temperature, baits,
-/// limits, tips and the field guide entry. Pushed from the species guide, the
-/// Fishdex, water pages and regulations.
+/// A species page, laid out like a catch page: art cover, title block and
+/// tags, Target / Log catch / Share, your stats and catches, season, water
+/// temperature tiles, baits, limits with a link to every rule, tips and the
+/// field guide entry. Pushed from the species guide, the Fishdex, catch
+/// pages, water pages and regulations.
 struct SpeciesDetailView: View {
     @Environment(AppState.self) private var appState
-    @Environment(\.colorScheme) private var scheme
     @Environment(\.openURL) private var openURL
     let species: Species
     /// Set when pushed from a thumbnail that registered a zoom source.
@@ -16,9 +16,12 @@ struct SpeciesDetailView: View {
     @State private var info: SpeciesInfoService.Info?
     @State private var loaded = false
     @State private var showingLogCatch = false
+    @State private var showingRules = false
+    @State private var showingTarget = false
     @State private var openCatchId: String?
     @State private var openSpotId: String?
     @State private var aboutExpanded = false
+    @State private var titleShown = false
     @AppStorage("units") private var units = "metric"
     /// Shared with Today's target species (0 means any species).
     @AppStorage("targetSpeciesId") private var targetSpeciesId: Int = 0
@@ -33,44 +36,60 @@ struct SpeciesDetailView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                hero
-                header
-                    .padding(.top, DS.Space.s5)
+                cover
+                    .padding(.horizontal, DS.gutter)
+                    .padding(.top, DS.Space.s2)
+
+                DetailHeader(over: overLine, title: species.commonName, subtitle: species.scientificName)
+                    .padding(.top, DS.Space.s4)
+
+                tags
+                    .padding(.horizontal, DS.gutter)
+                    .padding(.top, DS.Space.s3)
+
                 actions
                     .padding(.top, DS.Space.s5)
 
-                if loaded && catches.isEmpty {
-                    notFoundYet
+                if isTargeted {
+                    targetRow
+                        .padding(.top, DS.Space.s4)
+                        .transition(.opacity)
+                }
+
+                if !catches.isEmpty {
+                    statsSection
+                    historySection
+                } else if loaded {
+                    notFoundRow
                         .padding(.top, DS.Space.s6)
                 }
-                if !catches.isEmpty {
-                    section("Your stats") { statTiles }
-                    catchHistory
-                }
+
                 seasonSection
-                if species.minTempC != nil || species.optimalTempC != nil || species.maxTempC != nil {
-                    temperatureSection
-                }
+                temperatureSection
                 if !species.parsedBaits.isEmpty {
                     baitsSection
                 }
                 if !gearGroups.isEmpty {
-                    bestGearSection
+                    gearSection
                 }
                 if !spotGroups.isEmpty {
                     whereSection
                 }
                 limitsSection
                 tipsSection
-                if let info {
-                    aboutSection(info)
+                if hasAbout {
+                    aboutSection
+                }
+                if let taxonId = info?.taxonId {
+                    rangeSection(taxonId)
                 }
             }
             .padding(.bottom, DS.Space.s8)
             .pageWidth()
         }
         .detailTint(tint)
-        .speciesScrollTitle(species.commonName, threshold: 300)
+        .pfTrackScroll($titleShown, threshold: 320)
+        .pfScrollTitle(species.commonName, shown: titleShown)
         .modifier(SpeciesZoomDestination(zoom: zoom))
         .sensoryFeedback(.selection, trigger: targetSpeciesId)
         .navigationDestination(item: $openCatchId) { id in
@@ -82,6 +101,12 @@ struct SpeciesDetailView: View {
             if let spot = catches.lazy.compactMap(\.spot).first(where: { $0.id == id }) {
                 SpotDetailView(spot: spot)
             }
+        }
+        .navigationDestination(isPresented: $showingRules) {
+            RegulationsView()
+        }
+        .navigationDestination(isPresented: $showingTarget) {
+            TargetScreen()
         }
         .fullScreenCover(isPresented: $showingLogCatch, onDismiss: {
             Task { await load() }
@@ -101,44 +126,16 @@ struct SpeciesDetailView: View {
 
     // MARK: - Top
 
-    private var hero: some View {
-        ZStack {
-            Color.dsFill
-            tint.opacity(DS.thumbTintOpacity(scheme))
-            SpeciesArtworkView(species: species, caught: true, size: 150, fillWidth: true)
-                .padding(.horizontal, DS.Space.s8)
-        }
-        .frame(maxWidth: .infinity)
-        .frame(height: 210)
-        .clipShape(RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
-        .padding(.horizontal, DS.gutter)
-        .padding(.top, DS.Space.s2)
-        .accessibilityLabel(species.commonName)
-        .accessibilityAddTraits(.isImage)
-    }
-
-    private var header: some View {
-        VStack(alignment: .leading, spacing: DS.Space.s3) {
-            DetailHeader(over: overLine, title: species.commonName, subtitle: species.scientificName)
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 6) {
-                    if let first = catches.last?.catchRecord.caughtAt {
-                        SpeciesTag(text: "Found \(first.formatted(.dateTime.day().month(.abbreviated).year()))",
-                                   systemImage: "checkmark.circle.fill", tint: Color.dsScoreGood)
-                    } else if loaded {
-                        SpeciesTag(text: "Not found yet")
-                    }
-                    SpeciesTag(text: inSeasonNow ? "In season now" : "Out of season now")
-                    SpeciesTag(text: species.rarity.label, systemImage: species.rarity.symbol,
-                               tint: species.rarity.color)
-                    if let family = species.family, !family.isEmpty {
-                        SpeciesTag(text: family)
-                    }
-                }
-                .padding(.horizontal, DS.gutter)
-            }
-            .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
-        }
+    /// The species art on its colour, as on a catch page without a photo.
+    private var cover: some View {
+        SpeciesArtworkView(species: species, caught: true, size: 200, fillWidth: true)
+            .padding(.horizontal, DS.Space.s6)
+            .frame(maxWidth: .infinity)
+            .frame(height: 240)
+            .background(tint.opacity(0.18), in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
+            .accessibilityElement()
+            .accessibilityLabel(species.commonName)
+            .accessibilityAddTraits(.isImage)
     }
 
     private var overLine: String {
@@ -146,6 +143,20 @@ struct SpeciesDetailView: View {
             return "Fishdex \(species.fishdexNumber), \(habitat.lowercased())"
         }
         return "Fishdex \(species.fishdexNumber)"
+    }
+
+    private var tags: some View {
+        SpeciesTagFlow {
+            // `catches` is newest first.
+            if let first = catches.last?.catchRecord.caughtAt {
+                SpeciesTag(text: "Found \(LogbookFormat.shortDay(first))",
+                           systemImage: "checkmark.circle.fill", tint: .dsScoreGood)
+            } else if loaded {
+                SpeciesTag(text: "Not found yet")
+            }
+            SpeciesTag(text: inSeasonNow ? "In season now" : "Out of season now")
+            SpeciesTag(text: "\(species.rarity.label) find")
+        }
     }
 
     private var actions: some View {
@@ -177,6 +188,19 @@ struct SpeciesDetailView: View {
         }
     }
 
+    /// Once targeted, the way into the target page, as on Today.
+    private var targetRow: some View {
+        Button {
+            showingTarget = true
+        } label: {
+            ArtRow(over: "Targeting", title: "Today for this fish",
+                   subtitle: "Score, best times and where to go", chevron: true) {
+                ThumbView(systemImage: "scope", tint: DS.accent, size: 52)
+            }
+        }
+        .buttonStyle(.dsRow)
+    }
+
     private var shareText: String {
         var text = "\(species.commonName) (\(species.scientificName))"
         if let wiki = info?.wikipediaURL { text += "\n\(wiki)" }
@@ -185,74 +209,65 @@ struct SpeciesDetailView: View {
 
     // MARK: - Your catches
 
-    private var notFoundYet: some View {
-        HStack(spacing: DS.Space.s3) {
-            ThumbView(systemImage: "book.closed.fill", tint: Color.dsScoreGood, size: 44)
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Not in your Fishdex yet")
-                    .font(.headline)
-                    .foregroundStyle(.dsText)
-                Text("Log one to add it.")
-                    .font(.subheadline)
-                    .foregroundStyle(.dsText2)
+    /// Opens the log flow with this species filled in.
+    private var notFoundRow: some View {
+        Button {
+            showingLogCatch = true
+        } label: {
+            ArtRow(title: "Not in your Fishdex yet", subtitle: "Log one to add it", chevron: true) {
+                ThumbView(systemImage: "book.closed.fill", tint: .dsScoreGood, size: 52)
             }
-            Spacer(minLength: 0)
         }
-        .padding(DS.Space.s3)
-        .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
-        .padding(.horizontal, DS.gutter)
-        .accessibilityElement(children: .combine)
+        .buttonStyle(.dsRow)
     }
 
-    /// Caught, heaviest, longest and released, as the tiles on spot pages.
-    private var statTiles: some View {
-        let heaviest = catches.compactMap { $0.catchRecord.weightKg }.max()
-        let longest = catches.compactMap { $0.catchRecord.lengthCm }.max()
-        let released = catches.filter { $0.catchRecord.released }.count
-        // `catches` is newest first.
-        let first = catches.last?.catchRecord.caughtAt
-        return ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 10) {
-                StatTile("Caught", systemImage: "fish", value: "\(catches.count)",
-                         footnote: first.map { "Since \($0.formatted(.dateTime.day().month(.abbreviated).year()))" })
-                if let heaviest {
-                    let parts = Units.weightParts(kg: heaviest, imperial: imperial)
-                    StatTile("Heaviest", systemImage: "scalemass", tint: .dsScoreFair,
-                             value: parts.0, unit: parts.1)
-                }
-                if let longest {
-                    let parts = Units.lengthParts(cm: longest, imperial: imperial)
-                    StatTile("Longest", systemImage: "ruler", tint: .dsScoreFair,
-                             value: parts.0, unit: parts.1)
-                }
-                StatTile("Released", systemImage: "arrow.uturn.backward", tint: .dsScoreGood,
-                         value: "\(released)", unit: "of \(catches.count)")
-            }
-            .padding(.horizontal, DS.gutter)
+    private var statsSection: some View {
+        section("Your stats") {
+            LogbookKeyValueList(rows: statRows)
         }
-        .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
     }
 
-    private var catchHistory: some View {
+    private var statRows: [(String, String)] {
+        let records = catches.map(\.catchRecord)
+        var rows: [(String, String)] = [("Caught", "\(records.count)")]
+        if let heaviest = records.compactMap(\.weightKg).max() {
+            rows.append(("Heaviest", Units.weight(kg: heaviest, imperial: imperial)))
+        }
+        if let longest = records.compactMap(\.lengthCm).max() {
+            rows.append(("Longest", Units.length(cm: longest, imperial: imperial)))
+        }
+        rows.append(("Released", "\(records.filter(\.released).count) of \(records.count)"))
+        // Newest first, so the last is the first one caught.
+        if let first = records.last?.caughtAt {
+            rows.append(("First caught", fullDate(first)))
+        }
+        if records.count > 1, let last = records.first?.caughtAt {
+            rows.append(("Last caught", fullDate(last)))
+        }
+        return rows
+    }
+
+    private func fullDate(_ date: Date) -> String {
+        date.formatted(.dateTime.day().month(.abbreviated).year())
+    }
+
+    private var historySection: some View {
         section("Catch history", detail: "\(catches.count)") {
-            VStack(spacing: 0) {
-                ForEach(catches.prefix(5)) { detail in
-                    Button {
-                        openCatchId = detail.id
-                    } label: {
-                        ArtRow(over: detail.catchRecord.caughtAt.formatted(date: .abbreviated, time: .omitted),
-                               title: measureText(detail.catchRecord),
-                               subtitle: detail.spot?.name,
-                               subtitleIcon: detail.spot == nil ? nil : "mappin",
-                               chevron: true) {
-                            catchThumb(detail)
-                        }
+            ForEach(catches.prefix(5)) { detail in
+                Button {
+                    openCatchId = detail.id
+                } label: {
+                    ArtRow(over: LogbookFormat.relativeDay(detail.catchRecord.caughtAt),
+                           title: measureText(detail.catchRecord),
+                           subtitle: detail.spot?.name,
+                           chevron: true) {
+                        catchThumb(detail)
                     }
-                    .buttonStyle(.dsRow)
                 }
-                if catches.count > 5 {
-                    SectionFootnote("\(catches.count - 5) more in your Logbook.")
-                }
+                .buttonStyle(.dsRow)
+            }
+            if catches.count > 5 {
+                SectionFoot("\(catches.count - 5) more in your Logbook.")
             }
         }
     }
@@ -267,12 +282,12 @@ struct SpeciesDetailView: View {
     @ViewBuilder
     private func catchThumb(_ detail: CatchDetail) -> some View {
         if let path = detail.catchRecord.allPhotoPaths.first {
-            PhotoThumbnail(path: path, size: 64, cornerRadius: DS.Radius.thumb) {
-                ThumbView(species: species)
+            PhotoThumbnail(path: path, size: 52, cornerRadius: DS.Radius.thumb) {
+                ThumbView(species: species, size: 52)
             }
-            .frame(width: 64, height: 64)
+            .frame(width: 52, height: 52)
         } else {
-            ThumbView(species: species)
+            ThumbView(species: species, size: 52)
         }
     }
 
@@ -280,60 +295,73 @@ struct SpeciesDetailView: View {
 
     private var seasonSection: some View {
         section("Season") {
-            VStack(alignment: .leading, spacing: 0) {
-                SeasonChart(scores: seasonScores,
-                            inSeason: (1...12).map { SpeciesSeason.isInSeason(species, month: $0) },
-                            tint: tint)
-                SectionFootnote(SpeciesSeason.peakText(seasonScores).map { "\($0), estimated from water temperatures." }
-                                ?? "Estimated from water temperatures.")
-            }
+            SeasonChart(scores: seasonScores,
+                        inSeason: (1...12).map { SpeciesSeason.isInSeason(species, month: $0) },
+                        tint: tint)
+            SectionFoot(SpeciesSeason.peakText(seasonScores).map { "\($0), estimated from typical water temperatures." }
+                        ?? "Estimated from typical water temperatures.")
         }
     }
 
+    /// Two condition tiles, as on Today: this month's typical water against
+    /// the species' range, and where it feeds best.
     @ViewBuilder
     private var temperatureSection: some View {
-        let water = SpeciesSeason.waterTemp(for: month)
-        section("Water temperature") {
-            VStack(alignment: .leading, spacing: DS.Space.s4) {
-                if let band = SpeciesSeason.band(species) {
-                    TemperatureRangeBar(lower: band.lower, optimal: band.optimal, upper: band.upper,
-                                        water: water, tint: tint, imperial: imperial)
-                        .padding(.horizontal, DS.gutter)
+        if let band = SpeciesSeason.band(species) {
+            let water = SpeciesSeason.waterTemp(for: month)
+            section("Water temperature") {
+                LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible())], spacing: 10) {
+                    ConditionTile("Water in \(SpeciesSeason.fullMonths[month - 1])",
+                                  systemImage: "thermometer.medium", iconTint: .dsScoreLow,
+                                  value: degrees(water), footnote: waterFootnote(water, band: band)) {
+                        SpeciesTempBar(low: band.lower, high: band.upper, value: water)
+                    }
+                    ConditionTile("Feeds best", systemImage: "fish.fill", iconTint: tint,
+                                  value: "\(degreesValue(band.optimal - 3)) to \(degreesValue(band.optimal + 3))",
+                                  unit: imperial ? "°F" : "°C",
+                                  footnote: survivesText.map { "Survives \($0)" })
                 }
-                SpeciesFacts(rows: temperatureRows(water: water))
+                .padding(.horizontal, DS.gutter)
+                SectionFoot("Typical surface water for the month, not a reading.")
+            }
+        } else if let survives = survivesText {
+            section("Water temperature") {
+                LogbookKeyValueList(rows: [("Survives", survives)])
             }
         }
     }
 
-    private func temperatureRows(water: Double) -> [(String, String)] {
-        var rows: [(String, String)] = []
-        if let comfort = SpeciesSeason.comfortText(species, imperial: imperial) {
-            rows.append(("Feeds best", comfort))
-        }
-        if let lo = species.minTempC, let hi = species.maxTempC {
-            rows.append(("Survives", SpeciesSeason.rangeText(lo, hi, imperial: imperial)))
-        }
-        var waterText = Units.temperature(water, imperial: imperial)
-        if let band = SpeciesSeason.band(species) {
-            if abs(water - band.optimal) <= 3 { waterText += ", ideal" }
-            else if water < band.optimal { waterText += ", cool" }
-            else { waterText += ", warm" }
-        }
-        rows.append(("Water in \(SpeciesSeason.fullMonths[month - 1])", waterText))
-        return rows
+    /// The recorded tolerance range, only when both ends are known.
+    private var survivesText: String? {
+        guard let lo = species.minTempC, let hi = species.maxTempC else { return nil }
+        return SpeciesSeason.rangeText(lo, hi, imperial: imperial)
+    }
+
+    private func degreesValue(_ celsius: Double) -> String {
+        "\(Int((imperial ? celsius * 9 / 5 + 32 : celsius).rounded()))"
+    }
+
+    private func degrees(_ celsius: Double) -> String {
+        "\(degreesValue(celsius))°"
+    }
+
+    private func waterFootnote(_ water: Double, band: (lower: Double, optimal: Double, upper: Double)) -> String {
+        let scale = imperial ? 9.0 / 5.0 : 1.0
+        if water < band.lower { return "\(Int(((band.lower - water) * scale).rounded()))° below their range" }
+        if water > band.upper { return "\(Int(((water - band.upper) * scale).rounded()))° above their range" }
+        if abs(water - band.optimal) <= 3 { return "Where they feed best" }
+        return water < band.optimal ? "In range, on the cool side" : "In range, on the warm side"
     }
 
     // MARK: - Baits and gear
 
     private var baitsSection: some View {
         section("Best lures and baits") {
-            VStack(spacing: 0) {
-                ForEach(Array(species.parsedBaits.enumerated()), id: \.offset) { index, bait in
-                    BaitRow(rank: index + 1, name: sentenceCase(bait))
-                }
-                if let notes = species.baitNotes, !notes.isEmpty {
-                    SectionFootnote(notes)
-                }
+            ForEach(Array(species.parsedBaits.enumerated()), id: \.offset) { index, bait in
+                BaitRow(rank: index + 1, name: sentenceCase(bait))
+            }
+            if let notes = species.baitNotes, !notes.isEmpty {
+                SectionFoot(notes)
             }
         }
     }
@@ -348,16 +376,14 @@ struct SpeciesDetailView: View {
         return Array(tallies.sorted { $0.count > $1.count }.prefix(5))
     }
 
-    private var bestGearSection: some View {
+    private var gearSection: some View {
         section("Your best gear") {
-            VStack(spacing: 0) {
-                ForEach(gearGroups, id: \.key) { group in
-                    ArtRow(title: group.name, subtitle: tallySubtitle(group)) {
-                        if let lure = group.detail, !lure.isEmpty {
-                            LureArtView(name: lure, size: 56)
-                        } else {
-                            ThumbView(systemImage: "wrench.and.screwdriver.fill", tint: DS.accent, size: 56)
-                        }
+            ForEach(gearGroups, id: \.key) { group in
+                ArtRow(title: group.name, subtitle: tallySubtitle(group)) {
+                    if let lure = group.detail, !lure.isEmpty {
+                        LureArtView(name: lure, size: 56)
+                    } else {
+                        ThumbView(systemImage: "wrench.and.screwdriver.fill", tint: DS.accent, size: 56)
                     }
                 }
             }
@@ -369,24 +395,23 @@ struct SpeciesDetailView: View {
         let spots = catches.compactMap(\.spot)
         let grouped = Dictionary(grouping: spots, by: \.id)
         let tallies = grouped.map { id, value in
-            Tally(key: id, name: value.first?.name ?? "Spot", detail: nil, count: value.count)
+            Tally(key: id, name: value.first?.name ?? "Spot", detail: nil, count: value.count,
+                  icon: value.first?.type.icon)
         }
         return Array(tallies.sorted { $0.count > $1.count }.prefix(5))
     }
 
     private var whereSection: some View {
         section("Where you caught it") {
-            VStack(spacing: 0) {
-                ForEach(spotGroups, id: \.key) { spot in
-                    Button {
-                        openSpotId = spot.key
-                    } label: {
-                        ArtRow(title: spot.name, subtitle: tallySubtitle(spot), chevron: true) {
-                            ThumbView(systemImage: "mappin.and.ellipse", tint: DS.accent, size: 56)
-                        }
+            ForEach(spotGroups, id: \.key) { spot in
+                Button {
+                    openSpotId = spot.key
+                } label: {
+                    ArtRow(title: spot.name, subtitle: tallySubtitle(spot), chevron: true) {
+                        ThumbView(systemImage: spot.icon ?? "mappin.and.ellipse", tint: DS.accent, size: 52)
                     }
-                    .buttonStyle(.dsRow)
                 }
+                .buttonStyle(.dsRow)
             }
         }
     }
@@ -394,35 +419,36 @@ struct SpeciesDetailView: View {
     private func tallySubtitle(_ tally: Tally) -> String {
         let count = tally.count == 1 ? "1 catch" : "\(tally.count) catches"
         guard let detail = tally.detail, !detail.isEmpty else { return count }
-        return "\(detail), \(count.lowercased())"
+        return "\(detail), \(count)"
     }
 
     // MARK: - Limits, tips, about
 
     @ViewBuilder
     private var limitsSection: some View {
-        if let reg = RegulationsService.shared.regulation(for: species) {
-            section("Size and bag limits", detail: reg.region) {
-                VStack(alignment: .leading, spacing: 0) {
-                    SpeciesFacts(rows: limitRows(reg))
-                    if let closed = reg.closedSeason, !closed.isEmpty {
-                        Label(closed, systemImage: "calendar.badge.exclamationmark")
-                            .font(.subheadline)
-                            .foregroundStyle(.dsScoreLow)
-                            .padding(.horizontal, DS.gutter)
-                            .padding(.top, DS.Space.s3)
-                    }
-                    if let notes = reg.notes, !notes.isEmpty {
-                        SectionFootnote(notes)
-                    }
-                    SectionFootnote("Check the current local rules before you keep a fish.")
+        let reg = RegulationsService.shared.regulation(for: species)
+        section("Size and bag limits", detail: reg?.region) {
+            if let reg {
+                LogbookKeyValueList(rows: limitRows(reg))
+                if let notes = reg.notes, !notes.isEmpty {
+                    SectionFoot(notes)
+                }
+            } else {
+                Text("None on file for this species. Check the local rules before you keep one.")
+                    .font(.subheadline)
+                    .foregroundStyle(.dsText2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, DS.gutter)
+            }
+            Button {
+                showingRules = true
+            } label: {
+                ArtRow(title: "All size and bag limits", subtitle: "Every species, works offline", chevron: true) {
+                    ThumbView(systemImage: "list.bullet.clipboard", tint: .purple, size: 52)
                 }
             }
-        } else {
-            section("Size and bag limits") {
-                SectionFootnote("None on file. Check the local rules before you keep one.")
-                    .padding(.top, -DS.Space.s2)
-            }
+            .buttonStyle(.dsRow)
+            .padding(.top, DS.Space.s2)
         }
     }
 
@@ -433,117 +459,113 @@ struct SpeciesDetailView: View {
             rows.append(("Maximum size", Units.length(cm: max, imperial: imperial)))
         }
         rows.append(("Bag limit", reg.bagLimit.map { "\($0) a day" } ?? "None"))
-        rows.append(("Closed season", (reg.closedSeason?.isEmpty == false) ? "Yes" : "None"))
+        if let closed = reg.closedSeason, !closed.isEmpty {
+            rows.append(("Closed season", closed))
+        } else {
+            rows.append(("Closed season", "None"))
+        }
         return rows
     }
 
+    @ViewBuilder
     private var tipsSection: some View {
-        section("How to find it") {
-            VStack(spacing: 0) {
-                if let habitat = species.habitat {
-                    tipRow(habitatIcon(habitat), habitatTip(habitat))
-                }
-                if let opt = species.optimalTempC {
-                    tipRow("thermometer.medium",
-                           "Look for water near \(Units.temperature(opt, imperial: imperial)).")
-                }
-                tipRow("sunrise.fill", "Dawn, dusk and new or full moons are usually best.")
-            }
-        }
-    }
-
-    private func tipRow(_ icon: String, _ text: String) -> some View {
-        ArtRow(title: text) {
-            ThumbView(systemImage: icon, tint: tint, size: 44)
-        }
-    }
-
-    private func habitatIcon(_ habitat: Species.Habitat) -> String {
-        switch habitat {
-        case .freshwater: "tree.fill"
-        case .marine: "water.waves"
-        case .brackish: "leaf.fill"
-        }
-    }
-
-    private func habitatTip(_ habitat: Species.Habitat) -> String {
-        switch habitat {
-        case .freshwater: "Fish structure: fallen trees, rocks and weed beds."
-        case .marine: "Work reefs, jetties and current lines around the tide."
-        case .brackish: "Try estuaries, river mouths and mangroves."
-        }
-    }
-
-    private func aboutSection(_ info: SpeciesInfoService.Info) -> some View {
-        section("About") {
-            VStack(alignment: .leading, spacing: DS.Space.s4) {
-                aboutTags(info)
-
-                if let summary = info.summary, !summary.isEmpty {
-                    VStack(alignment: .leading, spacing: DS.Space.s1) {
-                        Text(summary)
-                            .font(.body)
-                            .foregroundStyle(.dsText)
-                            .lineLimit(aboutExpanded ? nil : 5)
-                        Button(aboutExpanded ? "Less" : "More") {
-                            withAnimation(DS.Motion.easeOut) { aboutExpanded.toggle() }
-                        }
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(DS.accent)
-                        .buttonStyle(.dim)
-                    }
+        if let tip = tipText {
+            section("Tips") {
+                Text(tip)
+                    .font(.body)
+                    .foregroundStyle(.dsText)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, DS.gutter)
-                }
-
-                if let taxonId = info.taxonId {
-                    VStack(alignment: .leading, spacing: 0) {
-                        Text("Where it is seen")
-                            .font(.headline)
-                            .foregroundStyle(.dsText)
-                            .padding(.horizontal, DS.gutter)
-                            .padding(.bottom, DS.Space.s2)
-                        SpeciesRangeMapView(taxonId: taxonId)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 200)
-                            .clipShape(RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
-                            .padding(.horizontal, DS.gutter)
-                            .accessibilityLabel("Map of where \(species.commonName) has been seen")
-                        SectionFootnote("Sightings from iNaturalist. Needs a connection.")
-                    }
-                }
             }
         }
     }
 
-    /// Conservation status, sightings and the Wikipedia link, scrolling
-    /// sideways if they do not fit.
-    private func aboutTags(_ info: SpeciesInfoService.Info) -> some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: DS.Space.s2) {
-                if let status = info.conservationStatus, !status.isEmpty {
-                    SpeciesTag(text: sentenceCase(status),
-                               systemImage: "leaf.fill", tint: conservationColor(status))
-                }
-                if let count = info.observationsCount {
-                    SpeciesTag(text: "\(count.formatted()) sightings", systemImage: "eye")
-                }
-                if let wiki = info.wikipediaURL, let url = URL(string: wiki) {
-                    OutlineChip("Wikipedia", systemImage: "arrow.up.right.square") {
-                        openURL(url)
-                    }
-                }
-            }
-            .padding(.horizontal, DS.gutter)
+    /// Where to look, from its habitat and the water it likes.
+    private var tipText: String? {
+        var parts: [String] = []
+        switch species.habitat {
+        case .freshwater: parts.append("Fish structure: fallen trees, rocks and weed beds.")
+        case .marine: parts.append("Work reefs, jetties and current lines around the tide.")
+        case .brackish: parts.append("Try estuaries, river mouths and mangroves.")
+        case nil: break
         }
-        .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
+        if let opt = species.optimalTempC {
+            parts.append("Look for water near \(Units.temperature(opt, imperial: imperial)).")
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " ")
     }
 
-    private func conservationColor(_ status: String) -> Color {
-        let s = status.lowercased()
-        if s.contains("least") { return .dsScoreGood }
-        if s.contains("near") || s.contains("vulnerable") { return .dsScoreLow }
-        if s.contains("endangered") || s.contains("critical") { return .dsScoreSlow }
-        return .dsText2
+    /// The field guide entry: the summary when it has loaded, then family,
+    /// conservation status and sightings, and the Wikipedia link.
+    private var aboutSection: some View {
+        section("About") {
+            if let summary = info?.summary, !summary.isEmpty {
+                VStack(alignment: .leading, spacing: DS.Space.s1) {
+                    Text(summary)
+                        .font(.body)
+                        .foregroundStyle(.dsText)
+                        .lineLimit(aboutExpanded ? nil : 4)
+                    Button(aboutExpanded ? "Show less" : "Show more") {
+                        withAnimation(DS.Motion.easeOut) { aboutExpanded.toggle() }
+                    }
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(DS.accent)
+                    .buttonStyle(.dim)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, DS.gutter)
+                .padding(.bottom, DS.Space.s2)
+            }
+            if !aboutRows.isEmpty {
+                LogbookKeyValueList(rows: aboutRows)
+            }
+            if let wiki = info?.wikipediaURL, let url = URL(string: wiki) {
+                Button {
+                    openURL(url)
+                } label: {
+                    ArtRow(title: "Wikipedia", subtitle: "Read the full article") {
+                        ThumbView(systemImage: "book.pages", tint: DS.accent, size: 52)
+                    } trailing: {
+                        Image(systemName: "arrow.up.right")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.dsText3)
+                    }
+                }
+                .buttonStyle(.dsRow)
+                .accessibilityHint("Opens in Safari")
+                .padding(.top, DS.Space.s2)
+            }
+        }
+    }
+
+    private var hasAbout: Bool {
+        info?.summary?.isEmpty == false || !aboutRows.isEmpty || info?.wikipediaURL != nil
+    }
+
+    private var aboutRows: [(String, String)] {
+        var rows: [(String, String)] = []
+        if let family = species.family, !family.isEmpty {
+            rows.append(("Family", family))
+        }
+        if let status = info?.conservationStatus, !status.isEmpty {
+            rows.append(("Status", sentenceCase(status)))
+        }
+        if let count = info?.observationsCount {
+            rows.append(("Sightings", count.formatted()))
+        }
+        return rows
+    }
+
+    private func rangeSection(_ taxonId: Int) -> some View {
+        section("Where it is seen") {
+            SpeciesRangeMapView(taxonId: taxonId)
+                .frame(maxWidth: .infinity)
+                .frame(height: 200)
+                .clipShape(RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
+                .padding(.horizontal, DS.gutter)
+                .accessibilityLabel("Map of where \(species.commonName) has been seen")
+            SectionFoot("Sightings from iNaturalist. Needs a connection.")
+        }
     }
 
     // MARK: - Layout
@@ -558,8 +580,10 @@ struct SpeciesDetailView: View {
         let name: String
         let detail: String?
         let count: Int
+        var icon: String? = nil
     }
 
+    /// A section title and its content, spaced like the sections on a catch page.
     private func section<Content: View>(_ title: String, detail: String? = nil,
                                         @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -572,7 +596,8 @@ struct SpeciesDetailView: View {
 
 // MARK: - Bait row
 
-/// A ranked bait: rank, picture, name. Matches the picks on Today.
+/// A ranked bait, laid out like the picks in Today's What to throw: rank,
+/// picture, name.
 private struct BaitRow: View {
     let rank: Int
     let name: String
@@ -585,83 +610,16 @@ private struct BaitRow: View {
                 .foregroundStyle(.dsText2)
                 .frame(minWidth: 16, alignment: .leading)
             LureArtView(name: name, size: 56)
-            VStack(alignment: .leading, spacing: 2) {
-                if rank == 1 {
-                    Text("Top pick")
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(DS.accent)
-                }
-                Text(name)
-                    .font(.body.weight(.medium))
-                    .foregroundStyle(.dsText)
-                    .lineLimit(2)
-            }
-            Spacer(minLength: 0)
+            Text(name)
+                .font(.headline)
+                .foregroundStyle(.dsText)
+                .lineLimit(2)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.horizontal, DS.gutter)
         .padding(.vertical, 8)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(rank == 1 ? "Top pick, \(name)" : "Pick \(rank), \(name)")
-    }
-}
-
-// MARK: - Temperature bar
-
-/// The comfort range on a 0 to 36 °C scale (widened to fit the species): the
-/// survival band faint, the feeding band solid, a dot for this month's water.
-private struct TemperatureRangeBar: View {
-    let lower: Double
-    let optimal: Double
-    let upper: Double
-    let water: Double
-    let tint: Color
-    let imperial: Bool
-
-    private var scaleLow: Double { min(0, lower - 2) }
-    private var scaleHigh: Double { max(36, upper + 2) }
-
-    /// 0 to 1 along the scale.
-    private func t(_ value: Double) -> CGFloat {
-        CGFloat(min(max((value - scaleLow) / (scaleHigh - scaleLow), 0), 1))
-    }
-
-    var body: some View {
-        VStack(spacing: 6) {
-            // Drawn rather than laid out, so nothing on the bar can widen the page.
-            Canvas { context, size in
-                let w = size.width, h = size.height
-                let track = CGRect(x: 0, y: h / 2 - 4, width: w, height: 8)
-                context.fill(Capsule().path(in: track), with: .color(Color.dsFill2))
-                let survive = CGRect(x: w * t(lower), y: track.minY,
-                                     width: max(8, w * (t(upper) - t(lower))), height: 8)
-                context.fill(Capsule().path(in: survive), with: .color(tint.opacity(0.35)))
-                let feed = CGRect(x: w * t(optimal - 3), y: track.minY,
-                                  width: max(8, w * (t(optimal + 3) - t(optimal - 3))), height: 8)
-                context.fill(Capsule().path(in: feed), with: .color(tint))
-                let dotX = min(max(w * t(water), 8), w - 8)
-                let dot = CGRect(x: dotX - 8, y: h / 2 - 8, width: 16, height: 16)
-                context.fill(Circle().path(in: dot), with: .color(Color.dsBackground))
-                context.fill(Circle().path(in: dot.insetBy(dx: 2, dy: 2)), with: .color(Color.dsText))
-            }
-            .frame(height: 16)
-            HStack(spacing: DS.Space.s2) {
-                Text(Units.temperature(scaleLow, imperial: imperial))
-                Spacer(minLength: 0)
-                HStack(spacing: 4) {
-                    Circle()
-                        .fill(Color.dsText)
-                        .frame(width: 8, height: 8)
-                    Text("This month")
-                }
-                Spacer(minLength: 0)
-                Text(Units.temperature(scaleHigh, imperial: imperial))
-            }
-            .font(.caption)
-            .foregroundStyle(.dsText2)
-            .lineLimit(1)
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Comfortable from \(Units.temperature(lower, imperial: imperial)) to \(Units.temperature(upper, imperial: imperial)). Typical water this month is \(Units.temperature(water, imperial: imperial)).")
+        .accessibilityLabel("Pick \(rank), \(name)")
     }
 }
 

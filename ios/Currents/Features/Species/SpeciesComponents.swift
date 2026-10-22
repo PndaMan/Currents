@@ -53,24 +53,24 @@ struct SeasonChart: View {
                     let on = i < inSeason.count && inSeason[i]
                     RoundedRectangle(cornerRadius: DS.Radius.thumb / 2, style: .continuous) // ui-lint: allow, chart bar not a card
                         .fill(on ? tint : Color.dsText.opacity(0.16))
-                        .frame(height: max(8, 150 * CGFloat(grown ? score : 0) / 100))
+                        .frame(height: max(8, 130 * CGFloat(grown ? score : 0) / 100))
                         .frame(maxWidth: .infinity)
                         .animation(reduceMotion ? nil : DS.Motion.softSpring.delay(Double(i) * 0.03), value: grown)
                 }
             }
-            .frame(height: 150, alignment: .bottom)
+            .frame(height: 130, alignment: .bottom)
             HStack(spacing: 6) {
                 ForEach(0..<12, id: \.self) { i in
                     let isNow = i + 1 == currentMonth
                     VStack(spacing: 2) {
-                        Circle()
-                            .fill(isNow ? Color.dsText : .clear)
-                            .frame(width: 4, height: 4)
                         Text(String(SpeciesSeason.shortMonths[i].prefix(1)))
                             .font(.caption.weight(isNow ? .bold : .regular))
                             .foregroundStyle(isNow ? Color.dsText : Color.dsText2)
                             .lineLimit(1)
                             .minimumScaleFactor(0.5)
+                        Circle()
+                            .fill(isNow ? Color.dsText : .clear)
+                            .frame(width: 4, height: 4)
                     }
                     .frame(maxWidth: .infinity)
                 }
@@ -92,114 +92,95 @@ struct SeasonChart: View {
     }
 }
 
-/// A grouped list of label and value rows (the mockup's `kv` block).
-struct SpeciesFacts: View {
-    let rows: [(String, String)]
-
-    var body: some View {
-        VStack(spacing: 0) {
-            ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
-                HStack(alignment: .firstTextBaseline) {
-                    Text(row.0)
-                        .foregroundStyle(.dsText)
-                    Spacer(minLength: 12)
-                    Text(row.1)
-                        .foregroundStyle(.dsText2)
-                        .monospacedDigit()
-                        .multilineTextAlignment(.trailing)
-                }
-                .font(.body)
-                .padding(.horizontal, DS.Space.s4)
-                .padding(.vertical, 13)
-                .accessibilityElement(children: .combine)
-                if index < rows.count - 1 {
-                    Rectangle()
-                        .fill(Color.dsSeparator)
-                        .frame(height: 0.5)
-                        .padding(.leading, DS.Space.s4)
-                }
-            }
-        }
-        .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
-        .padding(.horizontal, DS.gutter)
-    }
-}
-
-/// A small capsule tag under a detail header.
+/// A small capsule tag under a detail header, styled like the tags on a
+/// catch page.
 struct SpeciesTag: View {
     let text: String
     var systemImage: String? = nil
-    var tint: Color? = nil
+    var tint: Color = .dsText2
 
     var body: some View {
         HStack(spacing: 4) {
             if let systemImage {
                 Image(systemName: systemImage)
-                    .foregroundStyle(tint ?? Color.dsText2)
+                    .foregroundStyle(tint)
             }
             Text(text)
         }
         .font(.footnote.weight(.medium))
-        .foregroundStyle(.dsText2)
+        .foregroundStyle(.dsText)
         .padding(.horizontal, 10)
         .padding(.vertical, 5)
         .background(Color.dsFill, in: Capsule())
     }
 }
 
-/// A grey line under a section (source notes, disclaimers).
-struct SectionFootnote: View {
-    let text: String
+/// Tags that wrap onto a new line when they run out of room, so a row of
+/// them can never widen the page.
+struct SpeciesTagFlow: Layout {
+    var spacing: CGFloat = 6
 
-    init(_ text: String) { self.text = text }
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let width = proposal.width ?? .infinity
+        var x: CGFloat = 0, y: CGFloat = 0, rowH: CGFloat = 0, maxX: CGFloat = 0
+        for s in subviews {
+            let size = fitted(s, width)
+            if x > 0 && x + size.width > width { x = 0; y += rowH + spacing; rowH = 0 }
+            x += size.width + spacing
+            rowH = max(rowH, size.height)
+            maxX = max(maxX, x - spacing)
+        }
+        return CGSize(width: maxX, height: y + rowH)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var x = bounds.minX, y = bounds.minY, rowH: CGFloat = 0
+        for s in subviews {
+            let size = fitted(s, bounds.width)
+            if x > bounds.minX && x + size.width > bounds.maxX { x = bounds.minX; y += rowH + spacing; rowH = 0 }
+            s.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
+            x += size.width + spacing
+            rowH = max(rowH, size.height)
+        }
+    }
+
+    /// A tag's natural size, or wrapped to the row when it is wider.
+    private func fitted(_ s: LayoutSubview, _ width: CGFloat) -> CGSize {
+        let natural = s.sizeThatFits(.unspecified)
+        guard natural.width > width, width.isFinite else { return natural }
+        return s.sizeThatFits(ProposedViewSize(width: width, height: nil))
+    }
+}
+
+/// A species' comfortable band with a reading as a dot, for the visual slot
+/// of a condition tile. The same look as the water tile on a catch page.
+struct SpeciesTempBar: View {
+    let low: Double
+    let high: Double
+    let value: Double
 
     var body: some View {
-        Text(text)
-            .font(.footnote)
-            .foregroundStyle(.dsText2)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, DS.gutter)
-            .padding(.top, DS.Space.s2)
+        GeometryReader { geo in
+            let minT = min(low, value) - 4, maxT = max(high, value) + 4
+            let span = max(maxT - minT, 1)
+            let x: (Double) -> CGFloat = { CGFloat(($0 - minT) / span) * geo.size.width }
+            ZStack(alignment: .leading) {
+                Capsule().fill(Color.dsFill2).frame(height: 6)
+                Capsule().fill(Color.dsScoreGood.opacity(0.7))
+                    .frame(width: max(4, x(high) - x(low)), height: 6)
+                    .offset(x: x(low))
+                Circle().fill(Color.dsText)
+                    .frame(width: 12, height: 12)
+                    .offset(x: x(value) - 6)
+            }
+            .frame(maxHeight: .infinity)
+        }
+        .frame(height: 34)
+        .accessibilityHidden(true)
     }
 }
 
 extension Species {
     /// "#0046", the Fishdex number.
     var fishdexNumber: String { String(format: "#%04d", id) }
-}
-
-extension View {
-    /// Keeps a pushed page's big in-content title from being doubled in the
-    /// navigation bar: the bar shows `title` only once the content has
-    /// scrolled past the title block. Apply to the page's ScrollView.
-    func speciesScrollTitle(_ title: String, threshold: CGFloat = 90) -> some View {
-        modifier(ScrollRevealTitle(title: title, threshold: threshold))
-    }
-}
-
-private struct ScrollRevealTitle: ViewModifier {
-    let title: String
-    let threshold: CGFloat
-    @State private var showsTitle = false
-
-    func body(content: Content) -> some View {
-        content
-            .navigationTitle(title)
-            .navigationBarTitleDisplayMode(.inline)
-            .onScrollGeometryChange(for: Bool.self) { geo in
-                geo.contentOffset.y + geo.contentInsets.top > threshold
-            } action: { _, isPast in
-                withAnimation(.easeOut(duration: DS.Motion.fast)) { showsTitle = isPast }
-            }
-            .toolbar {
-                ToolbarItem(placement: .principal) {
-                    Text(title)
-                        .font(.headline)
-                        .foregroundStyle(.dsText)
-                        .lineLimit(1)
-                        .opacity(showsTitle ? 1 : 0)
-                        .accessibilityHidden(!showsTitle)
-                }
-            }
-    }
 }

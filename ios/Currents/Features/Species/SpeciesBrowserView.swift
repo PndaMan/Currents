@@ -11,14 +11,13 @@ struct SpeciesNavID: Hashable {
 /// Guide and Seasons segments.
 struct SpeciesBrowserView: View {
     @Environment(AppState.self) private var appState
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Namespace private var zoomNamespace
 
     @State private var species: [Species] = []
     @State private var caughtIds: Set<Int64> = []
     @State private var loaded = false
+    @State private var titleShown = false
     @State private var searchText = ""
-    @FocusState private var searchFocused: Bool
     @State private var month: Int = SpeciesSeason.currentMonth
     @State private var habitat: HabitatFilter = .all
     @AppStorage("seasonalSortOrder") private var sortOrder: SortOrder = .match
@@ -27,7 +26,6 @@ struct SpeciesBrowserView: View {
     @State private var scoresById: [Int64: [Int]] = [:]
     @State private var inSeason: [Species] = []
     @State private var offSeason: [Species] = []
-    @State private var appeared = false
 
     enum SortOrder: String, CaseIterable, Identifiable {
         case match = "Best match"
@@ -58,58 +56,55 @@ struct SpeciesBrowserView: View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
                 DetailHeader(over: SpeciesSeason.hemisphereName, title: "Species guide", subtitle: subtitle)
-                    .padding(.top, DS.Space.s2)
+
+                PFSearchField(prompt: "Search by name or family", text: $searchText)
+                    .padding(.top, DS.Space.s4)
 
                 monthChips
-                    .padding(.top, DS.Space.s5)
-                FilterChips(HabitatFilter.allCases, selection: $habitat) { $0.rawValue }
-                    .padding(.top, DS.Space.s1)
+                    .padding(.top, DS.Space.s2)
 
-                Label("Typical water in \(SpeciesSeason.fullMonths[month - 1]): \(Units.temperature(SpeciesSeason.waterTemp(for: month)))",
-                      systemImage: "water.waves")
-                    .font(.footnote)
-                    .foregroundStyle(.dsText2)
+                Picker("Water", selection: $habitat) {
+                    ForEach(HabitatFilter.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                .padding(.horizontal, DS.gutter)
+                .padding(.top, DS.Space.s2)
+
+                if sortOrder != SortOrder.defaultOrder {
+                    Chip("Sorted by \(sortOrder.rawValue.lowercased())", systemImage: "xmark", isSelected: true) {
+                        sortOrder = SortOrder.defaultOrder
+                    }
+                    .accessibilityHint("Sorts by best match again")
                     .padding(.horizontal, DS.gutter)
                     .padding(.top, DS.Space.s3)
+                }
 
                 list
             }
             .padding(.bottom, DS.Space.s8)
             .pageWidth()
         }
+        .scrollDismissesKeyboard(.immediately)
         .detailTint(DS.accent)
-        .speciesScrollTitle("Species guide")
-        .searchable(text: $searchText, prompt: "Search by name or family")
-        .searchFocused($searchFocused)
-        // Pulling past the top opens search with the keyboard up.
-        .onScrollGeometryChange(for: Bool.self) { geo in
-            geo.contentOffset.y + geo.contentInsets.top < -60
-        } action: { wasPulled, isPulled in
-            if isPulled, !wasPulled, !searchFocused {
-                Haptics.tap()
-                searchFocused = true
-            }
-        }
+        .pfTrackScroll($titleShown, threshold: 60)
+        .pfScrollTitle("Species guide", shown: titleShown)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Menu {
-                    Picker("Sort by", selection: $sortOrder) {
-                        ForEach(SortOrder.allCases) { Text($0.rawValue).tag($0) }
+                    Section("Sort by") {
+                        Picker("Sort by", selection: $sortOrder) {
+                            ForEach(SortOrder.allCases) { Text($0.rawValue).tag($0) }
+                        }
                     }
-                    Button {
-                        sortOrder = SortOrder.defaultOrder
-                    } label: {
-                        Label("Default sort (\(SortOrder.defaultOrder.rawValue.lowercased()))",
-                              systemImage: "arrow.uturn.backward")
-                    }
-                    .disabled(sortOrder == SortOrder.defaultOrder)
                 } label: {
                     Image(systemName: "arrow.up.arrow.down")
                 }
                 .accessibilityLabel("Sort")
+                .accessibilityValue(sortOrder.rawValue)
             }
         }
         .sensoryFeedback(.selection, trigger: sortOrder)
+        .sensoryFeedback(.selection, trigger: habitat)
         .navigationDestination(for: SpeciesRoute.self) { route in
             SpeciesDetailView(species: route.species,
                               zoom: SpeciesZoomSource(id: route.species.id, namespace: zoomNamespace))
@@ -146,10 +141,12 @@ struct SpeciesBrowserView: View {
         .sensoryFeedback(.selection, trigger: month)
     }
 
-    private var subtitle: String {
-        guard loaded else { return "" }
-        let month = SpeciesSeason.fullMonths[self.month - 1]
-        return "\(species.count.formatted()) species, \(inSeasonTotal.formatted()) in season in \(month)"
+    /// "210 of 1,568 in season in October, water about 16°C."
+    private var subtitle: String? {
+        guard loaded else { return nil }
+        let name = SpeciesSeason.fullMonths[month - 1]
+        let water = Units.temperature(SpeciesSeason.waterTemp(for: month))
+        return "\(inSeasonTotal.formatted()) of \(species.count.formatted()) in season in \(name), water about \(water)."
     }
 
     /// In season this month across the whole guide, ignoring search and habitat.
@@ -175,41 +172,30 @@ struct SpeciesBrowserView: View {
                 .padding(.top, 40)
         } else {
             if !inSeason.isEmpty {
-                groupLabel("In season in \(SpeciesSeason.fullMonths[month - 1])", count: inSeason.count)
-                ForEach(Array(inSeason.enumerated()), id: \.element.id) { index, sp in
-                    row(sp, index: index)
-                }
+                SectionTitle("In season in \(SpeciesSeason.fullMonths[month - 1])", detail: inSeason.count.formatted())
+                    .padding(.top, DS.Space.s6)
+                ForEach(inSeason) { sp in row(sp) }
             }
             if !offSeason.isEmpty {
-                groupLabel("Out of season", count: offSeason.count)
-                ForEach(Array(offSeason.enumerated()), id: \.element.id) { index, sp in
-                    row(sp, index: inSeason.count + index)
-                }
+                SectionTitle("Out of season", detail: offSeason.count.formatted())
+                    .padding(.top, DS.Space.s6)
+                ForEach(offSeason) { sp in row(sp) }
             }
         }
     }
 
-    private func groupLabel(_ title: String, count: Int) -> some View {
-        SectionTitle(title, detail: count.formatted())
-            .padding(.top, DS.Space.s6)
-    }
-
-    private func row(_ sp: Species, index: Int) -> some View {
-        let staggers = !reduceMotion && index < 12
-        return NavigationLink(value: SpeciesRoute(species: sp)) {
+    private func row(_ sp: Species) -> some View {
+        NavigationLink(value: SpeciesRoute(species: sp)) {
             ArtRow(over: caughtIds.contains(sp.id) ? "In your Fishdex" : nil,
                    title: sp.commonName,
                    subtitle: rowSubtitle(sp)) {
-                ThumbView(species: sp)
+                ThumbView(species: sp, size: 52)
                     .matchedTransitionSource(id: sp.id, in: zoomNamespace)
             } trailing: {
                 SeasonMiniBars(scores: scoresById[sp.id] ?? [], highlight: month, tint: sp.artTint)
             }
         }
         .buttonStyle(.dsRow)
-        .opacity(appeared || !staggers ? 1 : 0)
-        .offset(y: appeared || !staggers ? 0 : 14)
-        .animation(staggers ? DS.Motion.easeOut.delay(Double(index) * 0.035) : nil, value: appeared)
     }
 
     private func rowSubtitle(_ sp: Species) -> String {
@@ -231,11 +217,6 @@ struct SpeciesBrowserView: View {
         caughtIds = (try? appState.speciesRepository.caughtSpeciesIds()) ?? []
         recompute()
         loaded = true
-        if !appeared {
-            // Let the first frame lay out before the rows rise in.
-            try? await Task.sleep(for: .milliseconds(30))
-            appeared = true
-        }
     }
 
     /// Recompute the in and out of season lists. Runs only when an input
