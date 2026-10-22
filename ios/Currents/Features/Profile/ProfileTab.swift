@@ -1731,6 +1731,7 @@ struct AboutView: View {
                 LabeledContent("Satellite map", value: "Esri World Imagery")
                 LabeledContent("Rain radar", value: "RainViewer")
                 LabeledContent("Bathymetry", value: "GLOBathy")
+                LabeledContent("Water, ramps and access", value: "OpenStreetMap contributors")
             }
             .pfRows()
         }

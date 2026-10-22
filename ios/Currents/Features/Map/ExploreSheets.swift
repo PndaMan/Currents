@@ -87,8 +87,10 @@ struct PinPeekSheet: View {
             .padding(.top, DS.Space.s4)
             speciesMinis(title: "Species caught here")
         case .water(let w):
-            header(thumb: AnyView(ThumbView(systemImage: ExploreFormat.waterIcon(w.type), tint: DS.accent)),
-                   title: w.name, subtitle: subtitle(ExploreFormat.waterType(w.type), peek.coordinate))
+            header(thumb: AnyView(ThumbView(systemImage: ExploreFormat.waterIcon(w.type), tint: .exploreWater)),
+                   title: w.name,
+                   subtitle: subtitle(ExploreFormat.waterType(w.type) + (w.surfaceAreaKm2.map { ", \(ExploreFormat.area($0))" } ?? ""),
+                                      peek.coordinate))
             biteBlock
             ActionTriple {
                 Button { onOpen(.waterbody(WaterbodyRef(w))) } label: { Label("Open", systemImage: "water.waves") }
@@ -260,19 +262,28 @@ enum SpotFormat {
 
 // MARK: - Ramp sheet
 
-/// Tap a ramp: what it is, and directions, the reason you look for a ramp.
+/// Tap a ramp or fishing access point: what it is, then Directions, Save
+/// and Share, the same three actions as every other place.
 struct RampDetailSheet: View {
     @Environment(AppState.self) private var appState
     let ramp: BoatRamp
+    @State private var savedSpot: Spot?
+    @State private var savedTick = 0
+
+    private var shareURL: URL? {
+        let q = ramp.name.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+        return URL(string: "https://maps.apple.com/?ll=\(ramp.lat),\(ramp.lon)&q=\(q)")
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 14) {
-                ThumbView(systemImage: ramp.kind.icon, tint: .teal)
+                ThumbView(systemImage: ramp.kind.icon, tint: ExploreFormat.placeTint(ramp.kind))
                 VStack(alignment: .leading, spacing: 2) {
                     Text(ramp.name)
                         .font(.title2.bold())
                         .foregroundStyle(.dsText)
+                        .fixedSize(horizontal: false, vertical: true)
                     Text(subtitle)
                         .font(.subheadline)
                         .foregroundStyle(.dsText2)
@@ -282,30 +293,66 @@ struct RampDetailSheet: View {
             .padding(.horizontal, DS.gutter)
             .padding(.top, DS.Space.s6)
 
-            KVRow("Type", ramp.kind.label)
-            KVRow("Location", ExploreFormat.coords(ramp.coordinate), divider: false)
-            ExploreFootnote("From OpenStreetMap, saved on this phone. Access and fees change, so check at the gate.")
-
-            DirectionsMenu(coordinate: ramp.coordinate, name: ramp.name) {
-                Label("Directions", systemImage: "location.north.line")
-                    .font(.headline)
-                    .foregroundStyle(.dsOnPrimary)
-                    .frame(maxWidth: .infinity, minHeight: 52)
-                    .background(Color.dsPrimaryButton, in: RoundedRectangle(cornerRadius: DS.Radius.button, style: .continuous))
+            ActionTriple {
+                DirectionsMenu(coordinate: ramp.coordinate, name: ramp.name) {
+                    ActionTileLabel("Directions", systemImage: "location.north.line", kind: .primary)
+                }
+                Button { toggleSaved() } label: {
+                    Label(savedSpot == nil ? "Save" : "Saved", systemImage: savedSpot == nil ? "bookmark" : "bookmark.fill")
+                }
+                .buttonStyle(ActionTileStyle())
+                .symbolEffect(.bounce, value: savedTick)
+                if let shareURL {
+                    ShareLink(item: shareURL) {
+                        Label("Share", systemImage: "square.and.arrow.up")
+                    }
+                    .buttonStyle(ActionTileStyle())
+                }
             }
-            .padding(.horizontal, DS.gutter)
             .padding(.top, DS.Space.s5)
+
+            VStack(spacing: 0) {
+                KVRow("Type", ramp.kind.label)
+                KVRow("Location", ExploreFormat.coords(ramp.coordinate), divider: false)
+            }
+            .padding(.top, DS.Space.s4)
+            ExploreFootnote("From OpenStreetMap. Check access and fees at the gate.")
             Spacer(minLength: 0)
         }
         .background(Color.dsElevated.ignoresSafeArea())
         .presentationDetents([.medium])
         .presentationDragIndicator(.visible)
         .presentationBackground(Color.dsElevated)
+        .sensoryFeedback(.success, trigger: savedTick)
+        .task {
+            savedSpot = ((try? appState.spotRepository.fetchAll()) ?? []).first {
+                abs($0.latitude - ramp.lat) < 0.0002 && abs($0.longitude - ramp.lon) < 0.0002
+            }
+        }
     }
 
     private var subtitle: String {
         let d = ExploreFormat.distance(from: appState.locationManager.currentLocation?.coordinate, to: ramp.coordinate)
         return d.map { "\(ramp.kind.label), \($0) away" } ?? ramp.kind.label
+    }
+
+    private func toggleSaved() {
+        if let savedSpot {
+            try? appState.spotRepository.delete(savedSpot)
+            self.savedSpot = nil
+            ToastCenter.shared.show("Removed from your spots", style: .info, icon: "bookmark")
+            return
+        }
+        var spot = Spot(name: ramp.name, latitude: ramp.lat, longitude: ramp.lon,
+                        spotType: ramp.kind == .ramp ? .harbour : .general)
+        do {
+            try appState.spotRepository.save(&spot)
+            savedSpot = spot
+            savedTick += 1
+            ToastCenter.shared.show("\(ramp.name) saved to your spots", icon: "bookmark.fill")
+        } catch {
+            ToastCenter.shared.show("Could not save this spot", style: .error)
+        }
     }
 }
 
@@ -345,7 +392,7 @@ struct MapLayersSheet: View {
                     toggle("Your spots", "mappin", $showSpots)
                     toggle("Your catches", "fish", $showCatches)
                     toggle("Water bodies", "water.waves", $showWater)
-                    toggle("Boat ramps", "sailboat", $showRamps, divider: false)
+                    toggle("Fishing access and ramps", "figure.fishing", $showRamps, divider: false)
 
                     GroupLabel("Overlays")
                     toggle("Depth and sea marks", "ruler", $nautical, detail: "From OpenSeaMap")
@@ -357,6 +404,7 @@ struct MapLayersSheet: View {
                 .padding(.vertical, DS.Space.s3)
             }
             .background(Color.dsElevated.ignoresSafeArea())
+            .detailScrollEdge()
             .navigationTitle("Map layers")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

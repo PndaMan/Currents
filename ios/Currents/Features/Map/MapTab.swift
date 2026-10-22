@@ -39,14 +39,16 @@ struct MapTab: View {
     @State private var waterbodyDebounceTask: Task<Void, Never>?
     @State private var currentLatSpan: Double = 1.0
     @State private var lastMapCenter: CLLocationCoordinate2D?
+    @State private var lastRegion: MKCoordinateRegion?
     // Optional overlay layers, off by default, toggled from the layers sheet.
     @AppStorage("mapLayer_nautical") private var layerNautical = false
     @AppStorage("mapLayer_radar") private var layerRadar = false
     @AppStorage("mapLayer_wind") private var layerWind = false
     @AppStorage("mapLayer_current") private var layerCurrent = false
     @State private var radarOverlay: MKTileOverlay?
-    // Public boat ramps + fishing access points (OpenStreetMap), toggleable.
-    @AppStorage("mapLayer_ramps") private var layerRamps = false
+    // Public fishing access points and boat ramps (OpenStreetMap, bundled for
+    // South Africa). On by default: they are the public fishing spots.
+    @AppStorage("mapLayer_ramps") private var layerRamps = true
     @StateObject private var rampService = BoatRampService.shared
 
     // Sheets and pushes
@@ -175,6 +177,8 @@ struct MapTab: View {
                     .transition(.opacity)
             }
         }
+        // Keeps the clock legible over bright tiles and the top controls clear of it.
+        .statusBarScrim()
         .mapScope(mapScope)
         .animation(reduceMotion ? nil : DS.Motion.easeOut, value: isSearchOpen)
         .animation(reduceMotion ? nil : DS.Motion.easeOut, value: isDropping)
@@ -436,7 +440,8 @@ struct MapTab: View {
         switch feature {
         case .spot: true
         case .water: currentLatSpan < 0.6
-        case .catchPin, .ramp: false
+        case .ramp: currentLatSpan < 0.08
+        case .catchPin: false
         }
     }
 
@@ -494,7 +499,7 @@ struct MapTab: View {
                     chip("Your spots", systemImage: "mappin", route: .spots)
                     chip("Species", systemImage: "fish", route: .speciesGuide)
                     chip("Water", systemImage: "water.waves", route: .waters)
-                    chip("Ramps", systemImage: "sailboat", route: .ramps)
+                    chip("Ramps and access", systemImage: "figure.fishing", route: .ramps)
                 }
                 .padding(.horizontal, DS.Space.s4)
                 .padding(.vertical, 2)
@@ -504,6 +509,19 @@ struct MapTab: View {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: DS.Space.s3) {
                     offlineBadge
+                    if isLoadingWaterbodies {
+                        Label {
+                            Text("Finding water")
+                        } icon: {
+                            ProgressView().controlSize(.mini)
+                        }
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(.dsText2)
+                        .padding(.horizontal, 12)
+                        .frame(height: 32)
+                        .glassEffect(.regular, in: Capsule())
+                        .transition(.opacity)
+                    }
                     if mapStyle != .offline {
                         MapCompass(scope: mapScope)
                     }
@@ -513,7 +531,10 @@ struct MapTab: View {
             }
             .padding(.horizontal, DS.Space.s4)
         }
-        .padding(.top, DS.Space.s2)
+        // A little air under the status bar so the clock and the search
+        // field never read as one row.
+        .padding(.top, DS.Space.s3)
+        .animation(reduceMotion ? nil : DS.Motion.easeOut, value: isLoadingWaterbodies)
     }
 
     private func chip(_ title: String, systemImage: String, route: ExploreRoute) -> some View {
@@ -744,9 +765,8 @@ struct MapTab: View {
         if searchSpecies.isEmpty {
             searchSpecies = (try? appState.speciesRepository.fetchAll()) ?? []
         }
-        if searchWaters.isEmpty {
-            searchWaters = (try? appState.waterbodyRepository.fetchAll()) ?? []
-        }
+        // Re-read each time: bundled and Overpass water arrive after launch.
+        searchWaters = (try? appState.waterbodyRepository.fetchAll()) ?? []
     }
 
     private func closeSearch() {
@@ -762,12 +782,19 @@ struct MapTab: View {
         spots.filter { $0.name.localizedCaseInsensitiveContains(query) }.prefix(5).map { $0 }
     }
 
+    /// Names that start with the query first, then the biggest water.
     private var waterResults: [Waterbody] {
         var seen = Set<String>()
-        return (waterbodies + searchWaters)
+        let q = query.lowercased()
+        let hits = (waterbodies + searchWaters)
             .filter { $0.name.localizedCaseInsensitiveContains(query) }
             .filter { seen.insert("\($0.id ?? 0)-\($0.name)").inserted }
-            .prefix(5).map { $0 }
+        let ranked = hits.sorted { a, b in
+            let ap = a.name.lowercased().hasPrefix(q), bp = b.name.lowercased().hasPrefix(q)
+            if ap != bp { return ap }
+            return (a.surfaceAreaKm2 ?? 0) > (b.surfaceAreaKm2 ?? 0)
+        }
+        return Array(ranked.prefix(5))
     }
 
     private var rampResults: [BoatRamp] {
@@ -831,7 +858,7 @@ struct MapTab: View {
                         browseRow("Species guide", "fish", .speciesGuide)
                         browseRow("Your spots", "mappin", .spots)
                         browseRow("Water", "water.waves", .waters)
-                        browseRow("Boat ramps", "sailboat", .ramps)
+                        browseRow("Access and ramps", "figure.fishing", .ramps)
                     } else {
                         searchResults
                     }
@@ -880,7 +907,7 @@ struct MapTab: View {
                     resultButton {
                         openRoute(.waterbody(WaterbodyRef(wb)), fromSearch: true)
                     } label: {
-                        ArtRow(title: wb.name, subtitle: ExploreFormat.waterType(wb.type), chevron: true) {
+                        ArtRow(title: wb.name, subtitle: waterSubtitle(wb), chevron: true) {
                             ThumbView(systemImage: ExploreFormat.waterIcon(wb.type),
                                       tint: Color.exploreWater, size: 48)
                         }
@@ -888,7 +915,7 @@ struct MapTab: View {
                 }
             }
             if !rampHits.isEmpty {
-                GroupLabel("Ramps")
+                GroupLabel("Access and ramps")
                 ForEach(rampHits) { ramp in
                     resultButton {
                         closeSearch()
@@ -896,7 +923,7 @@ struct MapTab: View {
                         selectedRamp = ramp
                     } label: {
                         ArtRow(title: ramp.name, subtitle: ramp.kind.label) {
-                            ThumbView(systemImage: ramp.kind.icon, tint: .teal, size: 48)
+                            ThumbView(systemImage: ramp.kind.icon, tint: ExploreFormat.placeTint(ramp.kind), size: 48)
                         }
                     }
                 }
@@ -926,6 +953,12 @@ struct MapTab: View {
                 }
             }
         }
+    }
+
+    private func waterSubtitle(_ wb: Waterbody) -> String {
+        let type = ExploreFormat.waterType(wb.type)
+        guard let area = wb.surfaceAreaKm2, area > 0 else { return type }
+        return "\(type), \(ExploreFormat.area(area))"
     }
 
     private func browseRow(_ title: String, _ icon: String, _ route: ExploreRoute) -> some View {
@@ -1005,6 +1038,7 @@ struct MapTab: View {
     private func handleRegionChange(_ region: MKCoordinateRegion) {
         currentLatSpan = region.span.latitudeDelta
         lastMapCenter = region.center
+        lastRegion = region
         // Background-cache tiles around the viewed area for offline use.
         appState.mapManager.prefetchOfflineTiles(around: region.center)
         if layerRamps {
@@ -1034,39 +1068,23 @@ struct MapTab: View {
         }
         topSpecies = tops
 
-        // Bite and weather where the angler is (also feeds the wind overlay).
+        // Water comes from the local database, filled from the bundled
+        // extract on first run, so pins show before any network call and
+        // without one. Weather waits until the pins are up.
+        if !ScreenshotSupport.isActive {
+            await BundledMapData.importWaterIfNeeded(into: appState.db)
+        }
         let coord = userCoordinate ?? CLLocationCoordinate2D(latitude: -33.9, longitude: 18.4)
+        let region = lastRegion ?? MKCoordinateRegion(
+            center: coord,
+            span: MKCoordinateSpan(latitudeDelta: currentLatSpan, longitudeDelta: currentLatSpan)
+        )
+        await loadWaterbodies(region: region)
+
+        // Bite and weather where the angler is (also feeds the wind overlay).
         let (bite, w) = await BiteSnapshot.load(at: coord)
         nearBite = bite
         weather = w
-
-        // Show cached waterbodies instantly, fetch more from Overpass in background
-        let userLat = coord.latitude
-        let userLon = coord.longitude
-        waterbodies = (try? appState.waterbodyRepository.fetchForRegion(
-            minLat: userLat - 0.5, maxLat: userLat + 0.5,
-            minLon: userLon - 0.5, maxLon: userLon + 0.5,
-            minSurfaceAreaKm2: 0,
-            includeNilArea: true,
-            limit: 50
-        )) ?? []
-
-        // Background Overpass fetch for new data
-        Task {
-            if let results = await OverpassService.shared.fetchWaterbodies(
-                minLat: userLat - 0.5, maxLat: userLat + 0.5,
-                minLon: userLon - 0.5, maxLon: userLon + 0.5
-            ) {
-                let _ = try? appState.waterbodyRepository.insertFromOverpass(results)
-                waterbodies = (try? appState.waterbodyRepository.fetchForRegion(
-                    minLat: userLat - 0.5, maxLat: userLat + 0.5,
-                    minLon: userLon - 0.5, maxLon: userLon + 0.5,
-                    minSurfaceAreaKm2: 0,
-                    includeNilArea: true,
-                    limit: 50
-                )) ?? []
-            }
-        }
 
         // Compute bite scores for each spot
         for spot in spots {
@@ -1127,7 +1145,10 @@ struct MapTab: View {
         // 3) Only hit Overpass when zoomed in enough (< 2.5° span) to avoid API
         // spam, and never in screenshot mode, so captures show only the clean
         // seeded set deterministically (no async network results mid-capture).
-        guard latSpan < 2.5, !ScreenshotSupport.isActive else {
+        // The bundled extract already holds everything Overpass would return
+        // inside its tiles, so only ask Overpass outside them.
+        guard latSpan < 2.5, !ScreenshotSupport.isActive,
+              !BundledMapData.covers(minLat: minLat, maxLat: maxLat, minLon: minLon, maxLon: maxLon) else {
             isLoadingWaterbodies = false
             return
         }

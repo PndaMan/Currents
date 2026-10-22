@@ -78,10 +78,16 @@ struct WaterbodyDetailView: View {
                     section {
                         SectionTitle("Bite today")
                         BiteStrip(bite: bite)
-                        if let weather {
-                            conditionsLine(weather)
-                        }
                     }
+                }
+
+                section {
+                    SectionTitle("Conditions")
+                    ExploreConditions(weather: weather, isLoading: bite == nil)
+                }
+
+                section {
+                    ExploreThrowSection(weather: weather, species: allSpeciesWithBaits.first)
                 }
 
                 if isLoadingSpecies && observedFish.isEmpty {
@@ -130,19 +136,20 @@ struct WaterbodyDetailView: View {
                 }
 
                 section {
-                    SectionTitle("Underwater profile")
-                    underwaterProfile
+                    SectionTitle("Baits that work here")
+                    if allSpeciesWithBaits.isEmpty {
+                        ExploreBaitRows(baits: genericBaitsForType(waterbody.type).prefix(6).map { ExploreBait(name: $0, takers: []) })
+                        ExploreFootnote("Common picks for \(ExploreFormat.waterType(waterbody.type).lowercased()) water.")
+                    } else {
+                        ExploreBaitRows(baits: rankedBaits)
+                    }
                 }
 
+                ExploreNearbyPlaces(coordinate: coord)
+
                 section {
-                    if !allSpeciesWithBaits.isEmpty {
-                        SectionTitle("Suggested baits", detail: "ranked by species")
-                        rankedBaits
-                    } else {
-                        SectionTitle("Suggested baits")
-                        genericBaits
-                        ExploreFootnote("General picks for \(ExploreFormat.waterType(waterbody.type).lowercased()) water. Log catches here to make them your own.")
-                    }
+                    SectionTitle("The water")
+                    underwaterProfile
                 }
 
                 section {
@@ -163,12 +170,9 @@ struct WaterbodyDetailView: View {
                     }
                 }
 
-                section {
-                    KVRow("Type", ExploreFormat.waterType(waterbody.type))
-                    KVRow("Location", ExploreFormat.coords(coord), divider: false)
-                }
             }
             .padding(.bottom, 40)
+            .pageWidth()
         }
         .detailTint(Self.waterTint)
         .navigationTitle("")
@@ -196,14 +200,6 @@ struct WaterbodyDetailView: View {
     private func section<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 0) { content() }
             .padding(.top, DS.Space.s8)
-    }
-
-    private func conditionsLine(_ w: WeatherService.WeatherData) -> some View {
-        var parts = ["Air \(Units.temperature(w.temperatureC))"]
-        if let wt = w.waterTempC { parts.append("water \(Units.temperature(wt))") }
-        parts.append("wind \(Units.speed(kmh: w.windSpeedKmh))")
-        parts.append("\(Int(w.pressureHpa.rounded())) hPa")
-        return ExploreFootnote(parts.joined(separator: ", "))
     }
 
     private var fishCount: Int {
@@ -251,15 +247,8 @@ struct WaterbodyDetailView: View {
         }
 
         let rows = profileRows
-        if rows.isEmpty {
-            Text("No depth survey for this water yet.")
-                .font(.subheadline)
-                .foregroundStyle(.dsText2)
-                .padding(.horizontal, DS.gutter)
-        } else {
-            ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
-                KVRow(row.0, row.1, divider: index < rows.count - 1)
-            }
+        ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
+            KVRow(row.0, row.1, divider: index < rows.count - 1)
         }
 
         let structures = waterbody.decodedStructureTypes
@@ -272,7 +261,7 @@ struct WaterbodyDetailView: View {
                 .padding(.bottom, DS.Space.s2)
             FlowLayout(spacing: 6) {
                 ForEach(structures, id: \.self) { structure in
-                    Text(structure.replacingOccurrences(of: "_", with: " ").capitalized)
+                    Text(ExploreFormat.sentence(structure.replacingOccurrences(of: "_", with: " ")))
                         .font(.subheadline)
                         .foregroundStyle(.dsText)
                         .padding(.horizontal, 12)
@@ -285,11 +274,13 @@ struct WaterbodyDetailView: View {
     }
 
     private var profileRows: [(String, String)] {
-        var s: [(String, String)] = []
+        var s: [(String, String)] = [("Type", ExploreFormat.waterType(waterbody.type))]
         if let maxD = waterbody.maxDepthM { s.append(("Max depth", Units.depth(m: maxD))) }
         if let avgD = waterbody.averageDepthM { s.append(("Average depth", Units.depth(m: avgD))) }
         if let area = waterbody.surfaceAreaKm2 { s.append(("Surface area", ExploreFormat.area(area))) }
         if let elev = waterbody.elevation { s.append(("Elevation", String(format: "%.0f m", elev))) }
+        s.append(("Access", waterbody.isPublic ? "Public" : "Private, ask first"))
+        s.append(("Location", ExploreFormat.coords(coord)))
         return s
     }
 
@@ -306,42 +297,12 @@ struct WaterbodyDetailView: View {
         return result.filter { !$0.parsedBaits.isEmpty }
     }
 
-    private var rankedBaits: some View {
-        // Aggregate baits across all species, ranked by how many species hit them
-        let sortedBaits = aggregateBaits().sorted {
-            ($0.value.count, $0.key) > ($1.value.count, $1.key)
-        }
-        return ForEach(Array(sortedBaits.prefix(8).enumerated()), id: \.element.key) { index, entry in
-            let (bait, speciesNames) = entry
-            let shown = speciesNames.prefix(3).joined(separator: ", ")
-            let extra = speciesNames.count > 3 ? " and \(speciesNames.count - 3) more" : ""
-            ArtRow(title: bait.capitalized, subtitle: "Works for \(shown)\(extra)") {
-                Text("\(index + 1)")
-                    .font(.headline)
-                    .monospacedDigit()
-                    .foregroundStyle(index < 3 ? Color.dsOnPrimary : Color.dsText2)
-                    .frame(width: 36, height: 36)
-                    .background(index < 3 ? Color.dsPrimaryButton : Color.dsFill, in: Circle())
-            } trailing: {
-                Text("\(speciesNames.count)")
-                    .foregroundStyle(.dsText2)
-                    .accessibilityLabel("\(speciesNames.count) species")
-            }
-        }
-    }
-
-    private var genericBaits: some View {
-        FlowLayout(spacing: 8) {
-            ForEach(genericBaitsForType(waterbody.type), id: \.self) { bait in
-                Text(bait)
-                    .font(.subheadline)
-                    .foregroundStyle(.dsText)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 7)
-                    .background(Color.dsFill, in: Capsule())
-            }
-        }
-        .padding(.horizontal, DS.gutter)
+    /// Baits the species here take, the ones most species share first.
+    private var rankedBaits: [ExploreBait] {
+        aggregateBaits()
+            .sorted { ($0.takers.count, $1.name) > ($1.takers.count, $0.name) }
+            .prefix(6)
+            .map { $0 }
     }
 
     private func genericBaitsForType(_ type: Waterbody.WaterbodyType) -> [String] {
@@ -359,23 +320,23 @@ struct WaterbodyDetailView: View {
         }
     }
 
-    private func aggregateBaits() -> [String: [String]] {
-        var result: [String: [String]] = [:]
+    private func aggregateBaits() -> [ExploreBait] {
+        var order: [String] = []
+        var names: [String: String] = [:]
+        var takers: [String: [String]] = [:]
         for sp in allSpeciesWithBaits {
-            guard let baitsJSON = sp.recommendedBaits,
-                  let data = baitsJSON.data(using: .utf8),
-                  let baits = try? JSONDecoder().decode([String].self, from: data) else { continue }
-            for bait in baits {
+            for bait in sp.parsedBaits {
                 let key = bait.lowercased()
-                if result[key] == nil {
-                    result[key] = []
+                if names[key] == nil {
+                    names[key] = bait
+                    order.append(key)
                 }
-                if !(result[key]?.contains(sp.commonName) ?? false) {
-                    result[key]?.append(sp.commonName)
+                if !(takers[key]?.contains(sp.commonName) ?? false) {
+                    takers[key, default: []].append(sp.commonName)
                 }
             }
         }
-        return result
+        return order.map { ExploreBait(name: names[$0] ?? $0, takers: takers[$0] ?? []) }
     }
 
     // MARK: - Actions

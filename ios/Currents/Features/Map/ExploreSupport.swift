@@ -136,6 +136,38 @@ enum ExploreFormat {
         return String(format: "%.0f ha", km2 * 100)
     }
 
+    /// Fishing access in the accent, ramps in teal, wherever they are drawn as thumbs.
+    static func placeTint(_ kind: BoatRamp.Kind) -> Color {
+        kind == .access ? DS.accent : .teal
+    }
+
+    /// Eight-point compass, "NW".
+    static func compass(_ degrees: Double) -> String {
+        let names = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
+        let i = Int(((degrees.truncatingRemainder(dividingBy: 360) + 360 + 22.5) / 45)) % 8
+        return names[i]
+    }
+
+    /// Plain sentences from engine and data copy: dashes become full stops
+    /// and each part starts with a capital, as in "Yo-yo it over grass. Most
+    /// bites come as it falls." Also turns "live worms" into "Live worms".
+    static func sentence(_ text: String) -> String {
+        let parts = text
+            .replacingOccurrences(of: "\u{2014}", with: "|")
+            .replacingOccurrences(of: "\u{2013} ", with: "| ")
+            .split(separator: "|")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+            .map { part -> String in
+                var p = part
+                if p.hasSuffix(".") { p.removeLast() }
+                return p.prefix(1).uppercased() + p.dropFirst()
+            }
+        guard !parts.isEmpty else { return text }
+        let joined = parts.joined(separator: ". ")
+        return text.hasSuffix(".") || parts.count > 1 ? joined + "." : joined
+    }
+
     static func shortDate(_ d: Date) -> String {
         d.formatted(.dateTime.weekday(.wide).day().month(.wide))
     }

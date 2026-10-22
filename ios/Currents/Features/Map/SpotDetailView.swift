@@ -90,6 +90,18 @@ struct SpotDetailView: View {
                     }
                 }
 
+                section {
+                    SectionTitle("Conditions")
+                    ExploreConditions(weather: weather, isLoading: bite == nil)
+                    if let reason = bite?.reasons.first {
+                        ExploreFootnote(ExploreFormat.sentence(reason))
+                    }
+                }
+
+                section {
+                    ExploreThrowSection(weather: weather, species: speciesHere.first?.species)
+                }
+
                 if !speciesHere.isEmpty {
                     section {
                         SectionTitle("Species here")
@@ -128,24 +140,7 @@ struct SpotDetailView: View {
                     }
                 }
 
-                section {
-                    SectionTitle("Conditions now")
-                    if let weather {
-                        KVRow("Air", Units.temperature(weather.temperatureC))
-                        if let wt = weather.waterTempC { KVRow("Water", Units.temperature(wt)) }
-                        KVRow("Wind", Units.speed(kmh: weather.windSpeedKmh))
-                        KVRow("Pressure", pressureText(weather), divider: false)
-                        if let reason = bite?.reasons.first {
-                            ExploreFootnote(reason)
-                        }
-                    } else {
-                        HStack(spacing: DS.Space.s2) {
-                            ProgressView()
-                            Text("Loading weather").foregroundStyle(.dsText2)
-                        }
-                        .padding(.horizontal, DS.gutter)
-                    }
-                }
+                ExploreNearbyPlaces(coordinate: coord)
 
                 section {
                     SectionTitle("Regulations")
@@ -191,6 +186,7 @@ struct SpotDetailView: View {
                 }
             }
             .padding(.bottom, 40)
+            .pageWidth()
         }
         .detailTint(tint)
         .navigationTitle("")
@@ -275,13 +271,6 @@ struct SpotDetailView: View {
                 ThumbView(systemImage: "fish.fill", tint: DS.accent)
             }
         }
-    }
-
-    private func pressureText(_ w: WeatherService.WeatherData) -> String {
-        let base = "\(Int(w.pressureHpa.rounded())) hPa"
-        if w.pressureChange6h > 0.5 { return "\(base), rising" }
-        if w.pressureChange6h < -0.5 { return "\(base), falling" }
-        return "\(base), steady"
     }
 
     // MARK: Actions

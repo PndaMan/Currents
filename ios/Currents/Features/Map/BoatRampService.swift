@@ -72,6 +72,11 @@ final class BoatRampService: ObservableObject {
     }
 
     private func loadTile(_ tile: String, south: Double, west: Double, size: Double) async {
+        // Bundled with the app for the covered region: no network needed.
+        if let bundled = BundledMapData.places(inTile: tile) {
+            merge(bundled, tile: tile)
+            return
+        }
         let file = cacheDir.appendingPathComponent("tile-\(tile).json")
         if let attrs = try? FileManager.default.attributesOfItem(atPath: file.path),
            let modified = attrs[.modificationDate] as? Date,

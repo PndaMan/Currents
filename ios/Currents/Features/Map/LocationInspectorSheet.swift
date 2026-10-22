@@ -22,6 +22,7 @@ struct LocationInspectorSheet: View {
     @State private var probableSpots: [ProbableSpot] = []
     @State private var observedFish: [ObservedSpeciesRepository.FishResult] = []
     @State private var isLoading = true
+    @State private var isLoadingWater = true
     @State private var showingSaveAsSpot = false
 
     var body: some View {
@@ -37,7 +38,9 @@ struct LocationInspectorSheet: View {
                     }
                 }
                 .padding(.bottom, DS.Space.s8)
+                .pageWidth()
             }
+            .detailScrollEdge()
             .background(Color.dsElevated.ignoresSafeArea())
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -117,22 +120,17 @@ struct LocationInspectorSheet: View {
             ExploreFootnote("Recorded within 10 km, from iNaturalist and GBIF observations.")
         }
 
-        if let weather {
+        if weather != nil {
             GroupLabel("Conditions")
-            KVRow("Air", Units.temperature(weather.temperatureC))
-            if let wt = weather.waterTempC {
-                KVRow("Water", Units.temperature(wt))
-            }
-            KVRow("Wind", Units.speed(kmh: weather.windSpeedKmh))
-            KVRow("Pressure", pressureText(weather), divider: false)
+            ExploreConditions(weather: weather)
             if let reason = bite?.reasons.first {
-                ExploreFootnote(reason)
+                ExploreFootnote(ExploreFormat.sentence(reason))
             }
         }
 
         GroupLabel("Water nearby")
         if probableSpots.isEmpty {
-            if isLoading {
+            if isLoadingWater {
                 HStack(spacing: DS.Space.s2) {
                     ProgressView()
                     Text("Looking for water").foregroundStyle(.dsText2)
@@ -205,14 +203,6 @@ struct LocationInspectorSheet: View {
         }
     }
 
-    private func pressureText(_ w: WeatherService.WeatherData) -> String {
-        let base = "\(Int(w.pressureHpa.rounded())) hPa"
-        let change = String(format: "%.1f", abs(w.pressureChange6h))
-        if w.pressureChange6h > 0.3 { return "\(base), rising \(change) in 6 h" }
-        if w.pressureChange6h < -0.3 { return "\(base), falling \(change) in 6 h" }
-        return "\(base), steady"
-    }
-
     private var mapsURL: URL {
         URL(string: "https://maps.apple.com/?ll=\(coordinate.latitude),\(coordinate.longitude)")!
     }
@@ -235,10 +225,26 @@ struct LocationInspectorSheet: View {
 
         placeName = await placeNameTask
 
-        // Nearby user spots and probable water
-        let (nearby, probable) = await computeSpotInsights(baseScore: b.now)
-        nearbySpots = nearby
-        probableSpots = probable
+        // Saved spots and mapped water come from the phone first, so the
+        // list never waits on the network.
+        nearbySpots = savedSpotsNearby()
+        if !ScreenshotSupport.isActive {
+            await BundledMapData.importWaterIfNeeded(into: appState.db)
+        }
+        probableSpots = probableWater(baseScore: b.now)
+        isLoadingWater = false
+
+        // Outside the bundled area, top up from Overpass when online.
+        if !BundledMapData.covers(minLat: waterBox.minLat, maxLat: waterBox.maxLat,
+                                  minLon: waterBox.minLon, maxLon: waterBox.maxLon),
+           let fresh = await OverpassService.shared.fetchWaterbodies(
+               minLat: waterBox.minLat, maxLat: waterBox.maxLat,
+               minLon: waterBox.minLon, maxLon: waterBox.maxLon
+           ) {
+            _ = try? appState.waterbodyRepository.insertFromOverpass(fresh)
+            probableSpots = probableWater(baseScore: b.now)
+        }
+
         observedFish = await fishTask
         isLoading = false
     }
@@ -258,10 +264,9 @@ struct LocationInspectorSheet: View {
         return nil
     }
 
-    private func computeSpotInsights(baseScore: Int) async -> ([ScoredSpot], [ProbableSpot]) {
+    /// Saved spots within 30 km, nearest first.
+    private func savedSpotsNearby() -> [ScoredSpot] {
         let origin = CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)
-
-        // Nearby saved spots, shown in "Your spots nearby".
         let spots = (try? appState.spotRepository.fetchNearby(
             latitude: coordinate.latitude,
             longitude: coordinate.longitude,
@@ -276,37 +281,30 @@ struct LocationInspectorSheet: View {
             return ScoredSpot(spot: spot, distanceMeters: distM, catchCount: count)
         }
         .sorted { $0.distanceMeters < $1.distanceMeters }
+        return Array(scored.prefix(5))
+    }
 
-        // Probable fishing water: real dams/lakes/rivers around the tap
-        // (OpenStreetMap-backed waterbody DB), not the user's saved spots.
-        let delta = 0.45 // about 50 km
-        let minLat = coordinate.latitude - delta
-        let maxLat = coordinate.latitude + delta
-        let minLon = coordinate.longitude - delta
-        let maxLon = coordinate.longitude + delta
+    /// About 50 km around the point.
+    private var waterBox: (minLat: Double, maxLat: Double, minLon: Double, maxLon: Double) {
+        let delta = 0.45
+        return (coordinate.latitude - delta, coordinate.latitude + delta,
+                coordinate.longitude - delta, coordinate.longitude + delta)
+    }
 
-        func cachedBodies() -> [Waterbody] {
-            (try? appState.waterbodyRepository.fetchForRegion(
-                minLat: minLat, maxLat: maxLat,
-                minLon: minLon, maxLon: maxLon,
-                minSurfaceAreaKm2: 0,
-                includeNilArea: true,
-                limit: 200
-            )) ?? []
-        }
+    /// Real dams, lakes and rivers around the point from the water database
+    /// (bundled and OpenStreetMap), not the user's saved spots.
+    private func probableWater(baseScore: Int) -> [ProbableSpot] {
+        let origin = CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)
+        let box = waterBox
+        let bodies = (try? appState.waterbodyRepository.fetchForRegion(
+            minLat: box.minLat, maxLat: box.maxLat,
+            minLon: box.minLon, maxLon: box.maxLon,
+            minSurfaceAreaKm2: 0,
+            includeNilArea: true,
+            limit: 400
+        )) ?? []
 
-        var bodies = cachedBodies()
-
-        // Top up from Overpass when online so we surface as many dams as possible.
-        if let fresh = await OverpassService.shared.fetchWaterbodies(
-            minLat: minLat, maxLat: maxLat,
-            minLon: minLon, maxLon: maxLon
-        ) {
-            _ = try? appState.waterbodyRepository.insertFromOverpass(fresh)
-            bodies = cachedBodies()
-        }
-
-        let probable = bodies
+        return bodies
             .map { wb -> (Waterbody, Double) in
                 let d = origin.distance(from: CLLocation(latitude: wb.latitude, longitude: wb.longitude))
                 return (wb, d)
@@ -325,8 +323,6 @@ struct LocationInspectorSheet: View {
                     waterbody: wb
                 )
             }
-
-        return (Array(scored.prefix(5)), Array(probable))
     }
 
     private func probableReason(for wb: Waterbody) -> String {

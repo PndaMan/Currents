@@ -51,6 +51,14 @@ enum ExploreFeature: Identifiable {
         if case .catchPin = self { return true }
         return false
     }
+
+    /// Spots and catches draw as square art; water and places as round dots.
+    var isSquare: Bool {
+        switch self {
+        case .spot, .catchPin: true
+        case .water, .ramp: false
+        }
+    }
 }
 
 struct PinCluster: Identifiable {
@@ -103,44 +111,83 @@ enum PinClustering {
 
 // MARK: - Pin art
 
-/// The square art inside a pin: species art on its tint, or a symbol.
+/// Explore's three pin shapes, so a glance tells them apart, like Apple Maps'
+/// category glyphs: your spots are square cards with species art, water is a
+/// round blue glyph, and public fishing access and ramps are small white dots.
 struct PinArt: View {
     let feature: ExploreFeature
     var topSpecies: Species?
     var size: CGFloat = 46
 
     var body: some View {
-        Group {
-            switch feature {
-            case .spot(let spot):
+        switch feature {
+        case .spot(let spot):
+            card {
                 if let topSpecies {
                     ThumbView(species: topSpecies, size: size)
                 } else {
                     ThumbView(systemImage: spot.type.icon, tint: DS.accent, size: size)
                 }
-            case .water(let w):
-                ThumbView(systemImage: ExploreFormat.waterIcon(w.type), tint: Color.exploreWater, size: size)
-            case .catchPin(let c):
+            }
+        case .catchPin(let c):
+            card {
                 if let sp = c.species {
                     ThumbView(species: sp, size: size)
                 } else {
                     ThumbView(systemImage: "fish.fill", tint: DS.accent, size: size)
                 }
-            case .ramp(let r):
-                ZStack {
-                    RoundedRectangle(cornerRadius: size * 0.25, style: .continuous).fill(Color.white)
-                    Image(systemName: r.kind.icon)
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(Color.black.opacity(0.8))
-                }
-                .frame(width: size, height: size)
             }
+        case .water(let w):
+            WaterDot(type: w.type, size: size)
+        case .ramp(let r):
+            PlaceDot(kind: r.kind, size: size)
         }
-        .overlay(
-            RoundedRectangle(cornerRadius: size < 48 ? size * 0.25 : DS.Radius.thumb, style: .continuous)
-                .stroke(Color.white, lineWidth: 2.5)
-        )
-        .mapPinShadow()
+    }
+
+    private func card<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        content()
+            .overlay(
+                RoundedRectangle(cornerRadius: size < 48 ? size * 0.25 : DS.Radius.thumb, style: .continuous)
+                    .stroke(Color.white, lineWidth: 2.5)
+            )
+            .mapPinShadow()
+    }
+}
+
+/// Water's glyph: a blue disc with a white rim.
+struct WaterDot: View {
+    let type: Waterbody.WaterbodyType
+    var size: CGFloat = ExploreMetrics.waterDot
+
+    var body: some View {
+        Circle()
+            .fill(Color.exploreWater)
+            .overlay {
+                Image(systemName: ExploreFormat.waterIcon(type))
+                    .font(size > 36 ? Font.body.weight(.bold) : Font.footnote.weight(.bold))
+                    .foregroundStyle(.white)
+            }
+            .overlay(Circle().stroke(Color.white, lineWidth: 2))
+            .frame(width: size, height: size)
+            .mapPinShadow()
+    }
+}
+
+/// A public fishing access point or boat ramp: a small white disc.
+struct PlaceDot: View {
+    let kind: BoatRamp.Kind
+    var size: CGFloat = ExploreMetrics.placeDot
+
+    var body: some View {
+        Circle()
+            .fill(Color.white)
+            .overlay {
+                Image(systemName: kind.icon)
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(kind == .access ? DS.accent : Color.black.opacity(0.75))
+            }
+            .frame(width: size, height: size)
+            .mapPinShadow()
     }
 }
 
@@ -148,25 +195,29 @@ struct PinArt: View {
 struct PinLabel: View {
     let title: String
     var detail: String? = nil
+    /// Water names take the water ink, as Apple Maps colours lakes and rivers.
+    var isWater = false
 
     var body: some View {
         VStack(spacing: 0) {
             Text(title)
-                .font(.caption.weight(.semibold))
+                .font(isWater ? Font.caption.weight(.semibold).italic() : Font.caption.weight(.semibold))
+                .foregroundStyle(isWater ? Color.exploreWaterInk : Color.dsText)
                 .lineLimit(1)
             if let detail {
                 Text(detail)
                     .font(.caption2.weight(.medium))
                     .foregroundStyle(.dsText2)
+                    .lineLimit(1)
             }
         }
-        .foregroundStyle(.dsText)
         .mapLabelHalo()
-        .fixedSize()
+        .frame(maxWidth: 160)
+        .fixedSize(horizontal: false, vertical: true)
     }
 }
 
-/// A single pin: art, optional score badge, label.
+/// A single pin: art, bite treatment, label.
 struct ExplorePin: View {
     let feature: ExploreFeature
     var score: Int?
@@ -175,69 +226,189 @@ struct ExplorePin: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var shown = false
 
-    private var size: CGFloat {
+    var body: some View {
+        content
+            // Pins grow in as they land. They never start hidden, so a pin
+            // whose appear event is skipped still shows.
+            .scaleEffect(shown || reduceMotion ? 1 : 0.6)
+            .onAppear { withAnimation(DS.Motion.spring) { shown = true } }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(accessibilityText)
+            .accessibilityAddTraits(.isButton)
+    }
+
+    @ViewBuilder
+    private var content: some View {
         switch feature {
-        case .spot, .water: 46
-        case .catchPin: 36
-        case .ramp: 28
+        case .water(let w):
+            WaterPin(waterbody: w, score: score, showsLabel: showsLabel)
+        case .ramp(let r):
+            VStack(spacing: 3) {
+                PlaceDot(kind: r.kind)
+                if showsLabel { PinLabel(title: r.name) }
+            }
+        case .spot, .catchPin:
+            VStack(spacing: 4) {
+                PinArt(feature: feature, topSpecies: topSpecies, size: feature.isCatch ? 36 : 46)
+                    .overlay(alignment: .topTrailing) {
+                        if let score {
+                            Text("\(score)")
+                                .font(.caption2.weight(.heavy))
+                                .monospacedDigit()
+                                .foregroundStyle(.black)
+                                .padding(.horizontal, 5)
+                                .padding(.vertical, 2)
+                                .background(DS.scoreColor(score), in: Capsule())
+                                .overlay(Capsule().stroke(Color.dsBackground, lineWidth: 1.5))
+                                .offset(x: 10, y: -8)
+                        }
+                    }
+                if showsLabel {
+                    PinLabel(title: feature.name)
+                }
+            }
         }
     }
 
-    var body: some View {
-        VStack(spacing: 4) {
-            PinArt(feature: feature, topSpecies: topSpecies, size: size)
-                .overlay(alignment: .topTrailing) {
-                    if let score {
-                        Text("\(score)")
-                            .font(.caption2.weight(.heavy))
-                            .monospacedDigit()
-                            .foregroundStyle(.black)
-                            .padding(.horizontal, 5)
-                            .padding(.vertical, 2)
-                            .background(DS.scoreColor(score), in: Capsule())
-                            .overlay(Capsule().stroke(Color.dsBackground, lineWidth: 1.5))
-                            .offset(x: 10, y: -8)
-                    }
-                }
-            if showsLabel {
-                PinLabel(title: feature.name)
-            }
+    private var accessibilityText: String {
+        let kind: String
+        switch feature {
+        case .spot: kind = "Your spot"
+        case .water(let w): kind = ExploreFormat.waterType(w.type)
+        case .catchPin: kind = "Catch"
+        case .ramp(let r): kind = r.kind.label
         }
-        .scaleEffect(shown || reduceMotion ? 1 : 0.4)
-        .opacity(shown || reduceMotion ? 1 : 0)
-        .onAppear { withAnimation(DS.Motion.spring) { shown = true } }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(score.map { "\(feature.name), bite \($0)" } ?? feature.name)
-        .accessibilityAddTraits(.isButton)
+        let bite = score.map { ", bite \($0)" } ?? ""
+        return "\(feature.name), \(kind)\(bite)"
     }
 }
 
-/// A fanned stack of up to three cards for a cluster, with "+n more".
+/// Water on the map: the round glyph inside a bite ring drawn in the score
+/// colour, and the name in water ink once the map is close enough to read it.
+struct WaterPin: View {
+    let waterbody: Waterbody
+    var score: Int?
+    var showsLabel = false
+
+    var body: some View {
+        VStack(spacing: 3) {
+            ZStack {
+                if let score {
+                    Circle()
+                        .stroke(Color.dsBackground.opacity(0.55), lineWidth: 3.5)
+                    Circle()
+                        .trim(from: 0, to: CGFloat(max(4, min(score, 100))) / 100)
+                        .stroke(DS.scoreColor(score), style: StrokeStyle(lineWidth: 3.5, lineCap: .round))
+                        .rotationEffect(.degrees(-90))
+                }
+                WaterDot(type: waterbody.type)
+            }
+            .frame(width: ExploreMetrics.waterRing, height: ExploreMetrics.waterRing)
+            if showsLabel {
+                PinLabel(title: waterbody.name, detail: score.map { "Bite \($0)" }, isWater: true)
+            }
+        }
+    }
+}
+
+/// What a cluster holds, as glyph and count pairs: "2 spots, 5 water".
+struct ClusterContents {
+    struct Part: Identifiable {
+        let id: Int
+        let icon: String
+        let count: Int
+        let tint: Color
+        let noun: (Int) -> String
+    }
+
+    let parts: [Part]
+
+    init(_ members: [ExploreFeature]) {
+        var spots = 0, water = 0, catches = 0, access = 0, ramps = 0
+        for m in members {
+            switch m {
+            case .spot: spots += 1
+            case .water: water += 1
+            case .catchPin: catches += 1
+            case .ramp(let r): if r.kind == .access { access += 1 } else { ramps += 1 }
+            }
+        }
+        var list: [Part] = []
+        if spots > 0 { list.append(Part(id: 0, icon: "mappin", count: spots, tint: DS.accent, noun: { $0 == 1 ? "spot" : "spots" })) }
+        if water > 0 { list.append(Part(id: 1, icon: "drop.fill", count: water, tint: .exploreWaterInk, noun: { $0 == 1 ? "water" : "waters" })) }
+        if catches > 0 { list.append(Part(id: 2, icon: "fish.fill", count: catches, tint: .dsText2, noun: { $0 == 1 ? "catch" : "catches" })) }
+        if access > 0 { list.append(Part(id: 3, icon: BoatRamp.Kind.access.icon, count: access, tint: .dsText2, noun: { $0 == 1 ? "access point" : "access points" })) }
+        if ramps > 0 { list.append(Part(id: 4, icon: BoatRamp.Kind.ramp.icon, count: ramps, tint: .dsText2, noun: { $0 == 1 ? "ramp" : "ramps" })) }
+        parts = list
+    }
+
+    var spoken: String {
+        parts.map { "\($0.count) \($0.noun($0.count))" }.joined(separator: ", ")
+    }
+}
+
+/// A cluster: the lead pins fanned, and a capsule saying what is inside.
+/// Water-only clusters stay round so they still read as water.
 struct ClusterPin: View {
     let cluster: PinCluster
     var topSpecies: (Spot) -> Species?
 
-    private var allCatches: Bool { cluster.members.allSatisfy(\.isCatch) }
+    private var contents: ClusterContents { ClusterContents(cluster.members) }
+
+    private var allWater: Bool {
+        cluster.members.allSatisfy { if case .water = $0 { return true } else { return false } }
+    }
 
     var body: some View {
         VStack(spacing: 4) {
-            ZStack {
-                ForEach(Array(cluster.members.prefix(3).enumerated().reversed()), id: \.offset) { index, member in
-                    PinArt(feature: member, topSpecies: species(for: member), size: 46)
-                        .rotationEffect(.degrees([0, -9, 8][index]))
-                        .offset(x: CGFloat(index) * -3, y: CGFloat(index) * -2)
-                }
-            }
-            if allCatches {
-                PinLabel(title: "\(cluster.members.count) catches")
+            if allWater {
+                Circle()
+                    .fill(Color.exploreWater)
+                    .overlay {
+                        Text("\(cluster.members.count)")
+                            .font(.headline.weight(.bold))
+                            .monospacedDigit()
+                            .foregroundStyle(.white)
+                    }
+                    .overlay(Circle().stroke(Color.white, lineWidth: 2.5))
+                    .frame(width: 40, height: 40)
+                    .mapPinShadow()
+                PinLabel(title: cluster.lead.name, detail: "and \(cluster.members.count - 1) more", isWater: true)
             } else {
-                PinLabel(title: cluster.lead.name, detail: "+\(cluster.members.count - 1) more")
+                ZStack {
+                    ForEach(Array(cluster.members.prefix(3).enumerated().reversed()), id: \.offset) { index, member in
+                        PinArt(feature: member, topSpecies: species(for: member), size: member.isSquare ? 46 : 34)
+                            .rotationEffect(.degrees([0, -9, 8][index]))
+                            .offset(x: CGFloat(index) * -3, y: CGFloat(index) * -2)
+                    }
+                }
+                contentsCapsule
             }
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(cluster.lead.name) and \(cluster.members.count - 1) more")
+        .accessibilityLabel(contents.spoken)
         .accessibilityHint("Zooms in")
         .accessibilityAddTraits(.isButton)
+    }
+
+    private var contentsCapsule: some View {
+        HStack(spacing: DS.Space.s2) {
+            ForEach(contents.parts) { part in
+                HStack(spacing: 3) {
+                    Image(systemName: part.icon)
+                        .foregroundStyle(part.tint)
+                    Text("\(part.count)")
+                        .foregroundStyle(.dsText)
+                }
+            }
+        }
+        .font(.caption2.weight(.bold))
+        .monospacedDigit()
+        .padding(.horizontal, DS.Space.s2)
+        .padding(.vertical, 3)
+        .background(Color.dsBackground, in: Capsule())
+        .mapPinShadow()
+        .fixedSize()
     }
 
     private func species(for f: ExploreFeature) -> Species? {

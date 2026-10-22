@@ -234,7 +234,9 @@ private struct SpotFormBody: View {
             }
             .padding(.top, DS.Space.s4)
             .padding(.bottom, DS.Space.s8)
+            .pageWidth()
         }
+        .detailScrollEdge()
         .scrollDismissesKeyboard(.interactively)
         .background(Color.dsBackground)
         .sheet(isPresented: $showingLocationPicker) {

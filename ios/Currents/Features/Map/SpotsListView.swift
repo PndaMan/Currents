@@ -52,7 +52,9 @@ struct SpotsListView: View {
                 }
             }
             .padding(.bottom, 40)
+            .pageWidth()
         }
+        .detailScrollEdge()
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "Search your spots")
@@ -149,8 +151,8 @@ struct WaterListView: View {
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
-                DetailHeader(over: "Within your offline region", title: "Water",
-                             subtitle: loaded ? "\(waters.count) dams, rivers and lakes" : nil)
+                DetailHeader(over: "Within about 100 km", title: "Water",
+                             subtitle: loaded && !waters.isEmpty ? "\(waters.count) dams, rivers and lakes, nearest first" : nil)
                     .padding(.bottom, DS.Space.s3)
 
                 FilterChips(WaterFilter.allCases, selection: $filter, title: { $0.rawValue })
@@ -164,7 +166,7 @@ struct WaterListView: View {
                     ContentUnavailableView {
                         Label("No water found", systemImage: "water.waves.slash")
                     } description: {
-                        Text("No mapped water near you yet. Move the map over an area while online to load it.")
+                        Text("Nothing mapped near you yet. Move the map over an area while online to load it.")
                     }
                     .padding(.top, DS.Space.s6)
                 } else {
@@ -186,17 +188,20 @@ struct WaterListView: View {
                         }
                         .buttonStyle(.dsRow)
                     }
-                    ExploreFootnote("From OpenStreetMap, saved on this phone as you browse the map.")
+                    ExploreFootnote("From OpenStreetMap, kept on this phone.")
                 }
             }
             .padding(.bottom, 40)
+            .pageWidth()
         }
+        .detailScrollEdge()
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
-        .task { load() }
+        .task { await load() }
     }
 
-    private func load() {
+    private func load() async {
+        await BundledMapData.importWaterIfNeeded(into: appState.db)
         let c = appState.locationManager.currentLocation?.coordinate
             ?? CLLocationCoordinate2D(latitude: -33.9, longitude: 18.4)
         let origin = CLLocation(latitude: c.latitude, longitude: c.longitude)
@@ -214,34 +219,56 @@ struct WaterListView: View {
     }
 }
 
-// MARK: - Boat ramps
+// MARK: - Fishing access and ramps
 
-/// Public boat ramps and fishing access points near the angler.
+/// Public fishing access points and boat ramps near the angler, nearest first.
 struct RampListView: View {
     @Environment(AppState.self) private var appState
     @StateObject private var rampService = BoatRampService.shared
     @State private var selectedRamp: BoatRamp?
     @State private var loading = false
+    @State private var filter: PlaceFilter = .all
 
-    private var origin: CLLocationCoordinate2D? { appState.locationManager.currentLocation?.coordinate }
+    enum PlaceFilter: String, CaseIterable, Hashable {
+        case all = "All", access = "Fishing access", ramps = "Boat ramps"
+    }
 
-    private var sorted: [(BoatRamp, Double?)] {
-        rampService.ramps.map { ramp in
-            let d = origin.map {
-                CLLocation(latitude: $0.latitude, longitude: $0.longitude)
-                    .distance(from: CLLocation(latitude: ramp.lat, longitude: ramp.lon))
+    private var origin: CLLocationCoordinate2D {
+        appState.locationManager.currentLocation?.coordinate
+            ?? CLLocationCoordinate2D(latitude: -33.9, longitude: 18.4)
+    }
+
+    private var sorted: [(BoatRamp, Double)] {
+        let here = CLLocation(latitude: origin.latitude, longitude: origin.longitude)
+        return rampService.ramps
+            .filter { ramp in
+                switch filter {
+                case .all: true
+                case .access: ramp.kind == .access
+                case .ramps: ramp.kind == .ramp
+                }
             }
-            return (ramp, d)
-        }
-        .sorted { ($0.1 ?? .greatestFiniteMagnitude) < ($1.1 ?? .greatestFiniteMagnitude) }
+            .map { ($0, here.distance(from: CLLocation(latitude: $0.lat, longitude: $0.lon))) }
+            .sorted { $0.1 < $1.1 }
+    }
+
+    private var countLine: String? {
+        let access = rampService.ramps.filter { $0.kind == .access }.count
+        let ramps = rampService.ramps.count - access
+        guard access + ramps > 0 else { return nil }
+        return "\(access) fishing access \(access == 1 ? "point" : "points"), \(ramps) \(ramps == 1 ? "ramp" : "ramps")"
     }
 
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
-                DetailHeader(over: "From OpenStreetMap", title: "Boat ramps",
-                             subtitle: rampService.ramps.isEmpty ? nil : "\(rampService.ramps.count) ramps and access points")
-                    .padding(.bottom, DS.Space.s4)
+                DetailHeader(over: "From OpenStreetMap", title: "Access and ramps", subtitle: countLine)
+                    .padding(.bottom, DS.Space.s3)
+
+                if !rampService.ramps.isEmpty {
+                    FilterChips(PlaceFilter.allCases, selection: $filter, title: { $0.rawValue })
+                        .padding(.bottom, DS.Space.s3)
+                }
 
                 if rampService.ramps.isEmpty {
                     if loading {
@@ -250,21 +277,21 @@ struct RampListView: View {
                             .padding(.top, DS.Space.s8)
                     } else {
                         ContentUnavailableView {
-                            Label("No ramps loaded", systemImage: "sailboat")
+                            Label("Nothing loaded here", systemImage: "figure.fishing")
                         } description: {
-                            Text("Turn on boat ramps in map layers and move the map while online to load them.")
+                            Text("Move the map over an area while online to load its fishing access and ramps.")
                         }
                         .padding(.top, DS.Space.s6)
                     }
                 } else {
-                    ForEach(Array(sorted.enumerated()), id: \.offset) { _, entry in
+                    ForEach(Array(sorted.prefix(150).enumerated()), id: \.offset) { _, entry in
                         let (ramp, distance) = entry
                         Button {
                             selectedRamp = ramp
                         } label: {
                             ArtRow(title: ramp.name,
-                                   subtitle: distance.map { "\(ramp.kind.label), \(Units.distance(m: $0)) away" } ?? ramp.kind.label) {
-                                ThumbView(systemImage: ramp.kind.icon, tint: .teal)
+                                   subtitle: "\(ramp.kind.label), \(Units.distance(m: distance)) away") {
+                                ThumbView(systemImage: ramp.kind.icon, tint: ExploreFormat.placeTint(ramp.kind))
                             }
                         }
                         .buttonStyle(.dsRow)
@@ -273,14 +300,16 @@ struct RampListView: View {
                 }
             }
             .padding(.bottom, 40)
+            .pageWidth()
         }
+        .detailScrollEdge()
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .sheet(item: $selectedRamp) { ramp in
             RampDetailSheet(ramp: ramp)
         }
         .task {
-            guard rampService.ramps.isEmpty, let origin else { return }
+            guard rampService.ramps.isEmpty else { return }
             loading = true
             await rampService.load(around: origin, latSpan: 0.5)
             loading = false

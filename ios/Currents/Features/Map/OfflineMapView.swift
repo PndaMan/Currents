@@ -152,7 +152,7 @@ struct OfflineMapView: UIViewRepresentable {
         }
         var title: String? { waterbody.name }
         var subtitle: String? {
-            let type = waterbody.type.rawValue.capitalized
+            let type = ExploreFormat.waterType(waterbody.type)
             return score.map { "\(type), bite \($0)" } ?? type
         }
         init(waterbody: Waterbody, score: Int?) {
@@ -267,9 +267,11 @@ struct OfflineMapView: UIViewRepresentable {
                     ?? MKMarkerAnnotationView(annotation: cluster, reuseIdentifier: id)
                 view.annotation = cluster
                 view.canShowCallout = false
-                view.markerTintColor = UIColor(parent.accent)
+                // Water clusters stay blue, like single water pins.
+                let allWater = cluster.memberAnnotations.allSatisfy { $0 is WaterbodyAnnotation }
+                view.markerTintColor = allWater ? UIColor(Color.exploreWater) : UIColor(parent.accent)
                 view.glyphText = "\(cluster.memberAnnotations.count)"
-                view.accessibilityLabel = "\(cluster.memberAnnotations.count) places. Zooms in."
+                view.accessibilityLabel = "\(cluster.memberAnnotations.count) \(allWater ? "waters" : "places"). Zooms in."
                 return view
             }
             let id = "pin"
@@ -279,7 +281,9 @@ struct OfflineMapView: UIViewRepresentable {
             view.canShowCallout = true
             view.displayPriority = .defaultHigh
             // Nearby pins merge into a numbered marker that zooms in on tap.
-            view.clusteringIdentifier = annotation is RampAnnotation ? "ramps" : "places"
+            // Water clusters on its own, so a cluster never mixes water and spots.
+            view.clusteringIdentifier = annotation is RampAnnotation ? "ramps"
+                : annotation is WaterbodyAnnotation ? "water" : "places"
             view.glyphText = nil
             view.glyphTintColor = .white
 
@@ -291,12 +295,12 @@ struct OfflineMapView: UIViewRepresentable {
                 view.markerTintColor = UIColor(parent.accent).withAlphaComponent(0.85)
                 view.glyphImage = UIImage(systemName: "fish.fill")
                 view.displayPriority = .defaultLow
-            case is WaterbodyAnnotation:
-                view.markerTintColor = UIColor.systemTeal
-                view.glyphImage = UIImage(systemName: "water.waves")
+            case let w as WaterbodyAnnotation:
+                view.markerTintColor = UIColor(Color.exploreWater)
+                view.glyphImage = UIImage(systemName: ExploreFormat.waterIcon(w.waterbody.type))
             case let r as RampAnnotation:
                 view.markerTintColor = UIColor.white
-                view.glyphTintColor = UIColor.black
+                view.glyphTintColor = UIColor(ExploreFormat.placeTint(r.ramp.kind))
                 view.glyphImage = UIImage(systemName: r.ramp.kind.icon)
                 view.displayPriority = .defaultLow
                 view.canShowCallout = false
