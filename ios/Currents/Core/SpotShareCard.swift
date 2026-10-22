@@ -1,13 +1,13 @@
 import SwiftUI
 import MapKit
 
-/// Generates a shareable image card for a saved spot — a map-hero version of
-/// the catch share card (a spot has no photo, so the map IS the hero).
+/// Generates a shareable image card for a saved spot. A spot has no photo,
+/// so the map is the hero.
 @MainActor
 enum SpotShareCard {
 
     /// A universal Apple Maps link that drops a pin at exactly this spot.
-    /// Opens in Apple Maps on iOS and the web elsewhere — ideal as the caption
+    /// Opens in Apple Maps on iOS and the web elsewhere, ideal as the caption
     /// when the image is shared to WhatsApp, Messages, etc.
     static func mapsLink(for spot: Spot) -> String {
         let name = spot.name.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "Spot"
@@ -16,124 +16,18 @@ enum SpotShareCard {
 
     /// The caption text attached alongside the image when sharing.
     static func caption(for spot: Spot) -> String {
-        "\(spot.name) — my fishing spot on Currents\n\(mapsLink(for: spot))"
+        "\(spot.name): my fishing spot on Currents\n\(mapsLink(for: spot))"
     }
 
-    /// Render a shareable spot card (1080×1350 — Instagram 4:5).
+    /// Render a shareable spot card (1080 by 1350, Instagram 4:5): the spot
+    /// on a satellite map with a pin, then its name, place and numbers, in the
+    /// same card family as the trip and tournament cards.
     static func render(spot: Spot, catchCount: Int, biteScore: Int?) async -> UIImage? {
-        let cardWidth: CGFloat = 1080
-        let cardHeight: CGFloat = 1350
-
         let coordinate = CLLocationCoordinate2D(latitude: spot.latitude, longitude: spot.longitude)
-        let snapshot = await captureMapSnapshot(
-            coordinate: coordinate,
-            size: CGSize(width: cardWidth, height: cardHeight)
-        )
-
-        let renderer = UIGraphicsImageRenderer(size: CGSize(width: cardWidth, height: cardHeight))
-        return renderer.image { ctx in
-            let rect = CGRect(x: 0, y: 0, width: cardWidth, height: cardHeight)
-            let cg = ctx.cgContext
-
-            // 1. Full-bleed map background (or a solid fallback offline).
-            if let snapshot {
-                snapshot.image.draw(in: rect)
-            } else {
-                UIColor(red: 0.05, green: 0.12, blue: 0.20, alpha: 1).setFill()
-                cg.fill(rect)
-            }
-
-            // 2. Bottom + top gradients for legibility.
-            if let gradient = CGGradient(
-                colorsSpace: CGColorSpaceCreateDeviceRGB(),
-                colors: [
-                    UIColor.clear.cgColor,
-                    UIColor.black.withAlphaComponent(0.35).cgColor,
-                    UIColor.black.withAlphaComponent(0.88).cgColor,
-                ] as CFArray,
-                locations: [0.0, 0.5, 1.0]
-            ) {
-                cg.drawLinearGradient(gradient,
-                    start: CGPoint(x: 0, y: cardHeight * 0.35),
-                    end: CGPoint(x: 0, y: cardHeight), options: [])
-            }
-            if let topGradient = CGGradient(
-                colorsSpace: CGColorSpaceCreateDeviceRGB(),
-                colors: [UIColor.black.withAlphaComponent(0.5).cgColor, UIColor.clear.cgColor] as CFArray,
-                locations: [0.0, 1.0]
-            ) {
-                cg.drawLinearGradient(topGradient,
-                    start: CGPoint(x: 0, y: 0), end: CGPoint(x: 0, y: 160), options: [])
-            }
-
-            // 3. Watermark (top-left).
-            drawWatermark(in: cg)
-
-            // 4. Pin at the exact spot coordinate.
-            if let snapshot {
-                let p = snapshot.point(for: coordinate)
-                let pinSize: CGFloat = 88
-                let pinRect = CGRect(x: p.x - pinSize / 2, y: p.y - pinSize, width: pinSize, height: pinSize)
-                let cfg = UIImage.SymbolConfiguration(pointSize: pinSize, weight: .bold)
-                if let pin = UIImage(systemName: "mappin.circle.fill", withConfiguration: cfg) {
-                    pin.withTintColor(UIColor(CurrentsTheme.accent), renderingMode: .alwaysOriginal).draw(in: pinRect)
-                }
-            }
-
-            // 5. Info block bottom-left.
-            drawInfo(in: cg, spot: spot, catchCount: catchCount, biteScore: biteScore,
-                     origin: CGPoint(x: 60, y: cardHeight - 300), width: cardWidth - 120)
-        }
-    }
-
-    // MARK: - Drawing helpers
-
-    private static func drawWatermark(in ctx: CGContext) {
-        if let logo = UIImage(named: "Logo") {
-            logo.draw(in: CGRect(x: 40, y: 40, width: 60, height: 60))
-        }
-        let attrs: [NSAttributedString.Key: Any] = [
-            .font: UIFont.systemFont(ofSize: 40, weight: .semibold),
-            .foregroundColor: UIColor.white.withAlphaComponent(0.92),
-        ]
-        ("Currents" as NSString).draw(at: CGPoint(x: 112, y: 48), withAttributes: attrs)
-    }
-
-    private static func drawInfo(
-        in ctx: CGContext, spot: Spot, catchCount: Int, biteScore: Int?,
-        origin: CGPoint, width: CGFloat
-    ) {
-        var y = origin.y
-
-        ("\(spot.name)" as NSString).draw(
-            in: CGRect(x: origin.x, y: y, width: width, height: 120),
-            withAttributes: [
-                .font: UIFont.systemFont(ofSize: 56, weight: .bold),
-                .foregroundColor: UIColor.white,
-            ]
-        )
-        y += 74
-
-        // Coordinates
-        let coords = String(format: "%.4f, %.4f", spot.latitude, spot.longitude)
-        (coords as NSString).draw(at: CGPoint(x: origin.x, y: y), withAttributes: [
-            .font: UIFont.monospacedSystemFont(ofSize: 24, weight: .regular),
-            .foregroundColor: UIColor.white.withAlphaComponent(0.7),
-        ])
-        y += 44
-
-        // Stat chips row
-        var items: [String] = []
-        if spot.type != .general { items.append(spot.type.rawValue) }
-        items.append(catchCount == 1 ? "1 catch" : "\(catchCount) catches")
-        if let biteScore { items.append("Bite \(biteScore)") }
-        (items.joined(separator: "  •  ") as NSString).draw(
-            at: CGPoint(x: origin.x, y: y),
-            withAttributes: [
-                .font: UIFont.systemFont(ofSize: 26, weight: .medium),
-                .foregroundColor: UIColor.white.withAlphaComponent(0.9),
-            ]
-        )
+        let snapshot = await captureMapSnapshot(coordinate: coordinate, size: SpotShareCardView.mapSize)
+        return ShareCardRenderer.image(
+            SpotShareCardView(spot: spot, catchCount: catchCount, biteScore: biteScore,
+                              map: snapshot?.image))
     }
 
     // MARK: - Map snapshot
@@ -149,5 +43,74 @@ enum SpotShareCard {
         options.mapType = .hybrid
         options.traitCollection = UITraitCollection(userInterfaceStyle: .dark)
         return try? await MKMapSnapshotter(options: options).start()
+    }
+}
+
+// MARK: - Card
+
+private struct SpotShareCardView: View {
+    /// The map panel inside the card's padding. The snapshot is centred on
+    /// the spot, so the pin sits in the middle.
+    static let mapSize = CGSize(width: 320, height: 250)
+
+    let spot: Spot
+    let catchCount: Int
+    let biteScore: Int?
+    let map: UIImage?
+
+    var body: some View {
+        ShareCardCanvas {
+            mapPanel
+            HStack(spacing: DS.Space.s2) {
+                Image(systemName: spot.type.icon)
+                Text(spot.type == .general ? "Fishing spot" : spot.type.rawValue)
+                    .lineLimit(1)
+            }
+            .font(.subheadline)
+            .foregroundStyle(Color.dsText2)
+            .padding(.top, DS.Space.s4)
+            Text(spot.name)
+                .font(.title.bold())
+                .foregroundStyle(Color.dsText)
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+            Text(String(format: "%.4f, %.4f", spot.latitude, spot.longitude))
+                .font(.footnote.monospaced())
+                .foregroundStyle(Color.dsText3)
+            HStack(spacing: DS.Space.s2) {
+                ShareCardStat(value: "\(catchCount)", label: catchCount == 1 ? "Catch" : "Catches")
+                if let biteScore {
+                    ShareCardStat(value: "\(biteScore)", label: "Bite score")
+                }
+            }
+            .padding(.top, DS.Space.s3)
+            Spacer(minLength: DS.Space.s3)
+            ShareCardFooter()
+        }
+    }
+
+    private var mapPanel: some View {
+        Color.clear
+            .frame(height: Self.mapSize.height)
+            .frame(maxWidth: .infinity)
+            .overlay {
+                if let map {
+                    Image(uiImage: map)
+                        .resizable()
+                        .scaledToFill()
+                } else {
+                    ZStack {
+                        Color.dsFill
+                        DS.accent.opacity(0.22)
+                    }
+                }
+            }
+            .overlay {
+                Image(systemName: "mappin.circle.fill")
+                    .font(.largeTitle)
+                    .symbolRenderingMode(.palette)
+                    .foregroundStyle(Color.white, DS.accent)
+            }
+            .clipShape(RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
     }
 }

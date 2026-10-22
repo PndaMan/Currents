@@ -20,6 +20,11 @@ struct LeaderboardView: View {
     @State private var loading = false
 
     var body: some View {
+        // Without iCloud the Crew unavailable state shows and no load starts.
+        CrewCloudGate { page }
+    }
+
+    private var page: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 DetailHeader(title: "Leaderboard")
@@ -58,6 +63,7 @@ struct LeaderboardView: View {
                 .transition(.opacity)
             }
             .padding(.bottom, DS.Space.s6)
+            .pageWidth()
         }
         .detailTint(.dsScoreFair)
         .eventPageTitle("Leaderboard")
@@ -98,29 +104,15 @@ struct LeaderboardView: View {
     }
 
     private var scopeFooter: String {
-        scope == "friends" ? "Among you and your friends only."
-        : "Among \(svc.crew(withCode: scope)?.name ?? "the crew")'s members only."
+        scope == "friends" ? "You and your friends."
+        : "\(svc.crew(withCode: scope)?.name ?? "The crew")'s members."
     }
 
     private var emptyState: some View {
-        VStack(spacing: DS.Space.s3) {
-            ContentUnavailableView("No entries yet", systemImage: "trophy",
-                description: Text(scope == "friends"
-                    ? "Add friends and log catches to fill the board."
-                    : "When the crew logs measured catches, the board fills up."))
-            if scope == "friends" {
-                Button {
-                    Task {
-                        _ = await svc.sendFriendRequest(to: CommunityService.demoCode)
-                        svc.bumpRevision()
-                        await reload()
-                    }
-                } label: {
-                    Label("Add Marlin, the demo angler", systemImage: "person.badge.plus")
-                }
-                .buttonStyle(TonalButtonStyle(fullWidth: false))
-            }
-        }
+        ContentUnavailableView("No entries yet", systemImage: "trophy",
+            description: Text(scope == "friends"
+                ? "Add friends and log catches to fill the board."
+                : "When the crew logs measured catches, the board fills up."))
         .frame(maxWidth: .infinity)
         .padding(.top, DS.Space.s4)
     }

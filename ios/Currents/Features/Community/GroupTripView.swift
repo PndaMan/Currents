@@ -126,6 +126,10 @@ struct GroupTripSetupView: View {
     @State private var editingPlan: Trip?
     @State private var showingStartNow = false
     @State private var newTripName = ""
+    @FocusState private var joinFocused: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private static let joinAnchor = "join"
 
     // Trips you can turn into a group: planned or currently-active (not
     // finished) that don't already have a group. A trip with a group is opened
@@ -135,57 +139,74 @@ struct GroupTripSetupView: View {
     }
 
     var body: some View {
+        // Without iCloud the Crew unavailable state shows and no load starts.
+        CrewCloudGate { page }
+    }
+
+    private var page: some View {
+        ScrollViewReader { proxy in
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 DetailHeader(over: crewCode.flatMap { svc.crew(withCode: $0)?.name },
                              title: "Group trip",
-                             subtitle: "Fish together. Everyone sees the same anglers and every catch, live.")
+                             subtitle: "Fish together. Everyone sees every catch, live.")
 
-                VStack(spacing: DS.Space.s2) {
+                ActionTriple {
                     Button {
                         newTripName = SessionFormat.defaultName()
                         showingStartNow = true
                     } label: {
                         Label("Start now", systemImage: "dot.radiowaves.left.and.right")
                     }
-                    .buttonStyle(.dsPrimary)
-                    .disabled(busy)
-
+                    .buttonStyle(ActionTileStyle(.primary))
                     Button {
                         showingPlanner = true
                     } label: {
-                        Label("Plan for later", systemImage: "calendar.badge.plus")
+                        Label("Plan", systemImage: "calendar.badge.plus")
                     }
-                    .buttonStyle(.dsTonal)
-                    .disabled(busy)
+                    .buttonStyle(ActionTileStyle(.tonal))
+                    Button {
+                        withAnimation(reduceMotion ? nil : DS.Motion.softSpring) {
+                            proxy.scrollTo(Self.joinAnchor, anchor: .top)
+                        }
+                        joinFocused = true
+                    } label: {
+                        Label("Join", systemImage: "person.badge.plus")
+                    }
+                    .buttonStyle(ActionTileStyle(.tonal))
                 }
-                .padding(.horizontal, DS.gutter)
-                .padding(.top, DS.Space.s6)
-                EventFootnote("Start now begins a GPS-tracked session where you are and shares it live. Plan for later schedules a trip with a name, date and gear checklist that you start from here when it's time.")
+                .disabled(busy)
+                .padding(.top, DS.Space.s5)
 
                 if !startableTrips.isEmpty {
                     EventSection("Your trips") {
                         VStack(spacing: 0) {
                             ForEach(startableTrips) { t in yourTripRow(t) }
                         }
-                        EventFootnote("Start a planned trip to take it live and share it, or tap it first to edit its checklist. A session you're already running can be shared as it is.")
+                        EventFootnote("Start one to take it live, or tap it to edit.")
                     }
                 }
 
                 EventSection("Join a friend's trip") {
                     VStack(spacing: DS.Space.s3) {
                         CodeField(text: $joinCode, placeholder: "Trip code")
+                            .focused($joinFocused)
                         Button { Task { await joinTrip() } } label: {
-                            Text("Join trip")
+                            HStack(spacing: DS.Space.s2) {
+                                if busy { ProgressView() }
+                                Text("Join trip")
+                            }
                         }
                         .buttonStyle(.dsPrimary)
                         .disabled(busy || joinCode.trimmingCharacters(in: .whitespaces).count != 6)
                     }
                     .padding(.horizontal, DS.gutter)
-                    EventFootnote("Enter the code they shared. You can also join by tapping their invite in your notifications.")
+                    EventFootnote("Use the code they shared, or tap their invite.")
                 }
+                .id(Self.joinAnchor)
             }
             .padding(.bottom, DS.Space.s8)
+            .pageWidth()
         }
         .dsScreenBackground()
         .eventPageTitle("Group trip")
@@ -201,7 +222,7 @@ struct GroupTripSetupView: View {
             Button("Start") { Task { await beginLiveNew(name: newTripName) } }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Begins a GPS-tracked session now and shares it live with the crew.")
+            Text("Starts a GPS session where you are and shares it live.")
         }
         .sheet(item: $editingPlan, onDismiss: { trips = (try? appState.tripRepository.fetchAll()) ?? [] }) { t in
             PlanSessionSheet(editingTrip: t)
@@ -213,6 +234,7 @@ struct GroupTripSetupView: View {
             GroupTripView(tripId: svc.tripId(forGroupCode: c.id), tripName: currentName(c.id), initialCode: c.id)
         }
         .task { trips = (try? appState.tripRepository.fetchAll()) ?? [] }
+        }
     }
 
     private func yourTripRow(_ t: Trip) -> some View {
@@ -392,6 +414,11 @@ struct GroupTripView: View {
     }
 
     var body: some View {
+        // Without iCloud the Crew unavailable state shows and no load starts.
+        CrewCloudGate { page }
+    }
+
+    private var page: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 if !svc.joined {
@@ -407,6 +434,7 @@ struct GroupTripView: View {
                 }
             }
             .padding(.bottom, DS.Space.s8)
+            .pageWidth()
         }
         .detailTint(pageTint)
         .eventPageTitle(trip?.name ?? tripName)
@@ -456,17 +484,12 @@ struct GroupTripView: View {
         .sheet(isPresented: $showingInvite) {
             NavigationStack {
                 ScrollView {
-                    if let code { invitePanel(code) }
+                    if let code { invitePanel(code).pageWidth() }
                 }
                 .dsScreenBackground()
-                .navigationTitle("Invite")
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button("Done") { showingInvite = false }
-                    }
-                }
+                .eventSheetTitle("Invite friends")
             }
+            .tint(DS.accent)
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
         }
@@ -518,7 +541,7 @@ struct GroupTripView: View {
             ContentUnavailableView {
                 Label("This trip no longer exists", systemImage: "flag.slash")
             } description: {
-                Text("The session was deleted, usually because its tournament was removed. Catches you logged are still in your logbook.")
+                Text("It was deleted, usually with its tournament. Your catches are still in your logbook.")
             }
             Button {
                 Haptics.tap()
@@ -546,7 +569,7 @@ struct GroupTripView: View {
         VStack(alignment: .leading, spacing: 0) {
             GroupTripIntro(systemImage: "person.crop.circle.badge.plus",
                            title: "Join to fish together",
-                           message: "You've been invited to \(trip?.name ?? tripName). Pick an angler name to join. There's no account or password.")
+                           message: "You're invited to \(trip?.name ?? tripName). Pick a name to join. No account needed.")
             EventSection("Your angler name") {
                 VStack(spacing: DS.Space.s3) {
                     GroupTripTextField(placeholder: "Name", text: $joinName)
@@ -583,7 +606,7 @@ struct GroupTripView: View {
         VStack(alignment: .leading, spacing: 0) {
             GroupTripIntro(systemImage: "person.3.sequence.fill",
                            title: "Fish together",
-                           message: "Start a shared trip for \(tripName) and invite friends. Everyone sees the same anglers and every catch, live.")
+                           message: "Share \(tripName) and everyone you invite sees every catch, live.")
             Button {
                 Task {
                     busy = true
@@ -635,9 +658,9 @@ struct GroupTripView: View {
 
     @ViewBuilder private func confirmJoin(_ code: String) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            ThumbView(systemImage: "person.3.sequence.fill", tint: .dsScoreGood, size: 72)
-                .padding(.horizontal, DS.gutter)
-                .padding(.bottom, DS.Space.s4)
+            EventCover(species: coverSpecies, systemImage: "person.3.sequence.fill", tint: .dsScoreGood)
+                .padding(.top, DS.Space.s2)
+                .padding(.bottom, DS.Space.s5)
             EventHeader(title: trip?.name ?? "Group trip",
                         subtitle: trip.map { "Hosted by \($0.hostName)" }) {
                 if trip?.isEnded == true { Text("Ended") } else { EventLiveTag() }
@@ -681,8 +704,16 @@ struct GroupTripView: View {
             .disabled(busy)
             .padding(.horizontal, DS.gutter)
             .padding(.top, DS.Space.s6)
-            EventFootnote("Join to share your catches live with the group and see everyone else's. Your saved spots and exact locations stay private.")
+            EventFootnote("Your spots and exact locations stay private.")
         }
+    }
+
+    /// The invite's cover: the heaviest fish already on the trip, when this
+    /// device has seen the feed.
+    private var coverSpecies: Species? {
+        let best = feed.max { ($0.weightKg ?? 0) < ($1.weightKg ?? 0) }
+        guard let name = best?.species else { return nil }
+        return (try? appState.speciesRepository.fetchByCommonName(name)) ?? nil
     }
 
     // MARK: - Active group
@@ -841,7 +872,7 @@ struct GroupTripView: View {
         return EventSection(ended ? "Final results" : "Leaderboard",
                             detail: feed.isEmpty ? nil : "\(feed.count) fish") {
             if stats.isEmpty || !hasFish {
-                EventInlineEmpty(text: "No fish on the board yet. The first catch takes the lead.", systemImage: "trophy")
+                EventInlineEmpty(text: "No fish yet. The first catch takes the lead.", systemImage: "trophy")
                     .padding(.bottom, stats.isEmpty ? 0 : DS.Space.s2)
             }
             VStack(spacing: 0) {
@@ -941,14 +972,35 @@ struct GroupTripView: View {
         let invitable = friendProfiles.filter { !memberCodes.contains($0.id) }
 
         VStack(alignment: .leading, spacing: 0) {
+            VStack(spacing: DS.Space.s3) {
+                Text("Trip code")
+                    .font(.subheadline)
+                    .foregroundStyle(Color.dsText2)
+                CopyableCode(code: code, font: .system(.largeTitle, design: .monospaced).bold())
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
+                Text("Tap the code to copy it")
+                    .font(.footnote)
+                    .foregroundStyle(Color.dsText3)
+                ShareLink(item: service.inviteMessage(forGroup: code, tripName: trip?.name ?? tripName)) {
+                    Label("Share link", systemImage: "square.and.arrow.up")
+                }
+                .buttonStyle(.dsTonal)
+                .padding(.top, DS.Space.s1)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(DS.Space.s5)
+            .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
+            .padding(.horizontal, DS.gutter)
+            .padding(.top, DS.Space.s2)
+
             SectionTitle("Friends")
-                .padding(.top, DS.Space.s4)
+                .padding(.top, DS.Space.s6)
             if friendProfiles.isEmpty {
-                ContentUnavailableView("No friends yet", systemImage: "person.2",
-                    description: Text("Add friends on the Crew tab to invite them with one tap, or share the code below."))
+                EventInlineEmpty(text: "Add friends on the Crew tab to invite them in one tap.",
+                                 systemImage: "person.2")
             } else if invitable.isEmpty {
-                ContentUnavailableView("Everyone's in", systemImage: "checkmark.circle",
-                    description: Text("All your friends are already on this trip."))
+                EventInlineEmpty(text: "All your friends are on this trip.", systemImage: "checkmark.circle")
             } else {
                 ForEach(invitable) { f in
                     ArtRow(title: f.name, subtitle: f.homeWater.isEmpty ? nil : f.homeWater) {
@@ -969,22 +1021,11 @@ struct GroupTripView: View {
                                 }
                             }
                             .buttonStyle(PrimaryButtonStyle(fullWidth: false))
+                            .accessibilityLabel("Invite \(f.name)")
                         }
                     }
                 }
             }
-
-            SectionTitle("Invite code")
-                .padding(.top, DS.Space.s6)
-            HStack {
-                CopyableCode(code: code, font: .system(.title2, design: .monospaced).bold())
-                Spacer()
-                ShareLink(item: service.inviteMessage(forGroup: code, tripName: trip?.name ?? tripName)) {
-                    Label("Share link", systemImage: "square.and.arrow.up")
-                }
-                .buttonStyle(TonalButtonStyle(fullWidth: false))
-            }
-            .padding(.horizontal, DS.gutter)
 
             Button {
                 withAnimation(DS.Motion.softSpring) { showAddByCode.toggle() }
@@ -1120,11 +1161,11 @@ struct GroupTripView: View {
                 .padding(.horizontal, DS.gutter)
                 .padding(.top, DS.Space.s3)
             } else if tracker.isTracking {
-                EventInlineEmpty(text: "Another session is active. End it and start this trip's session to record your GPS track here.",
+                EventInlineEmpty(text: "Another session is running. End it to track this trip.",
                                  systemImage: "location.slash")
             } else if let linkedId, let lt = (try? appState.tripRepository.fetch(linkedId)) ?? nil {
                 if lt.isCompleted {
-                    EventInlineEmpty(text: "Your session has ended. Catches you log still count for the trip.",
+                    EventInlineEmpty(text: "Your session ended. New catches still count.",
                                      systemImage: "flag.checkered")
                 } else {
                     Button {

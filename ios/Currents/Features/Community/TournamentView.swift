@@ -20,8 +20,8 @@ private func plainDetail(_ s: String) -> String {
 
 // MARK: - Tournament setup
 
-/// Start a crew tournament: a name, an optional end time, done. Teams are
-/// live sessions crewmates create or join afterwards.
+/// Start a crew tournament: a name, how long it runs, how it scores. Teams
+/// are live sessions crewmates create or join afterwards.
 struct TournamentSetupView: View {
     let crew: CommunityService.Crew
     var onCreated: (CommunityService.Tournament) -> Void = { _ in }
@@ -30,99 +30,141 @@ struct TournamentSetupView: View {
     private var svc: CommunityService { .shared }
 
     @State private var name = ""
-    @State private var hasEnd = false
+    /// Index into `durations`. 0 runs until an admin ends it.
+    @State private var durationIndex = 0
     @State private var endsAt = Date().addingTimeInterval(6 * 3600)
+    /// The end the stepper last set, so a hand-picked time reads "Custom".
+    @State private var presetEnd: Date?
     @State private var busy = false
-    @State private var customScoring = false
     @State private var perFish = TournamentPoints.standard.perFish
     @State private var perKg = TournamentPoints.standard.perKg
     @State private var speciesBonus = TournamentPoints.standard.newSpeciesBonus
     @State private var created = 0
 
+    /// "Runs for" steps, in hours.
+    private static let durations: [Int] = [0, 3, 6, 12, 24, 48, 72, 168]
+
     private var canCreate: Bool { !busy && !name.trimmingCharacters(in: .whitespaces).isEmpty }
+    private var hasEnd: Bool { durationIndex > 0 }
+
+    private var rates: TournamentPoints.Rates {
+        TournamentPoints.Rates(perFish: perFish, perKg: perKg, newSpeciesBonus: speciesBonus)
+    }
+
+    private var durationLabel: String {
+        let hours = Self.durations[durationIndex]
+        if hours == 0 { return "No end" }
+        if endsAt != presetEnd { return "Custom" }
+        if hours == 168 { return "1 week" }
+        if hours >= 24 { return hours == 24 ? "1 day" : "\(hours / 24) days" }
+        return "\(hours) hours"
+    }
 
     var body: some View {
         NavigationStack {
-            Form {
-                Section {
-                    TextField("Winter classic", text: $name)
-                } header: {
-                    Text("Name")
-                } footer: {
-                    Text("Runs inside \(crew.name). Everyone in the crew can see it and start a team.")
-                }
-                Section {
-                    Toggle("Set an end time", isOn: $hasEnd.animation(DS.Motion.softSpring))
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    Text("For \(crew.name). Teams are live sessions and every catch during the tournament scores.")
+                        .font(.subheadline)
+                        .foregroundStyle(Color.dsText2)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, DS.gutter)
+                        .padding(.top, DS.Space.s2)
+
+                    EventFormLabel("Tournament")
+                    EventFormRow("Name") {
+                        TextField("Winter classic", text: $name)
+                            .multilineTextAlignment(.trailing)
+                            .submitLabel(.done)
+                            .foregroundStyle(Color.dsText)
+                    }
+                    EventFormRow("Runs for", showsDivider: hasEnd) {
+                        EventStepper(label: "Runs for", value: durationLabel,
+                                     canDecrement: durationIndex > 0,
+                                     canIncrement: durationIndex < Self.durations.count - 1,
+                                     decrement: { setDuration(durationIndex - 1) },
+                                     increment: { setDuration(durationIndex + 1) })
+                    }
                     if hasEnd {
-                        DatePicker("Ends", selection: $endsAt, in: Date()...,
-                                   displayedComponents: [.date, .hourAndMinute])
-                    }
-                } footer: {
-                    Text("Teams are live sessions. Crewmates start or join one and every catch scores. Without an end time, an admin ends the tournament.")
-                }
-                Section {
-                    Toggle("Custom scoring", isOn: $customScoring.animation(DS.Motion.softSpring))
-                    if customScoring {
-                        Stepper(value: $perFish, in: 0...100) {
-                            scoringRow("Each fish", value: perFish)
+                        EventFormRow("Ends", showsDivider: false) {
+                            DatePicker("Ends", selection: $endsAt, in: Date()...,
+                                       displayedComponents: [.date, .hourAndMinute])
+                                .labelsHidden()
                         }
-                        Stepper(value: $perKg, in: 0...50) {
-                            scoringRow("Each kilogram, rounded", value: perKg)
-                        }
-                        Stepper(value: $speciesBonus, in: 0...100) {
-                            scoringRow("New species bonus", value: speciesBonus)
+                        .transition(.opacity)
+                    }
+
+                    EventFormLabel("Scoring")
+                    EventFormRow("Each fish") {
+                        EventStepper(label: "Points for each fish", value: pointsText(perFish),
+                                     canDecrement: perFish > 0, canIncrement: perFish < 100,
+                                     decrement: { perFish -= 1 }, increment: { perFish += 1 })
+                    }
+                    EventFormRow("Each kilogram") {
+                        EventStepper(label: "Points for each kilogram", value: "+\(perKg)",
+                                     canDecrement: perKg > 0, canIncrement: perKg < 50,
+                                     decrement: { perKg -= 1 }, increment: { perKg += 1 })
+                    }
+                    EventFormRow("New species", showsDivider: false) {
+                        EventStepper(label: "Bonus for each new species", value: "+\(speciesBonus)",
+                                     canDecrement: speciesBonus > 0, canIncrement: speciesBonus < 100,
+                                     decrement: { speciesBonus -= 1 }, increment: { speciesBonus += 1 })
+                    }
+                    if rates != TournamentPoints.standard {
+                        Button("Use standard scoring", action: resetScoring)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(DS.accent)
+                            .buttonStyle(.dim)
+                            .padding(.horizontal, DS.gutter)
+                            .padding(.top, DS.Space.s2)
+                            .transition(.opacity)
+                    }
+
+                    Button(action: create) {
+                        HStack(spacing: DS.Space.s2) {
+                            if busy { ProgressView() }
+                            Label("Start tournament", systemImage: "trophy")
                         }
                     }
-                } header: {
-                    Text("Scoring")
-                } footer: {
-                    Text(customScoring
-                         ? "Weight the tournament toward what matters. Set a rate to 0 to ignore it."
-                         : "Standard scoring: \(pointsText(TournamentPoints.standard.perFish)) a fish, +\(TournamentPoints.standard.perKg) a kilogram and +\(TournamentPoints.standard.newSpeciesBonus) for each new species.")
+                    .buttonStyle(.dsPrimary)
+                    .disabled(!canCreate)
+                    .padding(.horizontal, DS.gutter)
+                    .padding(.top, DS.Space.s6)
                 }
+                .padding(.bottom, DS.Space.s8)
+                .animation(DS.Motion.softSpring, value: hasEnd)
+                .animation(DS.Motion.softSpring, value: rates != TournamentPoints.standard)
+                .pageWidth()
             }
-            .tint(DS.accent)
-            .safeAreaInset(edge: .bottom) {
-                Button(action: create) {
-                    HStack(spacing: DS.Space.s2) {
-                        if busy { ProgressView() }
-                        Text("Create tournament")
-                    }
-                }
-                .buttonStyle(.dsPrimary)
-                .disabled(!canCreate)
-                .padding(.horizontal, DS.gutter)
-                .padding(.vertical, DS.Space.s3)
-                .background(.bar)
-            }
-            .navigationTitle("New tournament")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
-            }
+            .scrollDismissesKeyboard(.interactively)
+            .dsScreenBackground()
+            .eventSheetTitle("New tournament")
             .sensoryFeedback(.success, trigger: created)
         }
+        .tint(DS.accent)
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)
     }
 
-    private func scoringRow(_ label: String, value: Int) -> some View {
-        HStack {
-            Text(label)
-            Spacer()
-            Text(value == 1 ? "1 pt" : "\(value) pts")
-                .foregroundStyle(Color.dsText2)
-                .monospacedDigit()
-                .contentTransition(.numericText())
-        }
+    private func setDuration(_ index: Int) {
+        durationIndex = min(max(0, index), Self.durations.count - 1)
+        let hours = Self.durations[durationIndex]
+        guard hours > 0 else { presetEnd = nil; return }
+        let end = Date().addingTimeInterval(TimeInterval(hours) * 3600)
+        presetEnd = end
+        endsAt = end
+    }
+
+    private func resetScoring() {
+        perFish = TournamentPoints.standard.perFish
+        perKg = TournamentPoints.standard.perKg
+        speciesBonus = TournamentPoints.standard.newSpeciesBonus
     }
 
     private func create() {
         busy = true
         let trimmed = name.trimmingCharacters(in: .whitespaces)
-        let rates = customScoring
-            ? TournamentPoints.Rates(perFish: perFish, perKg: perKg, newSpeciesBonus: speciesBonus)
-            : TournamentPoints.standard
+        let rates = self.rates
         Task {
             let t = await svc.createTournament(name: trimmed, crew: crew,
                                                endsAt: hasEnd ? endsAt : nil,
@@ -183,6 +225,11 @@ struct TournamentView: View {
     private var role: CrewRole { svc.myRole(in: crew) }
 
     var body: some View {
+        // Without iCloud the Crew unavailable state shows and no load starts.
+        CrewCloudGate { page }
+    }
+
+    private var page: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 resultBanner
@@ -209,6 +256,7 @@ struct TournamentView: View {
                 }
             }
             .padding(.bottom, DS.Space.s8)
+            .pageWidth()
         }
         .detailTint(.dsScoreFair)
         .eventPageTitle(tournament.name)
@@ -253,7 +301,8 @@ struct TournamentView: View {
             TournamentScoringSheet(rates: tournament.rates)
         }
         .sheet(isPresented: $showingEnd) {
-            EndTournamentSheet(tournament: tournament, crew: crew, standings: standings) { winner in
+            EndTournamentSheet(tournament: tournament, crew: crew, standings: standings,
+                               images: teamImages) { winner in
                 tournament.endedAt = .now
                 tournament.winnerTeam = winner
                 // Team sessions are ended server-side with the tournament,
@@ -507,7 +556,7 @@ struct TournamentView: View {
     private func share() {
         Haptics.tap()
         shareImage = TournamentShareCard.render(
-            tournament: tournament, crewName: crew.name, standings: standings)
+            tournament: tournament, crewName: crew.name, standings: standings, images: teamImages)
         if shareImage != nil { showingShare = true }
     }
 
@@ -518,14 +567,14 @@ struct TournamentView: View {
                      detail: standings.isEmpty ? nil : "\(standings.count)") {
             if standings.isEmpty {
                 if loading {
-                    ProgressView("Tallying the scores")
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, DS.Space.s8)
+                    EventSkeletonRows(count: 3, thumbSize: 36, label: "Loading the standings")
                 } else {
                     ContentUnavailableView(
                         "No teams yet",
                         systemImage: "trophy",
-                        description: Text("Start the first team below. Every catch its anglers log scores points."))
+                        description: Text(tournament.isEnded
+                                          ? "Nobody fished this one."
+                                          : "Start the first team below. Every catch its anglers log scores."))
                 }
             } else {
                 EventPodium(entries: standings.prefix(3).map(podiumEntry)) { e in
@@ -551,7 +600,6 @@ struct TournamentView: View {
                     }
                 }
                 .padding(.top, DS.Space.s3)
-                EventFootnote("Teams are live sessions. Every catch logged during the tournament scores.")
             }
         }
     }
@@ -594,7 +642,9 @@ struct TournamentView: View {
                 .disabled(!canCreateTeam)
             }
             .padding(.horizontal, DS.gutter)
-            EventFootnote("Open a team above to join it, or start your own. A team is a live session that scores every catch.")
+            EventFootnote(standings.isEmpty
+                          ? "Your team is a live session. Every catch you log scores."
+                          : "Open a team above to join it, or start your own.")
         }
     }
 
@@ -687,6 +737,8 @@ struct TournamentView: View {
                         Text(ctx.date, format: .dateTime.hour().minute())
                             .font(.system(size: 56, weight: .bold, design: .rounded)) // ui-lint: allow, lock-screen clock numeral in a fixed-size device preview
                             .foregroundStyle(Color.dsText)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.6)
                         Text(ctx.date, format: .dateTime.weekday(.wide).day().month(.wide))
                             .font(.subheadline.weight(.medium))
                             .foregroundStyle(Color.dsText2)
@@ -701,7 +753,7 @@ struct TournamentView: View {
                 .padding(.horizontal, DS.gutter)
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel("Live Activity preview: your team \(pointsText(me.points)), \(eventOrdinal(i + 1)) of \(standings.count)")
-                EventFootnote("While you're on a team, your score, the team to beat and the clock show on the lock screen and in the Dynamic Island.")
+                EventFootnote("Shows on your lock screen and in the Dynamic Island while you're on a team.")
             }
         }
     }
@@ -823,38 +875,53 @@ private struct TrophyLabelStyle: LabelStyle {
 
 // MARK: - Scoring sheet
 
-/// "How points work", from the tournament's own rates.
+/// "How points work", from the tournament's own rates, with a worked example.
 private struct TournamentScoringSheet: View {
     let rates: TournamentPoints.Rates
-    @Environment(\.dismiss) private var dismiss
+
+    private var exampleTotal: Int { rates.perFish + 3 * rates.perKg + rates.newSpeciesBonus }
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
+                    rateRow("fish.fill", tint: DS.accent, title: "Every fish landed",
+                            subtitle: nil, value: pointsText(rates.perFish))
+                    rateRow("scalemass.fill", tint: Color.dsScoreGood, title: "Each kilogram",
+                            subtitle: "Rounded, for every fish", value: "+\(rates.perKg)")
+                    rateRow("star.fill", tint: Color.dsScoreFair, title: "New species",
+                            subtitle: "The team's first of its kind", value: "+\(rates.newSpeciesBonus)")
+
+                    EventFormLabel("A new species at 3 kg")
                     EventKeyValueList(rows: [
-                        .init(label: "Every fish landed", value: pointsText(rates.perFish)),
-                        .init(label: "Each kilogram, rounded", value: "+\(rates.perKg)"),
-                        .init(label: "A new species for the team", value: "+\(rates.newSpeciesBonus)"),
+                        .init(label: "The fish", value: pointsText(rates.perFish)),
+                        .init(label: "3 kg", value: "+\(3 * rates.perKg)"),
+                        .init(label: "New species", value: "+\(rates.newSpeciesBonus)"),
+                        .init(label: "Total", value: pointsText(exampleTotal), emphasized: true),
                     ])
-                    EventFootnote("Points update as catches are logged. When the tournament ends, an admin confirms the winner. The top team is highlighted, but the call is theirs.")
-                    if rates != TournamentPoints.standard {
-                        EventFootnote("This tournament uses custom scoring set by its host.")
-                    }
+                    EventFootnote(rates != TournamentPoints.standard
+                                  ? "Custom scoring set by the host. An admin confirms the winner at the end."
+                                  : "Points update as catches come in. An admin confirms the winner at the end.")
                 }
-                .padding(.top, DS.Space.s4)
+                .padding(.top, DS.Space.s2)
+                .padding(.bottom, DS.Space.s6)
+                .pageWidth()
             }
             .dsScreenBackground()
-            .navigationTitle("Scoring")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
-                }
-            }
+            .eventSheetTitle("Scoring")
         }
+        .tint(DS.accent)
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
+    }
+
+    private func rateRow(_ icon: String, tint: Color, title: String,
+                         subtitle: String?, value: String) -> some View {
+        ArtRow(title: title, subtitle: subtitle) {
+            ThumbView(systemImage: icon, tint: tint, size: 44)
+        } trailing: {
+            Text(value)
+        }
     }
 }
 
@@ -865,6 +932,7 @@ private struct EndTournamentSheet: View {
     let tournament: CommunityService.Tournament
     let crew: CommunityService.Crew
     let standings: [CommunityService.TeamStanding]
+    let images: (CommunityService.TeamStanding) -> [UIImage?]
     let onEnded: (String) -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -876,53 +944,33 @@ private struct EndTournamentSheet: View {
 
     var body: some View {
         NavigationStack {
-            List {
-                Section {
-                    ForEach(Array(standings.enumerated()), id: \.element.id) { i, s in
-                        Button {
-                            selected = s.teamName
-                        } label: {
-                            HStack(spacing: DS.Space.s3) {
-                                Text("\(i + 1)")
-                                    .font(.headline.monospacedDigit())
-                                    .foregroundStyle(Color.dsText2)
-                                    .frame(minWidth: 22)
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(s.teamName)
-                                        .font(.body.weight(.medium))
-                                        .foregroundStyle(Color.dsText)
-                                    Text(i == 0 ? "\(pointsText(s.points)), \(s.fishCount) fish. Most points."
-                                                : "\(pointsText(s.points)), \(s.fishCount) fish")
-                                        .font(.subheadline)
-                                        .foregroundStyle(Color.dsText2)
-                                }
-                                Spacer()
-                                Image(systemName: selected == s.teamName ? "checkmark.circle.fill" : "circle")
-                                    .font(.title3)
-                                    .foregroundStyle(selected == s.teamName ? AnyShapeStyle(.tint) : AnyShapeStyle(Color.dsText3))
-                                    .contentTransition(.symbolEffect(.replace))
-                            }
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityAddTraits(selected == s.teamName ? .isSelected : [])
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    Text("Most points wins by default. Pick another team if the crew agreed one.")
+                        .font(.callout)
+                        .foregroundStyle(Color.dsText2)
+                        .padding(.horizontal, DS.gutter)
+                        .padding(.top, DS.Space.s2)
+                    EventFormLabel("Declare the winner")
+                    if standings.isEmpty {
+                        EventInlineEmpty(text: "No team fished this tournament.", systemImage: "trophy")
                     }
-                } header: {
-                    Text("Declare the winner")
-                } footer: {
-                    Text("The top team is preselected. The final call is yours.")
+                    ForEach(Array(standings.enumerated()), id: \.element.id) { i, s in
+                        teamRow(s, rank: i + 1)
+                    }
                 }
+                .padding(.bottom, DS.Space.s6)
+                .pageWidth()
             }
             .sensoryFeedback(.selection, trigger: selected)
+            .dsScreenBackground()
             .safeAreaInset(edge: .bottom) {
                 Button(role: .destructive) {
                     confirming = true
                 } label: {
                     HStack(spacing: DS.Space.s2) {
                         if busy { ProgressView() }
-                        Text("Declare \(selected ?? "a team") the winner and end")
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.8)
+                        Label("Declare winner and end", systemImage: "flag.checkered")
                     }
                 }
                 .buttonStyle(.dsPrimary)
@@ -937,11 +985,7 @@ private struct EndTournamentSheet: View {
                     Text("Points stop counting and any team sessions still running are ended for everyone.")
                 }
             }
-            .navigationTitle("End tournament")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
-            }
+            .eventSheetTitle("End tournament")
             .onAppear {
                 if selected == nil { selected = standings.first?.teamName }
             }
@@ -949,6 +993,27 @@ private struct EndTournamentSheet: View {
         .tint(DS.accent)
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
+    }
+
+    private func teamRow(_ s: CommunityService.TeamStanding, rank: Int) -> some View {
+        let isSelected = selected == s.teamName
+        return Button {
+            selected = s.teamName
+        } label: {
+            ArtRow(over: "\(eventOrdinal(rank)) place",
+                   title: s.teamName,
+                   subtitle: rank == 1 ? "\(pointsText(s.points)), most points"
+                                       : "\(pointsText(s.points)), \(s.fishCount) fish") {
+                EventAvatarStack(images: images(s), size: 44)
+            } trailing: {
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .font(.title3)
+                    .foregroundStyle(isSelected ? AnyShapeStyle(.tint) : AnyShapeStyle(Color.dsText3))
+                    .contentTransition(.symbolEffect(.replace))
+            }
+        }
+        .buttonStyle(.dsRow)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
     private func end() {
@@ -991,44 +1056,28 @@ struct TournamentHistoryView: View {
             if list.isEmpty {
                 Group {
                     if loading {
-                        ProgressView("Loading tournaments")
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, DS.Space.s8)
+                        EventSkeletonRows(count: 4, thumbSize: 56, label: "Loading tournaments")
                     } else {
                         ContentUnavailableView(
                             "No tournaments yet",
                             systemImage: "trophy",
-                            description: Text("When the crew runs a tournament it lands here, results and all."))
+                            description: Text("Results land here when the crew runs one."))
                     }
                 }
                 .dsListRow()
             }
-            ForEach(list) { t in
-                ZStack {
-                    // Hidden link so the row keeps Luma's own chevron and padding.
-                    NavigationLink {
-                        TournamentView(tournament: t, crew: crew)
-                    } label: { EmptyView() }
-                        .opacity(0)
-                    row(t)
-                }
-                .dsListRow()
-                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                    if canManage {
-                        Button(role: .destructive) {
-                            tournamentToDelete = t
-                        } label: {
-                            Label("Delete", systemImage: "trash")
-                        }
-                    }
-                }
-                .contextMenu {
-                    if canManage {
-                        Button(role: .destructive) { tournamentToDelete = t } label: {
-                            Label("Delete tournament", systemImage: "trash")
-                        }
-                    }
-                }
+            let live = list.filter { !$0.isEnded }
+            let past = list.filter { $0.isEnded }
+            if !live.isEmpty {
+                SectionTitle("Live", detail: "\(live.count)")
+                    .dsListRow()
+                rows(live)
+            }
+            if !past.isEmpty {
+                SectionTitle("Past", detail: "\(past.count)")
+                    .padding(.top, live.isEmpty ? 0 : DS.Space.s4)
+                    .dsListRow()
+                rows(past)
             }
         }
         .dsPlainList()
@@ -1056,6 +1105,37 @@ struct TournamentHistoryView: View {
         .task {
             list = await svc.tournaments(crewCode: crew.code)
             loading = false
+        }
+    }
+
+    @ViewBuilder
+    private func rows(_ items: [CommunityService.Tournament]) -> some View {
+        ForEach(items) { t in
+            ZStack {
+                // Hidden link so the row keeps Luma's own chevron and padding.
+                NavigationLink {
+                    TournamentView(tournament: t, crew: crew)
+                } label: { EmptyView() }
+                    .opacity(0)
+                row(t)
+            }
+            .dsListRow()
+            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                if canManage {
+                    Button(role: .destructive) {
+                        tournamentToDelete = t
+                    } label: {
+                        Label("Delete", systemImage: "trash")
+                    }
+                }
+            }
+            .contextMenu {
+                if canManage {
+                    Button(role: .destructive) { tournamentToDelete = t } label: {
+                        Label("Delete tournament", systemImage: "trash")
+                    }
+                }
+            }
         }
     }
 
@@ -1107,6 +1187,7 @@ struct TeamTournamentDetailView: View {
                 sessionSection
             }
             .padding(.bottom, DS.Space.s8)
+            .pageWidth()
         }
         .detailTint(.dsScoreFair)
         .eventPageTitle(standing.teamName)

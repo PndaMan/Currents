@@ -1,174 +1,272 @@
 import SwiftUI
+import UIKit
 
-/// A shareable tournament card: name, status, podium standings, headline
-/// catch, and the scoring rules — rendered to an Instagram-friendly image.
+/// A shareable tournament card, laid out like its event page: a trophy
+/// cover, the live or final tag, the title, the top teams with their faces,
+/// the biggest fish and the scoring. 1080 by 1350 for stories and chats.
 @MainActor
 enum TournamentShareCard {
 
     static func render(tournament: CommunityService.Tournament,
                        crewName: String,
                        standings: [CommunityService.TeamStanding]) -> UIImage? {
-        let card = TournamentShareCardView(tournament: tournament,
-                                           crewName: crewName,
-                                           standings: standings)
-        let renderer = ImageRenderer(content: card)
-        renderer.scale = 3
-        return renderer.uiImage
+        render(tournament: tournament, crewName: crewName, standings: standings, images: { _ in [] })
+    }
+
+    /// The same card with each team's faces next to its name.
+    static func render(tournament: CommunityService.Tournament,
+                       crewName: String,
+                       standings: [CommunityService.TeamStanding],
+                       images: (CommunityService.TeamStanding) -> [UIImage?]) -> UIImage? {
+        let biggest = standings.flatMap(\.catches)
+            .filter { ($0.weightKg ?? 0) > 0 }
+            .max { ($0.weightKg ?? 0) < ($1.weightKg ?? 0) }
+        let card = TournamentShareCardView(
+            tournament: tournament, crewName: crewName,
+            rows: standings.prefix(4).map { (team: $0, images: images($0)) },
+            biggest: biggest,
+            teamCount: standings.count,
+            fishCount: standings.reduce(0) { $0 + $1.fishCount })
+        return ShareCardRenderer.image(card)
     }
 
     static func caption(tournament: CommunityService.Tournament,
                         standings: [CommunityService.TeamStanding]) -> String {
         if let winner = tournament.winnerTeam {
-            return "\(tournament.name) — \(winner) takes it! Run with Currents"
+            return "\(tournament.name): \(winner) takes it! Run with Currents"
         }
         let fish = standings.reduce(0) { $0 + $1.fishCount }
-        return "\(tournament.name) is live — \(standings.count) teams, \(fish) fish and counting. Run with Currents"
+        let teams = standings.count == 1 ? "1 team" : "\(standings.count) teams"
+        return "\(tournament.name) is live: \(teams), \(fish) fish and counting. Run with Currents"
     }
 }
 
 private struct TournamentShareCardView: View {
     let tournament: CommunityService.Tournament
     let crewName: String
-    let standings: [CommunityService.TeamStanding]
+    let rows: [(team: CommunityService.TeamStanding, images: [UIImage?])]
+    let biggest: CommunityService.GroupCatch?
+    let teamCount: Int
+    let fishCount: Int
 
-    private var biggest: (species: String, kg: Double, angler: String)? {
-        let all = standings.flatMap(\.catches)
-        guard let big = all.max(by: { ($0.weightKg ?? 0) < ($1.weightKg ?? 0) }),
-              let kg = big.weightKg, kg > 0 else { return nil }
-        return (big.species, kg, big.anglerName)
+    private var subtitle: String {
+        if let winner = tournament.winnerTeam {
+            let points = rows.first { $0.team.teamName == winner }?.team.points
+            return points.map { "\(winner) won with \($0) points" } ?? "\(winner) won"
+        }
+        if teamCount == 0 { return "Teams are forming" }
+        return "\(teamCount == 1 ? "1 team" : "\(teamCount) teams"), \(fishCount) fish so far"
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            header
-            titleBlock
-            standingsBlock
-            if let biggest {
-                highlightRow(biggest)
+        ShareCardCanvas {
+            ShareCardCover(systemImage: tournament.isEnded ? "trophy.fill" : "trophy",
+                           tint: .dsScoreFair, height: 96)
+            HStack(spacing: DS.Space.s2) {
+                if tournament.isEnded {
+                    Text("Final").fontWeight(.semibold).foregroundStyle(Color.dsScoreFair)
+                } else {
+                    ShareCardLiveTag()
+                }
+                if !crewName.isEmpty { Text(crewName).lineLimit(1) }
             }
-            Spacer(minLength: 0)
-            footer
-        }
-        .padding(26)
-        .frame(width: 360, height: 450)
-        .background(
-            LinearGradient(colors: [Color(red: 0.05, green: 0.12, blue: 0.22),
-                                    Color(red: 0.02, green: 0.05, blue: 0.10)],
-                           startPoint: .topLeading, endPoint: .bottomTrailing)
-        )
-        .environment(\.colorScheme, .dark)
-    }
-
-    private var header: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "trophy.fill").foregroundStyle(.yellow)
-                .font(.system(size: 18))
-                .foregroundStyle(.yellow)
-            Text("Currents Tournament")
-                .font(.system(size: 15, weight: .semibold, design: .rounded))
-                .foregroundStyle(.white.opacity(0.85))
-            Spacer()
-            if tournament.isEnded {
-                Text("FINAL")
-                    .font(.system(size: 11, weight: .heavy))
-                    .padding(.horizontal, 8).padding(.vertical, 3)
-                    .background(.white.opacity(0.15), in: Capsule())
-                    .foregroundStyle(.white)
-            } else {
-                Text("LIVE")
-                    .font(.system(size: 11, weight: .heavy))
-                    .padding(.horizontal, 8).padding(.vertical, 3)
-                    .background(Color.red, in: Capsule())
-                    .foregroundStyle(.white)
-            }
-        }
-    }
-
-    private var titleBlock: some View {
-        VStack(alignment: .leading, spacing: 3) {
+            .font(.subheadline)
+            .foregroundStyle(Color.dsText2)
+            .padding(.top, DS.Space.s4)
             Text(tournament.name)
-                .font(.system(size: 28, weight: .bold, design: .rounded))
-                .foregroundStyle(.white)
+                .font(.title.bold())
+                .foregroundStyle(Color.dsText)
                 .lineLimit(2)
-            Text(crewName.isEmpty ? tournament.createdAt.formatted(date: .abbreviated, time: .omitted)
-                 : "\(crewName) · \(tournament.createdAt.formatted(date: .abbreviated, time: .omitted))")
-                .font(.system(size: 13))
-                .foregroundStyle(.white.opacity(0.6))
-            if let winner = tournament.winnerTeam {
-                HStack(spacing: 6) {
-                    Image(systemName: "trophy.fill").foregroundStyle(.yellow)
-                    Text("\(winner) wins")
-                        .font(.system(size: 15, weight: .bold))
-                        .foregroundStyle(.yellow)
-                }
+                .minimumScaleFactor(0.7)
+            Text(subtitle)
+                .font(.callout)
+                .foregroundStyle(Color.dsText2)
+                .lineLimit(1)
                 .padding(.top, 2)
-            }
-        }
-    }
 
-    private var standingsBlock: some View {
-        VStack(spacing: 8) {
-            ForEach(Array(standings.prefix(4).enumerated()), id: \.element.id) { i, team in
-                HStack(spacing: 10) {
-                    Text("#\(i + 1)")
-                        .font(.system(size: 15))
-                        .frame(width: 26)
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(team.teamName)
-                            .font(.system(size: 15, weight: .bold))
-                            .foregroundStyle(.white)
-                            .lineLimit(1)
-                        Text("\(team.fishCount) fish · \(Units.weight(kg: team.totalWeightKg)) · \(team.speciesCount) species")
-                            .font(.system(size: 11))
-                            .foregroundStyle(.white.opacity(0.55))
-                    }
-                    Spacer()
-                    Text("\(team.points)")
-                        .font(.system(size: 20, weight: .bold, design: .rounded).monospacedDigit())
-                        .foregroundStyle(i == 0 ? .yellow : .white.opacity(0.9))
-                    Text("pts")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.white.opacity(0.5))
+            VStack(spacing: DS.Space.s1) {
+                ForEach(Array(rows.enumerated()), id: \.offset) { i, row in
+                    teamRow(row.team, rank: i + 1, images: row.images)
                 }
-                .padding(.horizontal, 12).padding(.vertical, 8)
-                .background(.white.opacity(i == 0 ? 0.12 : 0.06),
-                            in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             }
-            if standings.isEmpty {
-                Text("Teams are forming — first fish incoming.")
-                    .font(.system(size: 13))
-                    .foregroundStyle(.white.opacity(0.6))
-                    .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.top, DS.Space.s4)
+
+            Spacer(minLength: DS.Space.s3)
+            if let biggest, let kg = biggest.weightKg {
+                HStack(spacing: DS.Space.s2) {
+                    Image(systemName: "scalemass.fill")
+                        .foregroundStyle(Color.dsScoreGood)
+                    Text("Biggest fish: \(biggest.species), \(Units.weight(kg: kg)), \(biggest.anglerName)")
+                        .foregroundStyle(Color.dsText)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                }
+                .font(.footnote.weight(.medium))
+                .padding(.bottom, DS.Space.s3)
             }
+            let r = tournament.rates
+            ShareCardFooter(detail: "\(r.perFish) a fish, +\(r.perKg) a kilogram, +\(r.newSpeciesBonus) a new species")
         }
     }
 
-    private func highlightRow(_ big: (species: String, kg: Double, angler: String)) -> some View {
-        HStack(spacing: 8) {
-            Image(systemName: "scalemass.fill")
-                .font(.system(size: 13))
-                .foregroundStyle(.teal)
-            Text("Biggest: \(big.species) · \(Units.weight(kg: big.kg)) — \(big.angler)")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(.white.opacity(0.85))
+    private func teamRow(_ team: CommunityService.TeamStanding, rank: Int, images: [UIImage?]) -> some View {
+        HStack(spacing: DS.Space.s3) {
+            Text("\(rank)")
+                .font(.footnote.weight(.bold).monospacedDigit())
+                .foregroundStyle(rank == 1 || rank == 3 ? Color.black : Color.dsText)
+                .frame(width: 24, height: 24)
+                .background(medal(rank), in: Circle())
+            EventAvatarStack(images: images, size: 32)
+            VStack(alignment: .leading, spacing: 0) {
+                Text(team.teamName)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Color.dsText)
+                    .lineLimit(1)
+                Text(team.totalWeightKg > 0
+                     ? "\(team.fishCount) fish, \(Units.weight(kg: team.totalWeightKg))"
+                     : "\(team.fishCount) fish")
+                    .font(.caption)
+                    .foregroundStyle(Color.dsText2)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: DS.Space.s2)
+            HStack(alignment: .firstTextBaseline, spacing: 3) {
+                Text("\(team.points)")
+                    .font(.headline.monospacedDigit())
+                    .foregroundStyle(rank == 1 ? Color.dsScoreFair : Color.dsText)
+                Text("pts")
+                    .font(.caption)
+                    .foregroundStyle(Color.dsText2)
+            }
+        }
+        .padding(.vertical, DS.Space.s1)
+    }
+
+    private func medal(_ rank: Int) -> Color {
+        switch rank {
+        case 1: return .dsScoreFair
+        case 2: return .dsFill2
+        case 3: return .dsScoreLow
+        default: return .dsFill
+        }
+    }
+}
+
+// MARK: - Share card chrome
+
+// Shared by the tournament, trip recap and spot cards so every image the app
+// shares looks like one family: the dark page, a fixed type size, a tinted
+// cover, and the wordmark footer.
+
+/// Renders a share card at 3x, so a 360 by 450 card becomes 1080 by 1350.
+@MainActor
+enum ShareCardRenderer {
+    static func image<V: View>(_ view: V) -> UIImage? {
+        let renderer = ImageRenderer(content: view)
+        renderer.scale = 3
+        return renderer.uiImage
+    }
+}
+
+/// The card's page: 360 points wide, dark, with the same type sizes whatever
+/// the sharer's text size setting. Pass nil for a height that fits the
+/// content.
+struct ShareCardCanvas<Content: View>: View {
+    var height: CGFloat? = 450
+    private let content: Content
+
+    init(height: CGFloat? = 450, @ViewBuilder content: () -> Content) {
+        self.height = height
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) { content }
+            .padding(DS.Space.s5)
+            .frame(width: 360, height: height, alignment: .topLeading)
+            .background(Color.dsBackground)
+            .environment(\.colorScheme, .dark)
+            .dynamicTypeSize(.large)
+    }
+}
+
+/// A rounded cover on the card's tint, with a symbol, for cards with no map.
+struct ShareCardCover: View {
+    let systemImage: String
+    let tint: Color
+    var height: CGFloat = 96
+
+    var body: some View {
+        ZStack {
+            Color.dsFill
+            tint.opacity(0.3)
+            Image(systemName: systemImage)
+                .resizable()
+                .scaledToFit()
+                .frame(width: height * 0.54, height: height * 0.54)
+                .foregroundStyle(tint)
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: height)
+        .clipShape(RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
+    }
+}
+
+/// The red live dot and label, drawn still: a rendered image never runs the
+/// page tag's pulse.
+struct ShareCardLiveTag: View {
+    var body: some View {
+        HStack(spacing: 5) {
+            Circle().fill(Color.dsScoreSlow).frame(width: 7, height: 7)
+            Text("Live").fontWeight(.semibold).foregroundStyle(Color.dsScoreSlow)
+        }
+    }
+}
+
+/// A stat on a card: the value over a small label, on the fill.
+struct ShareCardStat: View {
+    let value: String
+    let label: String
+
+    var body: some View {
+        VStack(spacing: 2) {
+            Text(value)
+                .font(.headline.monospacedDigit())
+                .foregroundStyle(Color.dsText)
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+            Text(label)
+                .font(.caption)
+                .foregroundStyle(Color.dsText2)
                 .lineLimit(1)
         }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, DS.Space.s3)
+        .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.thumb, style: .continuous))
     }
+}
 
-    private var footer: some View {
-        let rates = tournament.rates
-        return HStack {
-            Text("\(rates.perFish)/fish · +\(rates.perKg)/kg · +\(rates.newSpeciesBonus) new species")
-                .font(.system(size: 11))
-                .foregroundStyle(.white.opacity(0.45))
-            Spacer()
-            HStack(spacing: 4) {
-                Image(systemName: "water.waves")
-                    .font(.system(size: 11, weight: .bold))
-                Text("Currents")
-                    .font(.system(size: 12, weight: .bold, design: .rounded))
+/// The app's mark and name, with an optional small line on the right.
+struct ShareCardFooter: View {
+    var detail: String? = nil
+
+    var body: some View {
+        HStack(spacing: DS.Space.s2) {
+            Image("Logo")
+                .resizable()
+                .scaledToFit()
+                .frame(width: 22, height: 22)
+            Text("Currents")
+                .font(.subheadline.weight(.bold))
+                .foregroundStyle(Color.dsText)
+            Spacer(minLength: DS.Space.s2)
+            if let detail {
+                Text(detail)
+                    .font(.caption2)
+                    .foregroundStyle(Color.dsText3)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
             }
-            .foregroundStyle(.white.opacity(0.7))
         }
     }
 }

@@ -2,8 +2,8 @@ import SwiftUI
 import UIKit
 
 // Shared pieces for the event pages (tournament, team, group trip and the
-// leaderboard): podium, rank rows, live tag, countdown, key-value list and
-// the fading page title.
+// leaderboard): podium, rank rows, live tag, countdown, key-value list,
+// cover art, sheet rows and the fading page title.
 
 // MARK: - Ordinals
 
@@ -65,6 +65,29 @@ private struct EventPageTitle: ViewModifier {
             } action: { _, new in
                 showsTitle = new
             }
+            // A firm edge under the bar once the page scrolls, so rows never
+            // read through the title (Luma's bar turns solid at this point).
+            .detailScrollEdge()
+    }
+}
+
+/// A sheet's inline title with a close button, and the same firm edge under
+/// the bar as the pushed pages.
+private struct EventSheetTitle: ViewModifier {
+    let title: String
+    @Environment(\.dismiss) private var dismiss
+
+    func body(content: Content) -> some View {
+        content
+            .detailScrollEdge()
+            .navigationTitle(title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { dismiss() } label: { Image(systemName: "xmark") }
+                        .accessibilityLabel("Close")
+                }
+            }
     }
 }
 
@@ -73,6 +96,190 @@ extension View {
     /// screen, faded into the bar once it scrolls away.
     func eventPageTitle(_ title: String) -> some View {
         modifier(EventPageTitle(title: title))
+    }
+
+    /// Title and close button for a sheet's root, inside its NavigationStack.
+    func eventSheetTitle(_ title: String) -> some View {
+        modifier(EventSheetTitle(title: title))
+    }
+}
+
+// MARK: - Cover
+
+/// Luma's cover art at the top of an event page: the event's species on its
+/// art colour, or a large symbol on the page tint when there's no fish yet.
+struct EventCover: View {
+    var species: Species?
+    var systemImage: String
+    var tint: Color
+    @Environment(\.colorScheme) private var scheme
+
+    var body: some View {
+        Color.clear
+            .aspectRatio(1.6, contentMode: .fit)
+            .overlay {
+                ZStack {
+                    Color.dsFill
+                    (species?.artTint ?? tint).opacity(DS.thumbTintOpacity(scheme))
+                    if let species {
+                        SpeciesArtworkView(species: species, caught: true, size: 140, fillWidth: true)
+                            .padding(.horizontal, DS.Space.s8)
+                    } else {
+                        Image(systemName: systemImage)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 84, height: 84)
+                            .foregroundStyle(tint)
+                    }
+                }
+            }
+            .clipShape(RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
+            .padding(.horizontal, DS.gutter)
+            .accessibilityHidden(true)
+    }
+}
+
+// MARK: - Sheet rows
+
+/// A small grey group label in a sheet ("Scoring", "Declare the winner").
+struct EventFormLabel: View {
+    let text: String
+    init(_ text: String) { self.text = text }
+
+    var body: some View {
+        Text(text)
+            .font(.subheadline)
+            .foregroundStyle(Color.dsText2)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, DS.gutter)
+            .padding(.top, DS.Space.s6)
+            .padding(.bottom, DS.Space.s1)
+            .accessibilityAddTraits(.isHeader)
+    }
+}
+
+/// A plain sheet row: label on the left, control on the right, a hairline
+/// under it.
+struct EventFormRow<Trailing: View>: View {
+    let label: String
+    var showsDivider = true
+    private let trailing: Trailing
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    init(_ label: String, showsDivider: Bool = true, @ViewBuilder trailing: () -> Trailing) {
+        self.label = label
+        self.showsDivider = showsDivider
+        self.trailing = trailing()
+    }
+
+    var body: some View {
+        // At accessibility sizes the control drops under its label, so a
+        // wide stepper or date never pushes the row past the screen edge.
+        let stacked = typeSize.isAccessibilitySize
+        let layout = stacked
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: DS.Space.s2))
+            : AnyLayout(HStackLayout(spacing: DS.Space.s4))
+        VStack(spacing: 0) {
+            layout {
+                Text(label)
+                    .foregroundStyle(Color.dsText)
+                    .fixedSize(horizontal: false, vertical: true)
+                if !stacked { Spacer(minLength: DS.Space.s2) }
+                trailing
+            }
+            .font(.body)
+            .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
+            .padding(.vertical, stacked ? DS.Space.s3 : 0)
+            .padding(.horizontal, DS.gutter)
+            if showsDivider {
+                Rectangle().fill(Color.dsSeparator).frame(height: 0.5)
+                    .padding(.leading, DS.gutter)
+            }
+        }
+    }
+}
+
+/// Luma's compact stepper: minus, the value, plus. Swipe up or down with
+/// VoiceOver to adjust.
+struct EventStepper: View {
+    let label: String
+    let value: String
+    var canDecrement = true
+    var canIncrement = true
+    let decrement: () -> Void
+    let increment: () -> Void
+
+    var body: some View {
+        HStack(spacing: DS.Space.s3) {
+            step("minus", enabled: canDecrement, action: decrement)
+            Text(value)
+                .font(.body.monospacedDigit())
+                .foregroundStyle(Color.dsText)
+                .lineLimit(1)
+                .contentTransition(.numericText())
+            step("plus", enabled: canIncrement, action: increment)
+        }
+        .sensoryFeedback(.selection, trigger: value)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(label)
+        .accessibilityValue(value)
+        .accessibilityAdjustableAction { direction in
+            switch direction {
+            case .increment: if canIncrement { increment() }
+            case .decrement: if canDecrement { decrement() }
+            @unknown default: break
+            }
+        }
+    }
+
+    private func step(_ symbol: String, enabled: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.body.weight(.semibold))
+                .foregroundStyle(Color.dsText)
+                .frame(width: 40, height: 34)
+                .background(Color.dsTonal, in: RoundedRectangle(cornerRadius: DS.Radius.thumb, style: .continuous))
+        }
+        .buttonStyle(.dim)
+        .disabled(!enabled)
+        .opacity(enabled ? 1 : 0.4)
+    }
+}
+
+// MARK: - Loading
+
+/// Grey placeholder rows while a list loads. Luma never spins in content.
+struct EventSkeletonRows: View {
+    var count = 3
+    var thumbSize: CGFloat = 44
+    var label = "Loading"
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var dim = false
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ForEach(0..<count, id: \.self) { _ in
+                HStack(spacing: 14) {
+                    RoundedRectangle(cornerRadius: DS.Radius.thumb, style: .continuous)
+                        .fill(Color.dsFill)
+                        .frame(width: thumbSize, height: thumbSize)
+                    VStack(alignment: .leading, spacing: DS.Space.s2) {
+                        Capsule().fill(Color.dsFill).frame(maxWidth: 180).frame(height: 13)
+                        Capsule().fill(Color.dsFill).frame(maxWidth: 110).frame(height: 11)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, DS.gutter)
+                .padding(.vertical, 10)
+            }
+        }
+        .opacity(dim ? 0.55 : 1)
+        .onAppear {
+            guard !reduceMotion else { return }
+            withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) { dim = true }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(label)
     }
 }
 
@@ -96,6 +303,7 @@ struct EventHeader<Over: View>: View {
             HStack(spacing: 6) { over }
                 .font(.subheadline)
                 .foregroundStyle(Color.dsText2)
+                .lineLimit(1)
             Text(title)
                 .font(.largeTitle.bold())
                 .foregroundStyle(Color.dsText)
@@ -223,6 +431,7 @@ struct EventCountdown: View {
     let label: String
     let target: Date
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var typeSize
     @ScaledMetric(relativeTo: .title) private var digitSize: CGFloat = 26
 
     var body: some View {
@@ -243,22 +452,20 @@ struct EventCountdown: View {
                     let parts: [(value: Int, unit: String)] = [
                         (left / 86400, "Days"), (left / 3600 % 24, "Hours"),
                         (left / 60 % 60, "Minutes"), (left % 60, "Seconds")]
-                    HStack(spacing: DS.Space.s2) {
-                        ForEach(parts, id: \.unit) { value, unit in
-                            VStack(spacing: 2) {
-                                Text(String(format: "%02d", value))
-                                    .font(.system(size: digitSize, weight: .bold, design: .rounded)) // ui-lint: allow, countdown numeral scaled with @ScaledMetric
-                                    .monospacedDigit()
-                                    .foregroundStyle(Color.dsText)
-                                    .contentTransition(.numericText(countsDown: true))
-                                    .animation(reduceMotion ? nil : DS.Motion.easeOut, value: value)
-                                Text(unit)
-                                    .font(.footnote)
-                                    .foregroundStyle(Color.dsText2)
+                    // Four across fit up to the largest standard size; the
+                    // accessibility sizes get two rows of two so the digits
+                    // never squeeze.
+                    Group {
+                        if typeSize.isAccessibilitySize {
+                            LazyVGrid(columns: [GridItem(.flexible(), spacing: DS.Space.s2),
+                                                GridItem(.flexible())],
+                                      spacing: DS.Space.s2) {
+                                ForEach(parts, id: \.unit) { cell(value: $0.value, unit: $0.unit) }
                             }
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, DS.Space.s3)
-                            .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.button, style: .continuous))
+                        } else {
+                            HStack(spacing: DS.Space.s2) {
+                                ForEach(parts, id: \.unit) { cell(value: $0.value, unit: $0.unit) }
+                            }
                         }
                     }
                     .accessibilityElement(children: .ignore)
@@ -267,6 +474,28 @@ struct EventCountdown: View {
             }
         }
         .padding(.horizontal, DS.gutter)
+    }
+
+    private func cell(value: Int, unit: String) -> some View {
+        VStack(spacing: 2) {
+            Text(String(format: "%02d", value))
+                .font(.system(size: digitSize, weight: .bold, design: .rounded)) // ui-lint: allow, countdown numeral scaled with @ScaledMetric
+                .monospacedDigit()
+                .foregroundStyle(Color.dsText)
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+                .contentTransition(.numericText(countsDown: true))
+                .animation(reduceMotion ? nil : DS.Motion.easeOut, value: value)
+            Text(unit)
+                .font(.footnote)
+                .foregroundStyle(Color.dsText2)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, DS.Space.s3)
+        .padding(.horizontal, DS.Space.s1)
+        .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.button, style: .continuous))
     }
 }
 
@@ -384,6 +613,9 @@ struct EventPodium<Destination: View>: View {
                 }
             }
             .foregroundStyle(Color.dsText)
+            // Three columns share the width; big numbers shrink, never wrap.
+            .lineLimit(1)
+            .minimumScaleFactor(0.5)
             UnevenRoundedRectangle(topLeadingRadius: DS.Radius.button, topTrailingRadius: DS.Radius.button,
                                    style: .continuous)
                 .fill(plinthFill(place))
