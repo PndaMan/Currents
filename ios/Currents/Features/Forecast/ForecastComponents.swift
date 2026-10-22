@@ -671,36 +671,7 @@ struct CloudBars: View {
     }
 }
 
-// MARK: - Key and value list (condition pages)
-
-struct KeyValueList: View {
-    let rows: [(String, String)]
-
-    var body: some View {
-        VStack(spacing: 0) {
-            ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
-                HStack {
-                    Text(row.0)
-                        .foregroundStyle(.dsText)
-                    Spacer(minLength: 12)
-                    Text(row.1)
-                        .foregroundStyle(.dsText2)
-                        .monospacedDigit()
-                        .multilineTextAlignment(.trailing)
-                }
-                .font(.body)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 13)
-                .accessibilityElement(children: .combine)
-                if index < rows.count - 1 {
-                    Divider().overlay(Color.dsSeparator).padding(.leading, 16)
-                }
-            }
-        }
-        .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
-        .padding(.horizontal, DS.gutter)
-    }
-}
+// MARK: - Explanations
 
 /// Plain explanatory paragraphs under a condition page.
 struct ExplainText: View {

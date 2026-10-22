@@ -12,8 +12,6 @@ struct TodayTab: View {
     @AppStorage("waterClarityOverride") private var clarityOverride = ""
     /// Saved spot the forecast is for. Empty means the phone's location.
     @AppStorage("todaySpotId") private var spotId = ""
-    /// Shared with the species page's Target button. 0 means any species.
-    @AppStorage("targetSpeciesId") private var targetSpeciesId: Int = 0
 
     @State private var store = ForecastStore()
     @State private var spots: [Spot] = []
@@ -24,8 +22,6 @@ struct TodayTab: View {
     @State private var selectedHour: Int?
 
     @State private var showLocation = false
-    @State private var showSpeciesPicker = false
-    @State private var showAllLures = false
     @State private var showSession = false
     @State private var planning: PlanTarget?
     @State private var confirmEnd = false
@@ -111,7 +107,12 @@ struct TodayTab: View {
                         .padding(.top, 20)
                     targetRow.padding(.top, 20)
                     upNextRow
-                    whatToThrow.padding(.top, 12)
+                    WhatToThrowSection(
+                        suggestions: suggestions, weather: weather, clarity: clarity,
+                        clarityIsGuess: clarityOverride.isEmpty, hasGear: !ownedGear.isEmpty,
+                        onClarity: { clarityOverride = $0.rawValue }
+                    )
+                    .padding(.top, 12)
                     weekStrip.padding(.top, 20)
                     conditions(today).padding(.top, 20)
                 } else {
@@ -121,9 +122,11 @@ struct TodayTab: View {
                 }
             }
             .padding(.bottom, DS.Space.s8)
+            .pageWidth()
         }
+        .largeTitleChrome("Today")
         .dsScreenBackground()
-        .toolbar(.hidden, for: .navigationBar)
+        .sensoryFeedback(.selection, trigger: clarityOverride)
         .refreshable { await reload(force: true) }
         .navigationDestination(for: ForecastRoute.self) { route in
             ForecastDestination(store: store, route: route)
@@ -143,19 +146,9 @@ struct TodayTab: View {
                 selectedSpotId: selectedSpot == nil ? "" : spotId,
                 locationAuthorized: appState.locationManager.isAuthorized,
                 onSelect: { id in spotId = id },
-                onRequestLocation: turnOnLocation
+                onRequestLocation: turnOnLocation,
+                onOpenExplore: { appState.pendingDeepLink = URL(string: "currents://map") }
             )
-        }
-        .sheet(isPresented: $showSpeciesPicker) {
-            ForecastSpeciesPickerSheet(selected: store.species) { sp in
-                targetSpeciesId = Int(sp?.id ?? 0)
-                store.setSpecies(sp)
-                ToastCenter.shared.show(sp.map { "Targeting \($0.commonName)" } ?? "Forecast for any species",
-                                        style: .info, haptic: false, icon: "scope")
-            }
-        }
-        .sheet(isPresented: $showAllLures) {
-            WhatToThrowDetailView(suggestions: suggestions, clarity: clarity, species: store.species)
         }
         .sheet(isPresented: $showSession) {
             if let trip = appState.tripTracker.activeTrip {
@@ -189,6 +182,7 @@ struct TodayTab: View {
                         .font(.footnote)
                     Text(store.placeName)
                         .font(.subheadline.weight(.semibold))
+                        .lineLimit(1)
                     Image(systemName: "chevron.down")
                         .font(.caption2.weight(.semibold))
                 }
@@ -300,13 +294,13 @@ struct TodayTab: View {
                         HourInfoBox(store: store, day: day, hour: hour, use24: use24)
                     } else {
                         WindowTiles(day: day, use24: use24) { hour in
-                            withAnimation(DS.Motion.softSpring) { selectedHour = hour }
+                            withAnimation(reduceMotion ? nil : DS.Motion.softSpring) { selectedHour = hour }
                         }
                     }
                 }
                 .padding(.top, 6)
                 .transition(.opacity)
-                .animation(DS.Motion.softSpring, value: selectedHour)
+                .animation(reduceMotion ? nil : DS.Motion.softSpring, value: selectedHour)
             }
             .padding(.horizontal, DS.gutter)
 
@@ -343,7 +337,7 @@ struct TodayTab: View {
     // MARK: - Target and plans
 
     private var targetRow: some View {
-        Button { showSpeciesPicker = true } label: {
+        NavigationLink(value: ForecastRoute.targetSpecies) {
             ArtRow(over: "Targeting", title: store.species?.commonName ?? "Any species",
                    subtitle: store.species == nil ? "General forecast. Choose a species to tune it." : "Score and lures tuned for it",
                    chevron: true) {
@@ -384,49 +378,6 @@ struct TodayTab: View {
             : cal.isDateInTomorrow(date) ? "Tomorrow"
             : ForecastFormat.longDate(date)
         return "\(day), \(ForecastFormat.time(date, use24: use24))"
-    }
-
-    // MARK: - What to throw
-
-    private var whatToThrow: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Button { showAllLures = true } label: {
-                SectionTitle("What to throw", chevron: true)
-            }
-            .buttonStyle(.dim)
-            .accessibilityHint("Shows every suggestion")
-
-            VStack(alignment: .leading, spacing: 10) {
-                ClaritySegments(selection: clarity) { clarityOverride = $0.rawValue }
-                Text(clarityOverride.isEmpty
-                     ? "\(clarity.label) water, guessed from recent rain. Change it if you can see otherwise."
-                     : "\(clarity.label) water, \(clarity.detail.lowercased()).")
-                    .font(.footnote)
-                    .foregroundStyle(.dsText2)
-            }
-            .padding(.horizontal, DS.gutter)
-            .padding(.bottom, 8)
-
-            let top = Array(suggestions.prefix(2))
-            ForEach(Array(top.enumerated()), id: \.element.id) { index, s in
-                Button { showAllLures = true } label: {
-                    LureRow(suggestion: s, rank: index + 1, compact: true)
-                        .padding(.horizontal, DS.gutter)
-                        .padding(.vertical, 10)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.dsRow)
-            }
-
-            if ownedGear.isEmpty {
-                NavigationLink(value: AppRoute.gear) {
-                    ArtRow(title: "Add your tackle", subtitle: "Lures you own rank first", chevron: true) {
-                        ThumbView(systemImage: "shippingbox", tint: DS.accent, size: 52)
-                    }
-                }
-                .buttonStyle(.dsRow)
-            }
-        }
     }
 
     // MARK: - Week

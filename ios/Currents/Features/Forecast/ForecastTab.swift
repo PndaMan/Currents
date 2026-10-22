@@ -36,7 +36,7 @@ struct ForecastTab: View {
         .syncsTargetSpecies(store)
         .task {
             if let loc = appState.locationManager.currentLocation {
-                store.setLocation(loc.coordinate, name: "Your location")
+                store.setLocation(loc.coordinate, name: "Current location")
             }
             await store.load()
         }
@@ -57,54 +57,30 @@ struct ForecastDestination: View {
             ForecastWeekPage(store: store)
         case .condition(let condition, let day):
             ConditionPage(store: store, condition: condition, dayOffset: day)
+        case .lures:
+            WhatToThrowPage(store: store)
+        case .targetSpecies:
+            TargetSpeciesPage(store: store)
         }
     }
 }
 
-/// Choose the species the forecast is tuned for, or none for a general one.
-struct ForecastSpeciesPickerSheet: View {
-    let allSpecies: [Species]
-    @Binding var selectedSpecies: Species?
-    let onSelect: () -> Void
+/// Choose the species the forecast and lures are tuned for, or none for a
+/// general forecast. Pushed from Today and the day page. Saves the shared
+/// `targetSpeciesId` the species page's Target button also writes.
+struct TargetSpeciesPage: View {
+    let store: ForecastStore
 
     @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss
-    @State private var loaded: [Species] = []
+    @AppStorage("targetSpeciesId") private var targetSpeciesId: Int = 0
+    @State private var all: [Species] = []
+    @State private var loaded = false
     @State private var search = ""
-    @State private var habitat: HabitatFilter = .all
-
-    init(allSpecies: [Species], selectedSpecies: Binding<Species?>, onSelect: @escaping () -> Void) {
-        self.allSpecies = allSpecies
-        self._selectedSpecies = selectedSpecies
-        self.onSelect = onSelect
-    }
-
-    /// Loads the species list itself and reports the pick.
-    init(selected: Species?, onPick: @escaping (Species?) -> Void) {
-        var current = selected
-        self.allSpecies = []
-        self._selectedSpecies = Binding(get: { current }, set: { current = $0; onPick($0) })
-        self.onSelect = {}
-    }
-
-    enum HabitatFilter: Hashable {
-        case all
-        case only(Species.Habitat)
-
-        static var options: [HabitatFilter] { [.all] + Species.Habitat.allCases.map { .only($0) } }
-
-        var title: String {
-            switch self {
-            case .all: "All"
-            case .only(let h): h.rawValue.capitalized
-            }
-        }
-    }
-
-    private var source: [Species] { allSpecies.isEmpty ? loaded : allSpecies }
+    @State private var habitat: SpeciesHabitatFilter = .all
 
     private var filtered: [Species] {
-        var result = source
+        var result = all
         if case .only(let h) = habitat {
             result = result.filter { $0.habitat == h }
         }
@@ -120,62 +96,67 @@ struct ForecastSpeciesPickerSheet: View {
     }
 
     var body: some View {
-        NavigationStack {
-            List {
-                Section {
-                    FilterChips(HabitatFilter.options, selection: $habitat, title: { $0.title })
-                        .dsListRow()
-                }
-
-                Section {
-                    Button { pick(nil) } label: {
-                        ArtRow(title: "Any species", subtitle: "General forecast") {
-                            ThumbView(systemImage: "globe", tint: DS.accent, size: 48)
-                        } trailing: {
-                            checkmark(selectedSpecies == nil)
-                        }
-                    }
-                    .buttonStyle(.dsRow)
+        let rows = filtered
+        List {
+            Section {
+                FilterChips(SpeciesHabitatFilter.options, selection: $habitat, title: { $0.title })
                     .dsListRow()
+                Button { pick(nil) } label: {
+                    ArtRow(title: "Any species", subtitle: "General forecast and lures") {
+                        ThumbView(systemImage: "scope", tint: DS.accent, size: 48)
+                    } trailing: {
+                        SpeciesCheckmark(isOn: store.species == nil)
+                    }
                 }
+                .buttonStyle(.dsRow)
+                .dsListRow()
+            }
 
+            if !rows.isEmpty {
+                // A row, not a section header: plain-list headers pin and
+                // draw over the rows on this clear background.
                 Section {
-                    ForEach(filtered) { sp in
+                    SectionTitle("Species", detail: "\(rows.count)")
+                        .padding(.top, DS.Space.s4)
+                        .dsListRow()
+                    ForEach(rows) { sp in
                         Button { pick(sp) } label: {
                             ArtRow(title: sp.commonName, subtitle: subtitle(for: sp)) {
                                 ThumbView(species: sp, size: 48)
                             } trailing: {
-                                checkmark(selectedSpecies?.id == sp.id)
+                                SpeciesCheckmark(isOn: store.species?.id == sp.id)
                             }
                         }
                         .buttonStyle(.dsRow)
                         .dsListRow()
                     }
-                } header: {
-                    Text(filtered.count == 1 ? "1 species" : "\(filtered.count) species")
-                }
-            }
-            .dsPlainList()
-            .overlay {
-                if filtered.isEmpty && !source.isEmpty {
-                    ContentUnavailableView.search(text: search)
-                }
-            }
-            .navigationTitle("Target species")
-            .navigationBarTitleDisplayMode(.inline)
-            .searchable(text: $search, prompt: "Name or family")
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
                 }
             }
         }
-        .presentationDetents([.medium, .large])
-        .presentationDragIndicator(.visible)
-        .task {
-            if allSpecies.isEmpty && loaded.isEmpty {
-                loaded = (try? appState.speciesRepository.fetchAll()) ?? []
+        .dsPlainList()
+        .detailScrollEdge()
+        .overlay {
+            if !loaded {
+                ProgressView()
+            } else if all.isEmpty {
+                ContentUnavailableView("No species yet", systemImage: "fish",
+                                       description: Text("The species guide is still being set up. Try again in a moment."))
+            } else if rows.isEmpty {
+                if search.isEmpty {
+                    ContentUnavailableView("None in this group", systemImage: "line.3.horizontal.decrease",
+                                           description: Text("Pick another habitat."))
+                } else {
+                    ContentUnavailableView.search(text: search)
+                }
             }
+        }
+        .navigationTitle("Target species")
+        .navigationBarTitleDisplayMode(.inline)
+        .searchable(text: $search, placement: .navigationBarDrawer(displayMode: .always), prompt: "Name or family")
+        .task {
+            guard !loaded else { return }
+            all = (try? appState.speciesRepository.fetchAll()) ?? []
+            loaded = true
         }
     }
 
@@ -186,19 +167,39 @@ struct ForecastSpeciesPickerSheet: View {
         return sp.scientificName
     }
 
-    @ViewBuilder
-    private func checkmark(_ on: Bool) -> some View {
-        if on {
+    private func pick(_ sp: Species?) {
+        targetSpeciesId = Int(sp?.id ?? 0)
+        store.setSpecies(sp)
+        ToastCenter.shared.show(sp.map { "Targeting \($0.commonName)" } ?? "Forecast for any species",
+                                style: .info, haptic: false, icon: "scope")
+        dismiss()
+    }
+}
+
+/// Habitat filter for the species list.
+enum SpeciesHabitatFilter: Hashable {
+    case all
+    case only(Species.Habitat)
+
+    static var options: [SpeciesHabitatFilter] { [.all] + Species.Habitat.allCases.map { .only($0) } }
+
+    var title: String {
+        switch self {
+        case .all: "All"
+        case .only(let h): h.rawValue.capitalized
+        }
+    }
+}
+
+private struct SpeciesCheckmark: View {
+    let isOn: Bool
+
+    var body: some View {
+        if isOn {
             Image(systemName: "checkmark")
                 .font(.body.weight(.semibold))
                 .foregroundStyle(DS.accent)
                 .accessibilityLabel("Selected")
         }
-    }
-
-    private func pick(_ sp: Species?) {
-        selectedSpecies = sp
-        onSelect()
-        dismiss()
     }
 }

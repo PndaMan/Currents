@@ -10,10 +10,9 @@ struct ForecastDayPage: View {
     @State private var selectedHour: Int?
     @State private var showPlanner = false
     @State private var showAlerts = false
-    @State private var showSpeciesPicker = false
     @AppStorage("use24HourTime") private var use24 = true
     @AppStorage("alertsEnabled") private var alertsEnabled = false
-    @AppStorage("targetSpeciesId") private var targetSpeciesId: Int = 0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(store: ForecastStore, initialDay: Int = 0, initialHour: Int? = nil) {
         self.store = store
@@ -47,7 +46,7 @@ struct ForecastDayPage: View {
                     VStack(alignment: .leading, spacing: 0) {
                         SectionTitle("Best windows")
                         WindowTiles(day: day, use24: use24) { hour in
-                            withAnimation(DS.Motion.softSpring) {
+                            withAnimation(reduceMotion ? nil : DS.Motion.softSpring) {
                                 selectedHour = hour
                                 proxy.scrollTo("chart", anchor: .center)
                             }
@@ -71,7 +70,7 @@ struct ForecastDayPage: View {
                         SectionTitle(day.isToday ? "Why it scores \(day.result.score) now"
                                                  : "Why midday scores \(day.result.score)")
                         FactorBreakdown(breakdown: day.result.breakdown)
-                        Text("Nine factors, worked out on your phone from the weather, tide and moon. No signal needed.")
+                        Text("Worked out on your phone. No signal needed.")
                             .font(.footnote)
                             .foregroundStyle(.dsText2)
                             .padding(.horizontal, DS.gutter)
@@ -82,63 +81,21 @@ struct ForecastDayPage: View {
                 }
                 .padding(.top, 4)
                 .padding(.bottom, 40)
+                .pageWidth()
             }
         }
         .detailTint(DS.scoreColor(day.peakScore))
         .navigationTitle(ForecastFormat.dayName(offset, date: day.date))
         .navigationBarTitleDisplayMode(.inline)
         .refreshable { await store.load(force: true) }
-        .sensoryFeedback(.selection, trigger: offset)
         .sheet(isPresented: $showPlanner) { PlanSessionSheet() }
-        .sheet(isPresented: $showSpeciesPicker) {
-            ForecastSpeciesPickerSheet(selected: store.species) { sp in
-                targetSpeciesId = Int(sp?.id ?? 0)
-                store.setSpecies(sp)
-            }
-        }
         .navigationDestination(isPresented: $showAlerts) { AlertSettingsView() }
     }
 
     // MARK: - Date strip
 
     private var dateStrip: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 6) {
-                ForEach(0..<7, id: \.self) { i in
-                    let d = store.day(i)
-                    let on = i == offset
-                    Button {
-                        withAnimation(DS.Motion.softSpring) {
-                            offset = i
-                            selectedHour = nil
-                        }
-                    } label: {
-                        VStack(spacing: 3) {
-                            Text(i == 0 ? "Today" : ForecastFormat.shortDay(d.date))
-                                .font(.subheadline)
-                            Text(ForecastFormat.dayNumber(d.date))
-                                .font(.title3.weight(.semibold))
-                                .monospacedDigit()
-                            Circle()
-                                .fill(DS.scoreColor(d.peakScore))
-                                .frame(width: 6, height: 6)
-                        }
-                        .foregroundStyle(on ? Color.dsOnPrimary : Color.dsText)
-                        .frame(width: 54)
-                        .padding(.vertical, 10)
-                        .background {
-                            if on {
-                                RoundedRectangle(cornerRadius: DS.Radius.button, style: .continuous).fill(Color.dsPrimaryButton)
-                            }
-                        }
-                    }
-                    .buttonStyle(.dim)
-                    .accessibilityLabel("\(ForecastFormat.dayName(i, date: d.date)), score \(d.peakScore)")
-                    .accessibilityAddTraits(on ? .isSelected : [])
-                }
-            }
-            .padding(.horizontal, DS.gutter - 4)
-        }
+        ForecastDayStrip(store: store, selection: $offset) { selectedHour = nil }
     }
 
     // MARK: - Hero
@@ -200,14 +157,14 @@ struct ForecastDayPage: View {
     // MARK: - Target
 
     private var targetRow: some View {
-        Button { showSpeciesPicker = true } label: {
+        NavigationLink(value: ForecastRoute.targetSpecies) {
             ArtRow(over: "Targeting", title: store.species?.commonName ?? "Any species",
-                   subtitle: store.species == nil ? "General forecast. Choose a species to tune it." : "Tap to change",
+                   subtitle: store.species == nil ? "General forecast. Choose a species to tune it." : "Score and lures tuned for it",
                    chevron: true) {
                 if let s = store.species {
                     ThumbView(species: s, size: 52)
                 } else {
-                    ThumbView(systemImage: "fish", tint: DS.accent, size: 52)
+                    ThumbView(systemImage: "scope", tint: DS.accent, size: 52)
                 }
             }
         }
@@ -261,6 +218,7 @@ struct ForecastWeekPage: View {
             }
             .padding(.top, 8)
             .padding(.bottom, 40)
+            .pageWidth()
         }
         .detailTint(DS.accent)
         .navigationTitle("Next 7 days")
@@ -343,5 +301,60 @@ struct ForecastWeekPage: View {
         .padding(.vertical, 12)
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
+    }
+}
+
+/// Seven day chips (Today, Fri 23 ...) with each day's best score as a dot.
+/// Used at the top of the day page and the condition pages.
+struct ForecastDayStrip: View {
+    let store: ForecastStore
+    @Binding var selection: Int
+    var onChange: (() -> Void)? = nil
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                ForEach(0..<7, id: \.self) { i in
+                    chip(i)
+                }
+            }
+            .padding(.horizontal, DS.gutter - 4)
+        }
+        .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
+        .sensoryFeedback(.selection, trigger: selection)
+    }
+
+    private func chip(_ i: Int) -> some View {
+        let d = store.day(i)
+        let on = i == selection
+        return Button {
+            withAnimation(reduceMotion ? nil : DS.Motion.softSpring) {
+                selection = i
+                onChange?()
+            }
+        } label: {
+            VStack(spacing: 3) {
+                Text(i == 0 ? "Today" : ForecastFormat.shortDay(d.date))
+                    .font(.subheadline)
+                Text(ForecastFormat.dayNumber(d.date))
+                    .font(.title3.weight(.semibold))
+                    .monospacedDigit()
+                Circle()
+                    .fill(DS.scoreColor(d.peakScore))
+                    .frame(width: 6, height: 6)
+            }
+            .foregroundStyle(on ? Color.dsOnPrimary : Color.dsText)
+            .frame(width: 54)
+            .padding(.vertical, 10)
+            .background {
+                if on {
+                    RoundedRectangle(cornerRadius: DS.Radius.button, style: .continuous).fill(Color.dsPrimaryButton)
+                }
+            }
+        }
+        .buttonStyle(.dim)
+        .accessibilityLabel("\(ForecastFormat.dayName(i, date: d.date)), best score \(d.peakScore)")
+        .accessibilityAddTraits(on ? .isSelected : [])
     }
 }

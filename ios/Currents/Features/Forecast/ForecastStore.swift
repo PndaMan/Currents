@@ -7,6 +7,10 @@ enum ForecastRoute: Hashable {
     case day(offset: Int, hour: Int?)
     case week
     case condition(ForecastCondition, day: Int)
+    /// Every lure suggestion, with the colours for the water.
+    case lures
+    /// Choose the species the forecast and lures are tuned for.
+    case targetSpecies
 }
 
 /// The eight condition tiles and their pages.
