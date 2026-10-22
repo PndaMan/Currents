@@ -31,6 +31,15 @@ struct OfflineMapView: UIViewRepresentable {
     var onSelectWaterbody: (Waterbody) -> Void
     var onTap: (CLLocationCoordinate2D) -> Void
     var onRegionChange: (MKCoordinateRegion) -> Void
+    /// Public boat ramps and access points, when that layer is on.
+    var ramps: [BoatRamp] = []
+    var onSelectRamp: ((BoatRamp) -> Void)? = nil
+    var onSelectCatch: ((CatchDetail) -> Void)? = nil
+    /// Long press drops a new spot there.
+    var onLongPress: ((CLLocationCoordinate2D) -> Void)? = nil
+    /// Distance from the top safe area to the compass, so it clears the
+    /// search bar and chips drawn over the map.
+    var compassTopInset: CGFloat = 60
 
     func makeUIView(context: Context) -> MKMapView {
         let map = MKMapView()
@@ -49,7 +58,7 @@ struct OfflineMapView: UIViewRepresentable {
         map.addSubview(compass)
         NSLayoutConstraint.activate([
             compass.leadingAnchor.constraint(equalTo: map.safeAreaLayoutGuide.leadingAnchor, constant: 12),
-            compass.topAnchor.constraint(equalTo: map.safeAreaLayoutGuide.topAnchor, constant: 60),
+            compass.topAnchor.constraint(equalTo: map.safeAreaLayoutGuide.topAnchor, constant: compassTopInset),
         ])
 
         let tap = UITapGestureRecognizer(
@@ -58,6 +67,14 @@ struct OfflineMapView: UIViewRepresentable {
         )
         tap.delegate = context.coordinator
         map.addGestureRecognizer(tap)
+
+        let press = UILongPressGestureRecognizer(
+            target: context.coordinator,
+            action: #selector(Coordinator.handleLongPress(_:))
+        )
+        press.minimumPressDuration = 0.5
+        press.delegate = context.coordinator
+        map.addGestureRecognizer(press)
 
         // Animated flow fields sit above the map, below the buttons, and never
         // intercept touches.
@@ -70,7 +87,7 @@ struct OfflineMapView: UIViewRepresentable {
 
         let wind = WindFieldView(frame: map.bounds)
         wind.mode = .wind
-        wind.tint = UIColor(white: 1, alpha: 1)
+        wind.tint = .white
         wind.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         map.addSubview(wind)
         context.coordinator.windField = wind
@@ -136,11 +153,20 @@ struct OfflineMapView: UIViewRepresentable {
         var title: String? { waterbody.name }
         var subtitle: String? {
             let type = waterbody.type.rawValue.capitalized
-            return score.map { "\(type) · Bite \($0)" } ?? type
+            return score.map { "\(type), bite \($0)" } ?? type
         }
         init(waterbody: Waterbody, score: Int?) {
             self.waterbody = waterbody
             self.score = score
+        }
+    }
+
+    final class RampAnnotation: NSObject, MKAnnotation {
+        let ramp: BoatRamp
+        var coordinate: CLLocationCoordinate2D { ramp.coordinate }
+        var title: String? { ramp.name }
+        init(ramp: BoatRamp) {
+            self.ramp = ramp
         }
     }
 
@@ -211,6 +237,7 @@ struct OfflineMapView: UIViewRepresentable {
             let fp = parent.spots.map(\.id).joined()
                 + parent.catches.map(\.catchRecord.id).joined()
                 + parent.waterbodies.map { "\($0.id ?? 0)" }.joined()
+                + parent.ramps.map(\.id).joined()
             guard fp != fingerprint else { return }
             fingerprint = fp
 
@@ -222,6 +249,7 @@ struct OfflineMapView: UIViewRepresentable {
             map.addAnnotations(parent.waterbodies.map {
                 WaterbodyAnnotation(waterbody: $0, score: parent.waterbodyScores[$0.id ?? 0])
             })
+            map.addAnnotations(parent.ramps.map(RampAnnotation.init))
         }
 
         func mapView(_ mapView: MKMapView, rendererFor overlay: MKOverlay) -> MKOverlayRenderer {
@@ -233,12 +261,27 @@ struct OfflineMapView: UIViewRepresentable {
 
         func mapView(_ mapView: MKMapView, viewFor annotation: MKAnnotation) -> MKAnnotationView? {
             guard !(annotation is MKUserLocation) else { return nil }
+            if let cluster = annotation as? MKClusterAnnotation {
+                let id = "cluster"
+                let view = (mapView.dequeueReusableAnnotationView(withIdentifier: id) as? MKMarkerAnnotationView)
+                    ?? MKMarkerAnnotationView(annotation: cluster, reuseIdentifier: id)
+                view.annotation = cluster
+                view.canShowCallout = false
+                view.markerTintColor = UIColor(parent.accent)
+                view.glyphText = "\(cluster.memberAnnotations.count)"
+                view.accessibilityLabel = "\(cluster.memberAnnotations.count) places. Zooms in."
+                return view
+            }
             let id = "pin"
             let view = (mapView.dequeueReusableAnnotationView(withIdentifier: id) as? MKMarkerAnnotationView)
                 ?? MKMarkerAnnotationView(annotation: annotation, reuseIdentifier: id)
             view.annotation = annotation
             view.canShowCallout = true
             view.displayPriority = .defaultHigh
+            // Nearby pins merge into a numbered marker that zooms in on tap.
+            view.clusteringIdentifier = annotation is RampAnnotation ? "ramps" : "places"
+            view.glyphText = nil
+            view.glyphTintColor = .white
 
             switch annotation {
             case is SpotAnnotation:
@@ -251,6 +294,12 @@ struct OfflineMapView: UIViewRepresentable {
             case is WaterbodyAnnotation:
                 view.markerTintColor = UIColor.systemTeal
                 view.glyphImage = UIImage(systemName: "water.waves")
+            case let r as RampAnnotation:
+                view.markerTintColor = UIColor.white
+                view.glyphTintColor = UIColor.black
+                view.glyphImage = UIImage(systemName: r.ramp.kind.icon)
+                view.displayPriority = .defaultLow
+                view.canShowCallout = false
             default:
                 break
             }
@@ -259,6 +308,15 @@ struct OfflineMapView: UIViewRepresentable {
 
         func mapView(_ mapView: MKMapView, didSelect view: MKAnnotationView) {
             switch view.annotation {
+            case let cluster as MKClusterAnnotation:
+                mapView.deselectAnnotation(cluster, animated: false)
+                mapView.showAnnotations(cluster.memberAnnotations, animated: true)
+            case let ramp as RampAnnotation:
+                mapView.deselectAnnotation(view.annotation, animated: false)
+                parent.onSelectRamp?(ramp.ramp)
+            case let c as CatchAnnotation where parent.onSelectCatch != nil:
+                mapView.deselectAnnotation(view.annotation, animated: false)
+                parent.onSelectCatch?(c.detail)
             case let spot as SpotAnnotation:
                 mapView.deselectAnnotation(view.annotation, animated: false)
                 parent.onSelectSpot(spot.spot)
@@ -284,6 +342,13 @@ struct OfflineMapView: UIViewRepresentable {
                 hit = v.superview
             }
             parent.onTap(map.convert(point, toCoordinateFrom: map))
+        }
+
+        @objc func handleLongPress(_ gesture: UILongPressGestureRecognizer) {
+            guard gesture.state == .began, let map = gesture.view as? MKMapView,
+                  let onLongPress = parent.onLongPress else { return }
+            let point = gesture.location(in: map)
+            onLongPress(map.convert(point, toCoordinateFrom: map))
         }
 
         func gestureRecognizer(
