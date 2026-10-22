@@ -63,19 +63,54 @@ enum ExploreFeature: Identifiable {
 
 struct PinCluster: Identifiable {
     let members: [ExploreFeature]
-    var id: String { members.count == 1 ? members[0].id : "cluster:\(members[0].id):\(members.count)" }
+    /// A cluster keeps its id while its count changes, so a photo stack stays
+    /// the same view as the map zooms and its count can roll.
+    var id: String { members.count == 1 ? members[0].id : "cluster:\(members[0].id)" }
     var coordinate: CLLocationCoordinate2D { members[0].coordinate }
     var lead: ExploreFeature { members[0] }
+
+    /// The catches, when every member is one: the cluster draws as a photo
+    /// stack.
+    var catches: [CatchDetail]? {
+        var out: [CatchDetail] = []
+        for member in members {
+            guard case .catchPin(let c) = member else { return nil }
+            out.append(c)
+        }
+        return out
+    }
 }
 
 /// Luma's map clustering: pins closer than about 64 points on screen merge
 /// into a fanned stack, led by the most important pin. Below street level
 /// every pin stands on its own.
+///
+/// Catches cluster only with catches, newest first, so a catch photo never
+/// hides inside a spot's cluster and each stack shows its latest catch on
+/// top. Spots, water and ramps merge together, led by spots.
 enum PinClustering {
     static func cluster(_ features: [ExploreFeature], latSpan: Double) -> [PinCluster] {
-        let sorted = features.sorted { $0.priority < $1.priority }
-        guard latSpan > 0.04 else { return sorted.map { PinCluster(members: [$0]) } }
+        var places: [ExploreFeature] = []
+        var catches: [(feature: ExploreFeature, caughtAt: Date)] = []
+        for f in features {
+            if case .catchPin(let c) = f {
+                catches.append((feature: f, caughtAt: c.catchRecord.caughtAt))
+            } else {
+                places.append(f)
+            }
+        }
+        let sortedPlaces = places.sorted { $0.priority < $1.priority }
+        let sortedCatches = catches.sorted { $0.caughtAt > $1.caughtAt }.map { $0.feature }
+        guard latSpan > 0.04 else {
+            return (sortedPlaces + sortedCatches).map { PinCluster(members: [$0]) }
+        }
         let radius = latSpan * 0.075
+        return group(sortedPlaces, radius: radius) + group(sortedCatches, radius: radius)
+    }
+
+    /// Greedy grouping: each feature joins the first anchor within `radius`
+    /// degrees, else starts its own group. Input order decides the leads.
+    private static func group(_ sorted: [ExploreFeature], radius: Double) -> [PinCluster] {
         var groups: [[ExploreFeature]] = []
         var anchors: [CLLocationCoordinate2D] = []
         for f in sorted {
@@ -131,11 +166,7 @@ struct PinArt: View {
             }
         case .catchPin(let c):
             card {
-                if let sp = c.species {
-                    ThumbView(species: sp, size: size)
-                } else {
-                    ThumbView(systemImage: "fish.fill", tint: DS.accent, size: size)
-                }
+                CatchPinFace(detail: c, size: size, cornerRadius: cardRadius)
             }
         case .water(let w):
             WaterDot(type: w.type, size: size)
@@ -144,10 +175,13 @@ struct PinArt: View {
         }
     }
 
+    /// The same corner ThumbView uses at this size.
+    private var cardRadius: CGFloat { size < 48 ? size * 0.25 : DS.Radius.thumb }
+
     private func card<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
         content()
             .overlay(
-                RoundedRectangle(cornerRadius: size < 48 ? size * 0.25 : DS.Radius.thumb, style: .continuous)
+                RoundedRectangle(cornerRadius: cardRadius, style: .continuous)
                     .stroke(Color.white, lineWidth: 2.5)
             )
             .mapPinShadow()
@@ -228,9 +262,9 @@ struct ExplorePin: View {
 
     var body: some View {
         content
-            // Pins grow in as they land. They never start hidden, so a pin
-            // whose appear event is skipped still shows.
-            .scaleEffect(shown || reduceMotion ? 1 : 0.6)
+            // Pins grow in from their point as they land. They never start
+            // hidden, so a pin whose appear event is skipped still shows.
+            .scaleEffect(shown || reduceMotion ? 1 : 0.6, anchor: .bottom)
             .onAppear { withAnimation(DS.Motion.spring) { shown = true } }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(accessibilityText)
@@ -247,9 +281,11 @@ struct ExplorePin: View {
                 PlaceDot(kind: r.kind)
                 if showsLabel { PinLabel(title: r.name) }
             }
-        case .spot, .catchPin:
+        case .catchPin(let c):
+            CatchPhotoPin(detail: c)
+        case .spot:
             VStack(spacing: 4) {
-                PinArt(feature: feature, topSpecies: topSpecies, size: feature.isCatch ? 36 : 46)
+                PinArt(feature: feature, topSpecies: topSpecies, size: 46)
                     .overlay(alignment: .topTrailing) {
                         if let score {
                             Text("\(score)")
@@ -275,7 +311,7 @@ struct ExplorePin: View {
         switch feature {
         case .spot: kind = "Your spot"
         case .water(let w): kind = ExploreFormat.waterType(w.type)
-        case .catchPin: kind = "Catch"
+        case .catchPin(let c): return CatchPinText.label(c)
         case .ramp(let r): kind = r.kind.label
         }
         let bite = score.map { ", bite \($0)" } ?? ""
@@ -348,7 +384,8 @@ struct ClusterContents {
 }
 
 /// A cluster: the lead pins fanned, and a capsule saying what is inside.
-/// Water-only clusters stay round so they still read as water.
+/// Water-only clusters stay round so they still read as water, and catches
+/// draw as a stack of their photos.
 struct ClusterPin: View {
     let cluster: PinCluster
     var topSpecies: (Spot) -> Species?
@@ -360,6 +397,16 @@ struct ClusterPin: View {
     }
 
     var body: some View {
+        if let catches = cluster.catches {
+            CatchPhotoStack(catches: CatchPinPhotos.stackTop(catches), count: catches.count)
+                .accessibilityHint("Zooms in")
+                .accessibilityAddTraits(.isButton)
+        } else {
+            placesCluster
+        }
+    }
+
+    private var placesCluster: some View {
         VStack(spacing: 4) {
             if allWater {
                 Circle()

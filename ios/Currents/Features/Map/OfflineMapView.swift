@@ -232,10 +232,15 @@ struct OfflineMapView: UIViewRepresentable {
             }
         }
 
-        /// Rebuild pins only when the underlying data actually changed.
+        /// Rebuild pins only when the underlying data actually changed. A
+        /// catch's photos and species count too, so an edited catch redraws.
         func syncAnnotations(on map: MKMapView) {
+            let catchKey: String = parent.catches.map { (d: CatchDetail) -> String in
+                let r = d.catchRecord
+                return "\(r.id)\(r.photoPaths ?? r.photoPath ?? "")\(r.speciesId ?? 0)"
+            }.joined()
             let fp = parent.spots.map(\.id).joined()
-                + parent.catches.map(\.catchRecord.id).joined()
+                + catchKey
                 + parent.waterbodies.map { "\($0.id ?? 0)" }.joined()
                 + parent.ramps.map(\.id).joined()
             guard fp != fingerprint else { return }
@@ -261,6 +266,25 @@ struct OfflineMapView: UIViewRepresentable {
 
         func mapView(_ mapView: MKMapView, viewFor annotation: MKAnnotation) -> MKAnnotationView? {
             guard !(annotation is MKUserLocation) else { return nil }
+            // Catches draw as their photos, and merge into photo stacks.
+            if let cluster = annotation as? MKClusterAnnotation,
+               cluster.memberAnnotations.allSatisfy({ $0 is CatchAnnotation }) {
+                let view = (mapView.dequeueReusableAnnotationView(withIdentifier: CatchStackAnnotationView.reuseID)
+                    as? CatchStackAnnotationView)
+                    ?? CatchStackAnnotationView(annotation: cluster, reuseIdentifier: CatchStackAnnotationView.reuseID)
+                view.annotation = cluster
+                view.canShowCallout = false
+                return view
+            }
+            if annotation is CatchAnnotation {
+                let view = (mapView.dequeueReusableAnnotationView(withIdentifier: CatchPhotoAnnotationView.reuseID)
+                    as? CatchPhotoAnnotationView)
+                    ?? CatchPhotoAnnotationView(annotation: annotation, reuseIdentifier: CatchPhotoAnnotationView.reuseID)
+                view.annotation = annotation
+                // Without a catch handler, the name and date show in a callout.
+                view.canShowCallout = parent.onSelectCatch == nil
+                return view
+            }
             if let cluster = annotation as? MKClusterAnnotation {
                 let id = "cluster"
                 let view = (mapView.dequeueReusableAnnotationView(withIdentifier: id) as? MKMarkerAnnotationView)
@@ -281,7 +305,8 @@ struct OfflineMapView: UIViewRepresentable {
             view.canShowCallout = true
             view.displayPriority = .defaultHigh
             // Nearby pins merge into a numbered marker that zooms in on tap.
-            // Water clusters on its own, so a cluster never mixes water and spots.
+            // Water, ramps and catches each cluster on their own, so a
+            // cluster never mixes water and spots.
             view.clusteringIdentifier = annotation is RampAnnotation ? "ramps"
                 : annotation is WaterbodyAnnotation ? "water" : "places"
             view.glyphText = nil
@@ -291,10 +316,6 @@ struct OfflineMapView: UIViewRepresentable {
             case is SpotAnnotation:
                 view.markerTintColor = UIColor(parent.accent)
                 view.glyphImage = UIImage(systemName: "mappin.and.ellipse")
-            case is CatchAnnotation:
-                view.markerTintColor = UIColor(parent.accent).withAlphaComponent(0.85)
-                view.glyphImage = UIImage(systemName: "fish.fill")
-                view.displayPriority = .defaultLow
             case let w as WaterbodyAnnotation:
                 view.markerTintColor = UIColor(Color.exploreWater)
                 view.glyphImage = UIImage(systemName: ExploreFormat.waterIcon(w.waterbody.type))
@@ -314,6 +335,13 @@ struct OfflineMapView: UIViewRepresentable {
             switch view.annotation {
             case let cluster as MKClusterAnnotation:
                 mapView.deselectAnnotation(cluster, animated: false)
+                // A stack that zooming can no longer split (catches logged on
+                // the same few metres) opens its newest catch instead.
+                if let onSelectCatch = parent.onSelectCatch,
+                   let newest = Self.newestCatchIfInseparable(cluster.memberAnnotations, on: mapView) {
+                    onSelectCatch(newest)
+                    return
+                }
                 mapView.showAnnotations(cluster.memberAnnotations, animated: true)
             case let ramp as RampAnnotation:
                 mapView.deselectAnnotation(view.annotation, animated: false)
@@ -330,6 +358,20 @@ struct OfflineMapView: UIViewRepresentable {
             default:
                 break // catches keep their callout
             }
+        }
+
+        /// The newest catch in an all-catch cluster whose members sit within a
+        /// few metres of each other, or that is still a stack with the map
+        /// zoomed right in. Nil when zooming in would still split it.
+        private static func newestCatchIfInseparable(_ members: [MKAnnotation], on map: MKMapView) -> CatchDetail? {
+            let catches = members.compactMap { ($0 as? CatchAnnotation)?.detail }
+            guard catches.count == members.count, let first = catches.first else { return nil }
+            let origin = CLLocation(latitude: first.catchRecord.latitude, longitude: first.catchRecord.longitude)
+            let spread = catches.map {
+                CLLocation(latitude: $0.catchRecord.latitude, longitude: $0.catchRecord.longitude).distance(from: origin)
+            }.max() ?? 0
+            guard spread < 15 || map.region.span.latitudeDelta < 0.002 else { return nil }
+            return catches.max { $0.catchRecord.caughtAt < $1.catchRecord.caughtAt }
         }
 
         func mapView(_ mapView: MKMapView, regionDidChangeAnimated animated: Bool) {
