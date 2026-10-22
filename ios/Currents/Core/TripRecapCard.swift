@@ -25,7 +25,7 @@ enum TripRecapCard {
 
     static func caption(for trip: Trip, catches: [CatchDetail]) -> String {
         let fish = catches.count
-        return "\(trip.name) — \(fish) fish, \(SessionFormat.distance(trip.totalTrackDistanceMeters)) covered. Logged with Currents 🎣"
+        return "\(trip.name) — \(fish) fish, \(SessionFormat.distance(trip.totalTrackDistanceMeters)) covered. Logged with Currents"
     }
 }
 
@@ -224,7 +224,7 @@ struct TripRecapCardView: View {
                 Image("Logo").resizable().scaledToFit().frame(width: 24, height: 24)
                 Text("Currents").font(.headline.bold()).foregroundStyle(.white)
                 Spacer()
-                Text("Tight lines 🎣")
+                Text("Tight lines")
                     .font(.caption).foregroundStyle(.white.opacity(0.55))
             }
         }

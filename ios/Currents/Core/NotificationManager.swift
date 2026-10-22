@@ -39,7 +39,7 @@ final class NotificationManager: @unchecked Sendable {
         guard await requestPermission() else { return }
         let content = UNMutableNotificationContent()
         content.title = "Currents"
-        content.body = "Test notification — if you see this, notifications are working on this device. 🎣"
+        content.body = "Test notification — if you see this, notifications are working on this device."
         content.sound = .default
         let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 3, repeats: false)
         try? await center.add(UNNotificationRequest(

@@ -206,7 +206,7 @@ final class CommunityService: ObservableObject {
 
     func friendInviteMessage() -> String {
         """
-        Add me on Currents 🎣
+        Add me on Currents
         \(friendLink().absoluteString)
         …or enter my angler code \(friendCode) in Community › Friends.
         """
@@ -1538,7 +1538,7 @@ final class CommunityService: ObservableObject {
 
     func crewInviteMessage(code: String, name: String) -> String {
         """
-        Join my crew “\(name)” on Currents 🎣 — we share our catches here.
+        Join my crew “\(name)” on Currents — we share our catches here.
         \(crewInviteLink(code: code, name: name).absoluteString)
         …or open Currents › Community › New Crew › Join and enter code \(code).
         """
@@ -1687,7 +1687,7 @@ final class CommunityService: ObservableObject {
 
     func inviteMessage(forGroup code: String, tripName: String) -> String {
         """
-        Join my fishing trip “\(tripName)” on Currents 🎣
+        Join my fishing trip “\(tripName)” on Currents
         \(inviteLink(forGroup: code, tripName: tripName).absoluteString)
         …or open Currents › Community › Group Trips › Start or join a trip and enter code \(code).
         """
@@ -2185,7 +2185,7 @@ final class CommunityService: ObservableObject {
             subscriptionID: "friendreq-in-\(friendCode)",
             options: [.firesOnRecordCreation])
         frSub.notificationInfo = info("New friend request",
-                                      key: "%1$@ wants to be friends on Currents 🎣",
+                                      key: "%1$@ wants to be friends on Currents",
                                       args: ["fromName"])
 
         // Incoming trip invites.
@@ -2206,7 +2206,7 @@ final class CommunityService: ObservableObject {
             options: [.firesOnRecordCreation, .firesOnRecordUpdate])
         let acInfo = CKSubscription.NotificationInfo()
         acInfo.title = "Friend request accepted"
-        acInfo.alertBody = "You've got a new fishing friend on Currents 🎣"
+        acInfo.alertBody = "You've got a new fishing friend on Currents"
         acInfo.soundName = "default"
         acInfo.shouldBadge = true
         acSub.notificationInfo = acInfo
@@ -2300,7 +2300,7 @@ final class CommunityService: ObservableObject {
                 options: [.firesOnRecordCreation])
             posts.notificationInfo = info(
                 title: "\(crew.emoji) \(crew.name)",
-                key: "%1$@ landed a %2$@ 🎣",
+                key: "%1$@ landed a %2$@",
                 args: ["authorName", "species"],
                 desiredKeys: ["authorCode", "crewCode"])
             subs.append(posts)

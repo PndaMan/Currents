@@ -19,10 +19,10 @@ enum TournamentShareCard {
     static func caption(tournament: CommunityService.Tournament,
                         standings: [CommunityService.TeamStanding]) -> String {
         if let winner = tournament.winnerTeam {
-            return "\(tournament.name) — \(winner) takes it! 🏆 Run with Currents 🎣"
+            return "\(tournament.name) — \(winner) takes it! Run with Currents"
         }
         let fish = standings.reduce(0) { $0 + $1.fishCount }
-        return "\(tournament.name) is live — \(standings.count) teams, \(fish) fish and counting. Run with Currents 🎣"
+        return "\(tournament.name) is live — \(standings.count) teams, \(fish) fish and counting. Run with Currents"
     }
 }
 
@@ -61,7 +61,7 @@ private struct TournamentShareCardView: View {
 
     private var header: some View {
         HStack(spacing: 8) {
-            Image(systemName: "trophy.fill")
+            Image(systemName: "trophy.fill").foregroundStyle(.yellow)
                 .font(.system(size: 18))
                 .foregroundStyle(.yellow)
             Text("Currents Tournament")
@@ -96,7 +96,7 @@ private struct TournamentShareCardView: View {
                 .foregroundStyle(.white.opacity(0.6))
             if let winner = tournament.winnerTeam {
                 HStack(spacing: 6) {
-                    Text("🏆")
+                    Image(systemName: "trophy.fill").foregroundStyle(.yellow)
                     Text("\(winner) wins")
                         .font(.system(size: 15, weight: .bold))
                         .foregroundStyle(.yellow)
@@ -110,7 +110,7 @@ private struct TournamentShareCardView: View {
         VStack(spacing: 8) {
             ForEach(Array(standings.prefix(4).enumerated()), id: \.element.id) { i, team in
                 HStack(spacing: 10) {
-                    Text(i == 0 ? "🥇" : i == 1 ? "🥈" : i == 2 ? "🥉" : "#\(i + 1)")
+                    Text("#\(i + 1)")
                         .font(.system(size: 15))
                         .frame(width: 26)
                     VStack(alignment: .leading, spacing: 1) {

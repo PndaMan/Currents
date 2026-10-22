@@ -16,7 +16,7 @@ enum SpotShareCard {
 
     /// The caption text attached alongside the image when sharing.
     static func caption(for spot: Spot) -> String {
-        "\(spot.name) — my fishing spot on Currents 🎣\n\(mapsLink(for: spot))"
+        "\(spot.name) — my fishing spot on Currents\n\(mapsLink(for: spot))"
     }
 
     /// Render a shareable spot card (1080×1350 — Instagram 4:5).
