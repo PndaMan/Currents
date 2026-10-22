@@ -303,8 +303,11 @@ struct LocationInspectorSheet: View {
             includeNilArea: true,
             limit: 400
         )) ?? []
+        // A saved water is listed under your spots instead.
+        let saved = Set(((try? appState.spotRepository.fetchAll()) ?? []).compactMap(\.waterbodyId))
 
         return bodies
+            .filter { wb in wb.id.map { !saved.contains($0) } ?? true }
             .map { wb -> (Waterbody, Double) in
                 let d = origin.distance(from: CLLocation(latitude: wb.latitude, longitude: wb.longitude))
                 return (wb, d)

@@ -223,7 +223,7 @@ struct ExploreNearbyPlaces: View {
                         ArtRow(title: entry.place.name,
                                subtitle: "\(entry.place.kind.label), \(Units.distance(m: entry.metres))",
                                chevron: true) {
-                            ThumbView(systemImage: entry.place.kind.icon, tint: ExploreFormat.placeTint(entry.place.kind))
+                            PlaceSnapshotThumb(place: entry.place)
                         }
                     }
                     .buttonStyle(.dsRow)

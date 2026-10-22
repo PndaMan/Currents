@@ -87,8 +87,29 @@ struct PinCluster: Identifiable {
 ///
 /// Catches cluster only with catches, newest first, so a catch photo never
 /// hides inside a spot's cluster and each stack shows its latest catch on
-/// top. Spots, water and ramps merge together, led by spots.
+/// top. Spots, water and ramps merge together, led by spots. Catches logged
+/// within `stackMetres` of each other stay stacked even at street level,
+/// since zooming can never pull them apart; tapping that stack lists them.
 enum PinClustering {
+    /// Catches this close to a stack's lead never split by zooming.
+    static let stackMetres: CLLocationDistance = 15
+
+    /// Distance from the first catch to the farthest one.
+    static func spread(_ catches: [CatchDetail]) -> CLLocationDistance {
+        guard let first = catches.first else { return 0 }
+        let origin = CLLocation(latitude: first.catchRecord.latitude, longitude: first.catchRecord.longitude)
+        return catches.map {
+            CLLocation(latitude: $0.catchRecord.latitude, longitude: $0.catchRecord.longitude).distance(from: origin)
+        }.max() ?? 0
+    }
+
+    /// The catches of a stack that zooming cannot split, newest first, for
+    /// a tap to list. Nil for any other cluster, which zooms in on tap.
+    static func inseparableCatches(_ cluster: PinCluster) -> [CatchDetail]? {
+        guard let catches = cluster.catches, catches.count > 1, spread(catches) < stackMetres else { return nil }
+        return catches.sorted { $0.catchRecord.caughtAt > $1.catchRecord.caughtAt }
+    }
+
     static func cluster(_ features: [ExploreFeature], latSpan: Double) -> [PinCluster] {
         var places: [ExploreFeature] = []
         var catches: [(feature: ExploreFeature, caughtAt: Date)] = []
@@ -101,11 +122,13 @@ enum PinClustering {
         }
         let sortedPlaces = places.sorted { $0.priority < $1.priority }
         let sortedCatches = catches.sorted { $0.caughtAt > $1.caughtAt }.map { $0.feature }
+        // About 111 km to a degree of latitude.
+        let stackRadius = stackMetres / 111_320
         guard latSpan > 0.04 else {
-            return (sortedPlaces + sortedCatches).map { PinCluster(members: [$0]) }
+            return sortedPlaces.map { PinCluster(members: [$0]) } + group(sortedCatches, radius: stackRadius)
         }
         let radius = latSpan * 0.075
-        return group(sortedPlaces, radius: radius) + group(sortedCatches, radius: radius)
+        return group(sortedPlaces, radius: radius) + group(sortedCatches, radius: max(radius, stackRadius))
     }
 
     /// Greedy grouping: each feature joins the first anchor within `radius`
@@ -399,7 +422,7 @@ struct ClusterPin: View {
     var body: some View {
         if let catches = cluster.catches {
             CatchPhotoStack(catches: CatchPinPhotos.stackTop(catches), count: catches.count)
-                .accessibilityHint("Zooms in")
+                .accessibilityHint(PinClustering.inseparableCatches(cluster) == nil ? "Zooms in" : "Lists these catches")
                 .accessibilityAddTraits(.isButton)
         } else {
             placesCluster

@@ -131,6 +131,8 @@ struct WaterListView: View {
     @State private var waters: [(Waterbody, Double)] = []
     @State private var loaded = false
     @State private var filter: WaterFilter = .all
+    /// Water saved as a spot, which opens as that spot.
+    @State private var savedIds: Set<Int64> = []
 
     enum WaterFilter: String, CaseIterable, Hashable {
         case all = "All", dams = "Dams", rivers = "Rivers", lakes = "Lakes", coast = "Coast and estuaries"
@@ -174,7 +176,7 @@ struct WaterListView: View {
                         let (wb, distance) = entry
                         NavigationLink(value: ExploreRoute.waterbody(WaterbodyRef(wb))) {
                             ArtRow(title: wb.name,
-                                   subtitle: "\(ExploreFormat.waterType(wb.type)), \(Units.distance(m: distance)) away",
+                                   subtitle: waterSubtitle(wb, distance: distance),
                                    chevron: true) {
                                 ThumbView(systemImage: ExploreFormat.waterIcon(wb.type),
                                           tint: Color.exploreWater)
@@ -215,7 +217,14 @@ struct WaterListView: View {
         waters = bodies
             .map { ($0, origin.distance(from: CLLocation(latitude: $0.latitude, longitude: $0.longitude))) }
             .sorted { $0.1 < $1.1 }
+        savedIds = Set(((try? appState.spotRepository.fetchAll()) ?? []).compactMap(\.waterbodyId))
         loaded = true
+    }
+
+    private func waterSubtitle(_ wb: Waterbody, distance: Double) -> String {
+        let base = "\(ExploreFormat.waterType(wb.type)), \(Units.distance(m: distance)) away"
+        guard let id = wb.id, savedIds.contains(id) else { return base }
+        return "Your spot, \(base.prefix(1).lowercased())\(base.dropFirst())"
     }
 }
 
@@ -291,7 +300,7 @@ struct RampListView: View {
                         } label: {
                             ArtRow(title: ramp.name,
                                    subtitle: "\(ramp.kind.label), \(Units.distance(m: distance)) away") {
-                                ThumbView(systemImage: ramp.kind.icon, tint: ExploreFormat.placeTint(ramp.kind))
+                                PlaceSnapshotThumb(place: ramp)
                             }
                         }
                         .buttonStyle(.dsRow)

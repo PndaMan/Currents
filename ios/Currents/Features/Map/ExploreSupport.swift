@@ -1,5 +1,6 @@
 import SwiftUI
 import MapKit
+import GRDB
 
 // MARK: - Routes
 
@@ -473,5 +474,109 @@ struct ExploreActionRow: View {
         }
         .padding(.horizontal, DS.gutter)
         .contentShape(Rectangle())
+    }
+}
+
+// MARK: - Saved spots
+
+/// Saving places as spots and removing them again, shared by every Explore
+/// page so a water is only ever saved once and nothing logged is lost.
+@MainActor
+enum ExploreSpots {
+    /// What removing a spot unlinked, so saving it again can link it back.
+    struct Detached: Equatable {
+        var catchIds: [String] = []
+        var tripIds: [String] = []
+        var isEmpty: Bool { catchIds.isEmpty && tripIds.isEmpty }
+    }
+
+    /// The saved spot that stands for this water, if there is one.
+    static func savedSpot(for waterbody: Waterbody, in appState: AppState) -> Spot? {
+        guard let id = waterbody.id else { return nil }
+        return ((try? appState.spotRepository.fetchAll()) ?? []).first { $0.waterbodyId == id }
+    }
+
+    /// Saves a water as a spot, or hands back the spot already saved for it.
+    static func save(_ waterbody: Waterbody, in appState: AppState) throws -> Spot {
+        if let existing = savedSpot(for: waterbody, in: appState) { return existing }
+        var spot = Spot(name: waterbody.name, latitude: waterbody.latitude, longitude: waterbody.longitude,
+                        waterbodyId: waterbody.id, spotType: SpotFormat.spotType(for: waterbody.type))
+        try appState.spotRepository.save(&spot)
+        return spot
+    }
+
+    /// Removes a spot and keeps everything logged there. `catch.spotId` and
+    /// `trip.spotId` reference the spot with no ON DELETE action and foreign
+    /// keys are on, so a plain delete fails for any spot with catches or
+    /// plans. They are unlinked first, in the same transaction.
+    @discardableResult
+    static func remove(_ spot: Spot, in appState: AppState) throws -> Detached {
+        let detached = try appState.db.db.write { db -> Detached in
+            let catchIds = try String.fetchAll(db, sql: "SELECT id FROM \"catch\" WHERE spotId = ?", arguments: [spot.id])
+            let tripIds = try String.fetchAll(db, sql: "SELECT id FROM trip WHERE spotId = ?", arguments: [spot.id])
+            try db.execute(sql: "UPDATE \"catch\" SET spotId = NULL WHERE spotId = ?", arguments: [spot.id])
+            try db.execute(sql: "UPDATE trip SET spotId = NULL WHERE spotId = ?", arguments: [spot.id])
+            _ = try spot.delete(db)
+            return Detached(catchIds: catchIds, tripIds: tripIds)
+        }
+        for id in detached.catchIds { CloudSyncEngine.shared.catchChanged(id) }
+        CloudSyncEngine.shared.spotDeleted(spot.id)
+        return detached
+    }
+
+    /// Links what an earlier removal unlinked back to the spot, unless it
+    /// has been given another spot since.
+    static func reattach(_ detached: Detached, to spot: Spot, in appState: AppState) {
+        guard !detached.isEmpty else { return }
+        do {
+            try appState.db.db.write { db in
+                for id in detached.catchIds {
+                    try db.execute(sql: "UPDATE \"catch\" SET spotId = ? WHERE id = ? AND spotId IS NULL",
+                                   arguments: [spot.id, id])
+                }
+                for id in detached.tripIds {
+                    try db.execute(sql: "UPDATE trip SET spotId = ? WHERE id = ? AND spotId IS NULL",
+                                   arguments: [spot.id, id])
+                }
+            }
+            for id in detached.catchIds { CloudSyncEngine.shared.catchChanged(id) }
+        } catch {
+            print("[Currents] Could not link catches back to \(spot.name): \(error)")
+        }
+    }
+}
+
+// MARK: - Focus from other tabs
+
+/// A place another tab asked Explore to show, from a
+/// `currents://map/spot/<id>` or `currents://map/water/<id>` link. The map
+/// opens it as its place sheet and clears it.
+@MainActor
+@Observable
+final class ExploreFocus {
+    static let shared = ExploreFocus()
+
+    enum Target: Equatable {
+        case spot(String)
+        case water(Int64)
+    }
+
+    var target: Target?
+
+    /// Reads a map link. Returns false when it names no place.
+    @discardableResult
+    func open(_ url: URL) -> Bool {
+        let parts = url.pathComponents.filter { $0 != "/" }
+        guard parts.count >= 2 else { return false }
+        switch parts[0] {
+        case "spot":
+            target = .spot(parts[1])
+        case "water":
+            guard let id = Int64(parts[1]) else { return false }
+            target = .water(id)
+        default:
+            return false
+        }
+        return true
     }
 }

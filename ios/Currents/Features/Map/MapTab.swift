@@ -7,9 +7,31 @@ struct IdentifiableCoordinate: Identifiable {
     var id: String { "\(coord.latitude),\(coord.longitude)" }
 }
 
+/// A spot or a water shown over the map as a sheet.
+enum ExplorePlace: Identifiable {
+    case spot(Spot)
+    case water(Waterbody)
+
+    var id: String {
+        switch self {
+        case .spot(let s): "spot:\(s.id)"
+        case .water(let w): "water:\(w.id ?? 0):\(w.name)"
+        }
+    }
+
+    var coordinate: CLLocationCoordinate2D {
+        switch self {
+        case .spot(let s): CLLocationCoordinate2D(latitude: s.latitude, longitude: s.longitude)
+        case .water(let w): CLLocationCoordinate2D(latitude: w.latitude, longitude: w.longitude)
+        }
+    }
+}
+
 /// Explore: the full-bleed map. Search and shortcuts sit at the top, map
-/// controls down the right, the bite near you at the bottom. Pins open a peek
-/// sheet; spots, water, lists and the species guide push onto this tab's stack.
+/// controls down the right, the bite near you at the bottom. A spot or a
+/// water opens its page as a sheet over the map, at half height first and
+/// swiped up for full screen. Catches open a peek; lists and the species
+/// guide push onto this tab's stack.
 struct MapTab: View {
     @Environment(AppState.self) private var appState
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -25,7 +47,8 @@ struct MapTab: View {
     // The standard Apple map is the default view; persisted so a style choice
     // (incl. the offline cached-tile map) sticks across launches.
     @AppStorage("mapStyleOption") private var mapStyleRaw = MapStyleOption.standard.rawValue
-    @AppStorage("showCatchPins") private var showCatchPins = false
+    // On by default: anglers want to see their catches on the map.
+    @AppStorage("showCatchPins") private var showCatchPins = true
     @AppStorage("mapLayer_spots") private var showSpots = true
     @AppStorage("mapLayer_water") private var showWaterbodies = true
     @State private var flyToCoordinate: CLLocationCoordinate2D?
@@ -53,20 +76,22 @@ struct MapTab: View {
 
     // Sheets and pushes
     @State private var peek: PinPeek?
+    @State private var catchStack: CatchStackSelection?
+    /// The catch picked from a stack list, opened once the list has gone.
+    @State private var pendingCatch: CatchDetail?
     @State private var selectedRamp: BoatRamp?
     @State private var showingLayers = false
     @State private var addSpotAt: AddSpotTarget?
     @State private var isDropping = false
     @State private var pendingRoute: ExploreRoute?
 
-    // Search
+    // The place sheet. `shownPlace` is kept after closing so the sheet does
+    // not go blank while it slides away; a new tap swaps it in place.
+    @State private var shownPlace: ExplorePlace?
+    @State private var isPlaceOpen = false
+    @State private var placeDetent: PresentationDetent = .medium
+
     @State private var isSearchOpen = false
-    @State private var searchText = ""
-    @State private var searchModel = MapSearchCompleter()
-    @State private var isSearching = false
-    @State private var searchSpecies: [Species] = []
-    @State private var searchWaters: [Waterbody] = []
-    @FocusState private var searchFocused: Bool
 
     enum MapStyleOption: String, CaseIterable {
         case offline = "Offline"
@@ -129,8 +154,22 @@ struct MapTab: View {
         }
     }
 
-    private var visibleWaterbodies: [Waterbody] {
+    /// Water in view, outlines included.
+    private var waterInView: [Waterbody] {
         showWaterbodies && currentLatSpan < 3 ? waterbodies : []
+    }
+
+    /// Water that gets its own pin. A saved water is a spot, so while spots
+    /// are on the map its spot pin stands for it and the water pin is left
+    /// out; it comes back when the spot is removed.
+    private var visibleWaterbodies: [Waterbody] {
+        guard showSpots else { return waterInView }
+        let saved = Set(spots.compactMap(\.waterbodyId))
+        guard !saved.isEmpty else { return waterInView }
+        return waterInView.filter { wb in
+            guard let id = wb.id else { return true }
+            return !saved.contains(id)
+        }
     }
 
     private var visibleRamps: [BoatRamp] {
@@ -173,8 +212,14 @@ struct MapTab: View {
             }
 
             if isSearchOpen {
-                searchPane
-                    .transition(.opacity)
+                ExploreSearchPane(
+                    spots: spots,
+                    topSpecies: topSpecies,
+                    origin: userCoordinate ?? lastMapCenter,
+                    onClose: closeSearch,
+                    onPick: handlePick
+                )
+                .transition(.opacity)
             }
         }
         // Keeps the clock legible over bright tiles and the top controls clear of it.
@@ -198,8 +243,20 @@ struct MapTab: View {
         .toolbar(.hidden, for: .navigationBar)
         .navigationDestination(for: ExploreRoute.self) { ExploreDestination(route: $0) }
         .navigationDestination(item: $pendingRoute) { ExploreDestination(route: $0) }
+        .sheet(isPresented: $isPlaceOpen, onDismiss: { Task { await loadData() } }) {
+            placeSheet
+        }
         .sheet(item: $peek, onDismiss: { Task { await loadData() } }) { p in
             PinPeekSheet(peek: p) { route in openRoute(route) }
+        }
+        .sheet(item: $catchStack, onDismiss: {
+            // The list closes itself; the catch opens once it has gone.
+            if let c = pendingCatch {
+                pendingCatch = nil
+                peek = PinPeek(target: .catchItem(c))
+            }
+        }) { stack in
+            CatchStackSheet(catches: stack.catches) { pendingCatch = $0 }
         }
         .sheet(item: $selectedRamp) { ramp in
             RampDetailSheet(ramp: ramp)
@@ -302,6 +359,11 @@ struct MapTab: View {
                 ))
             }
         }
+        // Another tab asked to show a spot or a water here.
+        .onChange(of: ExploreFocus.shared.target) { _, target in
+            if target != nil { openFocus() }
+        }
+        .task { openFocus() }
         // Cache follows the PERSON: whenever their position updates, the
         // manager re-anchors the offline cache if they've moved far
         // (pruning tiles around the old area, prefetching the new one).
@@ -334,16 +396,14 @@ struct MapTab: View {
                 windSpeedKmh: weather?.windSpeedKmh,
                 windFromDeg: weather?.windDirectionDeg ?? 0,
                 flyTo: $flyToCoordinate,
-                onSelectSpot: { peek = PinPeek(target: .spot($0)) },
-                onSelectWaterbody: { peek = PinPeek(target: .water($0)) },
-                onTap: { coord in
-                    guard !isDropping else { return }
-                    inspector = InspectTarget(coord: coord)
-                },
+                onSelectSpot: { select(.spot($0)) },
+                onSelectWaterbody: { select(.water($0)) },
+                onTap: { coord in mapTapped(at: coord) },
                 onRegionChange: { handleRegionChange($0) },
                 ramps: visibleRamps,
-                onSelectRamp: { selectedRamp = $0 },
-                onSelectCatch: { peek = PinPeek(target: .catchItem($0)) },
+                onSelectRamp: { select(.ramp($0)) },
+                onSelectCatch: { select(.catchPin($0)) },
+                onSelectCatches: { list in openStack(list) },
                 onLongPress: { coord in dropSpot(at: coord) },
                 compassTopInset: 164
             )
@@ -359,7 +419,7 @@ struct MapTab: View {
 
                     // Water body outlines, only when zoomed in enough to see them.
                     if currentLatSpan < 1.0 {
-                        ForEach(visibleWaterbodies) { wb in
+                        ForEach(waterInView) { wb in
                             MapCircle(
                                 center: CLLocationCoordinate2D(latitude: wb.latitude, longitude: wb.longitude),
                                 radius: CLLocationDistance(min(wb.approximateRadiusM, 50000))
@@ -382,9 +442,8 @@ struct MapTab: View {
                     handleRegionChange(context.region)
                 }
                 .onTapGesture(coordinateSpace: .local) { screenPoint in
-                    guard !isDropping else { return }
                     if let coord = proxy.convert(screenPoint, from: .local) {
-                        inspector = InspectTarget(coord: coord)
+                        mapTapped(at: coord)
                     }
                 }
                 .simultaneousGesture(
@@ -414,6 +473,12 @@ struct MapTab: View {
         } else {
             ClusterPin(cluster: cluster, topSpecies: { topSpecies[$0.id] })
                 .onTapGesture {
+                    // Catches logged on the same few metres never split:
+                    // list them instead of zooming.
+                    if let list = PinClustering.inseparableCatches(cluster) {
+                        openStack(list)
+                        return
+                    }
                     Haptics.tap()
                     let region = PinClustering.region(for: cluster, currentSpan: currentLatSpan)
                     withAnimation(reduceMotion ? nil : DS.Motion.softSpring) {
@@ -448,11 +513,151 @@ struct MapTab: View {
     private func select(_ feature: ExploreFeature) {
         Haptics.tap()
         switch feature {
-        case .spot(let s): peek = PinPeek(target: .spot(s))
-        case .water(let w): peek = PinPeek(target: .water(w))
-        case .catchPin(let c): peek = PinPeek(target: .catchItem(c))
-        case .ramp(let r): selectedRamp = r
+        case .spot(let s):
+            showPlace(.spot(s))
+            revealAboveSheet(feature.coordinate)
+        case .water(let w):
+            showPlace(.water(w))
+            revealAboveSheet(feature.coordinate)
+        case .catchPin(let c):
+            afterClosingPlace { peek = PinPeek(target: .catchItem(c)) }
+        case .ramp(let r):
+            afterClosingPlace { selectedRamp = r }
         }
+    }
+
+    private func openStack(_ catches: [CatchDetail]) {
+        Haptics.tap()
+        afterClosingPlace { catchStack = CatchStackSelection(catches: catches) }
+    }
+
+    /// A tap on open map closes the place sheet first, like Apple Maps;
+    /// otherwise it inspects that point.
+    private func mapTapped(at coord: CLLocationCoordinate2D) {
+        guard !isDropping else { return }
+        if isPlaceOpen {
+            isPlaceOpen = false
+            return
+        }
+        inspector = InspectTarget(coord: coord)
+    }
+
+    // MARK: - Place sheet
+
+    @ViewBuilder
+    private var placeSheet: some View {
+        if let place = shownPlace {
+            NavigationStack {
+                switch place {
+                case .spot(let s):
+                    ExplorePlacePage(spot: s, style: .sheet, onSavedChange: reloadSpots)
+                case .water(let w):
+                    ExplorePlacePage(waterbody: w, style: .sheet, onSavedChange: reloadSpots)
+                }
+            }
+            .id(place.id)
+            .presentationDetents([.medium, .large], selection: $placeDetent)
+            .presentationDragIndicator(.visible)
+            .presentationBackgroundInteraction(.enabled(upThrough: .medium))
+            .presentationContentInteraction(.resizes)
+        }
+    }
+
+    /// Opens a place at half height, or swaps it in if the sheet is up.
+    private func showPlace(_ place: ExplorePlace) {
+        shownPlace = place
+        placeDetent = .medium
+        isPlaceOpen = true
+    }
+
+    /// Runs `action` once the place sheet has gone, so a second sheet never
+    /// tries to present over it.
+    private func afterClosingPlace(_ action: @escaping () -> Void) {
+        guard isPlaceOpen else {
+            action()
+            return
+        }
+        isPlaceOpen = false
+        Task {
+            try? await Task.sleep(for: .milliseconds(350))
+            action()
+        }
+    }
+
+    /// Pans the map so a tapped place sits in the open part above the
+    /// half-height sheet, at the same zoom. The offline map can only fly to a
+    /// fixed zoom, so there the map stays put.
+    private func revealAboveSheet(_ coord: CLLocationCoordinate2D) {
+        guard mapStyle != .offline, let region = lastRegion else { return }
+        let span = region.span.latitudeDelta
+        // Already in the top half: nothing hides it.
+        guard coord.latitude < region.center.latitude + span * 0.05 else { return }
+        let center = CLLocationCoordinate2D(latitude: coord.latitude - span * 0.25, longitude: coord.longitude)
+        withAnimation(reduceMotion ? nil : DS.Motion.softSpring) {
+            position = .region(MKCoordinateRegion(center: center, span: region.span))
+        }
+    }
+
+    /// Flies to a place picked in search or a list, framed above the sheet.
+    private func frameAboveSheet(_ place: ExplorePlace) {
+        let coord = place.coordinate
+        var span = 0.02 // about 2 km, a spot and its shore
+        if case .water(let w) = place {
+            span = min(max(w.approximateRadiusM * 3 / 111_000, 0.02), 1.0)
+        }
+        if mapStyle == .offline {
+            // The offline map flies to a 2 km square around the point.
+            flyToCoordinate = CLLocationCoordinate2D(latitude: coord.latitude - 0.25 * 2000 / 111_000,
+                                                     longitude: coord.longitude)
+            return
+        }
+        let center = CLLocationCoordinate2D(latitude: coord.latitude - span * 0.25, longitude: coord.longitude)
+        withAnimation(reduceMotion ? nil : DS.Motion.softSpring) {
+            position = .region(MKCoordinateRegion(
+                center: center,
+                span: MKCoordinateSpan(latitudeDelta: span, longitudeDelta: span * 0.4)
+            ))
+        }
+    }
+
+    /// Opens the place a `currents://map/...` link named, as the place sheet.
+    private func openFocus() {
+        guard let target = ExploreFocus.shared.target else { return }
+        ExploreFocus.shared.target = nil
+        let saved = (try? appState.spotRepository.fetchAll()) ?? []
+        let place: ExplorePlace
+        switch target {
+        case .spot(let id):
+            guard let spot = saved.first(where: { $0.id == id }) else { return }
+            place = .spot(spot)
+        case .water(let id):
+            if let spot = saved.first(where: { $0.waterbodyId == id }) {
+                place = .spot(spot)
+            } else if let wb = try? appState.waterbodyRepository.fetch(id: id) {
+                place = .water(wb)
+            } else {
+                return
+            }
+        }
+        // Any other sheet goes first; the place opens once it has gone.
+        let busy = peek != nil || inspector != nil || selectedRamp != nil || catchStack != nil || showingLayers
+        isSearchOpen = false
+        peek = nil
+        inspector = nil
+        selectedRamp = nil
+        catchStack = nil
+        showingLayers = false
+        Task {
+            if busy { try? await Task.sleep(for: .milliseconds(400)) }
+            frameAboveSheet(place)
+            showPlace(place)
+        }
+    }
+
+    /// Saving or removing on the place sheet swaps the water and spot pins
+    /// straight away, while the sheet is still up.
+    private func reloadSpots() {
+        spots = (try? appState.spotRepository.fetchAll()) ?? []
     }
 
     private var activeMapStyle: MapStyle {
@@ -471,6 +676,7 @@ struct MapTab: View {
         VStack(alignment: .leading, spacing: DS.Space.s3) {
             HStack(spacing: DS.Space.s3) {
                 ProfileAvatarButton()
+                    .simultaneousGesture(TapGesture().onEnded { isPlaceOpen = false })
                 Button {
                     openSearch()
                 } label: {
@@ -547,6 +753,8 @@ struct MapTab: View {
                 .glassEffect(.regular.interactive(), in: Capsule())
         }
         .buttonStyle(.dim)
+        // The page pushes under the place sheet, so the sheet goes.
+        .simultaneousGesture(TapGesture().onEnded { isPlaceOpen = false })
     }
 
     /// Which offline region the map covers, or when scores were last worked
@@ -579,11 +787,12 @@ struct MapTab: View {
                 .glassEffect(.regular.interactive(), in: Capsule())
         }
         .buttonStyle(.dim)
+        .simultaneousGesture(TapGesture().onEnded { isPlaceOpen = false })
     }
 
     private var sideButtons: some View {
         VStack(spacing: 10) {
-            Button { showingLayers = true } label: {
+            Button { afterClosingPlace { showingLayers = true } } label: {
                 glassCircle("square.3.layers.3d", dot: overlaysOn || mapStyle != .standard ? DS.accent : nil)
             }
             .buttonStyle(.dim)
@@ -595,7 +804,10 @@ struct MapTab: View {
             .buttonStyle(.dim)
             .accessibilityLabel("Show my location")
 
-            Button { isDropping = true } label: {
+            Button {
+                isPlaceOpen = false
+                isDropping = true
+            } label: {
                 glassCircle("mappin.and.ellipse")
             }
             .buttonStyle(.dim)
@@ -604,10 +816,12 @@ struct MapTab: View {
             // Start or resume a fishing session.
             if FeatureFlags.liveTrips {
                 Button {
-                    if appState.tripTracker.isTracking {
-                        showingLiveTrip = true
-                    } else {
-                        showingNewTrip = true
+                    afterClosingPlace {
+                        if appState.tripTracker.isTracking {
+                            showingLiveTrip = true
+                        } else {
+                            showingNewTrip = true
+                        }
                     }
                 } label: {
                     glassCircle(appState.tripTracker.isTracking ? "figure.fishing" : "play.fill",
@@ -641,10 +855,12 @@ struct MapTab: View {
 
     private var nearYouCapsule: some View {
         Button {
-            if let coord = userCoordinate {
-                inspector = InspectTarget(coord: coord, isUserLocation: true)
-            } else if let coord = lastMapCenter {
-                inspector = InspectTarget(coord: coord)
+            afterClosingPlace {
+                if let coord = userCoordinate {
+                    inspector = InspectTarget(coord: coord, isUserLocation: true)
+                } else if let coord = lastMapCenter {
+                    inspector = InspectTarget(coord: coord)
+                }
             }
         } label: {
             HStack(spacing: DS.Space.s3) {
@@ -760,274 +976,70 @@ struct MapTab: View {
     // MARK: - Search
 
     private func openSearch() {
+        isPlaceOpen = false
         isSearchOpen = true
-        searchFocused = true
-        if searchSpecies.isEmpty {
-            searchSpecies = (try? appState.speciesRepository.fetchAll()) ?? []
-        }
-        // Re-read each time: bundled and Overpass water arrive after launch.
-        searchWaters = (try? appState.waterbodyRepository.fetchAll()) ?? []
     }
 
     private func closeSearch() {
-        searchFocused = false
-        searchText = ""
-        searchModel.clear()
         isSearchOpen = false
     }
 
-    private var query: String { searchText.trimmingCharacters(in: .whitespaces) }
-
-    private var spotResults: [Spot] {
-        spots.filter { $0.name.localizedCaseInsensitiveContains(query) }.prefix(5).map { $0 }
-    }
-
-    /// Names that start with the query first, then the biggest water.
-    private var waterResults: [Waterbody] {
-        var seen = Set<String>()
-        let q = query.lowercased()
-        let hits = (waterbodies + searchWaters)
-            .filter { $0.name.localizedCaseInsensitiveContains(query) }
-            .filter { seen.insert("\($0.id ?? 0)-\($0.name)").inserted }
-        let ranked = hits.sorted { a, b in
-            let ap = a.name.lowercased().hasPrefix(q), bp = b.name.lowercased().hasPrefix(q)
-            if ap != bp { return ap }
-            return (a.surfaceAreaKm2 ?? 0) > (b.surfaceAreaKm2 ?? 0)
-        }
-        return Array(ranked.prefix(5))
-    }
-
-    private var rampResults: [BoatRamp] {
-        rampService.ramps.filter { $0.name.localizedCaseInsensitiveContains(query) }.prefix(4).map { $0 }
-    }
-
-    private var speciesResults: [Species] {
-        let q = query
-        let hits = searchSpecies.filter {
-            $0.commonName.localizedCaseInsensitiveContains(q) || $0.scientificName.localizedCaseInsensitiveContains(q)
-        }
-        let prefix = hits.filter { $0.commonName.lowercased().hasPrefix(q.lowercased()) }
-        let rest = hits.filter { !$0.commonName.lowercased().hasPrefix(q.lowercased()) }
-        return Array((prefix + rest).prefix(5))
-    }
-
-    private var searchPane: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: DS.Space.s3) {
-                HStack(spacing: 8) {
-                    Image(systemName: "magnifyingglass")
-                        .foregroundStyle(.dsText2)
-                    TextField("Spots, water, ramps, species", text: $searchText)
-                        .textFieldStyle(.plain)
-                        .focused($searchFocused)
-                        .submitLabel(.search)
-                        .autocorrectionDisabled()
-                        .onSubmit(submitSearch)
-                        .onChange(of: searchText) { _, newValue in
-                            searchModel.update(query: newValue, near: userCoordinate ?? lastMapCenter)
-                        }
-                    if isSearching {
-                        ProgressView().controlSize(.small)
-                    }
-                    if !searchText.isEmpty {
-                        Button {
-                            searchText = ""
-                            searchModel.clear()
-                        } label: {
-                            Image(systemName: "xmark.circle.fill")
-                                .foregroundStyle(.dsText3)
-                        }
-                        .accessibilityLabel("Clear search")
-                    }
-                }
-                .padding(.horizontal, 14)
-                .frame(height: 44)
-                .background(Color.dsFill, in: Capsule())
-
-                Button("Cancel") { closeSearch() }
-                    .foregroundStyle(.dsText)
-            }
-            .padding(.horizontal, DS.Space.s4)
-            .padding(.top, DS.Space.s2)
-            .padding(.bottom, DS.Space.s2)
-
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    if query.isEmpty {
-                        GroupLabel("Browse")
-                        browseRow("Species guide", "fish", .speciesGuide)
-                        browseRow("Your spots", "mappin", .spots)
-                        browseRow("Water", "water.waves", .waters)
-                        browseRow("Access and ramps", "figure.fishing", .ramps)
-                    } else {
-                        searchResults
-                    }
-                }
-                .padding(.bottom, DS.Space.s8)
-            }
-            .scrollDismissesKeyboard(.immediately)
-        }
-        .background(Color.dsBackground.ignoresSafeArea())
-    }
-
-    @ViewBuilder
-    private var searchResults: some View {
-        let spotHits = spotResults
-        let waterHits = waterResults
-        let rampHits = rampResults
-        let speciesHits = speciesResults
-        let places = Array(searchModel.completions.prefix(6))
-        if spotHits.isEmpty && waterHits.isEmpty && rampHits.isEmpty && speciesHits.isEmpty && places.isEmpty {
-            ContentUnavailableView {
-                Label("No results for \u{201C}\(query)\u{201D}", systemImage: "magnifyingglass")
-            } description: {
-                Text("Search covers your spots, water bodies and ramps, every species in the guide, and places on the map.")
-            }
-            .padding(.top, DS.Space.s8)
-        } else {
-            if !spotHits.isEmpty {
-                GroupLabel("Your spots")
-                ForEach(spotHits) { spot in
-                    resultButton {
-                        openRoute(.spot(SpotRef(spot)), fromSearch: true)
-                    } label: {
-                        ArtRow(title: spot.name, subtitle: ExploreFormat.spotType(spot), chevron: true) {
-                            if let sp = topSpecies[spot.id] {
-                                ThumbView(species: sp, size: 48)
-                            } else {
-                                ThumbView(systemImage: spot.type.icon, tint: DS.accent, size: 48)
-                            }
-                        }
-                    }
-                }
-            }
-            if !waterHits.isEmpty {
-                GroupLabel("Water")
-                ForEach(waterHits) { wb in
-                    resultButton {
-                        openRoute(.waterbody(WaterbodyRef(wb)), fromSearch: true)
-                    } label: {
-                        ArtRow(title: wb.name, subtitle: waterSubtitle(wb), chevron: true) {
-                            ThumbView(systemImage: ExploreFormat.waterIcon(wb.type),
-                                      tint: Color.exploreWater, size: 48)
-                        }
-                    }
-                }
-            }
-            if !rampHits.isEmpty {
-                GroupLabel("Access and ramps")
-                ForEach(rampHits) { ramp in
-                    resultButton {
-                        closeSearch()
-                        fly(to: ramp.coordinate)
-                        selectedRamp = ramp
-                    } label: {
-                        ArtRow(title: ramp.name, subtitle: ramp.kind.label) {
-                            ThumbView(systemImage: ramp.kind.icon, tint: ExploreFormat.placeTint(ramp.kind), size: 48)
-                        }
-                    }
-                }
-            }
-            if !speciesHits.isEmpty {
-                GroupLabel("Species")
-                ForEach(speciesHits) { sp in
-                    resultButton {
-                        openRoute(.species(sp), fromSearch: true)
-                    } label: {
-                        ArtRow(title: sp.commonName, subtitle: sp.scientificName, chevron: true) {
-                            ThumbView(species: sp, size: 48)
-                        }
-                    }
-                }
-            }
-            if !places.isEmpty {
-                GroupLabel("Places")
-                ForEach(Array(places.enumerated()), id: \.offset) { _, completion in
-                    resultButton {
-                        select(completion)
-                    } label: {
-                        ArtRow(title: completion.title, subtitle: completion.subtitle) {
-                            ThumbView(systemImage: "mappin.and.ellipse", tint: .gray, size: 48)
-                        }
-                    }
-                }
-            }
+    /// Opens what was picked in search: spots and water as the place sheet
+    /// over the map, ramps as their sheet, species as their page, and a town
+    /// or address by moving the map there.
+    private func handlePick(_ pick: ExploreSearchPick) {
+        closeSearch()
+        switch pick {
+        case .spot(let s):
+            frameAboveSheet(.spot(s))
+            showPlace(.spot(s))
+        case .water(let w):
+            // A saved water opens as its spot.
+            let place: ExplorePlace = spots.first { $0.waterbodyId != nil && $0.waterbodyId == w.id }
+                .map(ExplorePlace.spot) ?? .water(w)
+            frameAboveSheet(place)
+            showPlace(place)
+        case .ramp(let r):
+            fly(to: r.coordinate)
+            selectedRamp = r
+        case .species(let sp):
+            pendingRoute = .species(sp)
+        case .place(let coord, _):
+            fly(to: coord, distance: 12_000)
         }
     }
 
-    private func waterSubtitle(_ wb: Waterbody) -> String {
-        let type = ExploreFormat.waterType(wb.type)
-        guard let area = wb.surfaceAreaKm2, area > 0 else { return type }
-        return "\(type), \(ExploreFormat.area(area))"
-    }
-
-    private func browseRow(_ title: String, _ icon: String, _ route: ExploreRoute) -> some View {
-        resultButton {
-            openRoute(route, fromSearch: true)
-        } label: {
-            ArtRow(title: title, chevron: true) {
-                ThumbView(systemImage: icon, tint: DS.accent, size: 48)
-            }
-        }
-    }
-
-    private func resultButton<L: View>(action: @escaping () -> Void, @ViewBuilder label: () -> L) -> some View {
-        Button(action: action, label: label)
-            .buttonStyle(.dsRow)
-    }
-
-    private func submitSearch() {
-        if let spot = spotResults.first {
-            openRoute(.spot(SpotRef(spot)), fromSearch: true)
-        } else if let wb = waterResults.first {
-            openRoute(.waterbody(WaterbodyRef(wb)), fromSearch: true)
-        } else if let first = searchModel.completions.first {
-            select(first)
-        }
-    }
-
-    /// Resolve a tapped place suggestion to coordinates and fly the map there.
-    private func select(_ completion: MKLocalSearchCompletion) {
-        searchFocused = false
-        isSearching = true
-        Task {
-            let search = MKLocalSearch(request: MKLocalSearch.Request(completion: completion))
-            let response = try? await search.start()
-            isSearching = false
-            if let coord = response?.mapItems.first?.placemark.location?.coordinate {
-                closeSearch()
-                fly(to: coord)
-            } else {
-                ToastCenter.shared.show("Could not find that place", style: .error)
-            }
-        }
-    }
-
-    private func fly(to coord: CLLocationCoordinate2D) {
+    private func fly(to coord: CLLocationCoordinate2D, distance: CLLocationDistance = 2000) {
         if mapStyle == .offline {
             flyToCoordinate = coord
         } else {
             withAnimation(reduceMotion ? nil : DS.Motion.softSpring) {
-                position = .camera(.init(centerCoordinate: coord, distance: 2000))
+                position = .camera(.init(centerCoordinate: coord, distance: distance))
             }
         }
     }
 
     // MARK: - Routing
 
-    /// Push a page on the Explore stack. From a sheet, close it first and push
-    /// once it has gone.
-    private func openRoute(_ route: ExploreRoute, fromSearch: Bool = false) {
-        if fromSearch {
-            closeSearch()
-            pendingRoute = route
-            return
-        }
+    /// Spots and water open as the place sheet; anything else pushes on the
+    /// Explore stack. From a sheet, close it first and go once it has gone.
+    private func openRoute(_ route: ExploreRoute) {
         peek = nil
         inspector = nil
         Task {
             try? await Task.sleep(for: .milliseconds(350))
-            pendingRoute = route
+            switch route {
+            case .spot(let ref):
+                frameAboveSheet(.spot(ref.spot))
+                showPlace(.spot(ref.spot))
+            case .waterbody(let ref):
+                let place: ExplorePlace = spots.first { $0.waterbodyId != nil && $0.waterbodyId == ref.waterbody.id }
+                    .map(ExplorePlace.spot) ?? .water(ref.waterbody)
+                frameAboveSheet(place)
+                showPlace(place)
+            default:
+                pendingRoute = route
+            }
         }
     }
 
@@ -1203,49 +1215,5 @@ struct MapTab: View {
         for wb in waterbodies {
             waterbodyScores[wb.id ?? 0] = result.score
         }
-    }
-}
-
-// MARK: - Search Completer
-
-/// Live type-ahead suggestions for the map search bar, biased to a region
-/// around the user so nearby water and places rank first.
-@Observable
-final class MapSearchCompleter: NSObject, MKLocalSearchCompleterDelegate {
-    var completions: [MKLocalSearchCompletion] = []
-    @ObservationIgnored private let completer = MKLocalSearchCompleter()
-
-    override init() {
-        super.init()
-        completer.delegate = self
-        completer.resultTypes = [.pointOfInterest, .address, .query]
-    }
-
-    func update(query: String, near coordinate: CLLocationCoordinate2D?) {
-        if let coordinate {
-            completer.region = MKCoordinateRegion(
-                center: coordinate,
-                latitudinalMeters: 120_000,
-                longitudinalMeters: 120_000
-            )
-        }
-        guard !query.isEmpty else {
-            clear()
-            return
-        }
-        completer.queryFragment = query
-    }
-
-    func clear() {
-        completions = []
-        completer.cancel()
-    }
-
-    func completerDidUpdateResults(_ completer: MKLocalSearchCompleter) {
-        completions = completer.results
-    }
-
-    func completer(_ completer: MKLocalSearchCompleter, didFailWithError error: Error) {
-        completions = []
     }
 }

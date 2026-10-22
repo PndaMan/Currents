@@ -35,6 +35,9 @@ struct OfflineMapView: UIViewRepresentable {
     var ramps: [BoatRamp] = []
     var onSelectRamp: ((BoatRamp) -> Void)? = nil
     var onSelectCatch: ((CatchDetail) -> Void)? = nil
+    /// A photo stack that zooming cannot split, newest first. Without it,
+    /// such a stack opens its newest catch through `onSelectCatch`.
+    var onSelectCatches: (([CatchDetail]) -> Void)? = nil
     /// Long press drops a new spot there.
     var onLongPress: ((CLLocationCoordinate2D) -> Void)? = nil
     /// Distance from the top safe area to the compass, so it clears the
@@ -336,11 +339,16 @@ struct OfflineMapView: UIViewRepresentable {
             case let cluster as MKClusterAnnotation:
                 mapView.deselectAnnotation(cluster, animated: false)
                 // A stack that zooming can no longer split (catches logged on
-                // the same few metres) opens its newest catch instead.
-                if let onSelectCatch = parent.onSelectCatch,
-                   let newest = Self.newestCatchIfInseparable(cluster.memberAnnotations, on: mapView) {
-                    onSelectCatch(newest)
-                    return
+                // the same few metres) lists its catches instead.
+                if let stack = Self.inseparableCatches(cluster.memberAnnotations, on: mapView) {
+                    if let onSelectCatches = parent.onSelectCatches {
+                        onSelectCatches(stack)
+                        return
+                    }
+                    if let onSelectCatch = parent.onSelectCatch, let newest = stack.first {
+                        onSelectCatch(newest)
+                        return
+                    }
                 }
                 mapView.showAnnotations(cluster.memberAnnotations, animated: true)
             case let ramp as RampAnnotation:
@@ -360,18 +368,15 @@ struct OfflineMapView: UIViewRepresentable {
             }
         }
 
-        /// The newest catch in an all-catch cluster whose members sit within a
-        /// few metres of each other, or that is still a stack with the map
-        /// zoomed right in. Nil when zooming in would still split it.
-        private static func newestCatchIfInseparable(_ members: [MKAnnotation], on map: MKMapView) -> CatchDetail? {
+        /// The catches of an all-catch cluster, newest first, when they sit
+        /// within a few metres of each other or the map is zoomed right in
+        /// and they still collide. Nil when zooming in would split it.
+        private static func inseparableCatches(_ members: [MKAnnotation], on map: MKMapView) -> [CatchDetail]? {
             let catches = members.compactMap { ($0 as? CatchAnnotation)?.detail }
-            guard catches.count == members.count, let first = catches.first else { return nil }
-            let origin = CLLocation(latitude: first.catchRecord.latitude, longitude: first.catchRecord.longitude)
-            let spread = catches.map {
-                CLLocation(latitude: $0.catchRecord.latitude, longitude: $0.catchRecord.longitude).distance(from: origin)
-            }.max() ?? 0
-            guard spread < 15 || map.region.span.latitudeDelta < 0.002 else { return nil }
-            return catches.max { $0.catchRecord.caughtAt < $1.catchRecord.caughtAt }
+            guard catches.count == members.count, catches.count > 1 else { return nil }
+            guard PinClustering.spread(catches) < PinClustering.stackMetres
+                    || map.region.span.latitudeDelta < 0.002 else { return nil }
+            return catches.sorted { $0.catchRecord.caughtAt > $1.catchRecord.caughtAt }
         }
 
         func mapView(_ mapView: MKMapView, regionDidChangeAnimated animated: Bool) {

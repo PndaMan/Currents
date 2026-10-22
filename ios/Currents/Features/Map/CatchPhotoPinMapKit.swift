@@ -312,6 +312,7 @@ final class CatchStackAnnotationView: MKAnnotationView {
         }
         badge.set(count: all.count)
         accessibilityLabel = CatchPinText.stack(all.count)
+        accessibilityHint = PinClustering.spread(all) < PinClustering.stackMetres ? "Lists these catches" : "Zooms in"
         setNeedsLayout()
 
         // Open the fan when this view shows a new stack, not on every redraw.

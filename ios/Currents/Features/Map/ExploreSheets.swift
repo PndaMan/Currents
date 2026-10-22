@@ -1,127 +1,58 @@
 import SwiftUI
 import MapKit
 
-// MARK: - Pin peek sheet
+// MARK: - Catch peek sheet
 
-/// What a tapped pin opens: a half sheet that loads behind a skeleton, with
-/// the bite today and the main actions. "Open" pushes the full page.
+/// What a tapped catch pin opens: a half sheet with the catch, and buttons to
+/// open it in full or read about the species. Spots and water open their full
+/// page as a sheet instead (ExplorePlacePage).
 struct PinPeek: Identifiable {
     enum Target {
-        case spot(Spot)
-        case water(Waterbody)
         case catchItem(CatchDetail)
     }
     let target: Target
 
     var id: String {
         switch target {
-        case .spot(let s): "spot:\(s.id)"
-        case .water(let w): "water:\(w.id ?? 0):\(w.name)"
         case .catchItem(let c): "catch:\(c.catchRecord.id)"
-        }
-    }
-
-    var coordinate: CLLocationCoordinate2D {
-        switch target {
-        case .spot(let s): CLLocationCoordinate2D(latitude: s.latitude, longitude: s.longitude)
-        case .water(let w): CLLocationCoordinate2D(latitude: w.latitude, longitude: w.longitude)
-        case .catchItem(let c): CLLocationCoordinate2D(latitude: c.catchRecord.latitude, longitude: c.catchRecord.longitude)
         }
     }
 }
 
 struct PinPeekSheet: View {
-    @Environment(AppState.self) private var appState
-    @Environment(\.dismiss) private var dismiss
-    @AppStorage("use24HourTime") private var use24HourTime = true
     let peek: PinPeek
     /// Closes the sheet and pushes a page on the Explore stack.
     var onOpen: (ExploreRoute) -> Void
 
-    @State private var bite: BiteSnapshot?
-    @State private var species: [Species] = []
-    @State private var loaded = false
-    @State private var showingPlan = false
-    @State private var savedWater = false
-
-    private var userCoord: CLLocationCoordinate2D? { appState.locationManager.currentLocation?.coordinate }
-
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                if loaded {
-                    content
-                        .transition(.opacity.combined(with: .offset(y: 8)))
-                } else {
-                    SheetSkeleton().padding(.top, DS.Space.s6)
+                switch peek.target {
+                case .catchItem(let c): catchContent(c)
                 }
             }
             .padding(.bottom, DS.Space.s6)
+            .pageWidth()
         }
         .scrollBounceBehavior(.basedOnSize)
         .background(Color.dsElevated.ignoresSafeArea())
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
         .presentationBackground(Color.dsElevated)
-        .task { await load() }
-        .sheet(isPresented: $showingPlan) { PlanSessionSheet() }
-        .sensoryFeedback(.success, trigger: savedWater)
     }
 
     @ViewBuilder
-    private var content: some View {
-        switch peek.target {
-        case .spot(let spot):
-            header(thumb: AnyView(spotThumb(spot)), title: spot.name,
-                   subtitle: subtitle(ExploreFormat.spotType(spot), peek.coordinate))
-            biteBlock
-            ActionTriple {
-                Button { onOpen(.spot(SpotRef(spot))) } label: { Label("Open", systemImage: "mappin") }
-                    .buttonStyle(ActionTileStyle(.primary))
-                DirectionsMenu(coordinate: peek.coordinate, name: spot.name) {
-                    ActionTileLabel("Directions", systemImage: "location.north.line")
-                }
-                Button { showingPlan = true } label: { Label("Plan", systemImage: "calendar.badge.plus") }
-                    .buttonStyle(ActionTileStyle())
-            }
-            .padding(.top, DS.Space.s4)
-            speciesMinis(title: "Species caught here")
-        case .water(let w):
-            header(thumb: AnyView(ThumbView(systemImage: ExploreFormat.waterIcon(w.type), tint: .exploreWater)),
-                   title: w.name,
-                   subtitle: subtitle(ExploreFormat.waterType(w.type) + (w.surfaceAreaKm2.map { ", \(ExploreFormat.area($0))" } ?? ""),
-                                      peek.coordinate))
-            biteBlock
-            ActionTriple {
-                Button { onOpen(.waterbody(WaterbodyRef(w))) } label: { Label("Open", systemImage: "water.waves") }
-                    .buttonStyle(ActionTileStyle(.primary))
-                DirectionsMenu(coordinate: peek.coordinate, name: w.name) {
-                    ActionTileLabel("Directions", systemImage: "location.north.line")
-                }
-                Button { saveWater(w) } label: {
-                    Label(savedWater ? "Saved" : "Save", systemImage: savedWater ? "bookmark.fill" : "bookmark")
-                }
-                .buttonStyle(ActionTileStyle())
-                .disabled(savedWater)
-            }
-            .padding(.top, DS.Space.s4)
-            speciesMinis(title: "Species here")
-        case .catchItem(let c):
-            catchContent(c)
-        }
-    }
-
-    // MARK: Pieces
-
-    private func header(thumb: AnyView, title: String, subtitle: String) -> some View {
+    private func catchContent(_ c: CatchDetail) -> some View {
+        let name = c.species?.commonName ?? "Catch"
+        let length = c.catchRecord.lengthCm.map { ", \(Units.length(cm: $0))" } ?? ""
         HStack(spacing: 14) {
-            thumb
+            if let sp = c.species { ThumbView(species: sp) } else { ThumbView(systemImage: "fish.fill", tint: DS.accent) }
             VStack(alignment: .leading, spacing: 2) {
-                Text(title)
+                Text(name + length)
                     .font(.title2.bold())
                     .foregroundStyle(.dsText)
                     .fixedSize(horizontal: false, vertical: true)
-                Text(subtitle)
+                Text(ExploreFormat.shortDate(c.catchRecord.caughtAt))
                     .font(.subheadline)
                     .foregroundStyle(.dsText2)
             }
@@ -130,70 +61,7 @@ struct PinPeekSheet: View {
         .padding(.horizontal, DS.gutter)
         .padding(.top, DS.Space.s6)
         .padding(.bottom, DS.Space.s4)
-    }
 
-    @ViewBuilder
-    private func spotThumb(_ spot: Spot) -> some View {
-        if let top = species.first {
-            ThumbView(species: top)
-        } else {
-            ThumbView(systemImage: spot.type.icon, tint: DS.accent)
-        }
-    }
-
-    private func subtitle(_ type: String, _ coord: CLLocationCoordinate2D) -> String {
-        if let d = ExploreFormat.distance(from: userCoord, to: coord) { return "\(type), \(d) away" }
-        return type
-    }
-
-    @ViewBuilder
-    private var biteBlock: some View {
-        if let bite {
-            BiteBlock(
-                score: bite.day,
-                title: "\(ExploreFormat.verdict(bite.day)) today",
-                detail: "Best \(ExploreFormat.window(bite.best, use24Hour: use24HourTime)). Right now \(bite.now)."
-            )
-        }
-    }
-
-    @ViewBuilder
-    private func speciesMinis(title: String) -> some View {
-        if !species.isEmpty {
-            GroupLabel(title)
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(alignment: .top, spacing: DS.Space.s3) {
-                    ForEach(species) { sp in
-                        Button { onOpen(.species(sp)) } label: {
-                            VStack(spacing: 6) {
-                                ThumbView(species: sp, size: 76)
-                                Text(sp.commonName)
-                                    .font(.footnote)
-                                    .foregroundStyle(.dsText2)
-                                    .multilineTextAlignment(.center)
-                                    .lineLimit(2)
-                                    .frame(width: 84)
-                            }
-                        }
-                        .buttonStyle(.dim)
-                    }
-                }
-                .padding(.horizontal, DS.gutter)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func catchContent(_ c: CatchDetail) -> some View {
-        let name = c.species?.commonName ?? "Catch"
-        let length = c.catchRecord.lengthCm.map { ", \(Units.length(cm: $0))" } ?? ""
-        header(
-            thumb: AnyView(Group {
-                if let sp = c.species { ThumbView(species: sp) } else { ThumbView(systemImage: "fish.fill", tint: DS.accent) }
-            }),
-            title: name + length,
-            subtitle: ExploreFormat.shortDate(c.catchRecord.caughtAt)
-        )
         if let kg = c.catchRecord.weightKg { KVRow("Weight", Units.weight(kg: kg)) }
         KVRow("Spot", c.spot?.name ?? "Unsaved place")
         KVRow("Released", c.catchRecord.released ? "Yes" : "No, kept", divider: false)
@@ -207,44 +75,6 @@ struct PinPeekSheet: View {
         }
         .padding(.horizontal, DS.gutter)
         .padding(.top, DS.Space.s4)
-    }
-
-    // MARK: Data
-
-    private func load() async {
-        switch peek.target {
-        case .spot(let spot):
-            let catches = (try? appState.catchRepository.fetchForSpot(spot.id)) ?? []
-            var seen = Set<Int64>()
-            var ordered: [Species] = []
-            let counts = Dictionary(grouping: catches.compactMap(\.species), by: \.id).mapValues(\.count)
-            for c in catches {
-                if let sp = c.species, !seen.contains(sp.id) { seen.insert(sp.id); ordered.append(sp) }
-            }
-            species = ordered.sorted { (counts[$0.id] ?? 0) > (counts[$1.id] ?? 0) }
-        case .water(let w):
-            species = w.decodedFishSpeciesIds.compactMap { try? appState.speciesRepository.fetch(id: $0) }
-            let spots = (try? appState.spotRepository.fetchAll()) ?? []
-            savedWater = spots.contains { $0.waterbodyId != nil && $0.waterbodyId == w.id }
-        case .catchItem:
-            break
-        }
-        if case .catchItem = peek.target {} else {
-            bite = await BiteSnapshot.load(at: peek.coordinate).0
-        }
-        withAnimation(DS.Motion.easeOut) { loaded = true }
-    }
-
-    private func saveWater(_ w: Waterbody) {
-        var spot = Spot(name: w.name, latitude: w.latitude, longitude: w.longitude,
-                        waterbodyId: w.id, spotType: SpotFormat.spotType(for: w.type))
-        do {
-            try appState.spotRepository.save(&spot)
-            savedWater = true
-            ToastCenter.shared.show("\(w.name) saved to your spots", icon: "bookmark.fill")
-        } catch {
-            ToastCenter.shared.show("Could not save this spot", style: .error)
-        }
     }
 }
 
@@ -269,6 +99,7 @@ struct RampDetailSheet: View {
     let ramp: BoatRamp
     @State private var savedSpot: Spot?
     @State private var savedTick = 0
+    @State private var confirmingRemove = false
 
     private var shareURL: URL? {
         let q = ramp.name.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
@@ -278,7 +109,7 @@ struct RampDetailSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 14) {
-                ThumbView(systemImage: ramp.kind.icon, tint: ExploreFormat.placeTint(ramp.kind))
+                PlaceSnapshotThumb(place: ramp)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(ramp.name)
                         .font(.title2.bold())
@@ -297,7 +128,9 @@ struct RampDetailSheet: View {
                 DirectionsMenu(coordinate: ramp.coordinate, name: ramp.name) {
                     ActionTileLabel("Directions", systemImage: "location.north.line", kind: .primary)
                 }
-                Button { toggleSaved() } label: {
+                Button {
+                    if savedSpot == nil { save() } else { confirmingRemove = true }
+                } label: {
                     Label(savedSpot == nil ? "Save" : "Saved", systemImage: savedSpot == nil ? "bookmark" : "bookmark.fill")
                 }
                 .buttonStyle(ActionTileStyle())
@@ -324,6 +157,11 @@ struct RampDetailSheet: View {
         .presentationDragIndicator(.visible)
         .presentationBackground(Color.dsElevated)
         .sensoryFeedback(.success, trigger: savedTick)
+        .confirmationDialog("Remove \(ramp.name) from your spots?", isPresented: $confirmingRemove, titleVisibility: .visible) {
+            Button("Remove spot", role: .destructive) { remove() }
+        } message: {
+            Text("Catches logged here stay in your Logbook.")
+        }
         .task {
             savedSpot = ((try? appState.spotRepository.fetchAll()) ?? []).first {
                 abs($0.latitude - ramp.lat) < 0.0002 && abs($0.longitude - ramp.lon) < 0.0002
@@ -336,13 +174,18 @@ struct RampDetailSheet: View {
         return d.map { "\(ramp.kind.label), \($0) away" } ?? ramp.kind.label
     }
 
-    private func toggleSaved() {
-        if let savedSpot {
-            try? appState.spotRepository.delete(savedSpot)
+    private func remove() {
+        guard let savedSpot else { return }
+        do {
+            try ExploreSpots.remove(savedSpot, in: appState)
             self.savedSpot = nil
             ToastCenter.shared.show("Removed from your spots", style: .info, icon: "bookmark")
-            return
+        } catch {
+            ToastCenter.shared.show("Could not remove this spot", style: .error)
         }
+    }
+
+    private func save() {
         var spot = Spot(name: ramp.name, latitude: ramp.lat, longitude: ramp.lon,
                         spotType: ramp.kind == .ramp ? .harbour : .general)
         do {
@@ -370,6 +213,9 @@ struct MapLayersSheet: View {
     @Binding var radar: Bool
     @Binding var wind: Bool
     @Binding var current: Bool
+    /// Opens the offline download for the area the map shows. The row is
+    /// left out when nil.
+    var onDownloadArea: (() -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -400,6 +246,19 @@ struct MapLayersSheet: View {
                     toggle("Wind", "wind", $wind, detail: "Animated, from the latest weather")
                     toggle("Current", "arrow.left.arrow.right", $current, detail: "Animated surface drift", divider: false)
                     ExploreFootnote("Overlays draw on the offline map, so turning one on switches to it.")
+
+                    if let onDownloadArea {
+                        GroupLabel("Offline")
+                        Button {
+                            dismiss()
+                            onDownloadArea()
+                        } label: {
+                            ExploreActionRow(title: "Download this area", systemImage: "arrow.down.circle",
+                                             showsDivider: false)
+                        }
+                        .buttonStyle(.dsRow)
+                        ExploreFootnote("Keeps the map you are looking at, and the water in it, for when there is no signal.")
+                    }
                 }
                 .padding(.vertical, DS.Space.s3)
             }
