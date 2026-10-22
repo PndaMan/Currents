@@ -247,7 +247,7 @@ struct EventCountdown: View {
                         ForEach(parts, id: \.unit) { value, unit in
                             VStack(spacing: 2) {
                                 Text(String(format: "%02d", value))
-                                    .font(.system(size: digitSize, weight: .bold, design: .rounded)) // ui-lint: allow, countdown numeral scaled with @ScaledMetric // ui-lint: allow, countdown numeral
+                                    .font(.system(size: digitSize, weight: .bold, design: .rounded)) // ui-lint: allow, countdown numeral scaled with @ScaledMetric
                                     .monospacedDigit()
                                     .foregroundStyle(Color.dsText)
                                     .contentTransition(.numericText(countsDown: true))
@@ -376,7 +376,7 @@ struct EventPodium<Destination: View>: View {
                 .minimumScaleFactor(0.8)
             HStack(alignment: .firstTextBaseline, spacing: 3) {
                 Text(e.value)
-                    .font(.system(size: valueSize, weight: .bold, design: .rounded)) // ui-lint: allow, podium numeral scaled with @ScaledMetric // ui-lint: allow, big stat numeral
+                    .font(.system(size: valueSize, weight: .bold, design: .rounded)) // ui-lint: allow, podium numeral scaled with @ScaledMetric
                     .monospacedDigit()
                     .contentTransition(.numericText())
                 if let unit = e.unit {

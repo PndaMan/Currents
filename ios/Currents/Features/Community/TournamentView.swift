@@ -15,7 +15,7 @@ private func countdownLabel(to end: Date, now: Date) -> String {
 
 /// The service's highlight details use a middle dot between parts.
 private func plainDetail(_ s: String) -> String {
-    s.replacingOccurrences(of: " · ", with: ", ") // ui-lint: allow, strips the service's middle dots // ui-lint: allow, strips the service middle dot
+    s.replacingOccurrences(of: " · ", with: ", ") // ui-lint: allow, strips the service's middle dots
 }
 
 // MARK: - Tournament setup
@@ -687,7 +687,7 @@ struct TournamentView: View {
                 TimelineView(.periodic(from: .now, by: 30)) { ctx in
                     VStack(spacing: DS.Space.s1) {
                         Text(ctx.date, format: .dateTime.hour().minute())
-                            .font(.system(size: 56, weight: .bold, design: .rounded)) // ui-lint: allow, lock-screen clock numeral in a fixed-size device preview // ui-lint: allow, lock screen clock preview
+                            .font(.system(size: 56, weight: .bold, design: .rounded)) // ui-lint: allow, lock-screen clock numeral in a fixed-size device preview
                             .foregroundStyle(Color.dsText)
                         Text(ctx.date, format: .dateTime.weekday(.wide).day().month(.wide))
                             .font(.subheadline.weight(.medium))
