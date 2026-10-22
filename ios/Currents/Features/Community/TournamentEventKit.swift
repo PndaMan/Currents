@@ -219,7 +219,6 @@ struct EventStepper: View {
                 .contentTransition(.numericText())
             step("plus", enabled: canIncrement, action: increment)
         }
-        .sensoryFeedback(.selection, trigger: value)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(label)
         .accessibilityValue(value)
@@ -241,6 +240,7 @@ struct EventStepper: View {
                 .background(Color.dsTonal, in: RoundedRectangle(cornerRadius: DS.Radius.thumb, style: .continuous))
         }
         .buttonStyle(.dim)
+        .buttonHaptic(.selection)
         .disabled(!enabled)
         .opacity(enabled ? 1 : 0.4)
     }

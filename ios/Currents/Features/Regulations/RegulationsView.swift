@@ -41,7 +41,6 @@ struct RegulationsView: View {
                         .padding(.horizontal, DS.gutter)
                     }
                     .scrollBounceBehavior(.basedOnSize, axes: [.horizontal])
-                    .sensoryFeedback(.selection, trigger: region)
                 }
 
                 PFSearchField(prompt: "Search species", text: $search)
@@ -75,7 +74,6 @@ struct RegulationsView: View {
         .detailTint(.purple)
         .pfTrackScroll($titleShown, threshold: 60)
         .pfScrollTitle("Size and bag limits", shown: titleShown)
-        .sensoryFeedback(.selection, trigger: selected?.id)
         .sheet(item: $selected) { reg in
             NavigationStack { RegulationDetailView(reg: reg) }
                 .presentationDetents([.medium, .large])
@@ -235,7 +233,6 @@ struct RegulationDetailView: View {
                         }
                         .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
                         .padding(.horizontal, DS.gutter)
-                        .sensoryFeedback(.selection, trigger: lengthCm)
                     }
                 }
 

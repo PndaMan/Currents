@@ -26,7 +26,8 @@ struct OnboardingView: View {
         VStack(spacing: 0) {
             topBar
 
-            TabView(selection: $page) {
+            // A swipe ticks; the buttons below bring their own press.
+            TabView(selection: $page.haptic()) {
                 welcomePage.tag(0)
                 locationPage.tag(1)
                 alertsPage.tag(2)
@@ -48,7 +49,7 @@ struct OnboardingView: View {
                         .foregroundStyle(.dsText3)
                         .padding(.top, DS.Space.s2)
                 case 1, 2:
-                    Button("Not now") { next() }
+                    Button("Not now") { Haptics.softPress(); next() }
                         .font(.body.weight(.semibold))
                         .foregroundStyle(.dsText)
                         .frame(maxWidth: .infinity, minHeight: 44)
@@ -61,7 +62,6 @@ struct OnboardingView: View {
             .padding(.top, DS.Space.s3)
         }
         .dsScreenBackground()
-        .sensoryFeedback(.selection, trigger: page)
         .task {
             posters = Self.posterSpeciesIDs.compactMap { (try? appState.speciesRepository.fetch(id: $0)) ?? nil }
             picks = Self.pickSpeciesIDs.compactMap { (try? appState.speciesRepository.fetch(id: $0)) ?? nil }
@@ -73,6 +73,7 @@ struct OnboardingView: View {
     private var topBar: some View {
         HStack {
             Button {
+                Haptics.softPress()
                 withAnimation(reduceMotion ? nil : DS.Motion.softSpring) { page = max(0, page - 1) }
             } label: {
                 Label("Back", systemImage: "chevron.left")
@@ -265,7 +266,6 @@ struct OnboardingView: View {
     private func speciesTile(_ species: Species) -> some View {
         let selected = targetSpeciesId == Int(species.id)
         return Button {
-            Haptics.selection()
             withAnimation(reduceMotion ? nil : DS.Motion.spring) {
                 targetSpeciesId = selected ? 0 : Int(species.id)
             }
@@ -296,6 +296,7 @@ struct OnboardingView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.dim)
+        .buttonHaptic(.selection)
         .accessibilityLabel(species.commonName)
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
@@ -321,7 +322,6 @@ struct OnboardingView: View {
     // MARK: Actions
 
     private func advance() {
-        Haptics.tap()
         switch page {
         case 1: appState.locationManager.requestPermission()
         case 2: Task { _ = await NotificationManager.shared.requestPermission() }

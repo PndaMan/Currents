@@ -154,8 +154,10 @@ struct TargetPage: View {
         .detailTint(store.species?.artTint ?? DS.accent)
         .navigationTitle(store.species?.commonName ?? "Target")
         .navigationBarTitleDisplayMode(.inline)
-        .sensoryFeedback(.selection, trigger: targetSpeciesId)
-        .refreshable { await store.load(force: true) }
+        .refreshable {
+            await store.load(force: true)
+            Haptics.softPress()
+        }
         .task(id: loadKey) { load() }
         .fullScreenCover(isPresented: $loggingCatch, onDismiss: { load() }) {
             // Same composer as the species page, with the target already chosen.
@@ -668,7 +670,7 @@ struct TargetNoteItem: Identifiable {
 enum TargetText {
     static func announce(_ species: Species?) {
         ToastCenter.shared.show(species.map { "Targeting \($0.commonName)" } ?? "Target cleared",
-                                style: .info, haptic: false, icon: "scope")
+                                style: .info, icon: "scope")
     }
 
     /// "Happiest in 18°C to 24°C water", the feeding band the score uses.

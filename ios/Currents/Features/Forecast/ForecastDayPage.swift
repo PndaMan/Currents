@@ -87,7 +87,10 @@ struct ForecastDayPage: View {
         .detailTint(DS.scoreColor(day.peakScore))
         .navigationTitle(ForecastFormat.dayName(offset, date: day.date))
         .navigationBarTitleDisplayMode(.inline)
-        .refreshable { await store.load(force: true) }
+        .refreshable {
+            await store.load(force: true)
+            Haptics.softPress()
+        }
         .sheet(isPresented: $showPlanner) { PlanSessionSheet() }
         .navigationDestination(isPresented: $showAlerts) { AlertSettingsView() }
     }
@@ -206,7 +209,10 @@ struct ForecastWeekPage: View {
         .detailTint(DS.accent)
         .navigationTitle("Next 7 days")
         .navigationBarTitleDisplayMode(.inline)
-        .refreshable { await store.load(force: true) }
+        .refreshable {
+            await store.load(force: true)
+            Haptics.softPress()
+        }
     }
 
     private func bestDay(_ d: ForecastDay) -> some View {
@@ -305,7 +311,6 @@ struct ForecastDayStrip: View {
             .padding(.horizontal, DS.gutter - 4)
         }
         .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
-        .sensoryFeedback(.selection, trigger: selection)
     }
 
     private func chip(_ i: Int) -> some View {
@@ -337,6 +342,7 @@ struct ForecastDayStrip: View {
             }
         }
         .buttonStyle(.dim)
+        .buttonHaptic(.selection)
         .accessibilityLabel("\(ForecastFormat.dayName(i, date: d.date)), best score \(d.peakScore)")
         .accessibilityAddTraits(on ? .isSelected : [])
     }

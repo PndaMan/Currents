@@ -91,7 +91,6 @@ struct SpeciesDetailView: View {
         .pfTrackScroll($titleShown, threshold: 320)
         .pfScrollTitle(species.commonName, shown: titleShown)
         .modifier(SpeciesZoomDestination(zoom: zoom))
-        .sensoryFeedback(.selection, trigger: targetSpeciesId)
         .navigationDestination(item: $openCatchId) { id in
             if let detail = catches.first(where: { $0.id == id }) {
                 CatchDetailView(detail: detail)
@@ -166,7 +165,7 @@ struct SpeciesDetailView: View {
                     targetSpeciesId = isTargeted ? 0 : Int(species.id)
                 }
                 ToastCenter.shared.show(isTargeted ? "Targeting \(species.commonName)" : "Target cleared",
-                                        style: .info, haptic: false, icon: "scope")
+                                        style: .info, icon: "scope")
             } label: {
                 Label(isTargeted ? "Targeting" : "Target", systemImage: "scope")
                     .contentTransition(.symbolEffect(.replace))

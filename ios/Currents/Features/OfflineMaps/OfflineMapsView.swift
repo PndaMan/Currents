@@ -192,10 +192,10 @@ struct OfflineMapsView: View {
                     .swipeActions(edge: .leading) {
                         switch pack.status {
                         case .downloading:
-                            Button { manager.pause(pack.id) } label: { Label("Pause", systemImage: "pause.fill") }
+                            Button { Haptics.toggle(); manager.pause(pack.id) } label: { Label("Pause", systemImage: "pause.fill") }
                                 .tint(.orange)
                         case .paused:
-                            Button { manager.resume(pack.id) } label: { Label("Resume", systemImage: "play.fill") }
+                            Button { Haptics.toggle(); manager.resume(pack.id) } label: { Label("Resume", systemImage: "play.fill") }
                                 .tint(.green)
                         case .complete:
                             Button { manager.update(pack.id) } label: { Label("Update", systemImage: "arrow.clockwise") }

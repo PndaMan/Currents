@@ -229,7 +229,6 @@ struct ExploreSearchPane: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, DS.Space.s4)
             .padding(.bottom, DS.Space.s2)
-            .sensoryFeedback(.selection, trigger: category)
         }
     }
 

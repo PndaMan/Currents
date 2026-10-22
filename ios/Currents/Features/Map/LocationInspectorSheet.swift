@@ -92,7 +92,6 @@ struct LocationInspectorSheet: View {
 
         ActionTriple {
             Button {
-                Haptics.tap()
                 showingSaveAsSpot = true
             } label: {
                 Label("Save spot", systemImage: "mappin.and.ellipse")

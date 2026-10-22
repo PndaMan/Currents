@@ -99,8 +99,10 @@ struct ARMeasureView: View {
             }
         }
         .environment(\.colorScheme, .dark)
-        .sensoryFeedback(.selection, trigger: pointCount)
-        .sensoryFeedback(.success, trigger: measuredCm != nil) { _, new in new }
+        // The first point ticks, the second lands the measurement. Clear
+        // (back to zero) already played its button's press.
+        .haptic(.selection, trigger: pointCount) { _, new in new == 1 }
+        .haptic(.success, trigger: measuredCm) { _, new in new != nil }
     }
 
     private var instruction: String {

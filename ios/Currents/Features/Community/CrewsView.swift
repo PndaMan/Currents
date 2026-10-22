@@ -186,7 +186,7 @@ struct CrewSetupView: View {
                         ToastCenter.shared.show("Joined the crew", style: .success, haptic: false)
                         dismiss()
                     } else {
-                        Haptics.warning()
+                        Haptics.error()
                         joinError = "No crew matches that code. Check it with whoever sent it."
                     }
                 }
@@ -227,7 +227,6 @@ struct CrewDetailView: View {
     @State private var showingHistory = false
     @State private var confirmLeave = false
     @State private var openedPost: CommunityService.CrewPost?
-    @State private var copied = 0
 
     private let pageSize = 30
 
@@ -307,7 +306,6 @@ struct CrewDetailView: View {
         } message: {
             Text("You stop seeing this crew's feed. You can join again with the crew code.")
         }
-        .sensoryFeedback(.success, trigger: copied)
         // No pull-to-refresh: the 20s poll below plus push-driven revision
         // bumps keep the page current on their own.
         .onChange(of: svc.revision) { _, _ in
@@ -469,7 +467,6 @@ struct CrewDetailView: View {
             .buttonStyle(ActionTileStyle())
         } else if svc.myRole(in: crew).canRunTournaments {
             Button {
-                Haptics.tap()
                 showingTournamentSetup = true
             } label: {
                 Label("Tournament", systemImage: "trophy")
@@ -485,8 +482,7 @@ struct CrewDetailView: View {
 
     private func copyCode() {
         UIPasteboard.general.string = code
-        copied += 1
-        ToastCenter.shared.show("Crew code copied", style: .success, haptic: false)
+        ToastCenter.shared.show("Crew code copied", style: .success)
     }
 
     // MARK: Members
@@ -544,7 +540,6 @@ struct CrewDetailView: View {
             if tournament == nil || tournament?.isEnded == true {
                 if svc.myRole(in: crew).canRunTournaments {
                     Button {
-                        Haptics.tap()
                         showingTournamentSetup = true
                     } label: {
                         ArtRow(title: "Start a tournament",
@@ -673,7 +668,6 @@ struct CrewDetailView: View {
                             set: { on in
                                 svc.setAutoPost(on, forCrew: crew.code)
                                 self.crew?.autoPost = on
-                                Haptics.tap()
                                 ToastCenter.shared.show(on ? "Your catches post to this crew" : "Your catches no longer post here",
                                                         style: .info, haptic: false)
                             }
@@ -985,7 +979,6 @@ struct CrewSettingsView: View {
                 removeBanner: removeBanner, removeIcon: removeIcon)
             saving = false
             if ok {
-                Haptics.success()
                 ToastCenter.shared.show("Crew updated", style: .success)
                 currentCrew.name = trimmedName
                 if newIcon != nil { hasIcon = true }
@@ -1039,9 +1032,9 @@ struct CrewSettingsView: View {
                 Task {
                     if let updated = await svc.transferCaptaincy(to: m.id, name: m.name, in: currentCrew) {
                         currentCrew = updated
-                        Haptics.success()
+                        Haptics.warning()
                         ToastCenter.shared.show("\(m.name) is captain now. You stay aboard as a mate.",
-                                                style: .success)
+                                                style: .success, haptic: false)
                         onChange()
                     } else {
                         ToastCenter.shared.show("Couldn't hand over the crew", style: .error)
@@ -1123,7 +1116,6 @@ struct CrewSettingsView: View {
         Task {
             if let updated = await svc.setRole(role, for: m.id, in: currentCrew) {
                 currentCrew = updated
-                Haptics.success()
                 ToastCenter.shared.show(role == .member ? "\(m.name) is a member again"
                                                         : "\(m.name) is now \(role == .admin ? "an" : "a") \(role.label.lowercased())",
                                         style: .success)
@@ -1217,7 +1209,6 @@ struct CrewPostSheet: View {
     /// Optimistic reactions, shown the instant you tap. The sheet holds a
     /// snapshot of the post, so these stay the truth until it closes.
     @State private var localReactions: [CommunityService.CrewReaction]?
-    @State private var reacted = 0
 
     private var isMine: Bool { post.authorCode == svc.friendCode }
     private var canModerate: Bool { crew.map { svc.myRole(in: $0).canModerate } ?? false }
@@ -1413,11 +1404,11 @@ struct CrewPostSheet: View {
                                     in: Capsule())
                     }
                     .buttonStyle(.dim)
+                    .buttonHaptic(.toggle)
                     .accessibilityLabel("\(CrewReactionStyle.name(emoji)), \(count)")
                     .accessibilityAddTraits(selected ? .isSelected : [])
                 }
                 Button {
-                    Haptics.tap()
                     showingComments = true
                 } label: {
                     HStack(spacing: 5) {
@@ -1437,11 +1428,9 @@ struct CrewPostSheet: View {
             }
             .padding(.horizontal, DS.gutter)
         }
-        .sensoryFeedback(.selection, trigger: reacted)
     }
 
     private func toggle(_ emoji: String) {
-        reacted += 1
         // Optimistic: the tap shows immediately.
         var rs = reactions
         if let i = rs.firstIndex(where: { $0.reactorCode == svc.friendCode }) {
@@ -1581,7 +1570,6 @@ struct CrewCommentsSheet: View {
                 Text(comment.text).font(.body).foregroundStyle(.dsText)
                 // Reply sits under the comment, always visible.
                 Button {
-                    Haptics.tap()
                     editing = nil
                     replyingTo = comment
                     composerFocused = true
@@ -1667,6 +1655,7 @@ struct CrewCommentsSheet: View {
                         .background(draftEmpty ? Color.dsFill : Color.dsPrimaryButton, in: Circle())
                 }
                 .buttonStyle(.dim)
+                .buttonHaptic(.press)
                 .disabled(sending || draftEmpty)
                 .accessibilityLabel(editing != nil ? "Save comment" : "Post comment")
             }
@@ -1686,7 +1675,6 @@ struct CrewCommentsSheet: View {
         let text = draft
         draft = ""
         sending = true
-        Haptics.tap()
         if let editing {
             let target = editing
             self.editing = nil

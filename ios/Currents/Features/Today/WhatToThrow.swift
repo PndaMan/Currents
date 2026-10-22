@@ -340,7 +340,6 @@ struct WhatToThrowPage: View {
         .detailTint(DS.accent)
         .navigationTitle("What to throw")
         .navigationBarTitleDisplayMode(.inline)
-        .sensoryFeedback(.selection, trigger: clarityOverride)
         .task {
             ownedGear = (try? appState.ownedGearRepository.fetchAll()) ?? []
             history = (try? appState.catchRepository.fetchAll(limit: 200)) ?? []

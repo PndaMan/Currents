@@ -222,7 +222,6 @@ struct GearTab: View {
                 }
                 .padding(.horizontal, DS.gutter)
             }
-            .sensoryFeedback(.selection, trigger: categoryFilter)
 
             LazyVStack(alignment: .leading, spacing: 0) {
                 ForEach(shownCategories, id: \.self) { category in
@@ -344,7 +343,6 @@ struct GearTab: View {
         if let idx = ownedGear.firstIndex(where: { $0.id == item.id }) {
             ownedGear[idx] = updated
         }
-        UISelectionFeedbackGenerator().selectionChanged()
         if updated.isLowStock {
             Task { await NotificationManager.shared.scheduleLowStockAlert(item: updated) }
         } else {
@@ -692,7 +690,6 @@ struct GearCatalogBrowser: View {
                 .padding(.horizontal, DS.gutter)
                 .padding(.vertical, 6)
             }
-            .sensoryFeedback(.selection, trigger: selectedCategory)
             .scrollBounceBehavior(.basedOnSize, axes: [.vertical])
             .fixedSize(horizontal: false, vertical: true)
 
@@ -1328,7 +1325,6 @@ struct GearCategoryChips: View {
             .padding(.vertical, DS.Space.s1)
         }
         .scrollBounceBehavior(.basedOnSize, axes: [.horizontal])
-        .sensoryFeedback(.selection, trigger: selection)
     }
 }
 
@@ -1401,6 +1397,7 @@ struct TechniquePicker: View {
         Picker("Technique", selection: Binding(
             get: { custom ? "__custom__" : selection },
             set: { newValue in
+                Haptics.selection()
                 if newValue == "__custom__" { custom = true; selection = "" }
                 else { custom = false; selection = newValue }
             }

@@ -76,7 +76,6 @@ struct CrewFriendsPage: View {
     @State private var query = ""
     @State private var showingAdd = false
     @State private var confirmRemove: CommunityService.Profile?
-    @State private var copied = 0
 
     private var filtered: [CommunityService.Profile] {
         let q = query.trimmingCharacters(in: .whitespaces)
@@ -101,8 +100,7 @@ struct CrewFriendsPage: View {
                     .buttonStyle(ActionTileStyle(.primary))
                     Button {
                         UIPasteboard.general.string = svc.friendCode
-                        copied += 1
-                        ToastCenter.shared.show("Angler code copied", style: .success, haptic: false)
+                        ToastCenter.shared.show("Angler code copied", style: .success)
                     } label: {
                         Label("Copy code", systemImage: "doc.on.doc")
                     }
@@ -177,7 +175,6 @@ struct CrewFriendsPage: View {
         .detailTint(DS.accent)
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
-        .sensoryFeedback(.success, trigger: copied)
         .sheet(isPresented: $showingAdd, onDismiss: { Task { await load() } }) {
             CrewAddFriendSheet()
         }
@@ -445,7 +442,6 @@ struct CrewAddFriendSheet: View {
     @State private var addCode = ""
     @State private var sending = false
     @State private var error: String?
-    @State private var sent = 0
 
     private var codeReady: Bool {
         addCode.trimmingCharacters(in: .whitespaces).count == 6 || addCode == "90210"
@@ -512,7 +508,6 @@ struct CrewAddFriendSheet: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Done") { dismiss() } }
             }
-            .sensoryFeedback(.success, trigger: sent)
         }
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
@@ -533,7 +528,7 @@ struct CrewAddFriendSheet: View {
             addCode = ""
             let fresh = !BadgeDefinition.bassDaddyUnlocked
             BadgeDefinition.unlockBassDaddy()
-            sent += 1
+            if fresh { Haptics.celebrate(.achievement) } else { Haptics.success() }
             ToastCenter.shared.show(fresh ? "Mythic achievement unlocked: Bass Daddy"
                                           : "Still the Bass Daddy",
                                     style: .success, haptic: false, icon: "crown.fill")
@@ -545,11 +540,10 @@ struct CrewAddFriendSheet: View {
             sending = false
             if ok {
                 addCode = ""
-                sent += 1
-                ToastCenter.shared.show("Friend request sent", style: .success, haptic: false)
+                ToastCenter.shared.show("Friend request sent", style: .success)
                 dismiss()
             } else {
-                Haptics.warning()
+                Haptics.error()
                 error = "No angler matches that code. Check it with your friend."
             }
         }

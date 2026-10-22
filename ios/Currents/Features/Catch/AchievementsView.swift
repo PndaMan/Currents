@@ -206,7 +206,6 @@ struct AchievementsView: View {
         .sheet(item: $selected) { badge in
             BadgeDetailView(badge: badge, progress: metrics.progress(for: badge.title))
         }
-        .sensoryFeedback(.selection, trigger: selected?.id)
         .onAppear { appeared = true }
     }
 

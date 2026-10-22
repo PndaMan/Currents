@@ -363,6 +363,7 @@ struct DirectionsButton: View {
     }
 
     private func openAppleMaps() {
+        Haptics.tap()
         let item = MKMapItem(placemark: MKPlacemark(coordinate: coordinate))
         item.name = name.isEmpty ? "Destination" : name
         item.openInMaps(launchOptions: [MKLaunchOptionsDirectionsModeKey: MKLaunchOptionsDirectionsModeDriving])

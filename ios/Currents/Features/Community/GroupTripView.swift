@@ -376,7 +376,6 @@ struct GroupTripView: View {
     @State private var showingInvite = false
     @State private var confirmingEndForAll = false
     @State private var confirmingLeave = false
-    @State private var joinedCount = 0
     /// The trip's record is confirmed GONE from the server (deleted, not just
     /// unreachable), so show the dead-end screen instead of a join form.
     @State private var tripMissing = false
@@ -466,7 +465,7 @@ struct GroupTripView: View {
                             titleVisibility: .visible) {
             Button("Leave trip", role: .destructive) {
                 guard let code else { return }
-                Haptics.warning()
+                // leaveGroupAndCleanup plays the warning once it lands.
                 leave(code: code)
             }
         } message: {
@@ -493,7 +492,6 @@ struct GroupTripView: View {
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
         }
-        .sensoryFeedback(.success, trigger: joinedCount)
         .task {
             if code == nil, let tripId { code = service.groupCode(forTripId: tripId) }
             // Show last-seen members + catches instantly, then refresh in the
@@ -544,7 +542,6 @@ struct GroupTripView: View {
                 Text("It was deleted, usually with its tournament. Your catches are still in your logbook.")
             }
             Button {
-                Haptics.tap()
                 // End a local GPS session still linked to the dead trip.
                 if let localId = tripId ?? service.tripId(forGroupCode: code),
                    appState.tripTracker.activeTrip?.id == localId {
@@ -578,7 +575,7 @@ struct GroupTripView: View {
                         Task {
                             busy = true
                             await svc.join(name: joinName, region: svc.myRegion)
-                            joinedCount += 1
+                            Haptics.success()
                             // Now proceed into the group's join confirmation.
                             if let c = code {
                                 trip = await service.groupTrip(code: c)
@@ -755,7 +752,7 @@ struct GroupTripView: View {
         busy = true
         if await service.joinGroupTrip(code: code) != nil {
             ensureLinkedTrip(code: code, name: trip?.name ?? tripName)
-            joinedCount += 1
+            Haptics.success()
             ToastCenter.shared.show("You're in. Tight lines.", style: .success, haptic: false)
         } else {
             ToastCenter.shared.show("Couldn't join the trip. It may have ended or been deleted.", style: .error)
@@ -807,7 +804,6 @@ struct GroupTripView: View {
         ActionTriple {
             if !ended {
                 Button {
-                    Haptics.tap()
                     showingLog = true
                 } label: { Label("Log catch", systemImage: "plus") }
                     .buttonStyle(ActionTileStyle(amMember ? .primary : .tonal))
@@ -1119,7 +1115,7 @@ struct GroupTripView: View {
                             .contentTransition(.symbolEffect(.replace))
                     }
                     .buttonStyle(.dsTonal)
-                    .sensoryFeedback(.selection, trigger: tracker.manualPaused)
+                    .buttonHaptic(.toggle)
                     Menu {
                         Button {
                             Haptics.warning()

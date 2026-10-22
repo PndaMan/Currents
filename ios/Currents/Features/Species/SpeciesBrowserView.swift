@@ -63,7 +63,7 @@ struct SpeciesBrowserView: View {
                 monthChips
                     .padding(.top, DS.Space.s2)
 
-                Picker("Water", selection: $habitat) {
+                Picker("Water", selection: $habitat.haptic()) {
                     ForEach(HabitatFilter.allCases, id: \.self) { Text($0.rawValue).tag($0) }
                 }
                 .pickerStyle(.segmented)
@@ -92,7 +92,7 @@ struct SpeciesBrowserView: View {
             ToolbarItem(placement: .primaryAction) {
                 Menu {
                     Section("Sort by") {
-                        Picker("Sort by", selection: $sortOrder) {
+                        Picker("Sort by", selection: $sortOrder.haptic()) {
                             ForEach(SortOrder.allCases) { Text($0.rawValue).tag($0) }
                         }
                     }
@@ -103,8 +103,6 @@ struct SpeciesBrowserView: View {
                 .accessibilityValue(sortOrder.rawValue)
             }
         }
-        .sensoryFeedback(.selection, trigger: sortOrder)
-        .sensoryFeedback(.selection, trigger: habitat)
         .navigationDestination(for: SpeciesRoute.self) { route in
             SpeciesDetailView(species: route.species,
                               zoom: SpeciesZoomSource(id: route.species.id, namespace: zoomNamespace))
@@ -138,7 +136,6 @@ struct SpeciesBrowserView: View {
                 withAnimation(DS.Motion.easeOut) { proxy.scrollTo(m, anchor: .center) }
             }
         }
-        .sensoryFeedback(.selection, trigger: month)
     }
 
     /// "210 of 1,568 in season in October, water about 16°C."

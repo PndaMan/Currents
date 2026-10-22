@@ -232,19 +232,6 @@ struct MapTab: View {
         .mapScope(mapScope)
         .animation(reduceMotion ? nil : DS.Motion.easeOut, value: isSearchOpen)
         .animation(reduceMotion ? nil : DS.Motion.easeOut, value: isDropping)
-        // Discrete map-style / overlay / pin toggles get a light selection
-        // tick. Bound to the stored values so only real changes fire (never
-        // pan/zoom).
-        .sensoryFeedback(.selection, trigger: mapStyleRaw)
-        .sensoryFeedback(.selection, trigger: layerNautical)
-        .sensoryFeedback(.selection, trigger: layerRadar)
-        .sensoryFeedback(.selection, trigger: layerWind)
-        .sensoryFeedback(.selection, trigger: layerCurrent)
-        .sensoryFeedback(.selection, trigger: showWaterbodies)
-        .sensoryFeedback(.selection, trigger: showCatchPins)
-        .sensoryFeedback(.selection, trigger: showSpots)
-        .sensoryFeedback(.selection, trigger: layerRamps)
-        .sensoryFeedback(.impact(weight: .medium), trigger: isDropping) { _, new in new }
         .toolbar(.hidden, for: .navigationBar)
         .navigationDestination(for: ExploreRoute.self) { ExploreDestination(route: $0) }
         .navigationDestination(item: $pendingRoute) { ExploreDestination(route: $0) }
@@ -421,7 +408,7 @@ struct MapTab: View {
                 onSelectRamp: { select(.ramp($0)) },
                 onSelectCatch: { select(.catchPin($0)) },
                 onSelectCatches: { list in openStack(list) },
-                onLongPress: { coord in dropSpot(at: coord) },
+                onLongPress: { coord in Haptics.press(); dropSpot(at: coord) },
                 compassTopInset: 164
             )
         } else {
@@ -469,6 +456,7 @@ struct MapTab: View {
                         .onEnded { value in
                             guard case .second(true, let drag?) = value,
                                   let coord = proxy.convert(drag.location, from: .local) else { return }
+                            Haptics.press()
                             dropSpot(at: coord)
                         }
                 )
@@ -573,7 +561,8 @@ struct MapTab: View {
                 }
             }
             .id(place.id)
-            .presentationDetents([.medium, .large], selection: $placeDetent)
+            // Only a drag ticks; showPlace resetting the detent stays quiet.
+            .presentationDetents([.medium, .large], selection: $placeDetent.haptic())
             .presentationDragIndicator(.visible)
             .presentationBackgroundInteraction(.enabled(upThrough: .medium))
             .presentationContentInteraction(.resizes)
@@ -828,6 +817,7 @@ struct MapTab: View {
                 glassCircle("mappin.and.ellipse")
             }
             .buttonStyle(.dim)
+            .buttonHaptic(.press)
             .accessibilityLabel("Add spot")
 
             // Start or resume a fishing session.
@@ -975,7 +965,6 @@ struct MapTab: View {
     }
 
     private func dropSpot(at coord: CLLocationCoordinate2D?) {
-        Haptics.tap()
         isDropping = false
         addSpotAt = AddSpotTarget(coord: coord)
     }

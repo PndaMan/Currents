@@ -257,7 +257,6 @@ struct ExplorePlacePage: View {
         } message: {
             Text("This removes the spot but keeps any catches you logged here.")
         }
-        .sensoryFeedback(.success, trigger: savedTick)
     }
 
     // MARK: Header and actions
@@ -628,7 +627,8 @@ struct ExplorePlacePage: View {
         catches = []
         if waterbody != nil { self.spot = nil }
         onSavedChange?()
-        ToastCenter.shared.show("Removed from your spots", style: .info, icon: "bookmark")
+        Haptics.warning()
+        ToastCenter.shared.show("Removed from your spots", style: .info, haptic: false, icon: "bookmark")
         if closing { dismiss() }
     }
 

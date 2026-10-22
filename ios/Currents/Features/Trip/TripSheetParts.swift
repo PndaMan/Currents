@@ -53,6 +53,7 @@ struct ChoiceRow: View {
             }
         }
         .buttonStyle(.dsRow)
+        .buttonHaptic(.selection)
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }
@@ -107,7 +108,6 @@ struct SpotChoices: View {
                 .padding(.vertical, DS.Space.s3)
             }
         }
-        .sensoryFeedback(.selection, trigger: spotId)
     }
 
     private func distance(_ spot: Spot, _ from: CLLocation) -> CLLocationDistance {

@@ -68,6 +68,7 @@ struct CatchDetailView: View {
                             .symbolEffect(.bounce, value: isFavorite)
                     }
                     .buttonStyle(ActionTileStyle(.tonal))
+                    .buttonHaptic(.toggle)
                     .accessibilityValue(isFavorite ? "On" : "Off")
                 }
                 .padding(.top, DS.Space.s5)
@@ -176,7 +177,6 @@ struct CatchDetailView: View {
         .task(id: detail.catchRecord.id) {
             await load()
         }
-        .sensoryFeedback(.selection, trigger: isFavorite)
     }
 
     // MARK: - Loading

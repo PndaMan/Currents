@@ -161,7 +161,6 @@ struct OfflineDownloadSheet: View {
         let unavailable = plan.map { $0.tooLarge || $0.estimatedBytes > room } ?? false
         let selected = detail == option
         return Button {
-            Haptics.selection()
             detail = option
         } label: {
             HStack(spacing: 14) {
@@ -198,6 +197,7 @@ struct OfflineDownloadSheet: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.dim)
+        .buttonHaptic(.selection)
         .disabled(unavailable)
         .opacity(unavailable ? 0.5 : 1)
         .accessibilityAddTraits(selected ? .isSelected : [])

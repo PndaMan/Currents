@@ -257,7 +257,6 @@ struct GearItemDetailView: View {
         var updated = gear
         try? appState.ownedGearRepository.save(&updated)
         item = updated
-        UISelectionFeedbackGenerator().selectionChanged()
         if updated.isLowStock {
             Task { await NotificationManager.shared.scheduleLowStockAlert(item: updated) }
         } else {

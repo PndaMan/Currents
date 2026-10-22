@@ -126,8 +126,10 @@ struct TodayTab: View {
         }
         .dsScreenBackground()
         .largeTitleChrome("Today")
-        .sensoryFeedback(.selection, trigger: clarityOverride)
-        .refreshable { await reload(force: true) }
+        .refreshable {
+            await reload(force: true)
+            Haptics.softPress()
+        }
         .navigationDestination(for: ForecastRoute.self) { route in
             ForecastDestination(store: store, route: route)
         }
@@ -457,7 +459,8 @@ struct TodayTab: View {
 
     private func endSession() {
         guard appState.tripTracker.end() != nil else { return }
-        ToastCenter.shared.show("Session saved to Logbook", icon: "checkmark")
+        Haptics.warning()
+        ToastCenter.shared.show("Session saved to Logbook", haptic: false, icon: "checkmark")
         refreshLocalData()
     }
 

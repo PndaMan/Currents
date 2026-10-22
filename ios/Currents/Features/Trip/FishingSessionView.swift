@@ -452,7 +452,7 @@ struct ActiveSessionView: View {
                             .padding(.top, DS.Space.s5)
                     }
 
-                    Button { Haptics.tap(); showingLog = true } label: {
+                    Button { showingLog = true } label: {
                         Label("Log catch", systemImage: "plus")
                     }
                     .buttonStyle(PrimaryButtonStyle(fullWidth: true))
@@ -504,7 +504,7 @@ struct ActiveSessionView: View {
             LogCatchView()
         }
         .confirmationDialog("End this day?", isPresented: $showingEndDayConfirm, titleVisibility: .visible) {
-            Button("End day", role: .destructive) { Haptics.success(); tracker.endDay() }
+            Button("End day", role: .destructive) { Haptics.warning(); tracker.endDay() }
             Button("Keep going", role: .cancel) {}
         } message: {
             Text("Saves today and pauses tracking. Start the next day when you are back out.")
@@ -564,13 +564,13 @@ struct ActiveSessionView: View {
         if tracker.isDayActive {
             HStack(spacing: DS.Space.s2) {
                 Button {
-                    Haptics.tap()
                     if tracker.manualPaused { tracker.resumeTracking() } else { tracker.pauseTracking() }
                 } label: {
                     Label(tracker.manualPaused ? "Resume" : "Pause",
                           systemImage: tracker.manualPaused ? "play.fill" : "pause.fill")
                 }
                 .buttonStyle(ActionTileStyle(.tonal))
+                .buttonHaptic(.toggle)
 
                 Menu {
                     if trip.isMultiDay || tracker.isDayActive {

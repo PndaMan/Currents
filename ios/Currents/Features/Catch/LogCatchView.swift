@@ -212,7 +212,10 @@ struct LogCatchView: View {
         .interactiveDismissDisabled(isDirty)
         .confirmationDialog(isEditing ? "Discard your changes?" : "Discard this catch?",
                             isPresented: $showingDiscard, titleVisibility: .visible) {
-            Button(isEditing ? "Discard changes" : "Discard catch", role: .destructive) { dismiss() }
+            Button(isEditing ? "Discard changes" : "Discard catch", role: .destructive) {
+                Haptics.warning()
+                dismiss()
+            }
             Button("Keep editing", role: .cancel) {}
         } message: {
             Text(isEditing ? "The catch stays as it was." : "Nothing has been saved yet.")
@@ -231,10 +234,6 @@ struct LogCatchView: View {
         .task(id: conditionsKey) { await refreshConditions() }
         .onChange(of: libraryItems) { _, items in loadPhotos(items) }
         .onChange(of: selectedSpeciesId) { _, _ in loadPriors() }
-        // Declarative feedback for the discrete toggles.
-        .sensoryFeedback(.selection, trigger: released)
-        .sensoryFeedback(.selection, trigger: isFavorite)
-        .sensoryFeedback(.success, trigger: selectedSpeciesId) { old, new in old == nil && new != nil }
     }
 
     // MARK: - Camera
@@ -568,6 +567,7 @@ struct LogCatchView: View {
                         .font(.subheadline.weight(.semibold))
                 }
                 .buttonStyle(.dim)
+                .buttonHaptic(.selection)
                 .foregroundStyle(DS.accent)
                 .padding(.top, DS.Space.s2)
             }
@@ -668,6 +668,7 @@ struct LogCatchView: View {
                     .contentTransition(.symbolEffect(.replace))
             }
             .buttonStyle(ActionTileStyle(.tonal))
+            .buttonHaptic(.toggle)
             .accessibilityHint("Switches between released and kept")
 
             Button {
@@ -677,6 +678,7 @@ struct LogCatchView: View {
                     .symbolEffect(.bounce, value: isFavorite)
             }
             .buttonStyle(ActionTileStyle(.tonal))
+            .buttonHaptic(.toggle)
             .accessibilityAddTraits(isFavorite ? .isSelected : [])
         }
     }
@@ -785,6 +787,7 @@ struct LogCatchView: View {
                 .background(Color.dsFill2, in: RoundedRectangle(cornerRadius: DS.Radius.thumb, style: .continuous))
         }
         .buttonStyle(.dim)
+        .buttonHaptic(.selection)
         .accessibilityLabel(label)
     }
 
@@ -792,14 +795,12 @@ struct LogCatchView: View {
         let step = imperial ? 0.5 : 1.0
         let start = lengthCm.measurementValue ?? (imperial ? 12 : 30) - direction * step
         lengthCm = formatNumber(max(step, start + direction * step))
-        Haptics.selection()
     }
 
     private func stepWeight(_ direction: Double) {
         let start = weightKg.measurementValue ?? estimateDisplay ?? 1.0
         let next = max(0.1, ((start + direction * 0.1) * 10).rounded() / 10)
         weightKg = String(format: "%.1f", next)
-        Haptics.selection()
     }
 
     /// Width that fits the typed digits (or the placeholder) at the numeral size.
@@ -1549,6 +1550,7 @@ struct LogCatchView: View {
                 if let top = matches.first, selectedSpeciesId == nil, !unsure {
                     selectSpecies(top.species)
                     autoSelectedFromML = true
+                    Haptics.success()
                 }
             }
         }
@@ -2285,7 +2287,6 @@ struct SpeciesPickerSheet: View {
             }
         }
         .presentationDragIndicator(.visible)
-        .sensoryFeedback(.selection, trigger: habitat)
     }
 
     @ViewBuilder
@@ -2396,6 +2397,7 @@ struct SpeciesPickerSheet: View {
             }
         }
         .buttonStyle(.dsRow)
+        .buttonHaptic(.selection)
     }
 }
 

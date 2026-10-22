@@ -314,14 +314,26 @@ extension View {
     }
 }
 
+extension Binding where Value: Equatable {
+    /// Plays `feedback` when a control sets a new value through this binding
+    /// (`Picker(selection: $sort.haptic())`). Assignments the code makes to
+    /// the state itself stay quiet.
+    func haptic(_ feedback: Haptics.Feedback = .selection) -> Binding<Value> {
+        Binding(get: { wrappedValue }, set: { newValue, transaction in
+            if newValue != wrappedValue { Haptics.play(feedback) }
+            self.transaction(transaction).wrappedValue = newValue
+        })
+    }
+}
+
 private struct PressHaptic: ViewModifier {
     let isPressed: Bool
     let feedback: Haptics.Feedback
-    @Environment(\.buttonHaptic) private var override
+    @Environment(\.buttonHaptic) private var styleOverride
 
     func body(content: Content) -> some View {
         content.onChange(of: isPressed) { _, pressed in
-            if pressed { Haptics.play(override ?? feedback) }
+            if pressed { Haptics.play(styleOverride ?? feedback) }
         }
     }
 }

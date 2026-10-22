@@ -23,7 +23,6 @@ struct CatchesTab: View {
     @State private var catchToDelete: CatchDetail?
     @State private var catchToEdit: CatchDetail?
     @State private var shareItem: CatchShareItem?
-    @State private var favouriteTick = 0
 
     // Sessions and plans
     @State private var sessions: [Trip] = []
@@ -132,7 +131,7 @@ struct CatchesTab: View {
                     .padding(.top, DS.Space.s2)
 
                 if FeatureFlags.liveTrips {
-                    Picker("Show", selection: $segment) {
+                    Picker("Show", selection: $segment.haptic()) {
                         ForEach(Segment.allCases, id: \.self) { s in
                             Text(s.rawValue).tag(s)
                         }
@@ -236,10 +235,6 @@ struct CatchesTab: View {
             // Coming back from a detail page that edited or deleted something.
             reload()
         }
-        .sensoryFeedback(.selection, trigger: filter)
-        .sensoryFeedback(.selection, trigger: sortOrder)
-        .sensoryFeedback(.selection, trigger: segment)
-        .sensoryFeedback(.impact(weight: .light), trigger: favouriteTick)
     }
 
     // MARK: - Destinations
@@ -422,14 +417,14 @@ struct CatchesTab: View {
             Spacer(minLength: DS.Space.s2)
             Menu {
                 Section("Show") {
-                    Picker("Show", selection: $filter.animation(DS.Motion.softSpring)) {
+                    Picker("Show", selection: $filter.haptic().animation(DS.Motion.softSpring)) {
                         ForEach(CatchFilter.allCases, id: \.self) { f in
                             Text(f.title).tag(f)
                         }
                     }
                 }
                 Section("Sort by") {
-                    Picker("Sort catches", selection: $sortOrder.animation(DS.Motion.softSpring)) {
+                    Picker("Sort catches", selection: $sortOrder.haptic().animation(DS.Motion.softSpring)) {
                         ForEach(SortOrder.allCases, id: \.self) { order in
                             Text(order.title).tag(order)
                         }
@@ -859,7 +854,7 @@ struct CatchesTab: View {
 
     private func toggleFavourite(_ detail: CatchDetail) {
         let record = CatchActions.toggleFavourite(detail, appState: appState)
-        favouriteTick += 1
+        Haptics.toggle()
         withAnimation(DS.Motion.softSpring) {
             if let i = catches.firstIndex(where: { $0.catchRecord.id == record.id }) {
                 catches[i].catchRecord = record

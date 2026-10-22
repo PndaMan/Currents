@@ -15,6 +15,7 @@ struct ClaritySegments: View {
             ForEach(WaterClarity.allCases) { c in
                 let on = c == selection
                 Button {
+                    if !on { Haptics.selection() }
                     withAnimation(reduceMotion ? nil : DS.Motion.softSpring) { onSelect(c) }
                 } label: {
                     Label(c.label, systemImage: c.icon)
@@ -36,7 +37,6 @@ struct ClaritySegments: View {
         }
         .padding(3)
         .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.thumb + 1, style: .continuous))
-        .sensoryFeedback(.selection, trigger: selection)
     }
 }
 
@@ -75,6 +75,7 @@ struct TodayLocationSheet: View {
                         }
                     }
                     .buttonStyle(.dsRow)
+                    .buttonHaptic(.selection)
 
                     SectionTitle("Saved spots", detail: spots.isEmpty ? nil : "\(spots.count)")
                         .padding(.top, 20)
@@ -108,6 +109,7 @@ struct TodayLocationSheet: View {
                                 }
                             }
                             .buttonStyle(.dsRow)
+                            .buttonHaptic(.selection)
                         }
                     }
                 }

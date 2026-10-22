@@ -42,7 +42,6 @@ struct BiteBars: View {
                 .accessibilityHidden(true)
             }
         }
-        .sensoryFeedback(.selection, trigger: selected)
         .onAppear {
             if reduceMotion { appeared = true } else {
                 withAnimation(DS.Motion.softSpring) { appeared = true }
@@ -58,6 +57,9 @@ struct BiteBars: View {
         let fraction = max(0.08, CGFloat(point.score) / 100)
 
         return Button {
+            // Ticks here, not on change: the plan sheet also moves the
+            // outlined hour from its window tiles.
+            Haptics.selection()
             withAnimation(DS.Motion.softSpring) {
                 selected = isSelected ? nil : point.hour
             }

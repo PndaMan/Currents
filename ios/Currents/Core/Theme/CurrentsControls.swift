@@ -79,6 +79,7 @@ struct ClarityPicker: View {
             ForEach(WaterClarity.allCases) { clarity in
                 let isSelected = selection == clarity
                 Button {
+                    Haptics.selection()
                     withAnimation(.snappy(duration: 0.2)) {
                         selection = (allowsDeselect && isSelected) ? nil : clarity
                     }
@@ -438,6 +439,7 @@ struct GearFieldPicker: View {
         Picker(placeholder, selection: Binding(
             get: { isCustom ? "__custom__" : selection },
             set: { newValue in
+                Haptics.selection()
                 if newValue == "__custom__" {
                     isCustom = true
                     selection = customText   // keep any text already typed

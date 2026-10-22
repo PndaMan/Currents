@@ -482,7 +482,6 @@ struct BadgesGridView: View {
         .sheet(item: $selected) { badge in
             BadgeDetailView(badge: badge, progress: metrics.progress(for: badge.title))
         }
-        .sensoryFeedback(.selection, trigger: selected?.id)
     }
 }
 
@@ -578,7 +577,6 @@ struct AchievementsCard: View {
             }
             .presentationDragIndicator(.visible)
         }
-        .sensoryFeedback(.selection, trigger: selected?.id)
     }
 }
 

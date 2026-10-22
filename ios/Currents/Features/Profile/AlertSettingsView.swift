@@ -68,7 +68,6 @@ struct AlertSettingsView: View {
                          title: permissionTitle, message: permissionDetail) {
                     if permissionStatus == .notDetermined {
                         Button("Allow") {
-                            Haptics.tap()
                             Task {
                                 let granted = await NotificationManager.shared.requestPermission()
                                 permissionStatus = granted ? .authorized : .denied
@@ -117,7 +116,7 @@ struct AlertSettingsView: View {
                         .accessibilityValue("\(Int(alertThreshold))")
                 }
                 .padding(.vertical, DS.Space.s1)
-                .sensoryFeedback(.selection, trigger: alertThreshold)
+                .haptic(.selection, trigger: alertThreshold)
             } header: {
                 Text("Alert threshold")
             } footer: {
@@ -201,7 +200,6 @@ struct AlertSettingsView: View {
                 Spacer(minLength: 8)
                 if !crewAlertsWorking {
                     Button {
-                        Haptics.tap()
                         busyPush = true
                         Task {
                             await svc.forcePushReenable()

@@ -644,7 +644,6 @@ struct MyProfileView: View {
 
     @State private var showingEdit = false
     @State private var confirmLeave = false
-    @State private var copied = 0
 
     var body: some View {
         ScrollView {
@@ -679,8 +678,7 @@ struct MyProfileView: View {
                     .buttonStyle(ActionTileStyle(.primary))
                     Button {
                         UIPasteboard.general.string = svc.friendCode
-                        copied += 1
-                        ToastCenter.shared.show("Angler code copied", style: .success, haptic: false)
+                        ToastCenter.shared.show("Angler code copied", style: .success)
                     } label: {
                         Label("Copy code", systemImage: "doc.on.doc")
                     }
@@ -691,7 +689,6 @@ struct MyProfileView: View {
                     .buttonStyle(.dim)
                 }
                 .padding(.top, DS.Space.s5)
-                .sensoryFeedback(.success, trigger: copied)
 
                 CrewSection(title: "Your stats") {
                     LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible())], spacing: 10) {
@@ -756,7 +753,6 @@ struct TitleFlairChip: View {
     var body: some View {
         Button {
             guard flair != nil else { return }
-            Haptics.tap()
             showingBadge = true
         } label: {
             Label(flair?.name ?? title, systemImage: flair?.icon ?? "rosette")
@@ -845,7 +841,7 @@ struct CopyableCode: View {
                 .contentTransition(.opacity)
         }
         .buttonStyle(.dim)
-        .sensoryFeedback(.success, trigger: copied) { _, new in new }
+        .haptic(.success, trigger: copied) { _, new in new }
         .contextMenu {
             Button {
                 UIPasteboard.general.string = code
@@ -1027,7 +1023,6 @@ struct TitleFlairPickerSheet: View {
         NavigationStack {
             List {
                 Button {
-                    Haptics.selection()
                     selection = ""
                     dismiss()
                 } label: {
@@ -1038,10 +1033,10 @@ struct TitleFlairPickerSheet: View {
                     }
                 }
                 .buttonStyle(.dsRow)
+                .buttonHaptic(.selection)
                 .dsListRow()
                 ForEach(flairs) { flair in
                     Button {
-                        Haptics.selection()
                         selection = flair.name
                         dismiss()
                     } label: {
@@ -1053,6 +1048,7 @@ struct TitleFlairPickerSheet: View {
                         }
                     }
                     .buttonStyle(.dsRow)
+                    .buttonHaptic(.selection)
                     .dsListRow()
                 }
             }
@@ -1102,7 +1098,6 @@ struct FriendProfileView: View {
     @State private var confirmRemove = false
     @State private var requestSent = false
     @State private var showAllCatches = false
-    @State private var copied = 0
     /// Own catches with full local detail, for the real achievements card when
     /// the profile being viewed is yours.
     @State private var ownDetails: [CatchDetail] = []
@@ -1177,8 +1172,6 @@ struct FriendProfileView: View {
         .detailTint(DS.accent)
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
-        .sensoryFeedback(.selection, trigger: override)
-        .sensoryFeedback(.success, trigger: copied)
         .sheet(isPresented: $showingSettings) { friendSettingsSheet }
         .sheet(item: $selectedSpot) { s in
             NavigationStack { SharedSpotDetailView(spot: s, friendName: profile?.name ?? "a friend") }
@@ -1310,8 +1303,7 @@ struct FriendProfileView: View {
                 }
                 Button {
                     UIPasteboard.general.string = code
-                    copied += 1
-                    ToastCenter.shared.show("Angler code copied", style: .success, haptic: false)
+                    ToastCenter.shared.show("Angler code copied", style: .success)
                 } label: {
                     Label("Copy code", systemImage: "doc.on.doc")
                 }
@@ -1327,7 +1319,7 @@ struct FriendProfileView: View {
                     } else {
                         Button {
                             UIPasteboard.general.string = code
-                            copied += 1
+                            Haptics.success()
                         } label: { Label("Copy angler code", systemImage: "doc.on.doc") }
                     }
                 } label: {
@@ -1495,7 +1487,7 @@ struct FriendProfileView: View {
             Picker(title, selection: Binding(
                 get: { value.wrappedValue == nil ? 0 : (value.wrappedValue! ? 1 : 2) },
                 set: { value.wrappedValue = $0 == 0 ? nil : ($0 == 1) }
-            )) {
+            ).haptic()) {
                 Text(globalOn ? "Default, on" : "Default, off").tag(0)
                 Text("Share").tag(1)
                 Text("Hide").tag(2)
@@ -1552,7 +1544,6 @@ struct FriendBadgesCard: View {
                 .presentationDetents([.medium]).presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $showingAll) { allBadgesSheet }
-        .sensoryFeedback(.selection, trigger: selected?.id)
     }
 
     /// Everything computable from their public data: earned first, then what
@@ -1690,7 +1681,6 @@ struct SharedSpotDetailView: View {
                     }
                     .buttonStyle(.dsPrimary)
                     .disabled(copied)
-                    .sensoryFeedback(.success, trigger: copied)
                     .padding(.horizontal, DS.gutter)
                     .padding(.top, DS.Space.s5)
                     if spot.isApproximate {
@@ -1752,6 +1742,7 @@ struct SharedSpotDetailView: View {
         )
         try? appState.spotRepository.save(&newSpot)
         copied = true
+        Haptics.success()
     }
 }
 
@@ -2043,7 +2034,6 @@ struct AddFriendConfirmView: View {
                 }
                 .padding(.horizontal, DS.gutter)
                 .padding(.top, DS.Space.s5)
-                .sensoryFeedback(.success, trigger: added)
                 CrewFootnote(text: "They'll see your request on their Crew tab.")
             } else {
                 ContentUnavailableView(

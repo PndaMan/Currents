@@ -28,7 +28,7 @@ struct LeaderboardView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 DetailHeader(title: "Leaderboard")
-                Picker("Rank by", selection: $metric.animation(reduceMotion ? nil : DS.Motion.softSpring)) {
+                Picker("Rank by", selection: $metric.haptic().animation(reduceMotion ? nil : DS.Motion.softSpring)) {
                     Text("Most fish").tag(CommunityService.Metric.count)
                     Text("Heaviest").tag(CommunityService.Metric.weight)
                     Text("Longest").tag(CommunityService.Metric.length)
@@ -79,7 +79,6 @@ struct LeaderboardView: View {
         .onChange(of: metric) { _, _ in Task { await reload() } }
         .onChange(of: scope) { _, _ in Task { await reload() } }
         .onChange(of: svc.revision) { _, _ in Task { await reload() } }
-        .sensoryFeedback(.selection, trigger: metric)
     }
 
     // MARK: Scope
@@ -100,7 +99,6 @@ struct LeaderboardView: View {
             .padding(.vertical, 2)
         }
         .scrollBounceBehavior(.basedOnSize, axes: [.horizontal])
-        .sensoryFeedback(.selection, trigger: scope)
     }
 
     private var scopeFooter: String {

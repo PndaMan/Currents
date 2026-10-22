@@ -73,7 +73,6 @@ struct KnotLibraryView: View {
                                        description: Text("It may have been removed."))
             }
         }
-        .sensoryFeedback(.selection, trigger: category)
     }
 
     private func knotRow(_ knot: KnotEntry) -> some View {
@@ -252,7 +251,6 @@ struct KnotDetailView: View {
         .detailTint(.cyan)
         .pfTrackScroll($titleShown, threshold: 100)
         .pfScrollTitle(knot.name, shown: titleShown)
-        .sensoryFeedback(.selection, trigger: favouritesRaw)
         .sheet(isPresented: Binding(get: { stepping != nil }, set: { if !$0 { stepping = nil } })) {
             KnotStepSheet(knot: knot, step: stepping ?? 0)
                 .presentationDetents([.medium, .large])
@@ -274,6 +272,7 @@ struct KnotDetailView: View {
                     Label(isFavourite ? "Saved" : "Save", systemImage: isFavourite ? "star.fill" : "star")
                 }
                 .buttonStyle(ActionTileStyle())
+                .buttonHaptic(.toggle)
                 ShareLink(item: shareText) {
                     ActionTileLabel("Share", systemImage: "square.and.arrow.up")
                 }
@@ -376,7 +375,6 @@ private struct KnotStepSheet: View {
                 }
             }
             .padding(DS.gutter)
-            .sensoryFeedback(.selection, trigger: step)
             .navigationTitle(knot.name)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

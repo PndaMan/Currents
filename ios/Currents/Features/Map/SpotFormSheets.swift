@@ -13,7 +13,6 @@ struct AddSpotSheet: View {
     @State private var isPrivate = true
     @State private var spotType: Spot.SpotType = .general
     @State private var pinCoordinate: CLLocationCoordinate2D?
-    @State private var savedTick = 0
 
     init(prefillCoordinate: CLLocationCoordinate2D? = nil) {
         _pinCoordinate = State(initialValue: prefillCoordinate)
@@ -41,7 +40,6 @@ struct AddSpotSheet: View {
             }
         }
         .presentationDragIndicator(.visible)
-        .sensoryFeedback(.success, trigger: savedTick)
     }
 
     private func save() {
@@ -64,7 +62,6 @@ struct AddSpotSheet: View {
         )
         do {
             try appState.spotRepository.save(&spot)
-            savedTick += 1
             ToastCenter.shared.show("\(trimmed) saved", icon: "mappin.and.ellipse")
             dismiss()
         } catch {

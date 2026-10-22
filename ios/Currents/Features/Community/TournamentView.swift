@@ -39,7 +39,6 @@ struct TournamentSetupView: View {
     @State private var perFish = TournamentPoints.standard.perFish
     @State private var perKg = TournamentPoints.standard.perKg
     @State private var speciesBonus = TournamentPoints.standard.newSpeciesBonus
-    @State private var created = 0
 
     /// "Runs for" steps, in hours.
     private static let durations: [Int] = [0, 3, 6, 12, 24, 48, 72, 168]
@@ -139,7 +138,6 @@ struct TournamentSetupView: View {
             .scrollDismissesKeyboard(.interactively)
             .dsScreenBackground()
             .eventSheetTitle("New tournament")
-            .sensoryFeedback(.success, trigger: created)
         }
         .tint(DS.accent)
         .presentationDetents([.large])
@@ -171,8 +169,7 @@ struct TournamentSetupView: View {
                                                rates: rates)
             busy = false
             if let t {
-                created += 1
-                ToastCenter.shared.show("Tournament started", style: .success, haptic: false, icon: "trophy.fill")
+                ToastCenter.shared.show("Tournament started", style: .success, icon: "trophy.fill")
                 dismiss()
                 onCreated(t)
             } else {
@@ -207,6 +204,8 @@ struct TournamentView: View {
     @State private var showingShare = false
     @State private var confirmingDelete = false
     @State private var trophyBounce = 0
+    /// The result pattern plays once per visit, not on every return to the page.
+    @State private var celebratedResult = false
     @Environment(\.dismiss) private var dismiss
 
     init(tournament: CommunityService.Tournament, crew: CommunityService.Crew) {
@@ -317,7 +316,6 @@ struct TournamentView: View {
                 Task { await refresh() }
             }
         }
-        .sensoryFeedback(.impact(weight: .light), trigger: myIndex)
         .task {
             await refresh()
             await pollLoop()
@@ -414,7 +412,11 @@ struct TournamentView: View {
             .padding(.horizontal, DS.gutter)
             .padding(.bottom, DS.Space.s5)
             .accessibilityElement(children: .combine)
-            .sensoryFeedback(.success, trigger: trophyBounce) { _, _ in won }
+            .onChange(of: trophyBounce) {
+                guard won, !celebratedResult else { return }
+                celebratedResult = true
+                Haptics.celebrate(.tournamentResult)
+            }
             .onAppear {
                 guard !reduceMotion else { return }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.42) { trophyBounce += 1 }
@@ -554,7 +556,6 @@ struct TournamentView: View {
     }
 
     private func share() {
-        Haptics.tap()
         shareImage = TournamentShareCard.render(
             tournament: tournament, crewName: crew.name, standings: standings, images: teamImages)
         if shareImage != nil { showingShare = true }
@@ -962,7 +963,6 @@ private struct EndTournamentSheet: View {
                 .padding(.bottom, DS.Space.s6)
                 .pageWidth()
             }
-            .sensoryFeedback(.selection, trigger: selected)
             .dsScreenBackground()
             .safeAreaInset(edge: .bottom) {
                 Button(role: .destructive) {
@@ -1013,6 +1013,7 @@ private struct EndTournamentSheet: View {
             }
         }
         .buttonStyle(.dsRow)
+        .buttonHaptic(.selection)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
@@ -1023,7 +1024,7 @@ private struct EndTournamentSheet: View {
             let ok = await svc.endTournament(tournament, winnerTeam: winner, crew: crew)
             busy = false
             if ok {
-                Haptics.success()
+                Haptics.warning()
                 ToastCenter.shared.show("Tournament ended", style: .success, haptic: false, icon: "flag.checkered")
                 dismiss()
                 onEnded(winner)

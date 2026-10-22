@@ -30,7 +30,6 @@ struct CatchStackSheet: View {
                         Section {
                             ForEach(catches) { detail in
                                 Button {
-                                    Haptics.selection()
                                     onOpen(detail)
                                     dismiss()
                                 } label: {

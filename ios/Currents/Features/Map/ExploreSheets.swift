@@ -156,9 +156,8 @@ struct RampDetailSheet: View {
         .presentationDetents([.medium])
         .presentationDragIndicator(.visible)
         .presentationBackground(Color.dsElevated)
-        .sensoryFeedback(.success, trigger: savedTick)
         .confirmationDialog("Remove \(ramp.name) from your spots?", isPresented: $confirmingRemove, titleVisibility: .visible) {
-            Button("Remove spot", role: .destructive) { remove() }
+            Button("Remove spot", role: .destructive) { Haptics.warning(); remove() }
         } message: {
             Text("Catches logged here stay in your Logbook.")
         }
@@ -179,7 +178,7 @@ struct RampDetailSheet: View {
         do {
             try ExploreSpots.remove(savedSpot, in: appState)
             self.savedSpot = nil
-            ToastCenter.shared.show("Removed from your spots", style: .info, icon: "bookmark")
+            ToastCenter.shared.show("Removed from your spots", style: .info, haptic: false, icon: "bookmark")
         } catch {
             ToastCenter.shared.show("Could not remove this spot", style: .error)
         }
@@ -275,7 +274,6 @@ struct MapLayersSheet: View {
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
         .presentationBackground(Color.dsElevated)
-        .sensoryFeedback(.selection, trigger: style)
     }
 
     private func styleTile(_ option: MapTab.MapStyleOption) -> some View {
@@ -299,6 +297,7 @@ struct MapLayersSheet: View {
             }
         }
         .buttonStyle(.dim)
+        .buttonHaptic(.selection)
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
@@ -335,6 +334,5 @@ struct MapLayersSheet: View {
             }
         }
         .padding(.horizontal, DS.gutter)
-        .sensoryFeedback(.selection, trigger: binding.wrappedValue)
     }
 }

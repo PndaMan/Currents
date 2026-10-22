@@ -62,7 +62,6 @@ struct AddLicenseSheet: View {
                         HStack(spacing: 6) {
                             ForEach(typeOptions, id: \.self) { type in
                                 Chip(type, isSelected: licenseType == type) {
-                                    Haptics.selection()
                                     licenseType = licenseType == type ? "" : type
                                 }
                             }

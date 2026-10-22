@@ -70,7 +70,7 @@ struct PFToggleRow: View {
                 }
             }
         }
-        .sensoryFeedback(.selection, trigger: isOn)
+        // The system switch plays its own haptic.
     }
 }
 
@@ -311,6 +311,7 @@ struct PFStepper: View {
             .accessibilityLabel("More")
         }
         .buttonStyle(.dim)
+        .buttonHaptic(.selection)
         .foregroundStyle(.dsText)
         .background(Color.dsFill2, in: Capsule())
         .accessibilityElement(children: .contain)

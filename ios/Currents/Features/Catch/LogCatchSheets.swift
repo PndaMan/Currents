@@ -198,6 +198,7 @@ struct LogCatchTimeSheet: View {
                                     .background(Color.dsTonal, in: Capsule())
                             }
                             .buttonStyle(.dim)
+                            .buttonHaptic(.selection)
                         }
                     }
                     .padding(.horizontal, DS.gutter)
@@ -230,7 +231,6 @@ struct LogCatchTimeSheet: View {
                 .padding(.vertical, DS.Space.s3)
                 .pageWidth()
             }
-            .sensoryFeedback(.selection, trigger: caughtAt)
         }
         .presentationDetents([.medium, .large])
     }
@@ -244,6 +244,7 @@ struct LogCatchTimeSheet: View {
                 .background(Color.dsFill2, in: RoundedRectangle(cornerRadius: DS.Radius.button, style: .continuous))
         }
         .buttonStyle(.dim)
+        .buttonHaptic(.selection)
         .accessibilityLabel(label)
     }
 
@@ -317,7 +318,6 @@ struct LogCatchWaterSheet: View {
                 .padding(.vertical, DS.Space.s3)
                 .pageWidth()
             }
-            .sensoryFeedback(.selection, trigger: clarity)
         }
         .presentationDetents([.medium, .large])
     }
@@ -337,6 +337,7 @@ struct LogCatchWaterSheet: View {
                 .background(Color.dsFill2, in: RoundedRectangle(cornerRadius: DS.Radius.thumb, style: .continuous))
         }
         .buttonStyle(.dim)
+        .buttonHaptic(.selection)
         .accessibilityLabel(label)
     }
 }
@@ -399,7 +400,6 @@ struct LogCatchGearSheet: View {
                     Text("Changes here only apply to this catch.")
                 }
             }
-            .sensoryFeedback(.selection, trigger: selectedGearId)
         }
         .presentationDetents([.large])
     }
@@ -464,6 +464,7 @@ struct LogCatchGearSheet: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.dim)
+        .buttonHaptic(.selection)
         .accessibilityLabel(owned ? "\(name), in your tackle box" : name)
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
@@ -545,7 +546,6 @@ struct LogCatchSessionSheet: View {
                     }
                 }
             }
-            .sensoryFeedback(.selection, trigger: selectedTripId)
         }
         .presentationDetents([.medium, .large])
     }
@@ -570,6 +570,7 @@ struct LogCatchSessionSheet: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.dim)
+        .buttonHaptic(.selection)
         .disabled(activeTrip != nil)
     }
 
@@ -617,7 +618,7 @@ struct LogCatchSpotSheet: View {
                 .padding(.vertical, DS.Space.s3)
                 .pageWidth()
             }
-            .sensoryFeedback(.selection, trigger: mode)
+            .haptic(.selection, trigger: mode)
             .sheet(isPresented: $showingPinPicker) {
                 LocationPickerSheet(coordinate: $pinCoordinate)
             }
@@ -652,10 +653,10 @@ struct LogCatchSpotSheet: View {
                                         checked: selectedSpotId == spot.id)
                     }
                     .buttonStyle(.dim)
+                    .buttonHaptic(.selection)
                 }
             }
             .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
-            .sensoryFeedback(.selection, trigger: selectedSpotId)
         }
     }
 

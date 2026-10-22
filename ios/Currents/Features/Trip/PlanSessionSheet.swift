@@ -103,8 +103,6 @@ struct PlanSessionSheet: View {
                 // Only rebuild when the date picker jumps outside the strip.
                 if !outlook.contains(where: { $0.date == day }) { recompute() }
             }
-            .sensoryFeedback(.selection, trigger: Calendar.current.startOfDay(for: date))
-            .sensoryFeedback(.selection, trigger: checklist.map(\.checked))
         }
         .presentationDragIndicator(.visible)
     }
@@ -246,6 +244,7 @@ struct PlanSessionSheet: View {
             }
         }
         .buttonStyle(.dim)
+        .buttonHaptic(.selection)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(ForecastFormat.longDate(day.date)), best bite \(day.peakScore)")
         .accessibilityAddTraits(.isButton)
@@ -279,6 +278,7 @@ struct PlanSessionSheet: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.dsRow)
+                .buttonHaptic(.toggle)
                 .accessibilityAddTraits(item.checked ? .isSelected : [])
                 .contextMenu {
                     Button(role: .destructive) {

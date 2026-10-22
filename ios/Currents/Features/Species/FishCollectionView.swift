@@ -129,8 +129,6 @@ struct FishCollectionView: View {
         .toolbar {
             ToolbarItem(placement: .primaryAction) { optionsMenu }
         }
-        .sensoryFeedback(.selection, trigger: sort)
-        .sensoryFeedback(.selection, trigger: rarityFilter)
         .navigationDestination(for: SpeciesRoute.self) { route in
             SpeciesDetailView(species: route.species,
                               zoom: SpeciesZoomSource(id: route.species.id, namespace: zoomNamespace))
@@ -237,6 +235,7 @@ struct FishCollectionView: View {
                     .opacity(rarityFilter == nil || selected ? 1 : 0.45)
                 }
                 .buttonStyle(.dim)
+                .buttonHaptic(.selection)
                 .accessibilityLabel("\(tier.rarity.label), \(tier.found) of \(tier.total) found")
                 .accessibilityHint(selected ? "Shows every rarity" : "Shows only \(tier.rarity.label.lowercased()) species")
                 .accessibilityAddTraits(selected ? .isSelected : [])
@@ -249,12 +248,12 @@ struct FishCollectionView: View {
     private var optionsMenu: some View {
         Menu {
             Section("Sort by") {
-                Picker("Sort by", selection: $sort) {
+                Picker("Sort by", selection: $sort.haptic()) {
                     ForEach(SortMode.allCases, id: \.self) { Text($0.rawValue).tag($0) }
                 }
             }
             Section("Rarity") {
-                Picker("Rarity", selection: $rarityFilter) {
+                Picker("Rarity", selection: $rarityFilter.haptic()) {
                     Text("All rarities").tag(SpeciesRarity?.none)
                     ForEach(SpeciesRarity.allCases, id: \.self) { rarity in
                         Text(rarity.label).tag(SpeciesRarity?.some(rarity))

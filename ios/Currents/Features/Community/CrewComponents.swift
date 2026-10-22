@@ -889,6 +889,7 @@ struct CrewArtPicker: View {
                         }
                     }
                     .buttonStyle(.dim)
+                    .buttonHaptic(.selection)
                     .accessibilityLabel(sp.commonName)
                     .accessibilityAddTraits(picked ? .isSelected : [])
                 }
@@ -899,7 +900,6 @@ struct CrewArtPicker: View {
         // Bleeds to the screen edges from inside a padded form; the layout
         // width stays the container's, so nothing overflows.
         .padding(.horizontal, -DS.gutter)
-        .sensoryFeedback(.selection, trigger: selection?.id)
         .task {
             options = CrewArt.speciesIDs.compactMap { (try? appState.speciesRepository.fetch(id: $0)) ?? nil }
             if preselect, selection == nil { selection = options.first }

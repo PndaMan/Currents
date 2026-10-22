@@ -458,7 +458,10 @@ struct ConditionPage: View {
         .detailTint(condition.tint)
         .navigationTitle(condition.title)
         .navigationBarTitleDisplayMode(.inline)
-        .refreshable { await store.load(force: true) }
+        .refreshable {
+            await store.load(force: true)
+            Haptics.softPress()
+        }
     }
 
     @ViewBuilder

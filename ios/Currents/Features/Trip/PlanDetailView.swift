@@ -64,7 +64,6 @@ struct PlanDetailView: View {
         .navigationDestination(isPresented: $showingActive) {
             ActiveSessionView()
         }
-        .sensoryFeedback(.selection, trigger: checklist.map(\.checked))
         .task(id: tripId) { load() }
     }
 
@@ -247,6 +246,7 @@ struct PlanDetailView: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.dsRow)
+                .buttonHaptic(.toggle)
                 .accessibilityAddTraits(item.checked ? .isSelected : [])
                 .contextMenu {
                     Button(role: .destructive) {

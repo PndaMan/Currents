@@ -1047,8 +1047,6 @@ struct UnitsSettingsView: View {
         .detailTint(.orange)
         .pfTrackScroll($titleShown, threshold: 60)
         .pfScrollTitle("Units", shown: titleShown)
-        .sensoryFeedback(.selection, trigger: units)
-        .sensoryFeedback(.selection, trigger: dateOrder)
     }
 
     /// A choice card that shows a real catch in that system, so the choice
@@ -1089,6 +1087,7 @@ struct UnitsSettingsView: View {
             )
         }
         .buttonStyle(.dim)
+        .buttonHaptic(.selection)
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(isActive ? .isSelected : [])
     }
@@ -1120,6 +1119,7 @@ struct UnitsSettingsView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.dim)
+        .buttonHaptic(.selection)
         .accessibilityAddTraits(dateOrder == tag ? .isSelected : [])
     }
 }
@@ -1186,7 +1186,7 @@ struct PrivacySettingsView: View {
                 .padding(.vertical, DS.Space.s1)
                 .disabled(!shareCatchLocations)
                 .opacity(shareCatchLocations ? 1 : 0.5)
-                .sensoryFeedback(.selection, trigger: privacyRadius)
+                .haptic(.selection, trigger: privacyRadius)
             } header: {
                 Text("Honey-hole blur")
             } footer: {

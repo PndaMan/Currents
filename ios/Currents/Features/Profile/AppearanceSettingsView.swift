@@ -91,9 +91,6 @@ struct AppearanceSettingsView: View {
         .detailTint(theme.primary)
         .pfTrackScroll($titleShown, threshold: 60)
         .pfScrollTitle("Appearance", shown: titleShown)
-        .sensoryFeedback(.selection, trigger: selectedTheme)
-        .sensoryFeedback(.selection, trigger: selectedAppIcon)
-        .sensoryFeedback(.selection, trigger: appearanceMode)
     }
 
     // MARK: - Mode cards
@@ -118,6 +115,7 @@ struct AppearanceSettingsView: View {
             }
         }
         .buttonStyle(.dim)
+        .buttonHaptic(.selection)
         .accessibilityLabel(mode.title)
         .accessibilityAddTraits(isActive ? .isSelected : [])
     }
@@ -178,6 +176,7 @@ struct AppearanceSettingsView: View {
             }
         }
         .buttonStyle(.dim)
+        .buttonHaptic(.selection)
         .accessibilityLabel(theme.displayName)
         .accessibilityAddTraits(isActive ? .isSelected : [])
     }
@@ -211,6 +210,7 @@ struct AppearanceSettingsView: View {
             }
         }
         .buttonStyle(.dim)
+        .buttonHaptic(.selection)
         .accessibilityLabel("\(option.name) icon")
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }

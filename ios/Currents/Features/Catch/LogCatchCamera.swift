@@ -116,7 +116,6 @@ struct LogCatchCameraView: View {
 
     @StateObject private var camera = LogCatchCaptureModel()
     @State private var flash = false
-    @State private var shots = 0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -228,6 +227,8 @@ struct LogCatchCameraView: View {
                     }
                 }
                 .buttonStyle(.dim)
+                // On press-down, so the tap is over before the photo is taken.
+                .buttonHaptic(.press)
                 .disabled(camera.status != .running)
                 .opacity(camera.status == .running ? 1 : 0.4)
                 .accessibilityLabel("Take photo")
@@ -252,14 +253,12 @@ struct LogCatchCameraView: View {
         .foregroundStyle(.white)
         .padding(.top, DS.Space.s6)
         .padding(.bottom, DS.Space.s4)
-        .sensoryFeedback(.impact(weight: .light), trigger: shots)
     }
 
     private func shoot() {
         camera.capture { image in
             onCapture(image)
         }
-        shots += 1
         if reduceMotion { return }
         flash = true
         Task { @MainActor in
