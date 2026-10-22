@@ -178,12 +178,10 @@ struct LogCatchView: View {
                         .padding(.top, 28)
                     sharingSection
                 }
+                .pageWidth()
                 .padding(.bottom, DS.Space.s6)
             }
             .scrollDismissesKeyboard(.interactively)
-            // A firm edge under the title once the form scrolls, so fields
-            // never read through the bar.
-            .scrollEdgeEffectStyle(.hard, for: .top)
             .detailTint(pageTint)
             .navigationTitle(isEditing ? "Edit catch" : "New catch")
             .navigationBarTitleDisplayMode(.inline)
@@ -2229,10 +2227,12 @@ struct SpeciesPickerSheet: View {
                         }
                     }
                 }
+                .pageWidth()
                 .padding(.bottom, DS.Space.s6)
             }
             .scrollDismissesKeyboard(.immediately)
             .dsScreenBackground()
+            .detailScrollEdge()
             .navigationTitle("Species")
             .navigationBarTitleDisplayMode(.inline)
             .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always),

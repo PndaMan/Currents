@@ -91,6 +91,7 @@ struct RatePromptSheet: View {
     var body: some View {
         ScrollView {
             content
+                .pageWidth()
         }
         .scrollBounceBehavior(.basedOnSize)
         .background(Color.dsBackground.ignoresSafeArea())

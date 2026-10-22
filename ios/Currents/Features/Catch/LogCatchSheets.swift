@@ -16,7 +16,7 @@ struct LogCatchSheetChrome<Content: View>: View {
     var body: some View {
         NavigationStack {
             content()
-                .scrollEdgeEffectStyle(.hard, for: .top)
+                .detailScrollEdge()
                 .navigationTitle(title)
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
@@ -227,6 +227,7 @@ struct LogCatchTimeSheet: View {
                     LogCatchFootnote(text: "Conditions and the bite score update to match.")
                         .padding(.horizontal, DS.gutter)
                 }
+                .pageWidth()
                 .padding(.vertical, DS.Space.s3)
             }
             .sensoryFeedback(.selection, trigger: caughtAt)
@@ -313,6 +314,7 @@ struct LogCatchWaterSheet: View {
                     LogCatchFootnote(text: "Optional. Recording clarity sharpens your lure and colour suggestions.")
                 }
                 .padding(.horizontal, DS.gutter)
+                .pageWidth()
                 .padding(.vertical, DS.Space.s3)
             }
             .sensoryFeedback(.selection, trigger: clarity)
@@ -612,6 +614,7 @@ struct LogCatchSpotSheet: View {
                     }
                 }
                 .padding(.horizontal, DS.gutter)
+                .pageWidth()
                 .padding(.vertical, DS.Space.s3)
             }
             .sensoryFeedback(.selection, trigger: mode)
