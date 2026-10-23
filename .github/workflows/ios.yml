@@ -588,6 +588,18 @@ jobs:
             echo
           fi
 
+          # Game Center, for the com.apple.developer.game-center entitlement.
+          if ! echo "$CAPS" | grep -q '"GAME_CENTER"'; then
+            echo "Enabling GAME_CENTER capability on the App ID..."
+            curl -s -X POST \
+              -H "Authorization: Bearer $JWT" \
+              -H "Content-Type: application/json" \
+              "https://api.appstoreconnect.apple.com/v1/bundleIdCapabilities" \
+              -d "{\"data\": {\"type\": \"bundleIdCapabilities\", \"attributes\": {\"capabilityType\": \"GAME_CENTER\"}, \"relationships\": {\"bundleId\": {\"data\": {\"id\": \"$BUNDLE_ID_RESOURCE\", \"type\": \"bundleIds\"}}}}}" \
+              | head -c 400 || true
+            echo
+          fi
+
           # Get the freshly-created Distribution cert ID
           DIST_CERT_ID=$(curl -s -H "Authorization: Bearer $JWT" \
             "https://api.appstoreconnect.apple.com/v1/certificates?filter%5BcertificateType%5D=DISTRIBUTION" \
@@ -726,6 +738,16 @@ jobs:
               print('WARNING: profile has NO Push capability - archiving WITHOUT aps-environment.')
               print('Enable: developer.apple.com > Identifiers > com.aidanmcconnon.currents')
               print('  > tick Push Notifications > Save. Next master build enables push.')
+
+          # Game Center: the same, so a profile minted before the capability
+          # reached the App ID still archives.
+          if 'com.apple.developer.game-center' in ents:
+              print('Profile carries Game Center - keeping the entitlement.')
+          elif 'com.apple.developer.game-center' in app:
+              del app['com.apple.developer.game-center']
+              changed = True
+              print('WARNING: profile has NO Game Center capability - archiving WITHOUT it.')
+              print('Enable: make appstore-gamecenter APPLY=1, or tick Game Center on the App ID.')
 
           if changed:
               with open(ent_path, 'wb') as f:
