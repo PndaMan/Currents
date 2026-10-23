@@ -150,7 +150,7 @@ struct AddLicenseSheet: View {
         } header: {
             Text("Document")
         } footer: {
-            Text("Dates, number and holder are read from the document. Check them before you save.")
+            Text("Details are read from the document. Check them.")
         }
         .pfRows()
     }
