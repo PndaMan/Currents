@@ -21,6 +21,7 @@ struct LeaderboardView: View {
     /// The local log, read once per visit on the database queue; metric
     /// and scope switches re-rank it without reading it again.
     @State private var localCatches: [CatchDetail]?
+    @State private var reloadGen = 0
 
     var body: some View {
         // Without iCloud the Crew unavailable state shows and no load starts.
@@ -81,7 +82,16 @@ struct LeaderboardView: View {
         .task { await reload() }
         .onChange(of: metric) { _, _ in Task { await reload() } }
         .onChange(of: scope) { _, _ in Task { await reload() } }
-        .onChange(of: svc.revision) { _, _ in Task { await reload() } }
+        .onChange(of: svc.revision) { _, _ in
+            // A burst of pushes bumps the revision several times; reload once.
+            reloadGen &+= 1
+            let gen = reloadGen
+            Task {
+                try? await Task.sleep(nanoseconds: 300_000_000)
+                guard gen == reloadGen else { return }
+                await reload()
+            }
+        }
     }
 
     // MARK: Scope

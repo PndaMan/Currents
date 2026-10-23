@@ -76,6 +76,8 @@ struct CrewFriendsPage: View {
     @State private var query = ""
     @State private var showingAdd = false
     @State private var confirmRemove: CommunityService.Profile?
+    /// Coalesces a burst of revision bumps into one reload.
+    @State private var reloadGen = 0
     @ObservedObject private var connection = CrewConnection.shared
 
     private var filtered: [CommunityService.Profile] {
@@ -142,7 +144,15 @@ struct CrewFriendsPage: View {
             Text("They stop seeing your catches and shared spots. You can add them again later.")
         }
         .task { await load() }
-        .onChange(of: svc.revision) { _, _ in Task { await load() } }
+        .onChange(of: svc.revision) { _, _ in
+            reloadGen &+= 1
+            let gen = reloadGen
+            Task {
+                try? await Task.sleep(nanoseconds: 300_000_000)
+                guard gen == reloadGen else { return }
+                await load()
+            }
+        }
     }
 
     /// Today's hero: your code over the title, the count, and your friends'
@@ -256,6 +266,8 @@ struct CrewRequestsPage: View {
     @State private var invites: [CommunityService.TripInvite] = []
     @State private var loaded = false
     @State private var openedTrip: CrewOpenedTrip?
+    /// Coalesces a burst of revision bumps into one reload.
+    @State private var reloadGen = 0
     @ObservedObject private var connection = CrewConnection.shared
 
     var body: some View {
@@ -302,7 +314,15 @@ struct CrewRequestsPage: View {
             GroupTripView(tripId: svc.tripId(forGroupCode: trip.code), tripName: trip.name, initialCode: trip.code)
         }
         .task { await load() }
-        .onChange(of: svc.revision) { _, _ in Task { await load() } }
+        .onChange(of: svc.revision) { _, _ in
+            reloadGen &+= 1
+            let gen = reloadGen
+            Task {
+                try? await Task.sleep(nanoseconds: 300_000_000)
+                guard gen == reloadGen else { return }
+                await load()
+            }
+        }
     }
 
     /// Nothing waiting: a green check tile on a card, not a system screen.

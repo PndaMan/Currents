@@ -233,6 +233,8 @@ struct CrewDetailView: View {
     @State private var members: [CommunityService.GroupMember] = []
     @State private var memberAvatars: [String: UIImage] = [:]
     @State private var feed: [CommunityService.CrewPost] = []
+    /// Coalesces a burst of revision bumps into one feed reload.
+    @State private var reloadGen = 0
     @State private var isLoading = true
     /// The crew record could not be fetched, so the page shows what this
     /// phone saved last.
@@ -300,7 +302,13 @@ struct CrewDetailView: View {
             // No pull-to-refresh: the 20s poll below plus push-driven revision
             // bumps keep the page current on their own.
             .onChange(of: svc.revision) { _, _ in
-                Task { feed = feed.mergingFirstPage(await svc.crewFeedPage(code: code)) }
+                reloadGen &+= 1
+                let gen = reloadGen
+                Task {
+                    try? await Task.sleep(nanoseconds: 300_000_000)
+                    guard gen == reloadGen else { return }
+                    feed = feed.mergingFirstPage(await svc.crewFeedPage(code: code))
+                }
             }
             .task {
                 loadCached()
@@ -990,6 +998,8 @@ private struct CrewCatchesPage: View {
 
     @StateObject private var svc = CommunityService.shared
     @State private var feed: [CommunityService.CrewPost]
+    /// Coalesces a burst of revision bumps into one reload.
+    @State private var reloadGen = 0
     @State private var canLoadMore: Bool
     @State private var loadingMore = false
     @State private var openedPost: CommunityService.CrewPost?
@@ -1021,7 +1031,13 @@ private struct CrewCatchesPage: View {
             CrewPostSheet(post: post, crew: crew) { await reload() }
         }
         .onChange(of: svc.revision) { _, _ in
-            Task { await reload() }
+            reloadGen &+= 1
+            let gen = reloadGen
+            Task {
+                try? await Task.sleep(nanoseconds: 300_000_000)
+                guard gen == reloadGen else { return }
+                await reload()
+            }
         }
     }
 

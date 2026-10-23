@@ -43,6 +43,11 @@ struct CommunityView: View {
     /// feed's infinite scroll.
     @State private var feedHasMore: [String: Bool] = [:]
     @State private var feedLoadingMore = false
+    /// When the network load last ran. Coming back from a pushed page or
+    /// another tab within 30 seconds skips it; the poll keeps things fresh.
+    @State private var lastLoad: Date?
+    /// Coalesces a burst of revision bumps into one reload.
+    @State private var reloadGen = 0
 
     private var region: String { svc.myRegion }
     /// Joined and iCloud reachable: the only time anything here may load.
@@ -114,19 +119,28 @@ struct CommunityView: View {
         .task(id: canSync) {
             await refreshStats()
             guard canSync else { return }
-            // Visible content first: cached friends and feed, then the network.
-            friendProfiles = CrewFriendsLoader.cached()
-            await loadMergedFeed()
-            await loadNotifications()
-            friendProfiles = await CrewFriendsLoader.load()
-            await loadLive()
-            // Maintenance in the background: publish history, heal grants and
-            // spot shares, and rebuild membership from the server once per
-            // launch (a reinstall used to show zero crews or trips while the
-            // server still counted and pushed to this angler).
-            Task {
-                await syncCatches()
-                await svc.reconcileMemberships()
+            // This task restarts on every pop back and tab switch; a full
+            // reload each time is what made the tab feel slow.
+            if let lastLoad, Date().timeIntervalSince(lastLoad) < 30 {
+                // Fresh enough: go straight to the poll below.
+            } else {
+                // Visible content first: cached friends and feed, then the network.
+                friendProfiles = CrewFriendsLoader.cached()
+                await loadMergedFeed()
+                await loadNotifications()
+                friendProfiles = await CrewFriendsLoader.load()
+                await loadLive()
+                // Only a load that ran to the end counts; one cut short by
+                // leaving the tab runs again on return.
+                if !Task.isCancelled { lastLoad = Date() }
+                // Maintenance in the background: publish history, heal grants and
+                // spot shares, and rebuild membership from the server once per
+                // launch (a reinstall used to show zero crews or trips while the
+                // server still counted and pushed to this angler).
+                Task {
+                    await syncCatches()
+                    await svc.reconcileMemberships()
+                }
             }
             // Light poll while the tab is open; fills the gaps CloudKit
             // subscriptions can't cover.
@@ -141,8 +155,13 @@ struct CommunityView: View {
         // Pushes bump the revision; no pull-to-refresh needed.
         .onChange(of: svc.revision) { _, _ in
             guard canSync else { return }
+            // A burst of pushes bumps the revision several times; reload
+            // once. Local stats don't depend on it, so they're not re-read.
+            reloadGen &+= 1
+            let gen = reloadGen
             Task {
-                await refreshStats()
+                try? await Task.sleep(nanoseconds: 300_000_000)
+                guard gen == reloadGen else { return }
                 friendProfiles = CrewFriendsLoader.cached()
                 await loadMergedFeed()
                 await loadNotifications()
