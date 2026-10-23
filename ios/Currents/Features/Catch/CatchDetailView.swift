@@ -1,9 +1,10 @@
 import SwiftUI
 import MapKit
 
-/// A catch's page: cover, title block, Share / Edit / Favourite, size, the
-/// size and bag rules, the spot, gear, conditions at the time, notes, and
-/// links to its session and Fishdex entry.
+/// A catch's page: cover, title block, Share / Edit / Favourite, then grouped
+/// rows for the catch itself, the conditions at the time and the gear, the
+/// size and bag rules, notes, the map and spot, and links to its session and
+/// Fishdex entry. Tinted with the species' art colour.
 struct CatchDetailView: View {
     @Environment(AppState.self) private var appState
     @AppStorage("units") private var units = "metric"
@@ -31,123 +32,15 @@ struct CatchDetailView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                cover
-                    .padding(.horizontal, DS.gutter)
-                    .padding(.top, DS.Space.s2)
-
-                DetailHeader(over: "\(LogbookFormat.longDay(record.caughtAt)), \(LogbookFormat.time(record.caughtAt))",
-                             title: speciesName,
-                             subtitle: detail.species?.scientificName)
-                    .padding(.top, DS.Space.s4)
-
-                tags
-                    .padding(.horizontal, DS.gutter)
-                    .padding(.top, DS.Space.s3)
-
-                ActionTriple {
-                    Button {
-                        share()
-                    } label: {
-                        Label(isGeneratingShareCard ? "Preparing" : "Share", systemImage: "square.and.arrow.up")
-                    }
-                    .buttonStyle(ActionTileStyle(.primary))
-                    .disabled(isGeneratingShareCard)
-
-                    Button {
-                        showingEdit = true
-                    } label: {
-                        Label("Edit", systemImage: "pencil")
-                    }
-                    .buttonStyle(ActionTileStyle(.tonal))
-
-                    Button {
-                        toggleFavorite()
-                    } label: {
-                        Label("Favourite", systemImage: isFavorite ? "star.fill" : "star")
-                            .symbolEffect(.bounce, value: isFavorite)
-                    }
-                    .buttonStyle(ActionTileStyle(.tonal))
-                    .buttonHaptic(.toggle)
-                    .accessibilityValue(isFavorite ? "On" : "Off")
-                }
-                .padding(.top, DS.Space.s5)
-
-                measureTiles
-                    .padding(.horizontal, DS.gutter)
-                    .padding(.top, DS.Space.s6)
-
-                regulationNote
-
-                spotSection
-
-                gearSection
-
-                conditionsSection
-
-                notesSection
-
-                linksSection
-
-                predictionsSection
-
-                Button(role: .destructive) {
-                    showingDeleteConfirm = true
-                } label: {
-                    Label("Delete catch", systemImage: "trash")
-                        .foregroundStyle(Color.dsScoreSlow)
-                }
-                .buttonStyle(.dsTonal)
-                .padding(.horizontal, DS.gutter)
-                .padding(.top, DS.Space.s8)
-            }
-            .padding(.bottom, DS.Space.s8)
-            .pageWidth()
+            content
+                .padding(.bottom, DS.Space.s8)
+                .pageWidth()
         }
-        .detailTint(detail.species?.artTint ?? DS.accent)
+        .detailTint(detail.species?.artTint)
         .navigationTitle(speciesName)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Menu {
-                    Button {
-                        showingEdit = true
-                    } label: {
-                        Label("Edit catch", systemImage: "pencil")
-                    }
-                    // Manual crew share: without this, a crew feed could only
-                    // ever contain fish caught after the crew existed
-                    // (auto-post fires at log time only), and turning auto-post
-                    // off made posting impossible entirely.
-                    let svc = CommunityService.shared
-                    if svc.joined, !svc.myCrews.isEmpty {
-                        Menu {
-                            ForEach(svc.myCrews) { crew in
-                                Button(crew.name) {
-                                    let posted = detail.catchRecord
-                                    let name = speciesName
-                                    Task {
-                                        await svc.postCatch(posted, speciesName: name,
-                                                            toCrew: crew.code, caption: "")
-                                        ToastCenter.shared.show("Shared to \(crew.name)")
-                                    }
-                                }
-                            }
-                        } label: {
-                            Label("Share to crew", systemImage: "person.3")
-                        }
-                    }
-                    Divider()
-                    Button(role: .destructive) {
-                        showingDeleteConfirm = true
-                    } label: {
-                        Label("Delete catch", systemImage: "trash")
-                    }
-                } label: {
-                    Image(systemName: "ellipsis")
-                }
-                .accessibilityLabel("More")
-            }
+            ToolbarItem(placement: .topBarTrailing) { moreMenu }
         }
         .confirmationDialog("Delete this catch?", isPresented: $showingDeleteConfirm, titleVisibility: .visible) {
             Button("Delete catch", role: .destructive) {
@@ -176,6 +69,119 @@ struct CatchDetailView: View {
         }
         .task(id: detail.catchRecord.id) {
             await load()
+        }
+    }
+
+    private var content: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            cover
+                .padding(.horizontal, DS.gutter)
+                .padding(.top, DS.Space.s2)
+
+            DetailHeader(over: "\(LogbookFormat.longDay(record.caughtAt)), \(LogbookFormat.time(record.caughtAt))",
+                         title: speciesName,
+                         subtitle: detail.species?.scientificName)
+                .padding(.top, DS.Space.s4)
+
+            if isPersonalBest {
+                Label("Personal best", systemImage: "trophy.fill")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.dsText)
+                    .padding(.horizontal, DS.gutter)
+                    .padding(.top, DS.Space.s2)
+            }
+
+            actions
+                .padding(.top, DS.Space.s5)
+
+            catchSection
+            regulationNote
+            conditionsSection
+            gearSection
+            notesSection
+            spotSection
+            linksSection
+            predictionsSection
+
+            DangerButton(title: "Delete catch", systemImage: "trash") {
+                showingDeleteConfirm = true
+            }
+            .padding(.top, DS.Space.s8)
+        }
+    }
+
+    private var actions: some View {
+        ActionTriple {
+            Button {
+                share()
+            } label: {
+                Label(isGeneratingShareCard ? "Preparing" : "Share", systemImage: "square.and.arrow.up")
+            }
+            .buttonStyle(ActionTileStyle(.primary))
+            .disabled(isGeneratingShareCard)
+
+            Button {
+                showingEdit = true
+            } label: {
+                Label("Edit", systemImage: "pencil")
+            }
+            .buttonStyle(ActionTileStyle(.tonal))
+
+            Button {
+                toggleFavorite()
+            } label: {
+                Label("Favourite", systemImage: isFavorite ? "star.fill" : "star")
+                    .symbolEffect(.bounce, value: isFavorite)
+            }
+            .buttonStyle(ActionTileStyle(.tonal))
+            .buttonHaptic(.toggle)
+            .accessibilityValue(isFavorite ? "On" : "Off")
+        }
+    }
+
+    private var moreMenu: some View {
+        Menu {
+            Button {
+                showingEdit = true
+            } label: {
+                Label("Edit catch", systemImage: "pencil")
+            }
+            // Manual crew share: without this, a crew feed could only
+            // ever contain fish caught after the crew existed
+            // (auto-post fires at log time only), and turning auto-post
+            // off made posting impossible entirely.
+            crewShareMenu
+            Divider()
+            Button(role: .destructive) {
+                showingDeleteConfirm = true
+            } label: {
+                Label("Delete catch", systemImage: "trash")
+            }
+        } label: {
+            Image(systemName: "ellipsis")
+        }
+        .accessibilityLabel("More")
+    }
+
+    @ViewBuilder
+    private var crewShareMenu: some View {
+        let svc = CommunityService.shared
+        if svc.joined, !svc.myCrews.isEmpty {
+            Menu {
+                ForEach(svc.myCrews) { crew in
+                    Button(crew.name) {
+                        let posted = detail.catchRecord
+                        let name = speciesName
+                        Task {
+                            await svc.postCatch(posted, speciesName: name,
+                                                toCrew: crew.code, caption: "")
+                            ToastCenter.shared.show("Shared to \(crew.name)")
+                        }
+                    }
+                }
+            } label: {
+                Label("Share to crew", systemImage: "person.3")
+            }
         }
     }
 
@@ -244,12 +250,10 @@ struct CatchDetailView: View {
             .tabViewStyle(.page)
             .frame(height: 340)
             .clipShape(RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
-            .overlay(alignment: .topTrailing) { expandButton }
         } else if let image = photos.first {
             coverPhoto(image)
                 .frame(height: 340)
                 .clipShape(RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
-                .overlay(alignment: .topTrailing) { expandButton }
         } else if let species = detail.species {
             // No photo: the species art on its colour, so the catch still
             // reads visually.
@@ -277,69 +281,33 @@ struct CatchDetailView: View {
             .accessibilityHint("Opens the photo full screen")
     }
 
-    private var expandButton: some View {
-        Button {
-            showingPhotoViewer = true
-        } label: {
-            Image(systemName: "arrow.up.left.and.arrow.down.right")
-                .font(.footnote.weight(.semibold))
-                .foregroundStyle(.white)
-                .frame(width: 34, height: 34)
-                .glassEffect(.regular.interactive(), in: Circle())
+    // MARK: - The catch
+
+    private var catchRows: [KeyValueList.Row] {
+        var rows: [KeyValueList.Row] = []
+        if let cm = record.lengthCm {
+            rows.append(.init(label: "Length", value: Units.length(cm: cm, imperial: imperial)))
         }
-        .buttonStyle(.plain)
-        .padding(10)
-        .accessibilityLabel("Show photo full screen")
+        if let kg = record.weightKg {
+            rows.append(.init(label: "Weight", value: Units.weight(kg: kg, imperial: imperial)))
+        }
+        rows.append(.init(label: "Caught", value: "\(LogbookFormat.shortDay(record.caughtAt)), \(LogbookFormat.time(record.caughtAt))"))
+        rows.append(.init(label: "Kept or released", value: record.released ? "Released" : "Kept"))
+        if let score = record.forecastScoreAtCapture {
+            rows.append(.init(label: "Bite score", value: "\(score) of 100"))
+        }
+        if let confidence = record.mlConfidence {
+            rows.append(.init(label: "Identified on your phone", value: "\(Int((confidence * 100).rounded()))%"))
+        }
+        return rows
     }
 
-    // MARK: - Title tags
-
-    private var tags: some View {
-        FlowTags(spacing: 6) {
-            tag(record.released ? "Released" : "Kept", systemImage: nil)
-            if let confidence = record.mlConfidence {
-                tag("Identified on your phone, \(Int(confidence * 100))%", systemImage: nil)
-            }
-            if isPersonalBest {
-                tag("Personal best", systemImage: "trophy.fill")
-            }
+    private var catchSection: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            SectionTitle("The catch")
+            KeyValueList(rows: catchRows)
         }
-    }
-
-    private func tag(_ text: String, systemImage: String?) -> some View {
-        HStack(spacing: 4) {
-            if let systemImage {
-                Image(systemName: systemImage)
-                    .foregroundStyle(Color.dsScoreFair)
-            }
-            Text(text)
-        }
-        .font(.footnote.weight(.medium))
-        .foregroundStyle(.dsText)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 5)
-        .background(Color.dsFill, in: Capsule())
-    }
-
-    // MARK: - Size
-
-    @ViewBuilder
-    private var measureTiles: some View {
-        let length = record.lengthCm.map { Units.lengthParts(cm: $0, imperial: imperial) }
-        let weight = record.weightKg.map { Units.weightParts(kg: $0, imperial: imperial) }
-        let score = record.forecastScoreAtCapture
-        if length != nil || weight != nil || score != nil {
-            HStack(spacing: 10) {
-                StatTile("Length", systemImage: "ruler", tint: .dsText2,
-                         value: length?.0 ?? "None", unit: length?.1, width: nil)
-                StatTile("Weight", systemImage: "scalemass", tint: .dsText2,
-                         value: weight?.0 ?? "None", unit: weight?.1, width: nil)
-                if let score {
-                    StatTile("Bite score", systemImage: "gauge.medium", tint: DS.scoreColor(score),
-                             value: "\(score)", width: nil)
-                }
-            }
-        }
+        .padding(.top, DS.Space.s8)
     }
 
     // MARK: - Regulation
@@ -415,41 +383,46 @@ struct CatchDetailView: View {
     @ViewBuilder
     private var spotSection: some View {
         if hasCoordinate || detail.spot != nil {
-            SectionTitle("Spot")
+            SectionTitle("Where")
                 .padding(.top, DS.Space.s8)
+            if hasCoordinate {
+                catchMap
+                    .padding(.horizontal, DS.gutter)
+            }
             if let spot = detail.spot {
                 // The spot opens on the Explore map in its sheet.
                 Button { appState.pendingDeepLink = MapLink.spot(spot) } label: {
-                    ArtRow(title: spot.name,
+                    ArtRow(over: "Spot", title: spot.name,
                            subtitle: spot.type == .general ? nil : spot.type.rawValue,
                            chevron: true) {
                         PlaceSnapshotThumb(spot: spot, size: 52)
                     }
                 }
                 .buttonStyle(.dsRow)
+                .padding(.top, DS.Space.s2)
             }
             if hasCoordinate {
-                Map(initialPosition: .camera(.init(centerCoordinate: catchCoordinate, distance: 2000))) {
-                    Annotation("", coordinate: catchCoordinate) {
-                        Image(systemName: "fish.circle.fill")
-                            .font(.title)
-                            .foregroundStyle(.white, detail.species?.artTint ?? DS.accent)
-                    }
-                }
-                .mapStyle(.hybrid)
-                .frame(height: 170)
-                .clipShape(RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
-                .allowsHitTesting(false)
-                .accessibilityLabel("Map of where it was caught")
-                .padding(.horizontal, DS.gutter)
-                .padding(.top, DS.Space.s2)
-
                 DirectionsButton(coordinate: catchCoordinate,
                                  name: detail.spot?.name ?? speciesName)
                     .padding(.horizontal, DS.gutter)
                     .padding(.top, DS.Space.s3)
             }
         }
+    }
+
+    private var catchMap: some View {
+        Map(initialPosition: .camera(.init(centerCoordinate: catchCoordinate, distance: 2000))) {
+            Annotation("", coordinate: catchCoordinate) {
+                Image(systemName: "fish.circle.fill")
+                    .font(.title)
+                    .foregroundStyle(.white, detail.species?.artTint ?? DS.accent)
+            }
+        }
+        .mapStyle(.hybrid)
+        .frame(height: 170)
+        .clipShape(RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
+        .allowsHitTesting(false)
+        .accessibilityLabel("Map of where it was caught")
     }
 
     // MARK: - Gear
@@ -463,24 +436,24 @@ struct CatchDetailView: View {
     private var gearSection: some View {
         let rows = gearRows
         if lureName != nil || !rows.isEmpty {
-            SectionTitle("Gear")
+            SectionTitle("Gear", detail: gearSetName)
                 .padding(.top, DS.Space.s8)
-            if let gear = detail.gearLoadout, !gear.isAutoCreated {
-                Text(gear.name)
-                    .font(.subheadline)
-                    .foregroundStyle(.dsText2)
-                    .padding(.horizontal, DS.gutter)
-                    .padding(.bottom, DS.Space.s1)
-            }
             if let lureName {
                 ArtRow(over: "Lure", title: lureName, subtitle: lureDetail) {
                     LureArtView(name: lureName, size: 56)
                 }
             }
             if !rows.isEmpty {
-                LogbookKeyValueList(rows: rows)
+                KeyValueList(rows: rows)
+                    .padding(.top, lureName == nil ? 0 : DS.Space.s2)
             }
         }
+    }
+
+    /// The saved preset's name, when the angler picked one.
+    private var gearSetName: String? {
+        guard let gear = detail.gearLoadout, !gear.isAutoCreated else { return nil }
+        return gear.name
     }
 
     /// "Chartreuse, 7 g" under the lure's name.
@@ -515,74 +488,61 @@ struct CatchDetailView: View {
         "\(Int((imperial ? celsius * 9 / 5 + 32 : celsius).rounded()))°"
     }
 
+    private var conditionRows: [KeyValueList.Row] {
+        let wx = weather
+        var rows: [KeyValueList.Row] = []
+        if let water = wx?.waterTempC {
+            let note = waterFootnote(water).map { ", \($0.lowercased())" } ?? ""
+            rows.append(.init(label: "Water", value: degrees(water) + note))
+        }
+        if let air = wx?.temperatureC {
+            let sky = wx?.condition.map { ", \($0.lowercased())" } ?? ""
+            rows.append(.init(label: "Air", value: degrees(air) + sky))
+        }
+        if let wind = wx?.windSpeedKmh {
+            let speed = "\(Int((imperial ? wind * 0.621371 : wind).rounded())) \(Units.speedSymbol)"
+            let from = wx?.windDirectionDeg.map { ", from the \(Self.compassName($0))" } ?? ""
+            rows.append(.init(label: "Wind", value: speed + from))
+        }
+        if let pressure = wx?.pressureHpa {
+            let level = pressure < 1009 ? "low" : (pressure > 1022 ? "high" : "normal")
+            rows.append(.init(label: "Pressure", value: "\(Int(pressure.rounded())) hPa, \(level)"))
+        }
+        if let clarity = record.clarity {
+            rows.append(.init(label: "Water clarity", value: clarity.label))
+        }
+        if let tide = tideState {
+            rows.append(.init(label: "Tide", value: tide))
+        }
+        if let solunar = solunar {
+            let lit = Int((solunar.moonIllumination * 100).rounded())
+            rows.append(.init(label: "Moon", value: "\(Self.sentenceCase(solunar.moonPhase.displayName)), \(lit)%"))
+        }
+        return rows
+    }
+
+    private var solunar: SolunarEngine.SolunarDay? {
+        hasCoordinate ? SolunarEngine.compute(date: record.caughtAt, coordinate: catchCoordinate) : nil
+    }
+
+    /// Rising or falling at the catch time, predicted for coastal species only.
+    private var tideState: String? {
+        let coastal = detail.species?.habitat == .marine || detail.species?.habitat == .brackish
+        guard hasCoordinate, coastal else { return nil }
+        let tide = TideEngine.predict(date: record.caughtAt, coordinate: catchCoordinate)
+        let at = record.caughtAt
+        let point = tide.points.min { abs($0.time.timeIntervalSince(at)) < abs($1.time.timeIntervalSince(at)) }
+        return point.map { $0.isRising ? "Rising" : "Falling" }
+    }
+
     @ViewBuilder
     private var conditionsSection: some View {
-        let wx = weather
-        let solunar = hasCoordinate ? SolunarEngine.compute(date: record.caughtAt, coordinate: catchCoordinate) : nil
-        let coastal = detail.species?.habitat == .marine || detail.species?.habitat == .brackish
-        let tide = (hasCoordinate && coastal) ? TideEngine.predict(date: record.caughtAt, coordinate: catchCoordinate) : nil
-        let tidePoint = tide?.points.min { abs($0.time.timeIntervalSince(record.caughtAt)) < abs($1.time.timeIntervalSince(record.caughtAt)) }
-        if wx != nil || solunar != nil || record.clarity != nil {
+        let rows = conditionRows
+        if !rows.isEmpty {
             SectionTitle("Conditions at the time")
                 .padding(.top, DS.Space.s8)
-            LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible())], spacing: 10) {
-                if let water = wx?.waterTempC {
-                    ConditionTile("Water", systemImage: "thermometer.medium", iconTint: .dsScoreLow,
-                                  value: degrees(water), footnote: waterFootnote(water)) {
-                        if let lo = detail.species?.minTempC, let hi = detail.species?.maxTempC, hi > lo {
-                            TempRangeBar(low: lo, high: hi, value: water)
-                        }
-                    }
-                }
-                if let wind = wx?.windSpeedKmh {
-                    ConditionTile("Wind", systemImage: "wind", iconTint: .cyan,
-                                  value: "\(Int((imperial ? wind * 0.621371 : wind).rounded()))",
-                                  unit: Units.speedSymbol,
-                                  footnote: wx?.windDirectionDeg.map { "From the \(Self.compassName($0))" }) {
-                        if let dir = wx?.windDirectionDeg {
-                            Image(systemName: "location.north.fill")
-                                .font(.title2)
-                                .foregroundStyle(.dsText2)
-                                .rotationEffect(.degrees(dir + 180))
-                                .accessibilityHidden(true)
-                        }
-                    }
-                }
-                if let pressure = wx?.pressureHpa {
-                    ConditionTile("Pressure", systemImage: "gauge.with.dots.needle.33percent",
-                                  iconTint: .purple,
-                                  value: "\(Int(pressure.rounded()))", unit: "hPa",
-                                  footnote: pressure < 1009 ? "Low" : (pressure > 1022 ? "High" : "Normal"))
-                }
-                if let clarity = record.clarity {
-                    ConditionTile("Water clarity", systemImage: "drop.fill", iconTint: DS.accent,
-                                  value: clarity.label, footnote: "Set when you logged it")
-                } else if let tidePoint {
-                    ConditionTile("Tide", systemImage: "water.waves", iconTint: .blue,
-                                  value: tidePoint.isRising ? "Rising" : "Falling",
-                                  footnote: "Predicted for the spot") {
-                        if let tide {
-                            TideSpark(points: tide.points, at: record.caughtAt)
-                        }
-                    }
-                }
-                if let solunar {
-                    ConditionTile("Moon", systemImage: "moon.fill", iconTint: .dsScoreFair,
-                                  value: "\(Int((solunar.moonIllumination * 100).rounded()))", unit: "%",
-                                  footnote: Self.sentenceCase(solunar.moonPhase.displayName)) {
-                        Image(systemName: solunar.moonPhase.symbolName)
-                            .font(.title)
-                            .foregroundStyle(.dsText2)
-                            .accessibilityHidden(true)
-                    }
-                }
-                if let air = wx?.temperatureC {
-                    ConditionTile("Air", systemImage: "cloud.sun.fill", iconTint: .dsScoreLow,
-                                  value: degrees(air), footnote: wx?.condition.map(Self.sentenceCase))
-                }
-            }
-            .padding(.horizontal, DS.gutter)
-            SectionFoot("Saved when you logged it.")
+            KeyValueList(rows: rows)
+            SectionFootnote("Saved when you logged it. Tide and moon are predicted for the spot.")
         }
     }
 
@@ -681,7 +641,7 @@ struct CatchDetailView: View {
                 }
             }
             .padding(.horizontal, DS.gutter)
-            SectionFoot("Identified on your phone when you logged it.")
+            SectionFootnote("Identified on your phone when you logged it.")
         }
     }
 }
@@ -720,98 +680,6 @@ private struct ConfidenceBar: View {
                 }
         }
         .accessibilityElement(children: .combine)
-    }
-}
-
-/// A species' comfortable temperature band with the reading as a dot.
-private struct TempRangeBar: View {
-    let low: Double
-    let high: Double
-    let value: Double
-
-    var body: some View {
-        GeometryReader { geo in
-            let minT = min(low, value) - 4, maxT = max(high, value) + 4
-            let span = max(maxT - minT, 1)
-            let x: (Double) -> CGFloat = { CGFloat(($0 - minT) / span) * geo.size.width }
-            ZStack(alignment: .leading) {
-                Capsule().fill(Color.dsFill2).frame(height: 6)
-                Capsule().fill(Color.dsScoreGood.opacity(0.7))
-                    .frame(width: max(4, x(high) - x(low)), height: 6)
-                    .offset(x: x(low))
-                Circle().fill(Color.dsText)
-                    .frame(width: 12, height: 12)
-                    .offset(x: x(value) - 6)
-            }
-            .frame(maxHeight: .infinity)
-        }
-        .frame(height: 34)
-        .accessibilityHidden(true)
-    }
-}
-
-/// The day's tide curve with the catch time marked.
-private struct TideSpark: View {
-    let points: [TideEngine.TidePoint]
-    let at: Date
-
-    var body: some View {
-        GeometryReader { geo in
-            let w = geo.size.width, h = geo.size.height
-            let n = max(points.count - 1, 1)
-            Path { p in
-                for (i, pt) in points.enumerated() {
-                    let pos = CGPoint(x: CGFloat(i) / CGFloat(n) * w,
-                                      y: h / 2 - CGFloat(pt.height) * (h / 2 - 3))
-                    if i == 0 { p.move(to: pos) } else { p.addLine(to: pos) }
-                }
-            }
-            .stroke(Color.blue, style: StrokeStyle(lineWidth: 2, lineCap: .round))
-            if let i = points.firstIndex(where: { $0.time >= at }) {
-                Circle().fill(Color.dsText)
-                    .frame(width: 8, height: 8)
-                    .position(x: CGFloat(i) / CGFloat(n) * w,
-                              y: h / 2 - CGFloat(points[i].height) * (h / 2 - 3))
-            }
-        }
-        .frame(height: 34)
-        .accessibilityHidden(true)
-    }
-}
-
-/// Tags that wrap onto a new line when they run out of room.
-private struct FlowTags: Layout {
-    var spacing: CGFloat = 6
-
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let width = proposal.width ?? .infinity
-        var x: CGFloat = 0, y: CGFloat = 0, rowH: CGFloat = 0, maxX: CGFloat = 0
-        for s in subviews {
-            let size = fitted(s, width)
-            if x > 0 && x + size.width > width { x = 0; y += rowH + spacing; rowH = 0 }
-            x += size.width + spacing
-            rowH = max(rowH, size.height)
-            maxX = max(maxX, x - spacing)
-        }
-        return CGSize(width: maxX, height: y + rowH)
-    }
-
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        var x = bounds.minX, y = bounds.minY, rowH: CGFloat = 0
-        for s in subviews {
-            let size = fitted(s, bounds.width)
-            if x > bounds.minX && x + size.width > bounds.maxX { x = bounds.minX; y += rowH + spacing; rowH = 0 }
-            s.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
-            x += size.width + spacing
-            rowH = max(rowH, size.height)
-        }
-    }
-
-    /// A tag's natural size, or wrapped to the row when it is wider.
-    private func fitted(_ s: LayoutSubview, _ width: CGFloat) -> CGSize {
-        let natural = s.sizeThatFits(.unspecified)
-        guard natural.width > width, width.isFinite else { return natural }
-        return s.sizeThatFits(ProposedViewSize(width: width, height: nil))
     }
 }
 

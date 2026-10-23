@@ -1809,7 +1809,9 @@ struct SharedSpotDetailView: View {
 // MARK: - Community catch detail
 
 /// A single community catch, pushed from a friend's profile, a trip or a
-/// leaderboard row. Resolves species artwork by name where possible.
+/// leaderboard row: the read-only version of a catch page. Photo cover, title
+/// block, grouped rows, then the approximate area and directions. Tinted with
+/// the species' art colour when the name resolves to a known species.
 struct CommunityCatchDetailView: View {
     let row: CommunityService.LeaderRow
     @Environment(AppState.self) private var appState
@@ -1825,55 +1827,12 @@ struct CommunityCatchDetailView: View {
 
     private var page: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                hero
-                    .padding(.horizontal, DS.gutter)
-                    .padding(.top, DS.Space.s2)
-                DetailHeader(over: row.date.formatted(date: .abbreviated, time: .omitted),
-                             title: row.species,
-                             subtitle: "Caught by \(row.anglerName)")
-                    .padding(.top, DS.Space.s4)
-
-                LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible())], spacing: 10) {
-                    if let w = row.weightKg {
-                        let p = Units.weightParts(kg: w, imperial: imperial)
-                        StatTile("Weight", systemImage: "scalemass", value: p.0, unit: p.1, width: nil)
-                    }
-                    if let l = row.lengthCm {
-                        let p = Units.lengthParts(cm: l, imperial: imperial)
-                        StatTile("Length", systemImage: "ruler", value: p.0, unit: p.1, width: nil)
-                    }
-                }
-                .padding(.horizontal, DS.gutter)
-                .padding(.top, DS.Space.s5)
-
-                if let coord = row.coordinate {
-                    CrewSection(title: "Where", detail: row.region.isEmpty ? nil : row.region) {
-                        CommunityCatchMap(coordinate: coord)
-                            .frame(height: 170)
-                            .clipShape(RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
-                            .overlay(alignment: .bottomLeading) {
-                                Label("Approximate area", systemImage: "location.circle")
-                                    .font(.footnote.weight(.medium))
-                                    .padding(.horizontal, 10).padding(.vertical, 6)
-                                    .glassEffect(.regular, in: Capsule())
-                                    .padding(10)
-                            }
-                            .padding(.horizontal, DS.gutter)
-                        DriveToButton(coordinate: coord, name: row.species)
-                            .padding(.horizontal, DS.gutter)
-                            .padding(.top, DS.Space.s3)
-                    }
-                } else if !row.region.isEmpty {
-                    SectionFootnote(row.region)
-                        .padding(.top, DS.Space.s3)
-                }
-            }
-            .padding(.bottom, DS.Space.s6)
-            .pageWidth()
+            content
+                .padding(.bottom, DS.Space.s8)
+                .pageWidth()
         }
         .detailTint(species?.artTint)
-        .navigationTitle("Catch")
+        .navigationTitle(row.species)
         .navigationBarTitleDisplayMode(.inline)
         .fullScreenCover(isPresented: $showingFullscreen) {
             if let photo { FullscreenImageViewer(image: photo) }
@@ -1888,22 +1847,80 @@ struct CommunityCatchDetailView: View {
         }
     }
 
-    @ViewBuilder private var hero: some View {
+    private var content: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            cover
+                .padding(.horizontal, DS.gutter)
+                .padding(.top, DS.Space.s2)
+            DetailHeader(over: row.date.formatted(date: .long, time: .omitted),
+                         title: row.species,
+                         subtitle: "Caught by \(row.anglerName)")
+                .padding(.top, DS.Space.s4)
+
+            SectionTitle("The catch")
+                .padding(.top, DS.Space.s8)
+            KeyValueList(rows: catchRows)
+
+            whereSection
+        }
+    }
+
+    private var catchRows: [KeyValueList.Row] {
+        var rows: [KeyValueList.Row] = []
+        if let l = row.lengthCm {
+            rows.append(.init(label: "Length", value: Units.length(cm: l, imperial: imperial)))
+        }
+        if let w = row.weightKg {
+            rows.append(.init(label: "Weight", value: Units.weight(kg: w, imperial: imperial)))
+        }
+        rows.append(.init(label: "Caught", value: row.date.formatted(date: .abbreviated, time: .omitted)))
+        if !row.region.isEmpty {
+            rows.append(.init(label: "Region", value: row.region))
+        }
+        return rows
+    }
+
+    @ViewBuilder private var whereSection: some View {
+        if let coord = row.coordinate {
+            SectionTitle("Where")
+                .padding(.top, DS.Space.s8)
+            CommunityCatchMap(coordinate: coord, tint: species?.artTint ?? DS.accent)
+                .frame(height: 170)
+                .clipShape(RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
+                .accessibilityLabel("Map of the approximate area")
+                .padding(.horizontal, DS.gutter)
+            SectionFootnote("Approximate area. \(row.anglerName) shares a rough location, not the exact spot.")
+            DirectionsButton(coordinate: coord, name: row.region.isEmpty ? row.species : row.region)
+                .padding(.horizontal, DS.gutter)
+                .padding(.top, DS.Space.s3)
+        }
+    }
+
+    /// The photo fills the cover like your own catch; no photo shows the
+    /// species art on its colour.
+    @ViewBuilder private var cover: some View {
         if let photo {
-            // Fit the whole photo (no crop); tap to view fullscreen and zoom.
             Button { showingFullscreen = true } label: {
-                Image(uiImage: photo)
-                    .resizable().scaledToFit()
-                    .frame(maxWidth: .infinity)
-                    .frame(maxHeight: 360)
+                Color.clear
+                    .overlay {
+                        Image(uiImage: photo)
+                            .resizable()
+                            .scaledToFill()
+                    }
+                    .frame(height: 340)
                     .clipShape(RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
+                    .contentShape(RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
             }
             .buttonStyle(.dim)
-            .accessibilityLabel("View photo full screen")
+            .accessibilityLabel("Photo of the catch")
+            .accessibilityHint("Opens the photo full screen")
         } else if let species {
-            ThumbView(species: species, size: 160)
-        } else {
-            ThumbView(systemImage: "fish.fill", tint: DS.accent, size: 160)
+            SpeciesArtworkView(species: species, caught: true, size: 200)
+                .frame(maxWidth: .infinity)
+                .frame(height: 240)
+                .background(species.artTint.opacity(0.18),
+                            in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
+                .accessibilityHidden(true)
         }
     }
 }
@@ -1914,19 +1931,17 @@ struct CommunityCatchDetailView: View {
 /// location, with a soft radius circle to signal it's an approximate area.
 private struct CommunityCatchMap: View {
     let coordinate: CLLocationCoordinate2D
+    var tint: Color = DS.accent
+
     var body: some View {
         Map(initialPosition: .region(MKCoordinateRegion(
             center: coordinate,
             span: MKCoordinateSpan(latitudeDelta: 0.08, longitudeDelta: 0.08)))) {
-            Annotation("", coordinate: coordinate) {
-                Image(systemName: "mappin.circle.fill")
-                    .font(.title2).foregroundStyle(DS.accent)
-                    .background(Circle().fill(.white))
-            }
             MapCircle(center: coordinate, radius: 3500)
-                .foregroundStyle(DS.accent.opacity(0.12))
-                .stroke(DS.accent.opacity(0.5), lineWidth: 1)
+                .foregroundStyle(tint.opacity(0.18))
+                .stroke(tint.opacity(0.7), lineWidth: 1.5)
         }
+        .mapStyle(.standard(pointsOfInterest: .excludingAll))
         .disabled(true)
     }
 }
