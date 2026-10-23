@@ -149,8 +149,11 @@ class Client:
                     method, url, params=params, json=body, timeout=60,
                     headers={"Authorization": f"Bearer {self._auth()}"},
                 )
-            except requests.ConnectionError as exc:
-                if attempt == 5:
+            except (requests.ConnectionError, requests.Timeout) as exc:
+                # A POST that timed out may still have created something, so
+                # only reads and idempotent writes are sent again.
+                timed_out = isinstance(exc, requests.Timeout) and not isinstance(exc, requests.ConnectTimeout)
+                if attempt == 5 or (timed_out and method == "POST"):
                     raise ASCError(f"{method} {path}: {exc}") from exc
                 time.sleep(delay)
                 delay *= 2
@@ -220,7 +223,13 @@ def upload_asset(api: Client, create_path: str, body: dict, file: Path, patch_ty
         headers = {h["name"]: h["value"] for h in op.get("requestHeaders") or []}
         chunk = data[op["offset"]: op["offset"] + op["length"]]
         for attempt in range(5):
-            resp = requests.request(op["method"], op["url"], data=chunk, headers=headers, timeout=120)
+            try:
+                resp = requests.request(op["method"], op["url"], data=chunk, headers=headers, timeout=120)
+            except (requests.ConnectionError, requests.Timeout) as exc:
+                if attempt == 4:
+                    raise ASCError(f"upload of {file.name} failed: {exc}") from exc
+                time.sleep(2 ** attempt)
+                continue
             if resp.status_code < 400:
                 break
             if attempt == 4 or (resp.status_code < 500 and resp.status_code != 429):
