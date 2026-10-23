@@ -10,27 +10,15 @@ enum AboutRoute: Hashable {
 /// price. Tips unlock nothing.
 struct TipJarView: View {
     @Environment(\.purchase) private var purchase
-    @State private var titleShown = false
 
     private var jar: TipJar { TipJar.shared }
 
     var body: some View {
-        List {
-            Section {
-                DetailHeader(title: "Leave a tip",
-                             subtitle: "Tips unlock nothing. They help keep Currents free, with no ads.")
-                    .padding(.bottom, DS.Space.s2)
-                    .pfBareRow()
-            }
-
+        TodayPage("Leave a tip", subtitle: "Tips unlock nothing. They keep Currents free.") {
             if jar.products.isEmpty {
-                Section {
-                    ContentUnavailableView("Tips are not available right now", systemImage: "heart",
-                                           description: Text("Check your connection and try again later."))
-                        .pfBareRow()
-                }
+                InlineEmpty(systemImage: "heart", text: "Tips are not available right now. Try again later.")
             } else {
-                Section {
+                CardSection(note: note) {
                     ForEach(Array(jar.products.enumerated()), id: \.element.id) { index, product in
                         TipRow(product: product, systemImage: Self.icon(index),
                                isBuying: jar.purchasing == product.id,
@@ -38,18 +26,9 @@ struct TipJarView: View {
                             Task { await jar.buy(product, with: purchase) }
                         }
                     }
-                } footer: {
-                    if let note {
-                        PFFootnote(note)
-                    }
                 }
-                .pfRows()
             }
         }
-        .pfGroupedList()
-        .detailTint(nil)
-        .pfTrackScroll($titleShown)
-        .pfScrollTitle("Leave a tip", shown: titleShown)
         .task {
             if jar.state != .loaded { await jar.load() }
         }
@@ -82,7 +61,7 @@ private struct TipRow: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: 14) {
-                PFIcon(systemImage: systemImage, color: .pink)
+                TintIcon(systemImage: systemImage, tint: .pink)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(product.displayName)
                         .foregroundStyle(.dsText)
@@ -109,6 +88,8 @@ private struct TipRow: View {
                 .frame(minHeight: 32)
                 .background(Color.dsPrimaryButton, in: Capsule())
             }
+            .padding(.horizontal, DS.Space.s4)
+            .padding(.vertical, 10)
             .contentShape(Rectangle())
         }
         .buttonStyle(.dim)
