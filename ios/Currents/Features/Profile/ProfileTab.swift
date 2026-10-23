@@ -592,49 +592,32 @@ struct StorageSettingsView: View {
     @State private var showingCSVImport = false
     @State private var importMessage: String?
     @State private var showingImportAlert = false
-    @State private var titleShown = false
     @State private var usage: StorageUsage?
 
     var body: some View {
-        List {
-            Section {
-                DetailHeader(title: "Storage and backups",
-                             subtitle: usage.map { "\(StorageUsage.format($0.total)) on this phone" }
-                                ?? "What Currents keeps on this phone.")
-                    .padding(.bottom, DS.Space.s2)
-                    .pfBareRow()
-                StorageUsageBar(usage: usage)
-                    .padding(.horizontal, DS.gutter)
-                    .padding(.bottom, DS.Space.s2)
-                    .pfBareRow()
-            }
-
-            Section {
+        TodayPage("Storage and backups",
+                  subtitle: usage.map { "\(StorageUsage.format($0.total)) on this phone" } ?? "On this phone") {
+            StorageUsageBar(usage: usage)
+                .padding(.horizontal, DS.gutter)
+            CardSection("Maps") {
                 NavigationLink(value: SettingsRoute.offlineMaps) {
-                    PFRowLabel(title: "Offline maps", systemImage: "map.fill", color: .green,
-                               value: usage.map { StorageUsage.format($0.maps) })
+                    CardRow("Offline maps", subtitle: "Downloads and cached tiles", systemImage: "map.fill",
+                            tint: .green, value: usage.map { StorageUsage.format($0.maps) }, chevron: true)
                 }
-            } footer: {
-                Text("Downloaded maps and the satellite tiles cached as you browse.")
+                .buttonStyle(.dsCardRow)
             }
-            .pfRows()
-
             backupSection
-
-            Section("Data") {
+            CardSection("Data") {
                 Button { exportAllData() } label: {
-                    PFRowLabel(title: "Export all data", systemImage: "tablecells.fill", color: .green, value: "CSV")
+                    CardRow("Export all data", systemImage: "tablecells.fill", tint: .green, value: "CSV")
                 }
+                .buttonStyle(.dsCardRow)
                 Button { showingCSVImport = true } label: {
-                    PFRowLabel(title: "Import catches", systemImage: "square.and.arrow.down.fill", color: .blue, value: "CSV")
+                    CardRow("Import catches", systemImage: "square.and.arrow.down.fill", tint: .blue, value: "CSV")
                 }
+                .buttonStyle(.dsCardRow)
             }
-            .pfRows()
         }
-        .pfGroupedList()
-        .detailTint(nil)
-        .pfTrackScroll($titleShown)
-        .pfScrollTitle("Storage and backups", shown: titleShown)
         .task { await load() }
         .sheet(isPresented: $showingHistory) { historySheet }
         .sheet(item: $exportURL) { url in
@@ -675,90 +658,58 @@ struct StorageSettingsView: View {
     // MARK: Backups
 
     private var backupSection: some View {
-        Section {
-            PFToggleRow(title: "Automatic daily backup",
-                        detail: iCloudAvailable ? "Daily, on this phone and to iCloud" : "Daily, on this phone",
-                        isOn: $autoBackupEnabled)
-
+        CardSection("Backups", note: backupMessage ?? "Catches, photos, spots, gear and licences.") {
+            CardToggleRow("Automatic daily backup",
+                          subtitle: iCloudAvailable ? "On this phone and to iCloud" : "On this phone",
+                          systemImage: "clock.arrow.circlepath", tint: .blue, isOn: $autoBackupEnabled)
             Button { backUpNow() } label: {
-                HStack {
-                    Text(isBackingUp ? "Backing up" : "Back up now")
-                        .foregroundStyle(.tint)
-                    Spacer()
+                CardRow(isBackingUp ? "Backing up" : "Back up now", systemImage: "icloud.and.arrow.up.fill",
+                        tint: .cyan, value: isBackingUp ? nil : dbSize) {
                     if isBackingUp { ProgressView() }
-                    else if let dbSize {
-                        Text(dbSize).foregroundStyle(.dsText2)
-                    }
                 }
             }
+            .buttonStyle(.dsCardRow)
             .disabled(isBackingUp || isRestoring)
-
             if let date = lastBackupDate {
-                LabeledContent("Last backup") {
+                CardRow("Last backup", systemImage: "checkmark.circle.fill", tint: .green) {
                     Text(date, format: .relative(presentation: .named))
+                        .foregroundStyle(.dsText2)
                 }
             }
-
             if iCloudAvailable {
                 Button { showingRestoreConfirm = true } label: {
-                    HStack {
-                        Text("Restore from iCloud").foregroundStyle(.dsText)
-                        Spacer()
+                    CardRow("Restore from iCloud", systemImage: "arrow.counterclockwise.icloud.fill", tint: .orange) {
                         if isRestoring { ProgressView() }
                     }
                 }
+                .buttonStyle(.dsCardRow)
                 .disabled(isBackingUp || isRestoring)
             }
-
             if !snapshots.isEmpty {
                 Button { showingHistory = true } label: {
-                    HStack {
-                        Text("Backup history").foregroundStyle(.dsText)
-                        Spacer()
-                        Text("\(snapshots.count)").foregroundStyle(.dsText2)
-                        Image(systemName: "chevron.right")
-                            .font(.footnote.weight(.semibold))
-                            .foregroundStyle(.dsText3)
-                    }
+                    CardRow("Backup history", systemImage: "clock.fill", tint: .purple,
+                            value: "\(snapshots.count)", chevron: true)
                 }
-            }
-        } header: {
-            Text("Backups")
-        } footer: {
-            if let msg = backupMessage {
-                Text(msg)
-            } else {
-                Text("Backups include catches, photos, spots, gear and licences.")
+                .buttonStyle(.dsCardRow)
             }
         }
-        .pfRows()
     }
 
     private var historySheet: some View {
         NavigationStack {
-            List {
-                Section {
+            ScrollView {
+                CardSection(note: "The latest automatic backups on this phone.") {
                     ForEach(snapshots) { snap in
-                        HStack {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(snap.date.formatted(date: .abbreviated, time: .shortened))
-                                    .foregroundStyle(.dsText)
-                                Text(snap.formattedSize)
-                                    .font(.subheadline)
-                                    .foregroundStyle(.dsText2)
-                            }
-                            Spacer()
+                        CardRow(snap.date.formatted(date: .abbreviated, time: .shortened),
+                                subtitle: snap.formattedSize, systemImage: "externaldrive.fill", tint: .mint) {
                             Button("Restore") { restoreSnapshot = snap }
                                 .buttonStyle(TonalButtonStyle(fullWidth: false))
                                 .disabled(isBackingUp || isRestoring)
                         }
                     }
-                } footer: {
-                    Text("The latest automatic backups on this phone.")
                 }
-                .pfRows()
+                .padding(.vertical, DS.Space.s4)
             }
-            .pfGroupedList()
             .dsScreenBackground()
             .detailScrollEdge()
             .navigationTitle("Backup history")
