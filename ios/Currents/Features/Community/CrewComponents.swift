@@ -95,9 +95,10 @@ enum CrewReactionStyle {
     static func tint(_ emoji: String) -> Color {
         switch emoji {
         case "🔥": .dsScoreLow  // ui-lint: allow, reaction emoji are user content
-        case "🎣": DS.accent  // ui-lint: allow, reaction emoji are user content
+        case "🎣": .teal  // ui-lint: allow, reaction emoji are user content
         case "👏": .dsScoreFair  // ui-lint: allow, reaction emoji are user content
-        case "😮": .dsScoreGood  // ui-lint: allow, reaction emoji are user content
+        case "😮": .pink  // ui-lint: allow, reaction emoji are user content
+        case "🐟": .blue  // ui-lint: allow, reaction emoji are user content
         default: DS.accent
         }
     }
@@ -329,9 +330,9 @@ struct CrewFeedRow: View {
             let total = post.reactions.count
             if total > 0 {
                 HStack(spacing: 4) {
-                    Image(systemName: "flame")
+                    Image(systemName: "flame.fill")
                         .font(.subheadline)
-                        .foregroundStyle(.dsText2)
+                        .foregroundStyle(CrewReactionStyle.tint("🔥")) // ui-lint: allow, reaction key stored as emoji
                     Text("\(total)")
                         .font(.subheadline.weight(.medium))
                         .foregroundStyle(.dsText2)
@@ -353,7 +354,7 @@ struct CrewFeedRow: View {
         } else if let sp = SpeciesArtLookup.species(named: post.species, appState: appState) {
             ThumbView(species: sp)
         } else {
-            ThumbView(systemImage: "fish.fill", tint: DS.accent)
+            ThumbView(systemImage: "fish.fill", tint: CrewTint.fish)
         }
     }
 }

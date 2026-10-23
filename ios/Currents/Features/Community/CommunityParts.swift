@@ -214,6 +214,53 @@ struct StatStrip<Content: View>: View {
     }
 }
 
+// MARK: - Reaction tile
+
+/// One reaction on a crew catch: the symbol in its own colour on a faint
+/// tile of the same colour, with the count under it. Yours fills stronger
+/// and gets a ring in the colour.
+struct CrewReactionTile: View {
+    let emoji: String
+    let count: Int
+    let selected: Bool
+    let action: () -> Void
+
+    @Environment(\.colorScheme) private var scheme
+
+    private var tint: Color { CrewReactionStyle.tint(emoji) }
+    private var shape: RoundedRectangle { RoundedRectangle(cornerRadius: DS.Radius.button, style: .continuous) }
+    private var fillOpacity: Double {
+        if selected { return scheme == .dark ? 0.34 : 0.26 }
+        return DS.thumbTintOpacity(scheme) * 0.6
+    }
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 4) {
+                Image(systemName: CrewReactionStyle.symbol(emoji))
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(tint)
+                    .symbolEffect(.bounce, value: selected)
+                Text(count > 0 ? "\(count)" : " ")
+                    .font(.footnote.weight(.semibold))
+                    .monospacedDigit()
+                    .foregroundStyle(selected ? Color.dsText : Color.dsText2)
+                    .contentTransition(.numericText())
+            }
+            .frame(maxWidth: .infinity, minHeight: 62)
+            .background(tint.opacity(fillOpacity), in: shape)
+            .overlay {
+                if selected { shape.strokeBorder(tint, lineWidth: 1.5) }
+            }
+            .contentShape(shape)
+        }
+        .buttonStyle(.dim)
+        .buttonHaptic(.toggle)
+        .accessibilityLabel("\(CrewReactionStyle.name(emoji)), \(count)")
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+}
+
 // MARK: - Palette
 
 /// The symbol colours the Crew pages share, so a fish is always blue and a

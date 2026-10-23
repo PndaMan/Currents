@@ -2057,7 +2057,7 @@ struct CommunityCatchThumb: View {
             } else if let species {
                 ThumbView(species: species, size: size)
             } else {
-                ThumbView(systemImage: "fish.fill", tint: DS.accent, size: size)
+                ThumbView(systemImage: "fish.fill", tint: CrewTint.fish, size: size)
             }
         }
         .accessibilityHidden(true)

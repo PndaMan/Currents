@@ -1558,29 +1558,29 @@ struct CrewPostSheet: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
-                    hero
-                        .padding(.horizontal, DS.gutter)
-                        .padding(.top, DS.Space.s2)
-                    DetailHeader(over: post.caughtAt.formatted(.relative(presentation: .named)),
-                                 title: CrewText.catchTitle(species: post.species, lengthCm: post.lengthCm, weightKg: post.weightKg),
-                                 subtitle: post.tripName.isEmpty ? crew?.name : "On \(post.tripName)")
-                        .padding(.top, DS.Space.s4)
-
-                    NavigationLink {
-                        FriendProfileView(code: post.authorCode)
-                    } label: {
-                        ArtRow(over: "Caught by", title: isMine ? "You" : post.authorName, chevron: true) {
-                            CrewAvatar(image: isMine ? svc.myAvatar : svc.cachedProfiles(for: [post.authorCode]).first?.avatar,
-                                       name: post.authorName, size: 44)
-                        }
+                    if post.hasPhoto {
+                        hero
+                            .padding(.horizontal, DS.gutter)
+                            .padding(.top, DS.Space.s2)
+                            .padding(.bottom, DS.Space.s5)
                     }
-                    .buttonStyle(.dsRow)
-                    .padding(.top, DS.Space.s3)
-
+                    CommunityHero(label: post.caughtAt.formatted(.relative(presentation: .named)),
+                                  title: CrewText.catchTitle(species: post.species, lengthCm: post.lengthCm,
+                                                             weightKg: post.weightKg),
+                                  line: post.tripName.isEmpty ? crew?.name : "On \(post.tripName)") {
+                        if !post.hasPhoto { hero }
+                    }
+                    .padding(.top, post.hasPhoto ? 0 : DS.Space.s2)
                     captionBlock
-                    reactionRow
-                        .padding(.top, DS.Space.s5)
                     sizeTiles
+                    SectionTitle("Reactions")
+                        .padding(.top, DS.Space.s6)
+                    reactionRow
+                    GroupedCard { commentsRow }
+                        .padding(.top, DS.Space.s3)
+                    SectionTitle("Caught by")
+                        .padding(.top, DS.Space.s6)
+                    GroupedCard { authorRow }
                 }
                 .padding(.bottom, DS.Space.s6)
                 .pageWidth()
@@ -1652,9 +1652,9 @@ struct CrewPostSheet: View {
             .zoomableOnTap(photo)
             .accessibilityLabel("Catch photo")
         } else if let sp = SpeciesArtLookup.species(named: post.species, appState: appState) {
-            ThumbView(species: sp, size: 120)
+            ThumbView(species: sp, size: 100)
         } else {
-            ThumbView(systemImage: "fish.fill", tint: DS.accent, size: 120)
+            ThumbView(systemImage: "fish.fill", tint: CrewTint.fish, size: 100)
         }
     }
 
@@ -1678,11 +1678,11 @@ struct CrewPostSheet: View {
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible())], spacing: 10) {
                 if let w = post.weightKg {
                     let p = Units.weightParts(kg: w)
-                    StatTile("Weight", systemImage: "scalemass", value: p.0, unit: p.1, width: nil)
+                    StatTile("Weight", systemImage: "scalemass.fill", tint: CrewTint.weight, value: p.0, unit: p.1, width: nil)
                 }
                 if let l = post.lengthCm {
                     let p = Units.lengthParts(cm: l)
-                    StatTile("Length", systemImage: "ruler", value: p.0, unit: p.1, width: nil)
+                    StatTile("Length", systemImage: "ruler.fill", tint: CrewTint.length, value: p.0, unit: p.1, width: nil)
                 }
             }
             .padding(.horizontal, DS.gutter)
@@ -1712,61 +1712,58 @@ struct CrewPostSheet: View {
         .accessibilityLabel("More")
     }
 
-    /// The five reactions, always visible, tap to toggle. Counts appear once
-    /// someone's used one; yours is filled. Comments sit at the end.
+    /// The five reactions as tiles, always visible, tap to toggle. Each symbol
+    /// sits on a faint tile of its own colour; yours fills stronger with a
+    /// ring. Counts show once someone's used one.
     private var reactionRow: some View {
         let grouped = Dictionary(grouping: reactions, by: \.emoji)
         let mine = reactions.first { $0.reactorCode == svc.friendCode }?.emoji
-        let commentCount = localCommentCount ?? post.commentCount ?? 0
-        return ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: DS.Space.s2) {
-                ForEach(CommunityService.crewReactionEmojis, id: \.self) { emoji in
-                    let count = grouped[emoji]?.count ?? 0
-                    let selected = mine == emoji
-                    Button { toggle(emoji) } label: {
-                        HStack(spacing: 5) {
-                            Image(systemName: CrewReactionStyle.symbol(emoji))
-                                .font(.body.weight(.semibold))
-                                .foregroundStyle(selected ? CrewReactionStyle.tint(emoji) : .dsText2)
-                                .symbolEffect(.bounce, value: selected)
-                            if count > 0 {
-                                Text("\(count)")
-                                    .font(.subheadline.weight(.semibold))
-                                    .monospacedDigit()
-                                    .foregroundStyle(selected ? Color.dsText : Color.dsText2)
-                                    .contentTransition(.numericText())
-                            }
-                        }
-                        .padding(.horizontal, 14)
-                        .frame(minHeight: 44)
-                        .background(selected ? CrewReactionStyle.tint(emoji).opacity(0.2) : Color.dsFill,
-                                    in: Capsule())
-                    }
-                    .buttonStyle(.dim)
-                    .buttonHaptic(.toggle)
-                    .accessibilityLabel("\(CrewReactionStyle.name(emoji)), \(count)")
-                    .accessibilityAddTraits(selected ? .isSelected : [])
-                }
-                Button {
-                    showingComments = true
-                } label: {
-                    HStack(spacing: 5) {
-                        Image(systemName: "bubble.right")
-                            .font(.body.weight(.semibold))
-                        Text(commentCount > 0 ? "\(commentCount)" : "Comment")
-                            .font(.subheadline.weight(.semibold))
-                            .monospacedDigit()
-                    }
-                    .foregroundStyle(.dsText)
-                    .padding(.horizontal, 14)
-                    .frame(minHeight: 44)
-                    .background(Color.dsFill, in: Capsule())
-                }
-                .buttonStyle(.dim)
-                .accessibilityLabel(commentCount == 1 ? "1 comment" : "\(commentCount) comments")
+        return HStack(spacing: DS.Space.s2) {
+            ForEach(CommunityService.crewReactionEmojis, id: \.self) { emoji in
+                CrewReactionTile(emoji: emoji, count: grouped[emoji]?.count ?? 0,
+                                 selected: mine == emoji) { toggle(emoji) }
             }
-            .padding(.horizontal, DS.gutter)
         }
+        .padding(.horizontal, DS.gutter)
+    }
+
+    private var commentsRow: some View {
+        let count = localCommentCount ?? post.commentCount ?? 0
+        return Button { showingComments = true } label: {
+            IconLinkRow("Comments", subtitle: count == 0 ? "Start the conversation" : nil,
+                        systemImage: "bubble.left.and.bubble.right.fill", tint: .blue,
+                        value: count > 0 ? "\(count)" : nil)
+        }
+        .buttonStyle(.dim)
+        .accessibilityLabel(count == 1 ? "1 comment" : "\(count) comments")
+    }
+
+    private var authorRow: some View {
+        NavigationLink {
+            FriendProfileView(code: post.authorCode)
+        } label: {
+            HStack(spacing: DS.Space.s3) {
+                CrewAvatar(image: isMine ? svc.myAvatar : svc.cachedProfiles(for: [post.authorCode]).first?.avatar,
+                           name: post.authorName, size: 44)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(isMine ? "You" : post.authorName)
+                        .font(.body.weight(.medium))
+                        .foregroundStyle(.dsText)
+                    Text(isMine ? "Your catch" : "See their profile")
+                        .font(.footnote)
+                        .foregroundStyle(.dsText2)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                Image(systemName: "chevron.right")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.dsText3)
+            }
+            .padding(.horizontal, DS.Space.s4)
+            .padding(.vertical, 10)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.dim)
+        .accessibilityElement(children: .combine)
     }
 
     private func toggle(_ emoji: String) {
@@ -1839,12 +1836,23 @@ struct CrewCommentsSheet: View {
             VStack(spacing: 0) {
                 if loading && comments.isEmpty {
                     Spacer()
-                    ProgressView()
+                    FishLoader(message: "Loading comments")
+                        .frame(height: 120)
                     Spacer()
                 } else if comments.isEmpty {
                     Spacer()
-                    ContentUnavailableView("No comments yet", systemImage: "bubble.left.and.bubble.right",
-                                           description: Text("Say something about this \(post.species.lowercased())."))
+                    VStack(spacing: DS.Space.s3) {
+                        ThumbView(systemImage: "bubble.left.and.bubble.right.fill", tint: .blue, size: 72)
+                        Text("No comments yet")
+                            .font(.title3.weight(.semibold))
+                            .foregroundStyle(.dsText)
+                        Text("Say something about this \(post.species.lowercased()).")
+                            .font(.callout)
+                            .foregroundStyle(.dsText2)
+                            .multilineTextAlignment(.center)
+                    }
+                    .padding(.horizontal, DS.gutter)
+                    .accessibilityElement(children: .combine)
                     Spacer()
                 } else {
                     ScrollViewReader { proxy in
@@ -1894,19 +1902,25 @@ struct CrewCommentsSheet: View {
         return HStack(alignment: .top, spacing: 10) {
             CrewAvatar(image: mine ? svc.myAvatar : svc.cachedProfiles(for: [comment.authorCode]).first?.avatar,
                        name: comment.authorName, size: isReply ? 28 : 34)
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 6) {
-                    Text(mine ? "You" : comment.authorName)
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.dsText)
-                    Text(comment.createdAt.formatted(.relative(presentation: .named)))
-                        .font(.footnote).foregroundStyle(.dsText3)
-                    if comment.editedAt != nil {
-                        Text("Edited")
-                            .font(.footnote).foregroundStyle(.dsText3)
+            VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 6) {
+                        Text(mine ? "You" : comment.authorName)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.dsText)
+                        Text(comment.createdAt.formatted(.relative(presentation: .named)))
+                            .font(.footnote).foregroundStyle(.dsText2)
+                        if comment.editedAt != nil {
+                            Text("Edited")
+                                .font(.footnote).foregroundStyle(.dsText2)
+                        }
                     }
+                    Text(comment.text).font(.body).foregroundStyle(.dsText)
                 }
-                Text(comment.text).font(.body).foregroundStyle(.dsText)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .background(mine ? DS.accent.opacity(0.14) : Color.dsFill,
+                            in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
                 // Reply sits under the comment, always visible.
                 Button {
                     editing = nil
@@ -1918,7 +1932,7 @@ struct CrewCommentsSheet: View {
                         .foregroundStyle(DS.accent)
                 }
                 .buttonStyle(.dim)
-                .padding(.top, 1)
+                .padding(.leading, 14)
             }
             Spacer(minLength: 0)
             if mine || canModerate {
@@ -2084,13 +2098,13 @@ struct JoinCrewConfirmView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     if svc.joined {
-                        CrewThumb(code: code.uppercased(), emoji: crew?.emoji, size: 96)
-                            .padding(.horizontal, DS.gutter)
-                            .padding(.top, DS.Space.s4)
-                        DetailHeader(over: "Crew invite",
-                                     title: crew?.name ?? (loading ? "Loading crew" : "Crew"),
-                                     subtitle: subtitle)
-                            .padding(.top, DS.Space.s4)
+                        CommunityHero(label: "Crew invite",
+                                      title: crew?.name ?? (loading ? "Loading crew" : "Crew"),
+                                      line: subtitle) {
+                            CrewThumb(code: code.uppercased(), emoji: crew?.emoji, size: 92)
+                        }
+                        .padding(.top, DS.Space.s4)
+                        if let crew { inviteFacts(crew) }
                         confirmBody
                     } else {
                         joinGate
@@ -2118,8 +2132,28 @@ struct JoinCrewConfirmView: View {
 
     private var subtitle: String? {
         guard !loading else { return nil }
-        guard let crew else { return "No crew matches code \(code.uppercased())." }
-        return "\(CrewText.anglers(members)). Started by \(crew.createdByName)."
+        guard crew != nil else { return "No crew matches code \(code.uppercased())." }
+        return nil
+    }
+
+    private func inviteFacts(_ crew: CommunityService.Crew) -> some View {
+        GroupedCard {
+            IconRow("Anglers", systemImage: "person.2.fill", tint: CrewTint.people) {
+                Text("\(members)")
+                    .font(.headline)
+                    .monospacedDigit()
+                    .foregroundStyle(.dsText)
+            }
+            CardDivider()
+            IconRow("Started by", systemImage: "flag.fill", tint: .orange) {
+                Text(crew.createdByName)
+                    .font(.body)
+                    .foregroundStyle(.dsText2)
+                    .lineLimit(1)
+            }
+        }
+        .padding(.top, DS.Space.s5)
+        .accessibilityElement(children: .combine)
     }
 
     /// Not on Crew yet: the invite up top, then pick a name. Once joined,
