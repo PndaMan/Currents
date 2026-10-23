@@ -248,7 +248,7 @@ struct CrewAvatar: View {
 // MARK: - Inline empty, footnote
 
 /// An empty state that sits inside a section (Luma's "Nothing planned yet"),
-/// with an optional action.
+/// with an optional action. It draws the design system's `InlineEmpty`.
 struct CrewInlineEmpty: View {
     let systemImage: String
     let text: String
@@ -256,38 +256,16 @@ struct CrewInlineEmpty: View {
     var action: (() -> Void)? = nil
 
     var body: some View {
-        HStack(alignment: .top, spacing: DS.Space.s3) {
-            Image(systemName: systemImage)
-                .font(.body)
-                .foregroundStyle(.dsText3)
-                .frame(width: 24)
-            VStack(alignment: .leading, spacing: DS.Space.s2) {
-                Text(text)
-                    .font(.subheadline)
-                    .foregroundStyle(.dsText2)
-                    .fixedSize(horizontal: false, vertical: true)
-                if let actionTitle, let action {
-                    Button(actionTitle, action: action)
-                        .buttonStyle(TonalButtonStyle(fullWidth: false))
-                }
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(DS.Space.s4)
-        .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
-        .padding(.horizontal, DS.gutter)
+        InlineEmpty(systemImage: systemImage, text: text, actionTitle: actionTitle, action: action)
     }
 }
 
+/// A short secondary note under a section: the design system's
+/// `SectionFootnote`, so long notes wrap the same way on every page.
 struct CrewFootnote: View {
     let text: String
     var body: some View {
-        Text(text)
-            .font(.footnote)
-            .foregroundStyle(.dsText2)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, DS.gutter)
-            .padding(.top, DS.Space.s2)
+        SectionFootnote(text)
     }
 }
 
@@ -491,24 +469,15 @@ struct CrewTextField: View {
 }
 
 /// A full-width red tonal button at the foot of a page (Leave crew, Remove
-/// friend). Always confirmed with a dialog by the caller.
+/// friend): the design system's `DangerButton`. Always confirmed with a
+/// dialog by the caller.
 struct CrewDangerButton: View {
     let title: String
     let systemImage: String
     let action: () -> Void
-    @Environment(\.colorScheme) private var scheme
 
     var body: some View {
-        Button(action: action) {
-            Label(title, systemImage: systemImage)
-                .font(.headline)
-                .foregroundStyle(.dsScoreSlow)
-                .frame(maxWidth: .infinity, minHeight: 52)
-                .background(Color.dsScoreSlow.opacity(scheme == .dark ? 0.18 : 0.12),
-                            in: RoundedRectangle(cornerRadius: DS.Radius.button, style: .continuous))
-        }
-        .buttonStyle(.dim)
-        .padding(.horizontal, DS.gutter)
+        DangerButton(title: title, systemImage: systemImage, action: action)
     }
 }
 
