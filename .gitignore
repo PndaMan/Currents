@@ -56,3 +56,11 @@ Currents-IPA/
 Currents-simulator/
 logo-transparent.png
 .cache/
+
+# fastlane (bundle install --path, run output, downloaded screenshots)
+ios/vendor/
+ios/build/
+ios/fastlane/report.xml
+ios/fastlane/Preview.html
+ios/fastlane/README.md
+ios/fastlane/screenshots/
