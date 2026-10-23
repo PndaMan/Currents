@@ -2,26 +2,25 @@ import SwiftUI
 
 // MARK: - App icon preview
 
-/// The home screen icon drawn in SwiftUI: the fish on the dark ground with a
-/// glow in the theme's hue, as scripts/generate_app_icons.py draws the PNGs.
+/// The home screen icon drawn in SwiftUI, as scripts/generate_app_icons.py
+/// draws the PNGs: the theme-coloured fish on white in light mode, and on the
+/// dark backdrop iOS draws behind the transparent dark icon in dark mode.
 struct AppIconPreview: View {
     let tint: Color
     var size: CGFloat = 64
+    @Environment(\.colorScheme) private var scheme
 
     var body: some View {
         RoundedRectangle(cornerRadius: size * 0.225, style: .continuous)
-            .fill(LinearGradient(colors: [Color(red: 0.09, green: 0.10, blue: 0.12), // ui-lint: allow (copies the icon art, see generate_app_icons.py)
-                                          Color(red: 0.05, green: 0.06, blue: 0.07)], // ui-lint: allow (copies the icon art, see generate_app_icons.py)
-                                 startPoint: .top, endPoint: .bottom))
-            .overlay(
-                RadialGradient(colors: [tint.opacity(0.22), tint.opacity(0)], // ui-lint: allow (the glow in the icon art)
-                               center: .center, startRadius: 0, endRadius: size * 0.5)
-            )
-            .clipShape(RoundedRectangle(cornerRadius: size * 0.225, style: .continuous))
+            .fill(scheme == .dark ? Color(white: 0.12) : .white) // ui-lint: allow (the icon's own ground, not a theme colour)
             .overlay(
                 CurrentsMark()
                     .filled(tint)
-                    .frame(width: size * 0.56, height: size * 0.56)
+                    .frame(width: size * 0.6, height: size * 0.6)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: size * 0.225, style: .continuous)
+                    .strokeBorder(Color.dsSeparator, lineWidth: scheme == .dark ? 0 : 0.5)
             )
             .frame(width: size, height: size)
             .accessibilityHidden(true)
