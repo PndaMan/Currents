@@ -841,14 +841,22 @@ struct TitleFlairChip: View {
             guard flair != nil else { return }
             showingBadge = true
         } label: {
-            Label {
-                Text(flair?.name ?? title)
-                    .foregroundStyle(.dsText)
-            } icon: {
-                Image(systemName: flair?.icon ?? "rosette")
-                    .foregroundStyle(tint)
+            if let flair {
+                TitleBadge(flair: flair, subtitle: "Unlocked by \(flair.achievement)") {
+                    Image(systemName: "chevron.right")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.dsText3)
+                }
+            } else {
+                Label {
+                    Text(title)
+                        .foregroundStyle(.dsText)
+                } icon: {
+                    Image(systemName: "rosette")
+                        .foregroundStyle(tint)
+                }
+                .font(.subheadline.weight(.semibold))
             }
-            .font(.subheadline.weight(.semibold))
         }
         .buttonStyle(.dim)
         .accessibilityHint("Shows the achievement that unlocked this title")
@@ -1115,40 +1123,36 @@ struct TitleFlairPickerSheet: View {
 
     private var selected: TitleFlair? { TitleFlair.resolve(selection) }
 
+    /// Titles not yet unlocked, rarest last, so the shelf shows what's still
+    /// to earn. The secret one stays secret.
+    private var locked: [TitleFlair] {
+        let earned = Set(flairs.map(\.id))
+        return TitleFlair.all
+            .filter { !earned.contains($0.id) && $0.achievement != "Bass Daddy" }
+            .sorted { $0.rarity.rawValue < $1.rarity.rawValue }
+    }
+
     var body: some View {
         NavigationStack {
-            List {
-                Button {
-                    selection = ""
-                    dismiss()
-                } label: {
-                    ArtRow(title: "No title") {
-                        ThumbView(systemImage: "xmark", tint: .dsText2, size: 44)
-                    } trailing: {
-                        if selected == nil { checkmark }
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    noTitleRow
+                    if !flairs.isEmpty {
+                        SectionTitle("Unlocked", detail: "\(flairs.count)")
+                            .padding(.top, DS.Space.s6)
+                        badges(flairs, locked: false)
+                    }
+                    if !locked.isEmpty {
+                        SectionTitle("Still to earn", detail: "\(locked.count)")
+                            .padding(.top, DS.Space.s6)
+                        badges(locked, locked: true)
                     }
                 }
-                .buttonStyle(.dsRow)
-                .buttonHaptic(.selection)
-                .dsListRow()
-                ForEach(flairs) { flair in
-                    Button {
-                        selection = flair.name
-                        dismiss()
-                    } label: {
-                        ArtRow(over: flair.rarity.label, title: flair.name,
-                               subtitle: "Unlocked by \(flair.achievement)") {
-                            ThumbView(systemImage: flair.icon, tint: flair.rarity.color, size: 44)
-                        } trailing: {
-                            if selected?.id == flair.id { checkmark }
-                        }
-                    }
-                    .buttonStyle(.dsRow)
-                    .buttonHaptic(.selection)
-                    .dsListRow()
-                }
+                .padding(.top, DS.Space.s2)
+                .padding(.bottom, DS.Space.s8)
+                .pageWidth()
             }
-            .dsPlainList()
+            .dsScreenBackground()
             .detailScrollEdge()
             .navigationTitle("Title")
             .navigationBarTitleDisplayMode(.inline)
@@ -1160,9 +1164,48 @@ struct TitleFlairPickerSheet: View {
         .presentationDragIndicator(.visible)
     }
 
+    private var noTitleRow: some View {
+        Button {
+            selection = ""
+            dismiss()
+        } label: {
+            GroupedCard {
+                IconRow("No title", subtitle: "Show only your name", systemImage: "xmark", tint: .gray) {
+                    if selected == nil { checkmark }
+                }
+            }
+        }
+        .buttonStyle(.dim)
+        .buttonHaptic(.selection)
+    }
+
+    private func badges(_ list: [TitleFlair], locked: Bool) -> some View {
+        VStack(spacing: 10) {
+            ForEach(list) { flair in
+                if locked {
+                    TitleBadge(flair: flair, subtitle: "Earn \(flair.achievement)", medallionSize: 48, locked: true)
+                } else {
+                    Button {
+                        selection = flair.name
+                        dismiss()
+                    } label: {
+                        TitleBadge(flair: flair, subtitle: "Unlocked by \(flair.achievement)", medallionSize: 48) {
+                            if selected?.id == flair.id { checkmark }
+                        }
+                    }
+                    .buttonStyle(.dim)
+                    .buttonHaptic(.selection)
+                    .accessibilityAddTraits(selected?.id == flair.id ? .isSelected : [])
+                }
+            }
+        }
+        .padding(.horizontal, DS.gutter)
+    }
+
     private var checkmark: some View {
-        Image(systemName: "checkmark")
-            .font(.body.weight(.semibold))
+        Image(systemName: "checkmark.circle.fill")
+            .font(.title3)
+            .symbolRenderingMode(.hierarchical)
             .foregroundStyle(DS.accent)
             .accessibilityLabel("Selected")
     }
