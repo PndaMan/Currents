@@ -51,6 +51,8 @@ SCREENSHOTS_DIR = Path(os.environ.get("APPSTORE_SCREENSHOTS_DIR") or ROOT / "ios
 SCREENSHOTS_SCRIPT = ROOT / "scripts" / "appstore_screenshots.sh"
 
 BADGES = {"LIVE_EVENT", "PREMIERE", "CHALLENGE", "COMPETITION", "NEW_SEASON", "MAJOR_UPDATE", "SPECIAL_EVENT"}
+EDITABLE_AFTER_DRAFT = {"territorySchedules", "priority"}
+
 PURPOSES = {
     "appropriate for all users": "APPROPRIATE_FOR_ALL_USERS",
     "attract new users": "ATTRACT_NEW_USERS",
@@ -546,6 +548,13 @@ def cmd_events(api: Client, args) -> int:
             state = current["attributes"].get("eventState")
             print(f"  exists ({event_id}, {state})")
             changes = diff_fields(current["attributes"], spec.attributes)
+            if state != "DRAFT":
+                # Past draft, Apple only takes schedule and priority changes.
+                locked = {k: v for k, v in changes.items() if k not in EDITABLE_AFTER_DRAFT}
+                for key, value in locked.items():
+                    print(f"  warning: {key} is locked while the event is {state}; "
+                          f"it stays {show_value(key, current['attributes'].get(key))}, not {show_value(key, value)}")
+                changes = {k: v for k, v in changes.items() if k in EDITABLE_AFTER_DRAFT}
             if changes:
                 api.write(
                     "PATCH", f"/v1/appEvents/{event_id}",

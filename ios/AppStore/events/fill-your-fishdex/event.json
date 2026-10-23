@@ -1,7 +1,7 @@
 {
   "reference_name": "Fishdex challenge (monthly, re-run with new dates)",
   "badge": "Challenge",
-  "purpose": "Bring back lapsed users",
+  "purpose": "Attract new users",
   "priority": "Normal",
   "deep_link": "currents://sessions",
   "territories": "all",
