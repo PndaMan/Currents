@@ -3,7 +3,7 @@
 # Since we can't run Xcode on Linux, this Makefile provides shortcuts
 # for triggering CI builds, checking status, and common dev tasks.
 
-.PHONY: help ci ci-status ci-logs lint test-local clean screenshots-frame appstore-check
+.PHONY: help ci ci-status ci-logs lint test-local clean screenshots-frame appstore-check appstore-setup appstore-status appstore-metadata appstore-screenshots appstore-events appstore-pages
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | \
@@ -37,6 +37,31 @@ screenshots-frame: ## Frame raw captures in ios/screenshots/6.9 with headlines, 
 
 appstore-check: ## Check App Store Connect text against Apple's limits
 	uv run scripts/check_appstore_metadata.py ios/AppStore/metadata
+
+# App Store Connect publishing. ASC_KEY_ID, ASC_ISSUER_ID and ASC_KEY_PATH come
+# from the environment or .env.local. Nothing here submits for review.
+ASC_ENV = scripts/with_asc_env.sh
+BUNDLER ?= $(or $(shell command -v bundle 2>/dev/null),$(firstword $(wildcard $(HOME)/.local/share/gem/ruby/*/bin/bundle)),bundle)
+BUNDLE = cd ios && $(CURDIR)/$(ASC_ENV) env LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8 FASTLANE_SKIP_UPDATE_CHECK=1 $(BUNDLER) exec fastlane
+APPLY_FLAG = $(if $(filter 1 yes true,$(APPLY)),--apply,)
+
+appstore-setup: ## Install fastlane into ios/vendor/bundle
+	cd ios && $(BUNDLER) install
+
+appstore-status: ## Latest builds with processing and TestFlight state
+	$(ASC_ENV) uv run scripts/asc.py status
+
+appstore-metadata: appstore-check ## Upload listing text for en-US, en-GB and es-MX (fastlane deliver)
+	$(BUNDLE) ios metadata
+
+appstore-screenshots: ## Replace listing screenshots with the app-store-screenshots branch (fastlane deliver)
+	$(BUNDLE) ios screenshots
+
+appstore-events: ## In-app events; dry run unless APPLY=1, START=YYYY-MM-DD sets the dates
+	$(ASC_ENV) uv run scripts/asc.py events $(if $(START),--start $(START),) $(APPLY_FLAG)
+
+appstore-pages: ## Custom product pages; dry run unless APPLY=1
+	$(ASC_ENV) uv run scripts/asc.py pages $(APPLY_FLAG)
 
 swift-check: ## Check Swift syntax (requires swift on PATH)
 	@which swift > /dev/null 2>&1 && \

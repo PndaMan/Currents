@@ -13,10 +13,10 @@ ios/AppStore/
 │   ├── en-GB/                    English (U.K.): serves South Africa, the UK, Ireland, Australia
 │   └── es-MX/keywords.txt        a second keyword field the US storefront also indexes
 ├── events/<slug>/                in-app events: name, short and long description, event.json
-└── custom-product-pages/<slug>/  promotional text, screenshot order and keywords per page
+└── custom-product-pages/<slug>/  name, promotional text, screenshot order and keywords per page
 ```
 
-The text files use the `fastlane deliver` layout, so the folder can be uploaded with fastlane later. Until then, paste by hand. `make appstore-check` fails on any over-limit field.
+The text files use the `fastlane deliver` layout and are uploaded by the make targets in [Publish](#publish). `make appstore-check` fails on any over-limit field.
 
 The screenshots workflow (`.github/workflows/screenshots.yml`) captures eight phone screens and the watch, frames them with the captions, renders the in-app event media, and publishes all of it to the `app-store-screenshots` branch: `raw/`, `framed/`, `watch.png` and `events/`.
 
@@ -90,13 +90,13 @@ Three events are drafted under `events/`. Each folder has the three text fields 
 
 Deep links the app handles are listed in `ios/Currents/App/ContentView.swift` (`currents://session`, `sessions`, `community`, `gear`, `licenses`, `map`, `trip/<CODE>`, `friend/<CODE>`, `crew/<CODE>`).
 
-To publish one: App Store Connect → the app → In-App Events → Create. Paste the three text files, pick the badge, purpose and priority from `event.json`, upload the two PNGs from the `events/<slug>/` folder on the screenshots branch, set the dates, add the deep link, choose territories, submit for review. Events are reviewed separately from builds and usually clear within a day.
+`make appstore-events` creates or updates each event by its `reference_name`: badge, purpose, priority, deep link, territories (`"all"` or a list of ISO alpha-3 codes), the en-US text and both images. The dates come from `schedule.rule` and `--start` (`START=` in make): `release` starts on that date, `month` takes the first whole month from it, `fixed` takes the next matching day and month. Events are left as drafts; submit them in App Store Connect. They are reviewed separately from builds and usually clear within a day.
 
 ## Custom product pages
 
 A custom product page is a copy of the listing with its own promotional text, screenshot order, previews and (since 2025) its own keywords, reached by a link with `?ppid=<id>` or, with keywords set, directly from search. Up to 70 per app. They need review like any metadata. Apple's guide: [configure multiple product page versions](https://developer.apple.com/help/app-store-connect/create-custom-product-pages/configure-multiple-product-page-versions).
 
-Three are drafted under `custom-product-pages/`. Each folder has `promotional_text.txt`, `screenshots.txt` (the framed captures in the order to upload) and `keywords.txt` (empty when the page is link-only).
+Three are drafted under `custom-product-pages/`. Each folder has `name.txt` (the internal page name, which `make appstore-pages` matches on), `promotional_text.txt`, `screenshots.txt` (the framed captures in the order to upload) and `keywords.txt` (empty when the page is link-only). Apple only lets a page use keywords that are already in the latest approved version's keyword field for that localisation; `make appstore-pages` lists the ones it cannot assign yet.
 
 | Folder | Reached by | Leads with | Purpose |
 |---|---|---|---|
@@ -130,14 +130,19 @@ Game Center is a code feature, not a listing field: it needs the GameKit capabil
 
 The asset library is where screenshots, previews and event media are uploaded once and reused across localisations, custom product pages and tests. Upload the `framed/` set, `watch.png` and each `events/<slug>/` pair from the screenshots branch, then reference them from each page instead of uploading again.
 
-## Paste checklist
+## Publish
 
-1. Version page → App Information: `name.txt`, `subtitle.txt` (locked until a new version exists).
-2. Version page: `keywords.txt` (commas, no spaces), `promotional_text.txt`, `description.txt`, `release_notes.txt`, `support_url.txt`, `privacy_url.txt`.
-3. Screenshots: the `framed/` set in file order, then `watch.png`.
-4. Add English (U.K.) and Spanish (Mexico) localisations from the `metadata/` folders.
-5. In-App Events: the three folders under `events/`, media from the screenshots branch.
-6. Custom Product Pages: the three folders under `custom-product-pages/`; then paste the crew-invite page id into `docs/open.html`.
-7. After the version is live: start the icon test under Product Page Optimization.
+The listing is pushed with an App Store Connect API key (Users and Access → Integrations → App Store Connect API, role App Manager). Put `ASC_KEY_ID`, `ASC_ISSUER_ID` and `ASC_KEY_PATH` in the repo's `.env.local` or the environment; the key file defaults to `~/.appstoreconnect/private_keys/AuthKey_<ASC_KEY_ID>.p8`. Text and screenshots go through `fastlane deliver` (`ios/fastlane/Fastfile`); events and custom product pages, which deliver does not handle, go through `scripts/asc.py`. Nothing here submits for review.
 
-Run `make appstore-check` before any of it.
+1. `make appstore-setup` once, to install fastlane into `ios/vendor/bundle`.
+2. `make appstore-status` to see that the build is processed and in TestFlight.
+3. `make appstore-metadata` uploads name, subtitle, keywords, description, promotional text, release notes and URLs for en-US, en-GB and es-MX to the version in `project.yml` (runs `appstore-check` first).
+4. `make appstore-screenshots` replaces the screenshots in all three localisations with the `framed/` set and `watch.png` from the screenshots branch.
+5. `make appstore-events START=<launch date>` shows what would change; `make appstore-events START=<launch date> APPLY=1` writes it.
+6. `make appstore-pages`, then `make appstore-pages APPLY=1`. It prints each page id.
+7. In App Store Connect, submit the version, the events and the custom product pages for review.
+
+Still by hand:
+
+- Paste the crew-invite page id printed in step 6 into `customPageId` in `docs/open.html` once the page is approved.
+- After the version is live, start the icon test under Product Page Optimization.
