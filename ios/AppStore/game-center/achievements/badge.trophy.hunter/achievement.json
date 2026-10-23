@@ -1,0 +1,11 @@
+{
+  "reference_name": "Trophy Hunter",
+  "vendor_identifier": "badge.trophy.hunter",
+  "points": 30,
+  "show_before_earned": true,
+  "repeatable": false,
+  "rarity": "legendary",
+  "name": "Trophy Hunter",
+  "before_earned_description": "Land a fish weighing 30 kg (66 lb) or more.",
+  "after_earned_description": "Landed a fish of 30 kg (66.1 lb) or more."
+}

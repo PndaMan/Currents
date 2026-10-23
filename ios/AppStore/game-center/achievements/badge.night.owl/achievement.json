@@ -1,0 +1,11 @@
+{
+  "reference_name": "Night Owl",
+  "vendor_identifier": "badge.night.owl",
+  "points": 15,
+  "show_before_earned": true,
+  "repeatable": false,
+  "rarity": "rare",
+  "name": "Night Owl",
+  "before_earned_description": "Log a catch late at night, between 10 pm and 5 am.",
+  "after_earned_description": "Logged a catch late at night."
+}

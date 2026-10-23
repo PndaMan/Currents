@@ -1,0 +1,11 @@
+{
+  "reference_name": "500 Club",
+  "vendor_identifier": "badge.500.club",
+  "points": 30,
+  "show_before_earned": true,
+  "repeatable": false,
+  "rarity": "legendary",
+  "name": "500 Club",
+  "before_earned_description": "Log 500 catches.",
+  "after_earned_description": "Logged 500 catches."
+}

@@ -127,9 +127,9 @@ Promo codes give the app or an in-app purchase away for free, up to 100 per vers
 
 The app mirrors its badges into Game Center (`Core/GameCenter/GameCenter.swift`) and submits four leaderboards. Guideline 2.5.1 lets a non-game use Game Center for virtual challenges as long as the description says so; it does, in the crew paragraph.
 
-- `game-center/achievements/<id>/`: one per visible badge, written by `uv run scripts/render_achievement_art.py` from the badge list in `FishingLogStreak.swift`, with a 1024x1024 medallion. The ids are `badge.<title in snake case>`, which the app derives the same way, so a renamed badge is a new achievement. Bass Daddy and Patron stay in the app. Points scale by rarity and total 970 of Apple's 1000.
+- `game-center/achievements/<id>/`: one per visible badge, written by `uv run scripts/render_achievement_art.py` from the badge list in `FishingLogStreak.swift`, with a 1024x1024 medallion. The ids are `badge.<title words joined by periods>`, which the app derives the same way, so a renamed badge is a new achievement. Bass Daddy and Patron stay in the app. Points scale by rarity and total 970 of Apple's 1000.
 - `game-center/leaderboards/<id>/`: most fish, heaviest (grams, shown as kg), longest (millimetres, shown as cm) and fish this week, which recurs every Monday 00:00 UTC.
-- `game-center/challenges/<id>/`: iOS 26 challenges on the heaviest and weekly boards, with a 1920x1080 image.
+- `game-center/challenges/<id>/`: iOS 26 challenges on the heaviest and weekly boards, with a 3840x2160 image.
 
 The first achievements, leaderboards and challenges go to review with an app version that contains the GameKit code.
 

@@ -1,0 +1,11 @@
+{
+  "reference_name": "Perfect Read",
+  "vendor_identifier": "badge.perfect.read",
+  "points": 20,
+  "show_before_earned": true,
+  "repeatable": false,
+  "rarity": "epic",
+  "name": "Perfect Read",
+  "before_earned_description": "Land a catch when the bite score was 85 or higher.",
+  "after_earned_description": "Landed a catch at a bite score of 85 or higher."
+}

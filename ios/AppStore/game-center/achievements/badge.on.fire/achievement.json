@@ -1,0 +1,11 @@
+{
+  "reference_name": "On Fire",
+  "vendor_identifier": "badge.on.fire",
+  "points": 15,
+  "show_before_earned": true,
+  "repeatable": false,
+  "rarity": "rare",
+  "name": "On Fire",
+  "before_earned_description": "Keep a weekly fishing streak alive for 4 weeks.",
+  "after_earned_description": "Fished 4 weeks in a row."
+}

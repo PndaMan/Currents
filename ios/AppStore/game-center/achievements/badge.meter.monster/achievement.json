@@ -1,0 +1,11 @@
+{
+  "reference_name": "Meter Monster",
+  "vendor_identifier": "badge.meter.monster",
+  "points": 30,
+  "show_before_earned": true,
+  "repeatable": false,
+  "rarity": "legendary",
+  "name": "Meter Monster",
+  "before_earned_description": "Land a fish 100 cm (39 in) or longer.",
+  "after_earned_description": "Landed a fish of 100 cm (39 in) or longer."
+}

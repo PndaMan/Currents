@@ -1,0 +1,11 @@
+{
+  "reference_name": "Sharp Eye",
+  "vendor_identifier": "badge.sharp.eye",
+  "points": 15,
+  "show_before_earned": true,
+  "repeatable": false,
+  "rarity": "rare",
+  "name": "Sharp Eye",
+  "before_earned_description": "Land a catch when the bite score was 75 or higher.",
+  "after_earned_description": "Landed a catch at a bite score of 75 or higher."
+}

@@ -1,0 +1,11 @@
+{
+  "reference_name": "Hot Streak",
+  "vendor_identifier": "badge.hot.streak",
+  "points": 10,
+  "show_before_earned": true,
+  "repeatable": false,
+  "rarity": "uncommon",
+  "name": "Hot Streak",
+  "before_earned_description": "Log a catch in 2 back-to-back weeks.",
+  "after_earned_description": "Fished 2 weeks in a row."
+}

@@ -39,10 +39,10 @@ OUT = ROOT / "ios/AppStore/game-center"
 CACHE = Path.home() / ".cache" / "currents-phosphor"
 PHOSPHOR = "https://cdn.jsdelivr.net/npm/@phosphor-icons/core@2.1.1/assets/fill/{name}-fill.svg"
 
-# Apple's sizes: achievements and leaderboards 1024x1024 (or 512x512),
-# challenges 1920x1080. Opaque RGB, no transparency.
+# Apple's sizes: achievements and leaderboards 1024x1024,
+# challenges 3840x2160. Opaque RGB, no transparency.
 SQUARE = 1024
-WIDE = (1920, 1080)
+WIDE = (3840, 2160)
 BACKGROUND = "#000000"
 
 # BadgeRarity.color on the dark theme.
@@ -95,7 +95,7 @@ EXPLANATION_RE = re.compile(r'case "([^"]+)":\s+return "([^"\\]+)"')
 
 def achievement_id(title: str) -> str:
     """Matches GameCenterProgress.achievementID(for:) in the app."""
-    return "badge." + "_".join(re.findall(r"[a-z0-9]+", title.lower()))
+    return "badge." + ".".join(re.findall(r"[a-z0-9]+", title.lower()))
 
 
 def after_earned(metric: str, target: float) -> str:
@@ -196,7 +196,8 @@ def write_achievements() -> None:
         ident = achievement_id(badge["title"])
         wanted.add(ident)
         spec = {
-            "reference_name": badge["title"],
+            # Reference names take letters, digits and spaces only.
+            "reference_name": " ".join(re.findall(r"[A-Za-z0-9]+", badge["title"])),
             "vendor_identifier": ident,
             "points": RARITY_POINTS[badge["rarity"]],
             "show_before_earned": True,
