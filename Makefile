@@ -3,7 +3,7 @@
 # Since we can't run Xcode on Linux, this Makefile provides shortcuts
 # for triggering CI builds, checking status, and common dev tasks.
 
-.PHONY: help ci ci-status ci-logs lint test-local clean
+.PHONY: help ci ci-status ci-logs lint test-local clean screenshots-frame appstore-check
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | \
@@ -30,6 +30,13 @@ ci-ipa: ## Download just the IPA from latest CI run
 	@echo ""
 	@echo "IPA downloaded to Currents-IPA/Currents.ipa"
 	@echo "Install with: AltStore, TrollStore, or SideStore"
+
+screenshots-frame: ## Frame raw captures in ios/screenshots/6.9 with headlines, then render in-app event media
+	uv run scripts/frame_screenshots.py --input ios/screenshots/6.9 --output ios/screenshots/6.9-framed --captions ios/AppStore/captions.json
+	uv run scripts/render_event_media.py --input ios/screenshots/6.9 --events ios/AppStore/events --output ios/screenshots/events
+
+appstore-check: ## Check App Store Connect text against Apple's limits
+	uv run scripts/check_appstore_metadata.py ios/AppStore/metadata
 
 swift-check: ## Check Swift syntax (requires swift on PATH)
 	@which swift > /dev/null 2>&1 && \

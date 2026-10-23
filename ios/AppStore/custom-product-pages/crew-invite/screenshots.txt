@@ -1,0 +1,6 @@
+06_crew
+07_leaderboard
+08_profile
+03_catch
+01_today
+02_explore

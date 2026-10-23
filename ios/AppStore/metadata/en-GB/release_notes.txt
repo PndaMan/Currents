@@ -1,0 +1,9 @@
+A new look across the whole app, in light and dark.
+
+- Today leads with the bite score, the best windows and what to throw.
+- Explore shows what is biting near you and which fish are recorded at each water, even offline.
+- Catch pages are built around your photos and measurements.
+- Crews have new pages for the feed, members, challenges and group trips.
+- Tournaments show live standings, a podium and a clock on your Lock Screen.
+- Earn titles from achievements and wear one on your profile.
+- Faster crew loading and many smaller fixes.

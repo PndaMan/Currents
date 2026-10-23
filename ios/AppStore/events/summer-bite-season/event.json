@@ -1,0 +1,18 @@
+{
+  "reference_name": "Summer season 2026-27 (southern hemisphere)",
+  "badge": "New Season",
+  "purpose": "Keep active users informed",
+  "priority": "Normal",
+  "deep_link": "currents://map",
+  "territories": "South Africa, Australia, New Zealand and the rest of the southern hemisphere; run a second copy for the northern spring in March",
+  "schedule": {
+    "publish": "late November",
+    "start": "2026-12-01",
+    "end": "2026-12-31"
+  },
+  "media": {
+    "captures": ["01_today", "02_explore"],
+    "headline": "Summer bite season",
+    "subline": "Best windows, what to throw and what is biting near you"
+  }
+}

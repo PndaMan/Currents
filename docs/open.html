@@ -101,6 +101,12 @@
             }
 
             var storeLink = 'https://apps.apple.com/za/app/currents-fishing-app/id6771932525';
+            // The "crew-invite" custom product page (ios/AppStore/custom-product-pages)
+            // leads with the crew screenshots. Paste its id from App Store Connect
+            // here once the page is approved, and invitees land on it instead of
+            // the default listing.
+            var customPageId = '';
+            if (customPageId) { storeLink += '?ppid=' + customPageId; }
 
             // Try the app; if nothing grabs the deep link within a couple of
             // seconds (the page never got backgrounded), the app isn't

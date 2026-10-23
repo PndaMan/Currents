@@ -7,7 +7,8 @@ name: App Store Screenshots
 # ios/AppStore/demo-photos are copied into the simulator's app container only;
 # they never ship in the app. Each capture is then framed with a headline by
 # scripts/frame_screenshots.py. Download "app-store-screenshots" from the run:
-# 6.9/ holds the raw captures, 6.9-framed/ the framed ones, watch/ the watch.
+# 6.9/ holds the raw captures, 6.9-framed/ the framed ones, watch/ the watch,
+# events/ the in-app event card and details images from ios/AppStore/events.
 #
 # iPhone 16 Pro Max = 6.9" display (1320x2868), which Apple accepts for the
 # required iPhone screenshot slot. The app is iPhone-only, so no iPad set.
@@ -229,6 +230,14 @@ jobs:
             --captions AppStore/captions.json
           ls -la screenshots/6.9-framed
 
+      - name: Render in-app event media
+        run: |
+          uv run ../scripts/render_event_media.py \
+            --input screenshots/6.9 \
+            --events AppStore/events \
+            --output screenshots/events
+          find screenshots/events -name '*.png' | sort
+
       - name: Collect diagnostics (crash logs and app log)
         if: always()
         run: |
@@ -263,6 +272,7 @@ jobs:
           cp ios/screenshots/6.9/*.png "$TMP/raw/" 2>/dev/null || true
           cp ios/screenshots/6.9-framed/*.png "$TMP/framed/" 2>/dev/null || true
           cp ios/screenshots/watch/*.png "$TMP/" 2>/dev/null || true
+          cp -R ios/screenshots/events "$TMP/events" 2>/dev/null || true
           if ! ls "$TMP"/raw/*.png >/dev/null 2>&1; then
             echo "No screenshots to publish"; exit 0
           fi

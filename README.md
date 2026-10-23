@@ -204,7 +204,7 @@ make ios
 
 Every push to `master` builds, tests, archives and uploads to **TestFlight** via GitHub Actions ([.github/workflows/ios.yml](.github/workflows/ios.yml)). The same run also produces an unsigned `.ipa`, fakesigned with `ldid`, compatible with sideloading tools like [Sideloader](https://sideloader.app) and TrollStore — download the `Currents-IPA` artifact from any green build, no paid Apple Developer account required.
 
-App Store screenshots regenerate on demand from [.github/workflows/screenshots.yml](.github/workflows/screenshots.yml): the simulator launches in screenshot mode, seeds rights-clean demo data (the app's own fish artwork, fictional crew), and captures each tab at 6.9" full resolution.
+App Store screenshots regenerate on demand from [.github/workflows/screenshots.yml](.github/workflows/screenshots.yml): the simulator launches in screenshot mode, seeds rights-clean demo data (the app's own fish artwork, fictional crew), and captures each tab at 6.9" full resolution. Everything that goes into App Store Connect, from the listing text to in-app events and custom product pages, is versioned under [`ios/AppStore/`](ios/AppStore/README.md).
 
 Community features additionally require the CloudKit schema: import [`ios/CloudKit/schema.ckdb`](ios/CloudKit/schema.ckdb) in the CloudKit Console and deploy to Production.
 

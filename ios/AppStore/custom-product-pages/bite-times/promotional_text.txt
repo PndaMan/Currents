@@ -1,0 +1,1 @@
+A bite score for every hour, from pressure, tides, solunar periods and weather, with the best windows of the day and what to throw. It works with no signal.

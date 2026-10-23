@@ -1,1 +1,1 @@
-angler,bass,carp,trout,kob,tides,solunar,lures,logbook,offline,catch,crew,tournament,spots,weather
+angler,bass,carp,trout,kob,tides,solunar,lures,logbook,offline,fish,crew,tournament,spots,weather
