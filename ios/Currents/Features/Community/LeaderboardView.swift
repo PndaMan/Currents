@@ -18,6 +18,9 @@ struct LeaderboardView: View {
     @State private var catchAccess: [String: Bool] = [:]
     @State private var avatars: [String: UIImage] = [:]
     @State private var loading = false
+    /// The local log, read once per visit on the database queue; metric
+    /// and scope switches re-rank it without reading it again.
+    @State private var localCatches: [CatchDetail]?
 
     var body: some View {
         // Without iCloud the Crew unavailable state shows and no load starts.
@@ -235,8 +238,14 @@ struct LeaderboardView: View {
 
     /// My own catches from the local database, so I always appear regardless
     /// of CloudKit sync state.
-    private func myLocalRows() -> [CommunityService.LeaderRow] {
-        let local = (try? appState.catchRepository.fetchAll(limit: 100000)) ?? []
+    private func myLocalRows() async -> [CommunityService.LeaderRow] {
+        let local: [CatchDetail]
+        if let cached = localCatches {
+            local = cached
+        } else {
+            local = (try? await appState.catchRepository.fetchAllInBackground(limit: 100000)) ?? []
+            localCatches = local
+        }
         return local.map {
             CommunityService.LeaderRow(
                 id: "me-\($0.catchRecord.id)",
@@ -264,7 +273,8 @@ struct LeaderboardView: View {
             }
             among = Set(members)
         }
-        let result = await svc.board(metric: metric, myRows: myLocalRows(), among: among)
+        let myRows = await myLocalRows()
+        let result = await svc.board(metric: metric, myRows: myRows, among: among)
         withAnimation(reduceMotion ? nil : DS.Motion.softSpring) {
             rows = result.rows
             myStanding = result.mine

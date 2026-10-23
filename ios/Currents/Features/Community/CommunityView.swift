@@ -112,7 +112,7 @@ struct CommunityView: View {
             if phase == .active { Task { await cloud.refresh() } }
         }
         .task(id: canSync) {
-            refreshStats()
+            await refreshStats()
             guard canSync else { return }
             // Visible content first: cached friends and feed, then the network.
             friendProfiles = CrewFriendsLoader.cached()
@@ -142,7 +142,7 @@ struct CommunityView: View {
         .onChange(of: svc.revision) { _, _ in
             guard canSync else { return }
             Task {
-                refreshStats()
+                await refreshStats()
                 friendProfiles = CrewFriendsLoader.cached()
                 await loadMergedFeed()
                 await loadNotifications()
@@ -483,11 +483,13 @@ struct CommunityView: View {
 
     // MARK: Loading
 
-    private func refreshStats() {
-        myCatches = (try? appState.catchRepository.fetchAll(limit: 100000)) ?? []
+    /// Reads the whole log on the database queue; the synchronous read
+    /// stalled the tab's first frames for anglers with long logs.
+    private func refreshStats() async {
+        myCatches = (try? await appState.catchRepository.fetchAllInBackground(limit: 100000)) ?? []
         cachedStats = computeStatsFrom(myCatches)
     }
-    private var stats: CommunityService.MyStats { cachedStats ?? computeStats() }
+    private var stats: CommunityService.MyStats { cachedStats ?? computeStatsFrom(myCatches) }
 
     private func loadNotifications() async {
         guard canSync else { return }
@@ -518,8 +520,8 @@ struct CommunityView: View {
     /// everything, not just catches logged after joining. Throttled service-side.
     private func syncCatches() async {
         guard canSync else { return }
-        let catches = (try? appState.catchRepository.fetchAll(limit: 100000)) ?? []
-        let details = catches.map {
+        // refreshStats has just read the whole log; reuse it.
+        let details = myCatches.map {
             (id: $0.catchRecord.id,
              species: $0.species?.commonName ?? "Fish",
              weightKg: $0.catchRecord.weightKg,
@@ -592,10 +594,6 @@ struct CommunityView: View {
     }
 
     // MARK: Stats from local data
-
-    private func computeStats() -> CommunityService.MyStats {
-        computeStatsFrom((try? appState.catchRepository.fetchAll(limit: 100000)) ?? [])
-    }
 
     private func computeStatsFrom(_ catches: [CatchDetail]) -> CommunityService.MyStats {
         let species = Dictionary(grouping: catches, by: { $0.species?.commonName ?? "" })
@@ -1042,7 +1040,7 @@ struct ProfileEditView: View {
                 title = svc.myTitle
                 avatar = svc.myAvatar
                 // Titles you can wear are achievements you've actually earned.
-                let all = (try? appState.catchRepository.fetchAll(limit: 2000)) ?? []
+                let all = (try? await appState.catchRepository.fetchAllInBackground(limit: 2000)) ?? []
                 let streak = BadgeDefinition.streakWeeks(from: all)
                 let earnedAchievements = Set(
                     BadgeDefinition.compute(from: all, streakWeeks: streak)
@@ -1339,7 +1337,7 @@ struct FriendProfileView: View {
             // Owner sees everything: catches straight from the local log,
             // profile from the published record (or built locally).
             catchAccess = true
-            ownDetails = (try? appState.catchRepository.fetchAll(limit: 2000)) ?? []
+            ownDetails = (try? await appState.catchRepository.fetchAllInBackground(limit: 2000)) ?? []
             catches = ownLocalRows()
             if let fresh = await svc.fetchProfile(code: code) { profile = fresh }
             if profile == nil { profile = ownFallbackProfile() }
