@@ -28,7 +28,9 @@ struct StreakStats {
         var runStart: Date?, bestStart: Date?, bestEnd: Date?
         var previous: Date?
         for w in sorted {
-            if let p = previous, cal.dateComponents([.day], from: p, to: w).day == 7 {
+            // One calendar week on rather than seven days: a week holding a
+            // clock change is an hour short or long.
+            if let p = previous, BadgeDefinition.adjacentWeek(1, to: p, calendar: cal) == w {
                 run += 1
             } else {
                 run = 1
@@ -47,7 +49,7 @@ struct StreakStats {
 
         // The live run ends this week or last week (see streakWeeks).
         if current > 0, let latest = sorted.last {
-            currentStart = cal.date(byAdding: .day, value: -7 * (current - 1), to: latest)
+            currentStart = BadgeDefinition.adjacentWeek(1 - current, to: latest, calendar: cal)
         } else {
             currentStart = nil
         }
@@ -130,7 +132,7 @@ struct StreakView: View {
             .padding(.bottom, DS.Space.s8)
             .pageWidth()
         }
-        .detailTint(.dsScoreLow)
+        .detailTint(nil)
         .navigationTitle("Streak")
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $showingPlanner) { PlanSessionSheet() }
