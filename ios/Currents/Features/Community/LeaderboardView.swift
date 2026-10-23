@@ -1,27 +1,33 @@
 import SwiftUI
 
-/// The leaderboard page (pushed from the Crew tab). Scope toggles between
-/// your friends and each of your crews; Most fish is a podium with ranked
-/// rows, Heaviest and Longest are a photo-first 2-up gallery of catches.
-struct LeaderboardView: View {
+/// One crew's leaderboard, pushed from the crew's page. Ranks the crew's
+/// members only and wears the crew's look: its badge over the title and its
+/// art colour behind the page. Most fish is a podium with ranked rows,
+/// Heaviest and Longest are a photo-first 2-up gallery of catches. Friends
+/// and global rankings live in Game Center.
+struct CrewLeaderboardView: View {
+    let code: String
+
     @Environment(AppState.self) private var appState
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @StateObject private var svc = CommunityService.shared
     @AppStorage("units") private var units = "metric"
     private var imperial: Bool { units == "imperial" }
 
-    /// "friends" or a crew code.
-    @State private var scope = "friends"
     @State private var metric: CommunityService.Metric = .count
     @State private var rows: [CommunityService.LeaderRow] = []
     @State private var myStanding: (rank: Int, row: CommunityService.LeaderRow)?
     @State private var catchAccess: [String: Bool] = [:]
     @State private var avatars: [String: UIImage] = [:]
     @State private var loading = false
+    /// The crew art's colour, read from its icon; nil for photos and emoji.
+    @State private var tint: Color?
     /// The local log, read once per visit on the database queue; metric
-    /// and scope switches re-rank it without reading it again.
+    /// switches re-rank it without reading it again.
     @State private var localCatches: [CatchDetail]?
     @State private var reloadGen = 0
+
+    private var crew: CommunityService.Crew? { svc.crew(withCode: code) }
 
     var body: some View {
         // Without iCloud the Crew unavailable state shows and no load starts.
@@ -31,7 +37,7 @@ struct LeaderboardView: View {
     private var page: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                DetailHeader(title: "Leaderboard")
+                header
                 Picker("Rank by", selection: $metric.haptic().animation(reduceMotion ? nil : DS.Motion.softSpring)) {
                     Text("Most fish").tag(CommunityService.Metric.count)
                     Text("Heaviest").tag(CommunityService.Metric.weight)
@@ -40,14 +46,6 @@ struct LeaderboardView: View {
                 .pickerStyle(.segmented)
                 .padding(.horizontal, DS.gutter)
                 .padding(.top, DS.Space.s5)
-
-                scopeChips
-                    .padding(.top, DS.Space.s3)
-                Text(scopeFooter)
-                    .font(.footnote)
-                    .foregroundStyle(Color.dsText2)
-                    .padding(.horizontal, DS.gutter)
-                    .padding(.top, DS.Space.s2)
 
                 Group {
                     if loading && rows.isEmpty {
@@ -62,14 +60,14 @@ struct LeaderboardView: View {
                         catchGallery
                     }
                 }
-                .padding(.top, DS.Space.s4)
+                .padding(.top, DS.Space.s5)
                 .id(metric)
                 .transition(.opacity)
             }
             .padding(.bottom, DS.Space.s6)
             .pageWidth()
         }
-        .detailTint(nil)
+        .detailTint(tint)
         .eventPageTitle("Leaderboard")
         .safeAreaInset(edge: .bottom) {
             if let pinned = pinnedStanding {
@@ -79,9 +77,13 @@ struct LeaderboardView: View {
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
-        .task { await reload() }
+        .task {
+            if let icon = await CommunityDiskCache.image(key: "crewicon-\(code)") {
+                tint = CrewArt.tint(of: icon)
+            }
+            await reload()
+        }
         .onChange(of: metric) { _, _ in Task { await reload() } }
-        .onChange(of: scope) { _, _ in Task { await reload() } }
         .onChange(of: svc.revision) { _, _ in
             // A burst of pushes bumps the revision several times; reload once.
             reloadGen &+= 1
@@ -94,36 +96,22 @@ struct LeaderboardView: View {
         }
     }
 
-    // MARK: Scope
+    // MARK: Header
 
-    private var scopeChips: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: DS.Space.s2) {
-                Chip("Friends", systemImage: "person.2.fill", isSelected: scope == "friends") {
-                    withAnimation(DS.Motion.press) { scope = "friends" }
-                }
-                ForEach(svc.myCrews) { crew in
-                    Chip(crew.name, isSelected: scope == crew.code) {
-                        withAnimation(DS.Motion.press) { scope = crew.code }
-                    }
-                }
-            }
-            .padding(.horizontal, DS.gutter)
-            .padding(.vertical, 2)
+    /// The crew's badge over the title block, as on the crew's page.
+    private var header: some View {
+        VStack(alignment: .leading, spacing: DS.Space.s3) {
+            CrewThumb(code: code, emoji: crew?.emoji, size: 56)
+                .padding(.horizontal, DS.gutter)
+            DetailHeader(over: crew?.name ?? "Crew", title: "Leaderboard",
+                         subtitle: rows.isEmpty || metric != .count ? nil : CrewText.anglers(rows.count))
         }
-        .scrollBounceBehavior(.basedOnSize, axes: [.horizontal])
-    }
-
-    private var scopeFooter: String {
-        scope == "friends" ? "You and your friends."
-        : "\(svc.crew(withCode: scope)?.name ?? "The crew")'s members."
+        .padding(.top, DS.Space.s3)
     }
 
     private var emptyState: some View {
         ContentUnavailableView("No entries yet", systemImage: "trophy",
-            description: Text(scope == "friends"
-                ? "Add friends and log catches to fill the board."
-                : "When the crew logs measured catches, the board fills up."))
+            description: Text("When the crew logs measured catches, the board fills up."))
         .frame(maxWidth: .infinity)
         .padding(.top, DS.Space.s4)
     }
@@ -256,6 +244,46 @@ struct LeaderboardView: View {
             local = (try? await appState.catchRepository.fetchAllInBackground(limit: 100000)) ?? []
             localCatches = local
         }
+        return CrewBoardData.myRows(local)
+    }
+
+    private func reload() async {
+        if rows.isEmpty { loading = true }
+        // The board is exactly the crew's roster.
+        let among = await CrewBoardData.memberCodes(code)
+        let myRows = await myLocalRows()
+        let result = await svc.board(metric: metric, myRows: myRows, among: among)
+        withAnimation(reduceMotion ? nil : DS.Motion.softSpring) {
+            rows = result.rows
+            myStanding = result.mine
+        }
+        let codes = Set(result.rows.map(\.friendCode))
+        avatars.merge(await CrewBoardData.avatars(for: codes)) { _, new in new }
+        let othersToCheck = codes.filter { $0 != svc.friendCode }
+        catchAccess = await svc.catchAccess(for: Array(othersToCheck))
+        loading = false
+    }
+}
+
+// MARK: - Shared loading
+
+/// What the crew page's podium and the crew leaderboard both need.
+@MainActor
+enum CrewBoardData {
+    /// The crew's member codes, cache first.
+    static func memberCodes(_ code: String) async -> Set<String> {
+        let svc = CommunityService.shared
+        var members = svc.cachedCrewMembers(code).map(\.id)
+        if members.isEmpty {
+            members = await svc.crewMembers(code: code).map(\.id)
+        }
+        return Set(members)
+    }
+
+    /// My own catches as board rows, so I always appear regardless of
+    /// CloudKit sync state.
+    static func myRows(_ local: [CatchDetail]) -> [CommunityService.LeaderRow] {
+        let svc = CommunityService.shared
         return local.map {
             CommunityService.LeaderRow(
                 id: "me-\($0.catchRecord.id)",
@@ -272,35 +300,19 @@ struct LeaderboardView: View {
         }
     }
 
-    private func reload() async {
-        if rows.isEmpty { loading = true }
-        var among: Set<String>? = nil
-        if scope != "friends" {
-            // Crew scope: the board is exactly that crew's roster.
-            var members = svc.cachedCrewMembers(scope).map(\.id)
-            if members.isEmpty {
-                members = await svc.crewMembers(code: scope).map(\.id)
-            }
-            among = Set(members)
+    /// Faces for a set of anglers: cache first, then one batched refresh.
+    static func avatars(for codes: Set<String>) async -> [String: UIImage] {
+        let svc = CommunityService.shared
+        var out: [String: UIImage] = [:]
+        for p in svc.cachedProfiles(for: Array(codes)) {
+            if let a = p.avatar { out[p.id] = a }
         }
-        let myRows = await myLocalRows()
-        let result = await svc.board(metric: metric, myRows: myRows, among: among)
-        withAnimation(reduceMotion ? nil : DS.Motion.softSpring) {
-            rows = result.rows
-            myStanding = result.mine
+        if let a = svc.myAvatar { out[svc.friendCode] = a }
+        let others = codes.filter { $0 != svc.friendCode }
+        for (code, p) in await svc.profiles(for: Array(others)) {
+            if let a = p.avatar { out[code] = a }
         }
-        let codes = Set(result.rows.map(\.friendCode))
-        // Faces: cache-first, then one batched refresh.
-        for p in svc.cachedProfiles(for: Array(codes)) where p.avatar != nil {
-            avatars[p.id] = p.avatar
-        }
-        if let a = svc.myAvatar { avatars[svc.friendCode] = a }
-        let othersToCheck = codes.filter { $0 != svc.friendCode }
-        catchAccess = await svc.catchAccess(for: Array(othersToCheck))
-        for (code, p) in await svc.profiles(for: Array(othersToCheck)) where p.avatar != nil {
-            avatars[code] = p.avatar
-        }
-        loading = false
+        return out
     }
 }
 

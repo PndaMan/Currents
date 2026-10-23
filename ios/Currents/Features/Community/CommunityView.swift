@@ -186,7 +186,7 @@ struct CommunityView: View {
         case .friends: CrewFriendsPage()
         case .friend(let code): FriendProfileView(code: code)
         case .requests: CrewRequestsPage()
-        case .leaderboard: LeaderboardView()
+        case .leaderboard(let code): CrewLeaderboardView(code: code)
         case .myProfile: MyProfileView(stats: stats, catches: myCatches)
         case .tripSetup(let crewCode): GroupTripSetupView(crewCode: crewCode)
         case .trip(let code, let name):
@@ -421,12 +421,6 @@ struct CommunityView: View {
             } else {
                 friendStrip
             }
-            NavigationLink(value: CrewRoute.leaderboard) {
-                ArtRow(title: "Leaderboard", subtitle: "Most fish, heaviest and longest", chevron: true) {
-                    ThumbView(systemImage: "trophy.fill", tint: .dsScoreFair)
-                }
-            }
-            .buttonStyle(.dsRow)
         }
     }
 

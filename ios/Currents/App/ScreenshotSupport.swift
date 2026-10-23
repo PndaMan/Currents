@@ -83,7 +83,7 @@ enum ScreenshotSupport {
         switch screen {
         case .catchPage: path.append(LogbookRoute.catchDetail(heroCatchId))
         case .lures: path.append(ForecastRoute.lures)
-        case .leaderboard: path.append(CrewRoute.leaderboard)
+        case .leaderboard: path.append(CrewRoute.leaderboard(crewCode))
         case .profile: path.append(CrewRoute.myProfile)
         default: return nil
         }

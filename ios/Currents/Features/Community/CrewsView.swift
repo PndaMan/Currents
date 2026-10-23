@@ -228,6 +228,7 @@ struct CrewDetailView: View {
     let code: String
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(AppState.self) private var appState
     @StateObject private var svc = CommunityService.shared
     @State private var crew: CommunityService.Crew?
     @State private var members: [CommunityService.GroupMember] = []
@@ -247,6 +248,11 @@ struct CrewDetailView: View {
     @State private var liveTrips: [CommunityService.GroupTrip] = []
     @State private var tournament: CommunityService.Tournament?
     @State private var standings: [CommunityService.TeamStanding] = []
+    /// The top three by most fish, for the leaderboard section's podium.
+    @State private var podium: [CommunityService.LeaderRow] = []
+    @State private var podiumFaces: [String: UIImage] = [:]
+    /// My catches as board rows, read once per visit.
+    @State private var myBoardRows: [CommunityService.LeaderRow]?
     @State private var showingSettings = false
     @State private var showingTournamentSetup = false
     @State private var showingTripSetup = false
@@ -501,6 +507,7 @@ struct CrewDetailView: View {
         VStack(alignment: .leading, spacing: 0) {
             happeningNowSection
             catchesSection
+            leaderboardSection
             membersSection
             challengeSection
             if let crew {
@@ -604,6 +611,37 @@ struct CrewDetailView: View {
         } else {
             SectionTitle("Recent catches")
         }
+    }
+
+    // MARK: Leaderboard
+
+    /// The crew's podium by most fish; the title opens the full board with
+    /// heaviest and longest.
+    private var leaderboardSection: some View {
+        CrewSection(title: "Leaderboard", link: .leaderboard(code)) {
+            if podium.isEmpty {
+                NavigationLink(value: CrewRoute.leaderboard(code)) {
+                    ArtRow(title: "Most fish, heaviest and longest",
+                           subtitle: isLoading ? nil : "Fills up as the crew logs catches",
+                           chevron: true) {
+                        ThumbView(systemImage: "trophy.fill", tint: CrewTint.trophy)
+                    }
+                }
+                .buttonStyle(.dsRow)
+            } else {
+                EventPodium(entries: podium.map(podiumEntry)) { e in
+                    FriendProfileView(code: e.id)
+                }
+            }
+        }
+    }
+
+    private func podiumEntry(_ row: CommunityService.LeaderRow) -> EventPodiumEntry {
+        let isSelf = row.friendCode == svc.friendCode
+        let first = row.anglerName.split(separator: " ").first.map(String.init) ?? row.anglerName
+        return EventPodiumEntry(id: row.friendCode, name: isSelf ? "You" : first,
+                                value: "\(row.catchCount ?? 0)", unit: "fish",
+                                images: [podiumFaces[row.friendCode]])
     }
 
     // MARK: Members
@@ -804,6 +842,19 @@ struct CrewDetailView: View {
         }
         isLoading = false
         await loadAvatars()
+        await loadPodium()
+    }
+
+    private func loadPodium() async {
+        if myBoardRows == nil {
+            let local = (try? await appState.catchRepository.fetchAllInBackground(limit: 100000)) ?? []
+            myBoardRows = CrewBoardData.myRows(local)
+        }
+        let among = Set(members.map(\.id))
+        guard !among.isEmpty else { return }
+        let top = Array(await svc.board(metric: .count, myRows: myBoardRows ?? [], among: among).rows.prefix(3))
+        podium = top
+        podiumFaces = await CrewBoardData.avatars(for: Set(top.map(\.friendCode)))
     }
 
     /// Fetch each member's profile picture (concurrently) so the roster shows

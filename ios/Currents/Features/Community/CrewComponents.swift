@@ -11,7 +11,8 @@ enum CrewRoute: Hashable {
     case friends
     case friend(String)
     case requests
-    case leaderboard
+    /// A crew's leaderboard, by crew code.
+    case leaderboard(String)
     case myProfile
     case tripSetup(crewCode: String?)
     case trip(code: String, name: String)
