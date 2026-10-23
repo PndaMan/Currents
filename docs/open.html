@@ -3,6 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" type="image/png" href="assets/favicon.png">
+    <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
     <title>Open in Currents</title>
     <style>
         :root { color-scheme: light dark; }
@@ -20,10 +22,8 @@
             box-shadow: 0 20px 60px rgba(0,0,0,0.35);
         }
         .logo {
-            width: 76px; height: 76px; margin: 0 auto 18px; border-radius: 20px;
-            background: linear-gradient(150deg, #2fa4f5, #0a5aa0);
-            display: flex; align-items: center; justify-content: center; font-size: 40px;
-            box-shadow: 0 8px 24px rgba(47,164,245,0.4);
+            display: block; width: 76px; height: 76px; margin: 0 auto 18px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.35); border-radius: 17px;
         }
         h1 { font-size: 1.4rem; margin: 0 0 6px; }
         .sub { color: #a9c4d6; font-size: 0.95rem; margin: 0 0 22px; line-height: 1.5; }
@@ -45,7 +45,7 @@
 </head>
 <body>
     <div class="card">
-        <div class="logo">🎣</div>
+        <img class="logo" src="assets/logo.png" alt="Currents app icon" width="76" height="76">
         <h1 id="title">Open in Currents</h1>
         <p class="sub" id="subtitle">Tap below to open this in the Currents app.</p>
         <div class="code" id="code">------</div>
