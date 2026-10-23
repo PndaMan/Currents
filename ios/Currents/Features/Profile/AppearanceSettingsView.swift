@@ -24,7 +24,7 @@ struct AppearanceSettingsView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: DS.Space.s6) {
-                DetailHeader(title: "Appearance", subtitle: "Dark is easier on the eyes at dawn and dusk.")
+                DetailHeader(title: "Appearance", subtitle: "Dark is easier on the eyes at dawn.")
 
                 VStack(alignment: .leading, spacing: DS.Space.s3) {
                     SectionTitle("Mode")
@@ -44,45 +44,39 @@ struct AppearanceSettingsView: View {
                         }
                     }
                     .padding(.horizontal, DS.gutter)
-                    PFFootnote("Tints buttons, highlights and the logo. \(theme.displayName) is on.")
                 }
 
                 VStack(alignment: .leading, spacing: DS.Space.s3) {
                     SectionTitle("App icon")
-                    PFToggleRow(title: "Match the colour theme", detail: "The icon follows your theme",
-                                isOn: Binding(get: { iconFollowsTheme },
-                                              set: { on in
-                                                  if on { relinkIconToTheme() } else { iconFollowsTheme = false }
-                                              }))
-                        .padding(.horizontal, DS.Space.s4)
-                        .padding(.vertical, 12)
-                        .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
-                        .padding(.horizontal, DS.gutter)
+                    CardGroup {
+                        CardToggleRow("Match the colour theme", subtitle: "The icon follows your theme",
+                                      systemImage: "app.badge.fill", tint: theme.primary,
+                                      isOn: Binding(get: { iconFollowsTheme },
+                                                    set: { on in
+                                                        if on { relinkIconToTheme() } else { iconFollowsTheme = false }
+                                                    }))
+                    }
                     LazyVGrid(columns: iconColumns, spacing: 16) {
                         ForEach(AppIconOption.all) { option in
                             iconCell(for: option)
                         }
                     }
                     .padding(.horizontal, DS.gutter)
-                    PFFootnote(iconFollowsTheme
-                               ? "Pick a different icon to set it on its own."
-                               : "Your icon is set on its own. Turn on Match the colour theme to link them again.")
+                    PFFootnote(iconFollowsTheme ? "Pick another icon to set it on its own." : "Set on its own.")
                 }
 
                 VStack(alignment: .leading, spacing: DS.Space.s3) {
                     SectionTitle("Haptics")
-                    PFToggleRow(title: "Haptics",
-                                isOn: Binding(get: { hapticsEnabled },
-                                              set: { on in
-                                                  hapticsEnabled = on
-                                                  // A sample, so turning it on is felt.
-                                                  if on { Haptics.success() }
-                                              }))
-                        .padding(.horizontal, DS.Space.s4)
-                        .padding(.vertical, 12)
-                        .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
-                        .padding(.horizontal, DS.gutter)
-                    PFFootnote("Vibrations for taps, confirmations and celebrations.")
+                    CardGroup {
+                        CardToggleRow("Haptics", subtitle: "Taps, confirmations and celebrations",
+                                      systemImage: "iphone.radiowaves.left.and.right", tint: .purple,
+                                      isOn: Binding(get: { hapticsEnabled },
+                                                    set: { on in
+                                                        hapticsEnabled = on
+                                                        // A sample, so turning it on is felt.
+                                                        if on { Haptics.success() }
+                                                    }))
+                    }
                 }
             }
             .padding(.bottom, DS.Space.s8)
