@@ -264,6 +264,19 @@ def find_app(api: Client) -> dict:
     return apps[0]
 
 
+def store_locales(api: Client, app: dict | None) -> list[str]:
+    """The listing's localisations in App Store Connect, primary first. Without
+    credentials, the metadata folders stand in."""
+    if app is None:
+        found = sorted(p.name for p in (ROOT / "ios/AppStore/metadata").iterdir() if p.is_dir())
+        return list(dict.fromkeys([LOCALE, *found]))
+    primary = app["attributes"].get("primaryLocale") or LOCALE
+    found = set()
+    for info in api.get_all(f"/v1/apps/{app['id']}/appInfos"):
+        found.update(l["attributes"]["locale"] for l in api.get_all(f"/v1/appInfos/{info['id']}/appInfoLocalizations"))
+    return [primary, *sorted(found - {primary})]
+
+
 # ---------------------------------------------------------------- status
 
 
@@ -368,7 +381,8 @@ class EventSpec:
     warnings: list[str] = field(default_factory=list)
 
 
-def load_events(start: dt.date, all_territories: list[str] | None, media_dir: Path | None) -> list[EventSpec]:
+def load_events(start: dt.date, all_territories: list[str] | None, media_dir: Path | None,
+                primary_locale: str = LOCALE) -> list[EventSpec]:
     specs = []
     for folder in sorted(p for p in EVENTS_DIR.iterdir() if (p / "event.json").is_file()):
         name = folder.name
@@ -395,7 +409,7 @@ def load_events(start: dt.date, all_territories: list[str] | None, media_dir: Pa
             "purpose": enum_value(raw["purpose"], PURPOSES, "purpose", name),
             "priority": enum_value(raw["priority"], PRIORITIES, "priority", name),
             "deepLink": raw.get("deep_link") or None,
-            "primaryLocale": LOCALE,
+            "primaryLocale": primary_locale,
             "territorySchedules": [{
                 "territories": sorted(codes),
                 "publishStart": iso(publish),
@@ -461,7 +475,8 @@ def cmd_events(api: Client, args) -> int:
     media_dir = ensure_screenshot_branch()
     app = find_app(api) if api.online else None
     all_territories = sorted(t["id"] for t in api.get_all("/v1/territories")) if api.online else None
-    specs = load_events(start, all_territories, media_dir)
+    locales = store_locales(api, app)
+    specs = load_events(start, all_territories, media_dir, locales[0])
 
     existing = {}
     if app:
@@ -496,56 +511,61 @@ def cmd_events(api: Client, args) -> int:
                         f"{k} {show_value(k, current['attributes'].get(k))} -> {show_value(k, v)}" for k, v in changes.items()),
                 )
 
-        # en-US localisation
-        loc = None
-        if not is_placeholder(event_id) and api.online:
-            loc = next((l for l in api.get_all(f"/v1/appEvents/{event_id}/localizations") if l["attributes"]["locale"] == LOCALE), None)
-        if loc is None:
-            created = api.write(
-                "POST", "/v1/appEventLocalizations",
-                {"data": {"type": "appEventLocalizations", "attributes": {"locale": LOCALE, **spec.localization},
-                          "relationships": {"appEvent": {"data": {"type": "appEvents", "id": event_id}}}}},
-                f"add the {LOCALE} text: " + ", ".join(f"{k} {json.dumps(v, ensure_ascii=False)}" for k, v in spec.localization.items()),
-            )
-            loc_id = created["data"]["id"]
-        else:
-            loc_id = loc["id"]
-            changes = {k: v for k, v in spec.localization.items() if (loc["attributes"].get(k) or "") != v}
-            if changes:
-                api.write(
-                    "PATCH", f"/v1/appEventLocalizations/{loc_id}",
-                    {"data": {"type": "appEventLocalizations", "id": loc_id, "attributes": changes}},
-                    f"update the {LOCALE} text: " + "; ".join(
-                        f"{k} {json.dumps(loc['attributes'].get(k), ensure_ascii=False)} -> {json.dumps(v, ensure_ascii=False)}" for k, v in changes.items()),
-                )
-
-        # Event card and details image
-        shots = []
-        if not is_placeholder(loc_id) and api.online:
-            shots = api.get_all(f"/v1/appEventLocalizations/{loc_id}/appEventScreenshots")
-        for asset_type, path in spec.media.items():
-            if path is None:
-                continue
-            have = [s for s in shots if s["attributes"].get("appEventAssetType") == asset_type]
-            same = [s for s in have if s["attributes"].get("fileName") == path.name
-                    and s["attributes"].get("fileSize") == path.stat().st_size
-                    and (s["attributes"].get("assetDeliveryState") or {}).get("state") == "COMPLETE"]
-            if same and len(have) == 1:
-                continue
-            for old in have:
-                api.write("DELETE", f"/v1/appEventScreenshots/{old['id']}", None,
-                          f"remove the old {asset_type} {old['attributes'].get('fileName')}")
-            upload_asset(
-                api, "/v1/appEventScreenshots",
-                {"data": {"type": "appEventScreenshots",
-                          "attributes": {"fileName": path.name, "fileSize": path.stat().st_size, "appEventAssetType": asset_type},
-                          "relationships": {"appEventLocalization": {"data": {"type": "appEventLocalizations", "id": loc_id}}}}},
-                path, "appEventScreenshots", checksum=False,
-            )
+        for locale in locales:
+            sync_event_locale(api, event_id, spec, locale)
         print()
 
     finish(api, "events")
     return 0
+
+
+def sync_event_locale(api: Client, event_id: str, spec: "EventSpec", locale: str) -> None:
+    print(f"  {locale}:")
+    loc = None
+    if not is_placeholder(event_id) and api.online:
+        loc = next((l for l in api.get_all(f"/v1/appEvents/{event_id}/localizations") if l["attributes"]["locale"] == locale), None)
+    if loc is None:
+        created = api.write(
+            "POST", "/v1/appEventLocalizations",
+            {"data": {"type": "appEventLocalizations", "attributes": {"locale": locale, **spec.localization},
+                      "relationships": {"appEvent": {"data": {"type": "appEvents", "id": event_id}}}}},
+            f"add the {locale} text: " + ", ".join(f"{k} {json.dumps(v, ensure_ascii=False)}" for k, v in spec.localization.items()),
+        )
+        loc_id = created["data"]["id"]
+    else:
+        loc_id = loc["id"]
+        changes = {k: v for k, v in spec.localization.items() if (loc["attributes"].get(k) or "") != v}
+        if changes:
+            api.write(
+                "PATCH", f"/v1/appEventLocalizations/{loc_id}",
+                {"data": {"type": "appEventLocalizations", "id": loc_id, "attributes": changes}},
+                f"update the {locale} text: " + "; ".join(
+                    f"{k} {json.dumps(loc['attributes'].get(k), ensure_ascii=False)} -> {json.dumps(v, ensure_ascii=False)}" for k, v in changes.items()),
+            )
+
+    # Event card and details image
+    shots = []
+    if not is_placeholder(loc_id) and api.online:
+        shots = api.get_all(f"/v1/appEventLocalizations/{loc_id}/appEventScreenshots")
+    for asset_type, path in spec.media.items():
+        if path is None:
+            continue
+        have = [s for s in shots if s["attributes"].get("appEventAssetType") == asset_type]
+        same = [s for s in have if s["attributes"].get("fileName") == path.name
+                and s["attributes"].get("fileSize") == path.stat().st_size
+                and (s["attributes"].get("assetDeliveryState") or {}).get("state") == "COMPLETE"]
+        if same and len(have) == 1:
+            continue
+        for old in have:
+            api.write("DELETE", f"/v1/appEventScreenshots/{old['id']}", None,
+                      f"remove the old {asset_type} {old['attributes'].get('fileName')}")
+        upload_asset(
+            api, "/v1/appEventScreenshots",
+            {"data": {"type": "appEventScreenshots",
+                      "attributes": {"fileName": path.name, "fileSize": path.stat().st_size, "appEventAssetType": asset_type},
+                      "relationships": {"appEventLocalization": {"data": {"type": "appEventLocalizations", "id": loc_id}}}}},
+            path, "appEventScreenshots", checksum=False,
+        )
 
 
 # ---------------------------------------------------------------- custom product pages
@@ -586,9 +606,9 @@ def cmd_pages(api: Client, args) -> int:
     specs = load_pages(media_dir)
     app = find_app(api) if api.online else None
     existing = {}
-    # A new page must start in the app's primary locale; LOCALE is added beside it.
-    primary = (app["attributes"].get("primaryLocale") if app else None) or LOCALE
-    locales = list(dict.fromkeys([primary, LOCALE]))
+    # A new page must start in the app's primary locale; the others are added beside it.
+    locales = store_locales(api, app)
+    primary = locales[0]
     available_keywords: dict[str, dict[str, str] | None] = {locale: None for locale in locales}
     if app:
         for page in api.get_all(f"/v1/apps/{app['id']}/appCustomProductPages"):
