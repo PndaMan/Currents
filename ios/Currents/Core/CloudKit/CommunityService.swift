@@ -1301,11 +1301,18 @@ final class CommunityService: ObservableObject {
 
     /// Crews I'm in — persisted locally so the list is instant + offline, and so
     /// each crew's auto-post preference lives on-device.
+    ///
+    /// Read many times per frame (every crew row, every feed row's crew name,
+    /// the live sections), so the decoded, sorted list is kept until the
+    /// stored bytes change instead of JSON-decoding on every read.
     var myCrews: [Crew] {
         get {
-            guard let data = UserDefaults.standard.data(forKey: "myCrews"),
-                  let list = try? JSONDecoder().decode([Crew].self, from: data) else { return [] }
-            return list.sorted { $0.joinedAt > $1.joinedAt }
+            guard let data = UserDefaults.standard.data(forKey: "myCrews") else { return [] }
+            if let memo = crewsMemo, memo.raw == data { return memo.list }
+            guard let list = try? JSONDecoder().decode([Crew].self, from: data) else { return [] }
+            let sorted = list.sorted { $0.joinedAt > $1.joinedAt }
+            crewsMemo = (data, sorted)
+            return sorted
         }
         set {
             if let data = try? JSONEncoder().encode(newValue) {
@@ -1316,6 +1323,11 @@ final class CommunityService: ObservableObject {
     }
 
     func crew(withCode code: String) -> Crew? { myCrews.first { $0.code == code } }
+
+    /// Last decoded `myCrews` / `myGroups`, keyed by the raw stored bytes so a
+    /// write from anywhere (including screenshot seeding) is picked up.
+    private var crewsMemo: (raw: Data, list: [Crew])?
+    private var groupsMemo: (raw: Data, list: [GroupRef])?
 
     private func rememberCrew(_ crew: Crew) {
         var list = myCrews
@@ -1662,11 +1674,15 @@ final class CommunityService: ObservableObject {
     }
 
     /// All group trips I host or have joined, newest first.
+    /// Memoized like `myCrews`: crew pages and rows read it in their bodies.
     var myGroups: [GroupRef] {
         get {
-            guard let data = UserDefaults.standard.data(forKey: "myGroupTrips"),
-                  let refs = try? JSONDecoder().decode([GroupRef].self, from: data) else { return [] }
-            return refs.sorted { $0.joinedAt > $1.joinedAt }
+            guard let data = UserDefaults.standard.data(forKey: "myGroupTrips") else { return [] }
+            if let memo = groupsMemo, memo.raw == data { return memo.list }
+            guard let refs = try? JSONDecoder().decode([GroupRef].self, from: data) else { return [] }
+            let sorted = refs.sorted { $0.joinedAt > $1.joinedAt }
+            groupsMemo = (data, sorted)
+            return sorted
         }
         set {
             if let data = try? JSONEncoder().encode(newValue) {
