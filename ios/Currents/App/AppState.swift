@@ -124,6 +124,10 @@ final class AppState {
         // they opted in). Starts syncing catches + spots across their devices.
         CloudSyncEngine.shared.configure(db: db)
 
+        // Game Center: signs in quietly when the phone already is, then keeps
+        // achievements and leaderboard scores in step with the catches.
+        GameCenter.shared.start(db: db, catches: catchRepository)
+
         // Apple Watch companion link.
         PhoneConnectivity.shared.activate()
 
