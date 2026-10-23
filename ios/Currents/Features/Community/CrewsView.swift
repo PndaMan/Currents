@@ -11,9 +11,10 @@ struct CrewsListPage: View {
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
-                DetailHeader(title: "Your crews",
-                             subtitle: svc.myCrews.isEmpty ? nil
-                                : "\(svc.myCrews.count) \(svc.myCrews.count == 1 ? "crew" : "crews")")
+                CommunityHero(label: "Fish together", title: "Your crews", line: crewCountLine) {
+                    ThumbView(systemImage: "person.3.fill", tint: CrewTint.people, size: 92)
+                }
+                .padding(.top, DS.Space.s2)
                 ActionTriple {
                     Button { setup = .start } label: {
                         Label("New crew", systemImage: "plus")
@@ -31,12 +32,11 @@ struct CrewsListPage: View {
                 .padding(.top, DS.Space.s5)
 
                 if svc.myCrews.isEmpty {
-                    ContentUnavailableView {
-                        Label("No crews yet", systemImage: "person.3")
-                    } description: {
-                        Text("Start a crew or join one with its code.")
+                    GroupedCard {
+                        IconRow("No crews yet", subtitle: "Start one or join with its code.",
+                                systemImage: "person.3.fill", tint: CrewTint.people)
                     }
-                    .padding(.top, DS.Space.s8)
+                    .padding(.top, DS.Space.s6)
                 } else {
                     VStack(alignment: .leading, spacing: 0) {
                         ForEach(svc.myCrews) { crew in
@@ -62,6 +62,11 @@ struct CrewsListPage: View {
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .sheet(item: $setup) { mode in CrewSetupView(joining: mode == .join) }
+    }
+
+    private var crewCountLine: String {
+        let n = svc.myCrews.count
+        return n == 0 ? "Start one or join with a code." : (n == 1 ? "1 crew" : "\(n) crews")
     }
 }
 
@@ -101,6 +106,8 @@ struct CrewSetupView: View {
     private var form: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: DS.Space.s5) {
+                setupHero
+                    .padding(.horizontal, -DS.gutter)
                 Picker("Start or join", selection: $mode) {
                     Text("Start a crew").tag(CrewSetupMode.start)
                     Text("Join a crew").tag(CrewSetupMode.join)
@@ -122,6 +129,18 @@ struct CrewSetupView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+        }
+    }
+
+    @ViewBuilder private var setupHero: some View {
+        if mode == .start {
+            CommunityHero(label: "New crew", title: "Start a crew", line: "A shared feed, challenges and tournaments.") {
+                ThumbView(systemImage: "person.3.fill", tint: CrewTint.people, size: 72)
+            }
+        } else {
+            CommunityHero(label: "Got a code?", title: "Join a crew", line: "Ask whoever started it for the code.") {
+                ThumbView(systemImage: "person.badge.plus", tint: .dsScoreGood, size: 72)
+            }
         }
     }
 
@@ -1202,9 +1221,9 @@ struct CrewSettingsView: View {
 
     /// For members who can't edit: the crew as it looks, and who can change it.
     private var identitySummary: some View {
-        ArtRow(over: "Crew code \(currentCrew.code)", title: currentCrew.name,
-               subtitle: "The captain and mates can change the crew's look") {
-            CrewThumb(code: currentCrew.code, emoji: currentCrew.emoji)
+        CommunityHero(label: "Crew code \(currentCrew.code)", title: currentCrew.name,
+                      line: "The captain and mates can change the crew's look.") {
+            CrewThumb(code: currentCrew.code, emoji: currentCrew.emoji, size: 72)
         }
         .padding(.top, DS.Space.s2)
     }
@@ -1337,7 +1356,12 @@ struct CrewSettingsView: View {
 
     private var membersSection: some View {
         CrewSection(title: "Members", detail: "\(members.count)") {
-            ForEach(members) { m in memberRow(m) }
+            GroupedCard {
+                ForEach(Array(members.enumerated()), id: \.element.id) { i, m in
+                    if i > 0 { CardDivider(inset: DS.Space.s4 + 44 + DS.Space.s3) }
+                    memberRow(m)
+                }
+            }
         }
         .confirmationDialog(
             "Remove from crew?",
@@ -1389,9 +1413,9 @@ struct CrewSettingsView: View {
         let role = svc.role(of: m.id, in: currentCrew)
         let isSelf = m.id == svc.friendCode
         let isCaptain = m.id == currentCrew.createdByCode
-        return HStack(spacing: 14) {
+        return HStack(spacing: DS.Space.s3) {
             CrewAvatar(image: isSelf ? svc.myAvatar : svc.cachedProfiles(for: [m.id]).first?.avatar,
-                       name: m.name, size: 48)
+                       name: m.name, size: 44)
             VStack(alignment: .leading, spacing: 2) {
                 Text(isSelf ? "You" : m.name)
                     .font(.body.weight(.medium))
@@ -1406,8 +1430,8 @@ struct CrewSettingsView: View {
                 memberMenu(m, role: role)
             }
         }
-        .padding(.horizontal, DS.gutter)
-        .padding(.vertical, 8)
+        .padding(.horizontal, DS.Space.s4)
+        .padding(.vertical, 10)
         .accessibilityElement(children: .contain)
     }
 
@@ -1444,7 +1468,7 @@ struct CrewSettingsView: View {
                 .font(.body.weight(.semibold))
                 .foregroundStyle(.dsText2)
                 .frame(width: 36, height: 36)
-                .background(Color.dsFill, in: Circle())
+                .background(Color.dsFill2, in: Circle())
                 .frame(width: 44, height: 44)
                 .contentShape(Rectangle())
         }
@@ -1479,9 +1503,18 @@ struct CrewSettingsView: View {
     /// The whole ladder with yours marked, so everyone knows what each role means.
     private var rolesSection: some View {
         CrewSection(title: "Roles") {
-            ForEach([CrewRole.captain, .mate, .admin, .member], id: \.self) { role in
-                HStack(alignment: .top, spacing: 14) {
-                    ThumbView(systemImage: role.icon, tint: CrewDetailView.roleColor(role), size: 48)
+            GroupedCard {
+                ForEach(Array([CrewRole.captain, .mate, .admin, .member].enumerated()), id: \.element) { i, role in
+                    if i > 0 { CardDivider(inset: DS.Space.s4 + 40 + DS.Space.s3) }
+                    roleRow(role)
+                }
+            }
+        }
+    }
+
+    private func roleRow(_ role: CrewRole) -> some View {
+                HStack(alignment: .top, spacing: DS.Space.s3) {
+                    ThumbView(systemImage: role.icon, tint: CrewDetailView.roleColor(role), size: 40)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(role.label)
                             .font(.body.weight(.medium))
@@ -1494,11 +1527,9 @@ struct CrewSettingsView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     if role == myRole { CrewPill(text: "You") }
                 }
-                .padding(.horizontal, DS.gutter)
-                .padding(.vertical, 8)
+                .padding(.horizontal, DS.Space.s4)
+                .padding(.vertical, 12)
                 .accessibilityElement(children: .combine)
-            }
-        }
     }
 }
 
