@@ -63,14 +63,16 @@ struct TournamentSetupView: View {
     }
 
     private var form: some View {
-        List {
-            titleSection
-            whenSection
-            scoringSection
-            teamsSection
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                titleSection
+                whenSection
+                scoringSection
+                teamsSection
+            }
+            .padding(.bottom, DS.Space.s6)
+            .pageWidth()
         }
-        .pfGroupedList()
-        .textCase(nil)
         .detailTint(nil)
         .scrollDismissesKeyboard(.interactively)
     }
@@ -78,85 +80,114 @@ struct TournamentSetupView: View {
     // MARK: Cover and name
 
     private var titleSection: some View {
-        Section {
-            VStack(alignment: .leading, spacing: DS.Space.s4) {
-                EventCover(species: nil, systemImage: "trophy.fill", tint: .dsScoreFair)
-                TextField("Tournament name", text: $name, prompt: Text("Tournament name"))
-                    .font(.title.bold())
-                    .foregroundStyle(.dsText)
-                    .submitLabel(.done)
-                    .focused($nameFocused)
-                    .padding(.horizontal, DS.gutter)
-            }
-            .padding(.top, DS.Space.s2)
-            .pfBareRow()
+        VStack(alignment: .leading, spacing: DS.Space.s4) {
+            EventCover(species: nil, systemImage: "trophy.fill", tint: .dsScoreFair)
+            TextField("Tournament name", text: $name, prompt: Text("Tournament name"))
+                .font(.title.bold())
+                .foregroundStyle(.dsText)
+                .submitLabel(.done)
+                .focused($nameFocused)
+                .padding(.horizontal, DS.gutter)
         }
+        .padding(.top, DS.Space.s2)
     }
 
     // MARK: When
 
     private var whenSection: some View {
-        Section {
-            LabeledContent("Starts", value: "Now")
-            Picker("Runs for", selection: $runHours) {
-                Text("No end").tag(0)
-                ForEach(Self.durations, id: \.self) { hours in
-                    Text(Self.durationText(hours)).tag(hours)
+        VStack(alignment: .leading, spacing: 0) {
+            SectionTitle("When")
+                .padding(.top, DS.Space.s6)
+            GroupedCard {
+                IconRow("Starts", systemImage: "play.fill", tint: .dsScoreGood) {
+                    Text("Now").foregroundStyle(.dsText2)
                 }
-                if runHours == Self.customHours {
-                    Text("Custom").tag(Self.customHours)
+                CardDivider()
+                IconRow("Runs for", systemImage: "timer", tint: .orange) { durationPicker }
+                if hasEnd {
+                    CardDivider()
+                    IconRow("Ends", systemImage: "flag.checkered", tint: CrewTint.calendar) {
+                        DatePicker("Ends", selection: $endsAt, in: Date()...,
+                                   displayedComponents: [.date, .hourAndMinute])
+                            .labelsHidden()
+                    }
                 }
             }
-            .pickerStyle(.menu)
-            if hasEnd {
-                DatePicker("Ends", selection: $endsAt, in: Date()...,
-                           displayedComponents: [.date, .hourAndMinute])
-            }
-        } header: {
-            Text("When")
-        } footer: {
-            Text(hasEnd ? "Points stop counting at the end time."
-                        : "It runs until an admin ends it.")
+            SectionFootnote(hasEnd ? "Points stop counting at the end time." : "It runs until an admin ends it.")
         }
-        .pfRows()
+    }
+
+    private var durationPicker: some View {
+        Picker("Runs for", selection: $runHours) {
+            Text("No end").tag(0)
+            ForEach(Self.durations, id: \.self) { hours in
+                Text(Self.durationText(hours)).tag(hours)
+            }
+            if runHours == Self.customHours {
+                Text("Custom").tag(Self.customHours)
+            }
+        }
+        .pickerStyle(.menu)
+        .labelsHidden()
+        .fixedSize()
     }
 
     // MARK: Scoring
 
     private var scoringSection: some View {
-        Section {
-            Stepper(value: $perFish, in: 0...100) {
-                LabeledContent("Each fish", value: pointsText(perFish))
+        VStack(alignment: .leading, spacing: 0) {
+            SectionTitle("Scoring")
+                .padding(.top, DS.Space.s6)
+            GroupedCard {
+                stepperRow("Each fish", value: pointsText(perFish), systemImage: "fish.fill",
+                           tint: CrewTint.fish, binding: $perFish, range: 0...100)
+                CardDivider()
+                stepperRow("Each kilogram", value: "+\(perKg)", systemImage: "scalemass.fill",
+                           tint: CrewTint.weight, binding: $perKg, range: 0...50)
+                CardDivider()
+                stepperRow("New species", value: "+\(speciesBonus)", systemImage: "leaf.fill",
+                           tint: CrewTint.species, binding: $speciesBonus, range: 0...100)
+                if !isStandard {
+                    CardDivider()
+                    Button(action: resetScoring) {
+                        IconRow("Use standard scoring", systemImage: "arrow.counterclockwise",
+                                tint: CrewTint.people)
+                    }
+                    .buttonStyle(.dim)
+                }
             }
-            Stepper(value: $perKg, in: 0...50) {
-                LabeledContent("Each kilogram", value: "+\(perKg)")
-            }
-            Stepper(value: $speciesBonus, in: 0...100) {
-                LabeledContent("New species", value: "+\(speciesBonus)")
-            }
-            if !isStandard {
-                Button("Use standard scoring", action: resetScoring)
-            }
-        } header: {
-            Text("Scoring")
-        } footer: {
-            Text("A 3 kg fish of a species new to the team scores \(pointsText(perFish + 3 * perKg + speciesBonus)).")
+            SectionFootnote("A 3 kg fish new to the team scores \(pointsText(perFish + 3 * perKg + speciesBonus)).")
         }
-        .pfRows()
+    }
+
+    private func stepperRow(_ title: String, value: String, systemImage: String, tint: Color,
+                            binding: Binding<Int>, range: ClosedRange<Int>) -> some View {
+        IconRow(title, subtitle: value, systemImage: systemImage, tint: tint) {
+            Stepper(title, value: binding, in: range)
+                .labelsHidden()
+        }
+        .accessibilityElement(children: .combine)
     }
 
     // MARK: Teams
 
     private var teamsSection: some View {
-        Section {
-            LabeledContent("Crew", value: crew.name)
-            LabeledContent("Teams", value: "Started by crewmates")
-        } header: {
-            Text("Teams")
-        } footer: {
-            Text("Each team is a live session with GPS on. Crewmates start or join one from the tournament page, and every catch they log scores.")
+        VStack(alignment: .leading, spacing: 0) {
+            SectionTitle("Teams")
+                .padding(.top, DS.Space.s6)
+            GroupedCard {
+                IconRow("Crew", systemImage: "person.3.fill", tint: CrewTint.people) {
+                    Text(crew.name).foregroundStyle(.dsText2).lineLimit(1)
+                }
+                CardDivider()
+                IconRow("Teams", subtitle: "Live sessions with GPS on", systemImage: "location.fill",
+                        tint: CrewTint.spot) {
+                    Text("Started by crewmates").font(.footnote).foregroundStyle(.dsText2)
+                        .multilineTextAlignment(.trailing)
+                }
+            }
+            SectionFootnote("Every catch a team logs scores.")
         }
-        .pfRows()
     }
 
     // MARK: Create
@@ -316,6 +347,7 @@ struct TournamentView: View {
             actions
                 .padding(.top, DS.Space.s5)
             notices
+            statStrip
             resultSection
             yourTeamSection
             standingsSection
@@ -485,14 +517,60 @@ struct TournamentView: View {
 
     // MARK: Header
 
-    @ViewBuilder private var header: some View {
+    /// Today's hero: the status over the name, who hosts it, and the clock
+    /// ring (or the trophy once it has ended) on the right.
+    private var header: some View {
+        HStack(alignment: .center, spacing: DS.Space.s4) {
+            VStack(alignment: .leading, spacing: 4) {
+                statusLabel
+                    .font(.subheadline)
+                    .foregroundStyle(.dsText2)
+                    .lineLimit(1)
+                Text(tournament.name)
+                    .font(.title.bold())
+                    .foregroundStyle(.dsText)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityAddTraits(.isHeader)
+                Text(hostLine)
+                    .font(.callout)
+                    .foregroundStyle(.dsText2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+            TournamentRing(start: tournament.createdAt, end: tournament.endsAt,
+                           ended: tournament.isEnded,
+                           fish: standings.reduce(0) { $0 + $1.fishCount })
+        }
+        .padding(.horizontal, DS.gutter)
+    }
+
+    @ViewBuilder private var statusLabel: some View {
         if tournament.isEnded {
-            DetailHeader(over: endedLine, title: tournament.name, subtitle: hostLine)
+            Text(endedLine)
         } else {
-            EventHeader(title: tournament.name, subtitle: hostLine) {
+            HStack(spacing: 6) {
                 EventLiveTag()
                 liveStatus
             }
+        }
+    }
+
+    /// Teams, fish, the leader's points and your place, as Logbook tiles.
+    @ViewBuilder private var statStrip: some View {
+        if !standings.isEmpty {
+            StatStrip {
+                StatTile("Teams", systemImage: "person.3.fill", tint: CrewTint.people,
+                         value: "\(standings.count)", width: 120)
+                StatTile("Fish", systemImage: "fish.fill", tint: CrewTint.fish,
+                         value: "\(standings.reduce(0) { $0 + $1.fishCount })", width: 120)
+                StatTile("Top score", systemImage: "trophy.fill", tint: CrewTint.trophy,
+                         value: "\(standings.first?.points ?? 0)", unit: "pts", width: 120)
+                if let i = myIndex {
+                    StatTile("Your place", systemImage: "flag.fill", tint: .orange,
+                             value: eventOrdinal(i + 1), footnote: "of \(standings.count)", width: 120)
+                }
+            }
+            .padding(.top, DS.Space.s5)
         }
     }
 
@@ -755,7 +833,8 @@ struct TournamentView: View {
     /// name, points. Teams slide to their new places when the order changes.
     private var standingRows: some View {
         VStack(spacing: 0) {
-            ForEach(Array(standings.enumerated()), id: \.element.id) { i, s in
+            if showsPodium { podium }
+            ForEach(Array(standings.enumerated()).dropFirst(showsPodium ? 3 : 0), id: \.element.id) { i, s in
                 NavigationLink {
                     teamPage(s, rank: i + 1)
                 } label: {
@@ -770,6 +849,22 @@ struct TournamentView: View {
             }
         }
         .animation(reduceMotion ? nil : DS.Motion.softSpring, value: standings.map(\.id))
+    }
+
+    /// Three or more teams: the top three stand on the podium, the rest
+    /// follow as rows.
+    private var showsPodium: Bool { standings.count >= 3 }
+
+    private var podium: some View {
+        EventPodium(entries: standings.prefix(3).map { s in
+            EventPodiumEntry(id: s.id, name: s.teamName, value: "\(s.points)", unit: "pts",
+                             images: teamImages(s), isMe: s.memberCodes.contains(svc.friendCode))
+        }) { entry in
+            if let i = standings.firstIndex(where: { $0.id == entry.id }) {
+                teamPage(standings[i], rank: i + 1)
+            }
+        }
+        .padding(.bottom, DS.Space.s3)
     }
 
     private func teamSubtitle(_ s: CommunityService.TeamStanding) -> String {
@@ -856,18 +951,53 @@ struct TournamentView: View {
         let highlights = CommunityService.tournamentHighlights(from: standings)
         if !highlights.isEmpty {
             CrewSection(title: "Highlights") {
-                VStack(spacing: 0) {
-                    ForEach(highlights) { h in
-                        ArtRow(over: h.title,
-                               title: plainDetail(h.detail),
-                               subtitle: "\(h.anglerCode == svc.friendCode ? "You" : h.anglerName), \(h.teamName)") {
-                            ThumbView(systemImage: h.icon, tint: DS.accent, size: 56)
-                        } trailing: {
-                            AnglerAvatar(image: avatar(h.anglerCode), size: 32)
-                        }
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 10) {
+                        ForEach(highlights) { h in highlightCard(h) }
                     }
+                    .padding(.horizontal, DS.gutter)
                 }
+                .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
             }
+        }
+    }
+
+    /// One highlight as a Today day card: the moment's symbol on its colour,
+    /// what it was, and who landed it.
+    private func highlightCard(_ h: CommunityService.TournamentHighlight) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                ThumbView(systemImage: h.icon, tint: highlightTint(h.icon), size: 44)
+                Spacer(minLength: 4)
+                AnglerAvatar(image: avatar(h.anglerCode), size: 32)
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                Text(h.title)
+                    .font(.footnote.weight(.medium))
+                    .foregroundStyle(.dsText2)
+                Text(plainDetail(h.detail))
+                    .font(.headline)
+                    .foregroundStyle(.dsText)
+                    .lineLimit(2)
+                Text(h.anglerCode == svc.friendCode ? "You, \(h.teamName)" : "\(h.anglerName), \(h.teamName)")
+                    .font(.footnote)
+                    .foregroundStyle(.dsText2)
+                    .lineLimit(1)
+            }
+        }
+        .frame(width: 168, alignment: .leading)
+        .padding(14)
+        .frame(maxHeight: .infinity, alignment: .top)
+        .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
+        .accessibilityElement(children: .combine)
+    }
+
+    private func highlightTint(_ icon: String) -> Color {
+        switch icon {
+        case "fish.fill": return CrewTint.fish
+        case "scalemass.fill": return CrewTint.weight
+        case "bolt.fill": return .dsScoreFair
+        default: return DS.accent
         }
     }
 
@@ -875,32 +1005,141 @@ struct TournamentView: View {
 
     private var rulesSection: some View {
         CrewSection(title: "Rules") {
-            KeyValueList(rows: ruleRows)
+            GroupedCard {
+                ForEach(Array(ruleRows.enumerated()), id: \.offset) { i, row in
+                    if i > 0 { CardDivider() }
+                    IconRow(row.label, systemImage: row.symbol, tint: row.tint) {
+                        Text(row.value)
+                            .font(.body)
+                            .monospacedDigit()
+                            .foregroundStyle(.dsText2)
+                            .multilineTextAlignment(.trailing)
+                    }
+                    .accessibilityElement(children: .combine)
+                }
+            }
             if tournament.rates != TournamentPoints.standard {
-                SectionFootnote("This tournament uses custom scoring set by its host.")
+                SectionFootnote("Custom scoring set by the host.")
             }
         }
     }
 
-    private var ruleRows: [KeyValueList.Row] {
+    private struct RuleRow {
+        let label: String
+        let symbol: String
+        let tint: Color
+        let value: String
+    }
+
+    private var ruleRows: [RuleRow] {
         let r = tournament.rates
-        var rows: [KeyValueList.Row] = [
-            .init(label: "Each fish", value: pointsText(r.perFish)),
-            .init(label: "Each kilogram", value: "+\(r.perKg)"),
-            .init(label: "New species", value: "+\(r.newSpeciesBonus)"),
-            .init(label: "Teams", value: "Live sessions, GPS on"),
-            .init(label: "Started", value: tournament.createdAt.formatted(date: .abbreviated, time: .shortened)),
+        var rows: [RuleRow] = [
+            .init(label: "Each fish", symbol: "fish.fill", tint: CrewTint.fish, value: pointsText(r.perFish)),
+            .init(label: "Each kilogram", symbol: "scalemass.fill", tint: CrewTint.weight, value: "+\(r.perKg)"),
+            .init(label: "New species", symbol: "leaf.fill", tint: CrewTint.species, value: "+\(r.newSpeciesBonus)"),
+            .init(label: "Teams", symbol: "location.fill", tint: CrewTint.spot, value: "Live sessions"),
+            .init(label: "Started", symbol: "play.fill", tint: CrewTint.people,
+                  value: tournament.createdAt.formatted(date: .abbreviated, time: .shortened)),
         ]
+        let endValue: String
         if let ended = tournament.endedAt {
-            rows.append(.init(label: "Ended", value: ended.formatted(date: .abbreviated, time: .shortened)))
+            endValue = ended.formatted(date: .abbreviated, time: .shortened)
         } else if let ends = tournament.endsAt {
-            rows.append(.init(label: "Ends", value: ends.formatted(date: .abbreviated, time: .shortened)))
+            endValue = ends.formatted(date: .abbreviated, time: .shortened)
         } else {
-            rows.append(.init(label: "Ends", value: "When an admin ends it"))
+            endValue = "When an admin ends it"
         }
-        rows.append(.init(label: "Teams so far", value: "\(standings.count)"))
-        rows.append(.init(label: "Fish landed", value: "\(standings.reduce(0) { $0 + $1.fishCount })"))
+        rows.append(.init(label: tournament.isEnded ? "Ended" : "Ends", symbol: "flag.checkered",
+                          tint: CrewTint.calendar, value: endValue))
         return rows
+    }
+}
+
+/// Today's score ring, for a tournament: how much of its time has gone,
+/// with what's left in the middle. Open-ended ones show the fish landed;
+/// ended ones a trophy on gold.
+private struct TournamentRing: View {
+    let start: Date
+    let end: Date?
+    let ended: Bool
+    let fish: Int
+    var size: CGFloat = 100
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var bounce = 0
+
+    var body: some View {
+        Group {
+            if ended {
+                endedRing
+            } else if let end {
+                TimelineView(.periodic(from: .now, by: 1)) { ctx in
+                    ring(progress: progress(end: end, now: ctx.date),
+                         value: remaining(end: end, now: ctx.date),
+                         caption: end > ctx.date ? "left" : "overtime",
+                         colour: end > ctx.date ? DS.accent : .dsScoreLow)
+                }
+            } else {
+                ring(progress: 1, value: "\(fish)", caption: "fish", colour: CrewTint.fish)
+            }
+        }
+        .frame(width: size, height: size)
+    }
+
+    private var endedRing: some View {
+        ZStack {
+            Circle().fill(Color.dsScoreFair.opacity(0.16))
+            Circle().strokeBorder(Color.dsScoreFair, lineWidth: size * 0.1)
+            Image(systemName: "trophy.fill")
+                .font(.system(size: size * 0.36, weight: .semibold)) // ui-lint: allow, symbol scales with the ring like ScoreRing's number
+                .foregroundStyle(Color.dsScoreFair)
+                .symbolEffect(.bounce, value: bounce)
+        }
+        .onAppear { if !reduceMotion { bounce += 1 } }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Ended")
+    }
+
+    private func ring(progress: Double, value: String, caption: String, colour: Color) -> some View {
+        ZStack {
+            Circle().stroke(colour.opacity(0.22), lineWidth: size * 0.1)
+            Circle()
+                .trim(from: 0, to: max(0.001, min(1, progress)))
+                .stroke(colour, style: StrokeStyle(lineWidth: size * 0.1, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+            VStack(spacing: 1) {
+                Text(value)
+                    .font(.system(size: size * 0.26, weight: .bold)) // ui-lint: allow, number scales with the ring like ScoreRing's
+                    .monospacedDigit()
+                    .foregroundStyle(.dsText)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
+                    .contentTransition(.numericText(countsDown: true))
+                Text(caption)
+                    .font(.footnote)
+                    .foregroundStyle(.dsText2)
+                    .lineLimit(1)
+            }
+            .padding(size * 0.12)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(value) \(caption)")
+    }
+
+    private func progress(end: Date, now: Date) -> Double {
+        let total = end.timeIntervalSince(start)
+        guard total > 0 else { return 1 }
+        return now.timeIntervalSince(start) / total
+    }
+
+    /// The biggest unit left: "3d", "5h", "42m", then seconds.
+    private func remaining(end: Date, now: Date) -> String {
+        let s = Int(end.timeIntervalSince(now))
+        guard s > 0 else { return "0m" }
+        if s >= 86_400 { return "\(s / 86_400)d" }
+        if s >= 3600 { return "\(s / 3600)h" }
+        if s >= 60 { return "\(s / 60)m" }
+        return "\(s)s"
     }
 }
 
@@ -993,8 +1232,8 @@ private struct NewTeamSheet: View {
     }
 
     private var form: some View {
-        List {
-            Section {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
                 TextField("Team name", text: $name, prompt: Text("Team name"))
                     .font(.title.bold())
                     .foregroundStyle(.dsText)
@@ -1003,20 +1242,19 @@ private struct NewTeamSheet: View {
                     .focused($nameFocused)
                     .padding(.horizontal, DS.gutter)
                     .padding(.top, DS.Space.s2)
-                    .pfBareRow()
+                GroupedCard {
+                    IconRow("Session", subtitle: "Starts now, GPS on", systemImage: "location.fill",
+                            tint: CrewTint.spot)
+                    CardDivider()
+                    IconRow("Scores", subtitle: "Every catch you log", systemImage: "fish.fill",
+                            tint: CrewTint.fish)
+                }
+                .padding(.top, DS.Space.s5)
+                SectionFootnote(hasTeams ? "To join a team already fishing, open it from the standings."
+                                         : "Crewmates join your team from the tournament page.")
             }
-            Section {
-                LabeledContent("Session", value: "Starts now, GPS on")
-                LabeledContent("Scores", value: "Every catch you log")
-            } footer: {
-                Text(hasTeams
-                     ? "To join a team that's already fishing, open it from the standings."
-                     : "Crewmates join your team from the tournament page.")
-            }
-            .pfRows()
+            .pageWidth()
         }
-        .pfGroupedList()
-        .textCase(nil)
         .detailTint(nil)
         .scrollDismissesKeyboard(.interactively)
     }
@@ -1060,12 +1298,20 @@ private struct TournamentScoringSheet: View {
 
     var body: some View {
         NavigationStack {
-            List {
-                ratesSection
-                exampleSection
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    CommunityHero(label: "A new species at 3 kg", title: pointsText(exampleTotal),
+                                  line: rates != TournamentPoints.standard ? "Custom scoring set by the host"
+                                                                           : "Standard scoring") {
+                        ThumbView(systemImage: "trophy.fill", tint: CrewTint.trophy, size: 72)
+                    }
+                    .padding(.top, DS.Space.s2)
+                    ratesSection
+                    exampleSection
+                }
+                .padding(.bottom, DS.Space.s6)
+                .pageWidth()
             }
-            .pfGroupedList()
-            .textCase(nil)
             .detailTint(nil)
             .eventSheetTitle("How points work")
         }
@@ -1074,36 +1320,34 @@ private struct TournamentScoringSheet: View {
     }
 
     private var ratesSection: some View {
-        Section {
-            LabeledContent("Each fish", value: pointsText(rates.perFish))
-            LabeledContent("Each kilogram", value: "+\(rates.perKg)")
-            LabeledContent("New species", value: "+\(rates.newSpeciesBonus)")
-        } header: {
-            Text("Points")
-        } footer: {
-            Text("Weight is rounded to the nearest kilogram for every fish. The species bonus is for the team's first of its kind.")
+        VStack(alignment: .leading, spacing: 0) {
+            SectionTitle("Points")
+                .padding(.top, DS.Space.s6)
+            HStack(spacing: 10) {
+                StatTile("Each fish", systemImage: "fish.fill", tint: CrewTint.fish,
+                         value: "\(rates.perFish)", unit: "pts", width: nil)
+                StatTile("Per kg", systemImage: "scalemass.fill", tint: CrewTint.weight,
+                         value: "+\(rates.perKg)", width: nil)
+                StatTile("Species", systemImage: "leaf.fill", tint: CrewTint.species,
+                         value: "+\(rates.newSpeciesBonus)", width: nil)
+            }
+            .padding(.horizontal, DS.gutter)
+            SectionFootnote("Weight rounds to the nearest kilogram. The species bonus is the team's first of its kind.")
         }
-        .pfRows()
     }
 
     private var exampleSection: some View {
-        Section {
-            LabeledContent("The fish", value: pointsText(rates.perFish))
-            LabeledContent("3 kg", value: "+\(3 * rates.perKg)")
-            LabeledContent("New species", value: "+\(rates.newSpeciesBonus)")
-            LabeledContent {
-                Text(pointsText(exampleTotal)).fontWeight(.semibold)
-            } label: {
-                Text("Total").fontWeight(.semibold)
-            }
-        } header: {
-            Text("A new species at 3 kg")
-        } footer: {
-            Text(rates != TournamentPoints.standard
-                 ? "Custom scoring set by the host. An admin confirms the winner at the end."
-                 : "Points update as catches come in. An admin confirms the winner at the end.")
+        VStack(alignment: .leading, spacing: 0) {
+            SectionTitle("Worked example")
+                .padding(.top, DS.Space.s6)
+            KeyValueList(rows: [
+                .init(label: "The fish", value: pointsText(rates.perFish)),
+                .init(label: "3 kg", value: "+\(3 * rates.perKg)"),
+                .init(label: "New species", value: "+\(rates.newSpeciesBonus)"),
+                .init(label: "Total", value: pointsText(exampleTotal), emphasized: true),
+            ])
+            SectionFootnote("An admin confirms the winner at the end.")
         }
-        .pfRows()
     }
 }
 
@@ -1147,24 +1391,29 @@ private struct EndTournamentSheet: View {
     }
 
     private var list: some View {
-        List {
-            Section {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                CommunityHero(label: "Winner", title: selected ?? "No winner",
+                              line: "Most points wins unless the crew agreed another") {
+                    ThumbView(systemImage: "trophy.fill", tint: CrewTint.trophy, size: 72)
+                }
+                .padding(.top, DS.Space.s2)
+                SectionTitle("Teams", detail: standings.isEmpty ? nil : "\(standings.count)")
+                    .padding(.top, DS.Space.s6)
                 if standings.isEmpty {
-                    Label("No team fished this tournament.", systemImage: "trophy")
-                        .foregroundStyle(.dsText2)
+                    InlineEmpty(systemImage: "trophy", text: "No team fished this tournament.")
+                } else {
+                    GroupedCard {
+                        ForEach(Array(standings.enumerated()), id: \.element.id) { i, s in
+                            if i > 0 { CardDivider(inset: DS.Space.s4 + 40 + DS.Space.s3) }
+                            teamRow(s, rank: i + 1)
+                        }
+                    }
                 }
-                ForEach(Array(standings.enumerated()), id: \.element.id) { i, s in
-                    teamRow(s, rank: i + 1)
-                }
-            } header: {
-                Text("Winner")
-            } footer: {
-                Text("Most points wins by default. Pick another team if the crew agreed one.")
             }
-            .pfRows()
+            .padding(.bottom, DS.Space.s6)
+            .pageWidth()
         }
-        .pfGroupedList()
-        .textCase(nil)
         .detailTint(nil)
     }
 
@@ -1194,13 +1443,15 @@ private struct EndTournamentSheet: View {
                         .foregroundStyle(.dsText2)
                 }
                 Spacer(minLength: DS.Space.s2)
-                Image(systemName: "checkmark")
-                    .font(.body.weight(.semibold))
-                    .foregroundStyle(.tint)
-                    .opacity(isSelected ? 1 : 0)
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .font(.title3)
+                    .foregroundStyle(isSelected ? AnyShapeStyle(.tint) : AnyShapeStyle(Color.dsText3))
             }
+            .padding(.horizontal, DS.Space.s4)
+            .padding(.vertical, 10)
             .contentShape(Rectangle())
         }
+        .buttonStyle(.dim)
         .buttonHaptic(.selection)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
