@@ -829,6 +829,50 @@ enum CrewArt {
         renderer.scale = 1
         return renderer.uiImage
     }
+
+    /// The art colour of a crew icon made by `image(for:)`, read back from the
+    /// tile's corners: the art tint at the dark thumbnail opacity on black.
+    /// Nil for photos and older emoji icons, whose corners do not agree.
+    @MainActor static func tint(of icon: UIImage) -> Color? {
+        guard let cg = icon.cgImage else { return nil }
+        let side = 20
+        var pixels = [UInt8](repeating: 0, count: side * side * 4)
+        let drawn = pixels.withUnsafeMutableBytes { buffer -> Bool in
+            guard let context = CGContext(data: buffer.baseAddress, width: side, height: side,
+                                          bitsPerComponent: 8, bytesPerRow: side * 4,
+                                          space: CGColorSpaceCreateDeviceRGB(),
+                                          bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+            else { return false }
+            context.interpolationQuality = .medium
+            context.draw(cg, in: CGRect(x: 0, y: 0, width: side, height: side))
+            return true
+        }
+        guard drawn else { return nil }
+
+        let corners = [(1, 1), (side - 2, 1), (1, side - 2), (side - 2, side - 2)]
+        let samples: [[Double]] = corners.map { point in
+            let i = (point.1 * side + point.0) * 4
+            return [Double(pixels[i]), Double(pixels[i + 1]), Double(pixels[i + 2])].map { $0 / 255 }
+        }
+        // The corners of a crew-art tile share one flat colour; a photo's do
+        // not. Compare each corner with the per-channel median.
+        var middle: [Double] = []
+        for c in 0..<3 {
+            let sorted = samples.map { $0[c] }.sorted()
+            middle.append((sorted[1] + sorted[2]) / 2)
+        }
+        let agreeing = samples.filter { s in (0..<3).allSatisfy { abs(s[$0] - middle[$0]) < 0.04 } }
+        guard agreeing.count >= 3 else { return nil }
+        var mean: [Double] = []
+        for c in 0..<3 {
+            mean.append(agreeing.map { $0[c] }.reduce(0, +) / Double(agreeing.count))
+        }
+        guard let brightest = mean.max(), brightest > 0.02, brightest < 0.36 else { return nil }
+
+        let opacity = DS.thumbTintOpacity(.dark)
+        let channel = mean.map { min(1, $0 / opacity) }
+        return Color(uiColor: UIColor(red: channel[0], green: channel[1], blue: channel[2], alpha: 1))  // ui-lint: allow, colour read back from the crew's own art
+    }
 }
 
 /// A row of species art to pick a crew icon from, each with its name.
