@@ -1,0 +1,802 @@
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["pyjwt[crypto]>=2.9", "requests>=2.32"]
+# ///
+"""App Store Connect tasks that fastlane deliver does not cover.
+
+  status   the latest builds with processing and TestFlight state
+  events   create or update the in-app events in ios/AppStore/events
+  pages    create or update the custom product pages in ios/AppStore/custom-product-pages
+
+events and pages are dry runs unless --apply is given: they read App Store
+Connect, print every change they would make, and send no writes. Nothing here
+submits anything for review.
+
+Credentials come from the environment: ASC_KEY_ID, ASC_ISSUER_ID and
+ASC_KEY_PATH (default ~/.appstoreconnect/private_keys/AuthKey_<ASC_KEY_ID>.p8).
+`make appstore-*` also loads them from .env.local.
+
+API reference: https://developer.apple.com/documentation/appstoreconnectapi
+"""
+
+from __future__ import annotations
+
+import argparse
+import calendar
+import datetime as dt
+import hashlib
+import json
+import os
+import sys
+import time
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
+
+import jwt
+import requests
+
+BUNDLE_ID = "com.aidanmcconnon.currents"
+BASE_URL = "https://api.appstoreconnect.apple.com"
+LOCALE = "en-US"
+PHONE_DISPLAY_TYPE = "APP_IPHONE_67"  # the 6.9-inch slot; takes 1320x2868
+
+ROOT = Path(__file__).resolve().parent.parent
+APPSTORE_DIR = ROOT / "ios" / "AppStore"
+EVENTS_DIR = APPSTORE_DIR / "events"
+PAGES_DIR = APPSTORE_DIR / "custom-product-pages"
+SCREENSHOTS_DIR = Path(os.environ.get("APPSTORE_SCREENSHOTS_DIR") or ROOT / "ios" / "build" / "appstore-screenshots" / "branch")
+SCREENSHOTS_SCRIPT = ROOT / "scripts" / "appstore_screenshots.sh"
+
+BADGES = {"LIVE_EVENT", "PREMIERE", "CHALLENGE", "COMPETITION", "NEW_SEASON", "MAJOR_UPDATE", "SPECIAL_EVENT"}
+PURPOSES = {
+    "appropriate for all users": "APPROPRIATE_FOR_ALL_USERS",
+    "attract new users": "ATTRACT_NEW_USERS",
+    "keep active users informed": "KEEP_ACTIVE_USERS_INFORMED",
+    "bring back lapsed users": "BRING_BACK_LAPSED_USERS",
+}
+PRIORITIES = {"high": "HIGH", "normal": "NORMAL"}
+EVENT_MEDIA = {"EVENT_CARD": "event-card.png", "EVENT_DETAILS_PAGE": "event-details.png"}
+MAX_EVENT_DAYS = 31
+MAX_PUBLISH_LEAD_DAYS = 14
+EDITABLE_PAGE_STATES = {"PREPARE_FOR_SUBMISSION", "REJECTED"}
+
+
+class ASCError(Exception):
+    pass
+
+
+# ---------------------------------------------------------------- auth + HTTP
+
+
+@dataclass
+class Credentials:
+    key_id: str
+    issuer_id: str
+    key_path: Path
+
+    @classmethod
+    def from_env(cls) -> Credentials | None:
+        key_id = os.environ.get("ASC_KEY_ID", "").strip()
+        issuer_id = os.environ.get("ASC_ISSUER_ID", "").strip()
+        if not key_id or not issuer_id:
+            return None
+        raw = os.environ.get("ASC_KEY_PATH", "").strip() or f"~/.appstoreconnect/private_keys/AuthKey_{key_id}.p8"
+        return cls(key_id, issuer_id, Path(raw).expanduser())
+
+
+def make_token(creds: Credentials, lifetime: int = 600) -> str:
+    """ES256 JWT for the App Store Connect API. Apple allows at most 20 minutes."""
+    if not creds.key_path.is_file():
+        raise ASCError(f"API key file not found: {creds.key_path} (set ASC_KEY_PATH)")
+    now = int(time.time())
+    return jwt.encode(
+        {"iss": creds.issuer_id, "iat": now, "exp": now + lifetime, "aud": "appstoreconnect-v1"},
+        creds.key_path.read_text(),
+        algorithm="ES256",
+        headers={"kid": creds.key_id, "typ": "JWT"},
+    )
+
+
+def describe_errors(resp: requests.Response) -> str:
+    try:
+        errors = resp.json().get("errors", [])
+    except ValueError:
+        return f"HTTP {resp.status_code}: {resp.text[:500]}"
+    if not errors:
+        return f"HTTP {resp.status_code}: {resp.text[:500]}"
+    lines = []
+    for e in errors:
+        source = e.get("source") or {}
+        where = source.get("pointer") or source.get("parameter") or ""
+        line = f"HTTP {e.get('status', resp.status_code)} {e.get('code', '')}: {e.get('title', '').rstrip('.')}. {e.get('detail', '')}"
+        if where:
+            line += f" ({where})"
+        lines.append(line.strip())
+    return "\n".join(lines)
+
+
+class Client:
+    """App Store Connect client. In dry-run mode reads go through and writes are printed instead."""
+
+    def __init__(self, creds: Credentials | None, apply: bool):
+        self.creds = creds
+        self.apply = apply
+        self.session = requests.Session()
+        self._token = ""
+        self._token_exp = 0.0
+        self._fake = 0
+        self.writes = 0
+
+    @property
+    def online(self) -> bool:
+        return self.creds is not None
+
+    def _auth(self) -> str:
+        if time.time() > self._token_exp - 60:
+            self._token = make_token(self.creds)
+            self._token_exp = time.time() + 600
+        return self._token
+
+    def request(self, method: str, path: str, *, params=None, body=None) -> dict:
+        if not self.online:
+            raise ASCError("no credentials")
+        url = path if path.startswith("http") else BASE_URL + path
+        delay = 2.0
+        for attempt in range(6):
+            try:
+                resp = self.session.request(
+                    method, url, params=params, json=body, timeout=60,
+                    headers={"Authorization": f"Bearer {self._auth()}"},
+                )
+            except requests.ConnectionError as exc:
+                if attempt == 5:
+                    raise ASCError(f"{method} {path}: {exc}") from exc
+                time.sleep(delay)
+                delay *= 2
+                continue
+            if resp.status_code == 429 or resp.status_code >= 500:
+                if attempt == 5:
+                    raise ASCError(f"{method} {path}\n{describe_errors(resp)}")
+                wait = float(resp.headers.get("Retry-After") or delay)
+                print(f"  {resp.status_code} from {method} {path}, retrying in {wait:.0f}s", file=sys.stderr)
+                time.sleep(wait)
+                delay *= 2
+                continue
+            if resp.status_code >= 400:
+                raise ASCError(f"{method} {path}\n{describe_errors(resp)}")
+            return resp.json() if resp.content else {}
+        raise ASCError(f"{method} {path}: gave up")
+
+    def get(self, path: str, **params) -> dict:
+        return self.request("GET", path, params=params or None)
+
+    def get_all(self, path: str, **params) -> list[dict]:
+        """Follows links.next and returns every item of a collection."""
+        params.setdefault("limit", 200)
+        out = self.get(path, **params)
+        items = list(out.get("data", []))
+        nxt = out.get("links", {}).get("next")
+        while nxt:
+            out = self.request("GET", nxt)
+            items.extend(out.get("data", []))
+            nxt = out.get("links", {}).get("next")
+        return items
+
+    def write(self, method: str, path: str, body: dict | None, summary: str) -> dict:
+        """A write. Dry run prints it and returns a placeholder resource."""
+        self.writes += 1
+        if not self.apply:
+            print(f"  would {summary}")
+            self._fake += 1
+            data_type = (body or {}).get("data", {}).get("type", "resource") if isinstance((body or {}).get("data"), dict) else "resource"
+            return {"data": {"id": f"(new-{self._fake})", "type": data_type, "attributes": {}}}
+        print(f"  {summary}")
+        return self.request(method, path, body=body)
+
+
+def is_placeholder(resource_id: str) -> bool:
+    return resource_id.startswith("(new-")
+
+
+# ---------------------------------------------------------------- uploads
+
+
+def md5(path: Path) -> str:
+    return hashlib.md5(path.read_bytes()).hexdigest()
+
+
+def upload_asset(api: Client, create_path: str, body: dict, file: Path, patch_type: str, checksum: bool) -> str:
+    """Reserve an asset, PUT its bytes to the upload operations, then commit it.
+
+    https://developer.apple.com/documentation/appstoreconnectapi/uploading-assets-to-app-store-connect
+    """
+    reservation = api.write("POST", create_path, body, f"upload {file.name} ({file.stat().st_size} bytes)")
+    asset = reservation["data"]
+    if not api.apply:
+        return asset["id"]
+    data = file.read_bytes()
+    for op in asset["attributes"].get("uploadOperations") or []:
+        headers = {h["name"]: h["value"] for h in op.get("requestHeaders") or []}
+        chunk = data[op["offset"]: op["offset"] + op["length"]]
+        for attempt in range(5):
+            resp = requests.request(op["method"], op["url"], data=chunk, headers=headers, timeout=120)
+            if resp.status_code < 400:
+                break
+            if attempt == 4 or (resp.status_code < 500 and resp.status_code != 429):
+                raise ASCError(f"upload of {file.name} failed: HTTP {resp.status_code} {resp.text[:300]}")
+            time.sleep(2 ** attempt)
+    attrs: dict[str, Any] = {"uploaded": True}
+    if checksum:
+        attrs["sourceFileChecksum"] = md5(file)
+    api.request("PATCH", f"{create_path}/{asset['id']}", body={"data": {"type": patch_type, "id": asset["id"], "attributes": attrs}})
+    # Wait briefly for Apple to process it so failures show up here.
+    for _ in range(30):
+        state = api.get(f"{create_path}/{asset['id']}")["data"]["attributes"].get("assetDeliveryState") or {}
+        if state.get("state") == "COMPLETE":
+            break
+        if state.get("state") == "FAILED":
+            raise ASCError(f"Apple rejected {file.name}: {json.dumps(state.get('errors'))}")
+        time.sleep(2)
+    else:
+        print(f"  {file.name} is still processing; check App Store Connect later")
+    return asset["id"]
+
+
+def ensure_screenshot_branch() -> Path:
+    """The screenshots branch, downloaded and laid out by scripts/appstore_screenshots.sh."""
+    if not (SCREENSHOTS_DIR / "framed").is_dir():
+        import subprocess
+
+        print(f"Downloading the screenshots branch with {SCREENSHOTS_SCRIPT.relative_to(ROOT)}")
+        subprocess.run([str(SCREENSHOTS_SCRIPT)], check=True, stdout=subprocess.DEVNULL)
+    return SCREENSHOTS_DIR
+
+
+# ---------------------------------------------------------------- app lookup
+
+
+def find_app(api: Client) -> dict:
+    apps = api.get("/v1/apps", **{"filter[bundleId]": BUNDLE_ID, "fields[apps]": "name,bundleId,primaryLocale"}).get("data", [])
+    apps = [a for a in apps if a["attributes"].get("bundleId") == BUNDLE_ID]
+    if not apps:
+        raise ASCError(f"No app with bundle id {BUNDLE_ID} is visible to this API key")
+    return apps[0]
+
+
+# ---------------------------------------------------------------- status
+
+
+def cmd_status(api: Client, args) -> int:
+    if not api.online:
+        raise ASCError("status needs ASC_KEY_ID, ASC_ISSUER_ID and the key file")
+    app = find_app(api)
+    out = api.get(
+        "/v1/builds",
+        **{
+            "filter[app]": app["id"],
+            "sort": "-uploadedDate",
+            "limit": 5,
+            "include": "preReleaseVersion,buildBetaDetail",
+            "fields[builds]": "version,uploadedDate,processingState,expired,preReleaseVersion,buildBetaDetail",
+            "fields[preReleaseVersions]": "version",
+            "fields[buildBetaDetails]": "internalBuildState,externalBuildState",
+        },
+    )
+    included = {(i["type"], i["id"]): i["attributes"] for i in out.get("included", [])}
+    print(f"{app['attributes']['name']} ({BUNDLE_ID}), app id {app['id']}\n")
+    rows = [("Version", "Build", "Processing", "Uploaded", "Internal beta", "External beta")]
+    for b in out.get("data", []):
+        a = b["attributes"]
+        rel = b.get("relationships", {})
+        pre = included.get(("preReleaseVersions", (rel.get("preReleaseVersion", {}).get("data") or {}).get("id")), {})
+        beta = included.get(("buildBetaDetails", (rel.get("buildBetaDetail", {}).get("data") or {}).get("id")), {})
+        uploaded = a.get("uploadedDate", "")
+        if uploaded:
+            uploaded = dt.datetime.fromisoformat(uploaded).astimezone().strftime("%Y-%m-%d %H:%M")
+        state = a.get("processingState", "")
+        if a.get("expired"):
+            state += " (expired)"
+        rows.append((pre.get("version", "?"), a.get("version", "?"), state, uploaded,
+                     beta.get("internalBuildState", "-"), beta.get("externalBuildState", "-")))
+    widths = [max(len(str(r[i])) for r in rows) for i in range(len(rows[0]))]
+    for r in rows:
+        print("  ".join(str(c).ljust(w) for c, w in zip(r, widths)).rstrip())
+    if len(rows) == 1:
+        print("No builds.")
+    return 0
+
+
+# ---------------------------------------------------------------- events
+
+
+def read_text(path: Path) -> str:
+    return path.read_text(encoding="utf-8").strip() if path.exists() else ""
+
+
+def enum_value(raw: str, allowed: set[str] | dict[str, str], what: str, folder: str) -> str:
+    if isinstance(allowed, dict):
+        value = allowed.get(raw.strip().lower())
+    else:
+        value = raw.strip().upper().replace(" ", "_")
+        value = value if value in allowed else None
+    if not value:
+        options = sorted(allowed.values()) if isinstance(allowed, dict) else sorted(allowed)
+        raise ASCError(f"{folder}/event.json: unknown {what} {raw!r}; expected one of {', '.join(options)}")
+    return value
+
+
+def iso(day: dt.date, end: bool = False) -> str:
+    return f"{day.isoformat()}T{'23:59:00' if end else '00:00:00'}.000Z"
+
+
+def compute_schedule(schedule: dict, start: dt.date, folder: str) -> tuple[dt.date, dt.date, dt.date]:
+    """(publish, eventStart, eventEnd) from the folder's rule and --start."""
+    rule = schedule.get("rule")
+    lead = int(schedule.get("publish_days_before", 0))
+    if rule == "release":
+        begin = start
+        finish = begin + dt.timedelta(days=int(schedule["duration_days"]) - 1)
+    elif rule == "month":
+        begin = start if start.day == 1 else (start.replace(day=28) + dt.timedelta(days=4)).replace(day=1)
+        finish = begin.replace(day=calendar.monthrange(begin.year, begin.month)[1])
+    elif rule == "fixed":
+        sm, sd = (int(x) for x in schedule["start"].split("-"))
+        em, ed = (int(x) for x in schedule["end"].split("-"))
+        begin = dt.date(start.year, sm, sd)
+        if begin < start:
+            begin = dt.date(start.year + 1, sm, sd)
+        finish = dt.date(begin.year + (1 if (em, ed) < (sm, sd) else 0), em, ed)
+    else:
+        raise ASCError(f"{folder}/event.json: schedule.rule must be release, month or fixed")
+    publish = begin - dt.timedelta(days=lead)
+    days = (finish - begin).days + 1
+    if days > MAX_EVENT_DAYS:
+        raise ASCError(f"{folder}: event runs {days} days; Apple allows {MAX_EVENT_DAYS}")
+    if lead > MAX_PUBLISH_LEAD_DAYS:
+        raise ASCError(f"{folder}: publishes {lead} days early; Apple allows {MAX_PUBLISH_LEAD_DAYS}")
+    return publish, begin, finish
+
+
+@dataclass
+class EventSpec:
+    folder: Path
+    reference_name: str
+    attributes: dict
+    localization: dict
+    media: dict[str, Path | None] = field(default_factory=dict)
+    warnings: list[str] = field(default_factory=list)
+
+
+def load_events(start: dt.date, all_territories: list[str] | None, media_dir: Path | None) -> list[EventSpec]:
+    specs = []
+    for folder in sorted(p for p in EVENTS_DIR.iterdir() if (p / "event.json").is_file()):
+        name = folder.name
+        raw = json.loads((folder / "event.json").read_text(encoding="utf-8"))
+        publish, begin, finish = compute_schedule(raw.get("schedule", {}), start, name)
+        warnings = []
+        if publish < dt.date.today():
+            warnings.append(f"publish date {publish} is in the past; pass a later --start")
+        territories = raw.get("territories", "all")
+        if territories == "all":
+            codes = list(all_territories or ["(every territory)"])
+        elif isinstance(territories, list):
+            codes = [t.upper() for t in territories]
+            if all_territories is not None:
+                unknown = [c for c in codes if c not in all_territories]
+                if unknown:
+                    warnings.append(f"not App Store territories, left out: {', '.join(unknown)}")
+                codes = [c for c in codes if c in all_territories]
+        else:
+            raise ASCError(f"{name}/event.json: territories must be \"all\" or a list of ISO 3166-1 alpha-3 codes")
+        attributes = {
+            "referenceName": raw["reference_name"],
+            "badge": enum_value(raw["badge"], BADGES, "badge", name),
+            "purpose": enum_value(raw["purpose"], PURPOSES, "purpose", name),
+            "priority": enum_value(raw["priority"], PRIORITIES, "priority", name),
+            "deepLink": raw.get("deep_link") or None,
+            "primaryLocale": LOCALE,
+            "territorySchedules": [{
+                "territories": sorted(codes),
+                "publishStart": iso(publish),
+                "eventStart": iso(begin),
+                "eventEnd": iso(finish, end=True),
+            }],
+        }
+        localization = {
+            "name": read_text(folder / "name.txt"),
+            "shortDescription": read_text(folder / "short_description.txt"),
+            "longDescription": read_text(folder / "long_description.txt"),
+        }
+        for key, limit in (("name", 30), ("shortDescription", 50), ("longDescription", 120)):
+            if len(localization[key]) > limit:
+                raise ASCError(f"{name}: {key} is {len(localization[key])} characters; the limit is {limit}")
+        media = {}
+        for asset_type, filename in EVENT_MEDIA.items():
+            path = media_dir / "events" / name / filename if media_dir else None
+            media[asset_type] = path if path and path.is_file() else None
+            if media[asset_type] is None:
+                warnings.append(f"{filename} is not on the screenshots branch yet; run the screenshots workflow")
+        specs.append(EventSpec(folder, raw["reference_name"], attributes, localization, media, warnings))
+    return specs
+
+
+def normalize_schedules(schedules: list[dict] | None) -> list[dict]:
+    def norm_time(value: str | None) -> str:
+        if not value:
+            return ""
+        return dt.datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M")
+
+    return sorted(
+        ({"territories": sorted(s.get("territories") or []), "publishStart": norm_time(s.get("publishStart")),
+          "eventStart": norm_time(s.get("eventStart")), "eventEnd": norm_time(s.get("eventEnd"))} for s in schedules or []),
+        key=lambda s: s["eventStart"],
+    )
+
+
+def diff_fields(current: dict, wanted: dict) -> dict:
+    changes = {}
+    for key, value in wanted.items():
+        if key == "territorySchedules":
+            if normalize_schedules(current.get(key)) != normalize_schedules(value):
+                changes[key] = value
+        elif (current.get(key) or None) != (value or None):
+            changes[key] = value
+    return changes
+
+
+def show_value(key: str, value: Any) -> str:
+    if key == "territorySchedules":
+        parts = []
+        for s in value or []:
+            n = len(s.get("territories") or [])
+            terr = ", ".join(s["territories"]) if n <= 25 else f"{n} territories"
+            parts.append(f"publish {s.get('publishStart', '')[:10]}, runs {s.get('eventStart', '')[:10]} to {s.get('eventEnd', '')[:10]}, {terr}")
+        return "; ".join(parts) or "none"
+    return json.dumps(value, ensure_ascii=False)
+
+
+def cmd_events(api: Client, args) -> int:
+    start = args.start or dt.date.today()
+    media_dir = ensure_screenshot_branch()
+    app = find_app(api) if api.online else None
+    all_territories = sorted(t["id"] for t in api.get_all("/v1/territories")) if api.online else None
+    specs = load_events(start, all_territories, media_dir)
+
+    existing = {}
+    if app:
+        for ev in api.get_all(f"/v1/apps/{app['id']}/appEvents"):
+            existing[ev["attributes"]["referenceName"]] = ev
+    else:
+        print("No credentials: showing everything as new without reading App Store Connect.\n")
+
+    for spec in specs:
+        print(f"{spec.folder.name}: {spec.reference_name!r}")
+        for w in spec.warnings:
+            print(f"  warning: {w}")
+        current = existing.get(spec.reference_name)
+        if current is None:
+            created = api.write(
+                "POST", "/v1/appEvents",
+                {"data": {"type": "appEvents", "attributes": spec.attributes,
+                          "relationships": {"app": {"data": {"type": "apps", "id": app["id"] if app else "(app)"}}}}},
+                "create the event: " + ", ".join(f"{k} {show_value(k, v)}" for k, v in spec.attributes.items()),
+            )
+            event_id = created["data"]["id"]
+        else:
+            event_id = current["id"]
+            state = current["attributes"].get("eventState")
+            print(f"  exists ({event_id}, {state})")
+            changes = diff_fields(current["attributes"], spec.attributes)
+            if changes:
+                api.write(
+                    "PATCH", f"/v1/appEvents/{event_id}",
+                    {"data": {"type": "appEvents", "id": event_id, "attributes": changes}},
+                    "update the event: " + "; ".join(
+                        f"{k} {show_value(k, current['attributes'].get(k))} -> {show_value(k, v)}" for k, v in changes.items()),
+                )
+
+        # en-US localisation
+        loc = None
+        if not is_placeholder(event_id) and api.online:
+            loc = next((l for l in api.get_all(f"/v1/appEvents/{event_id}/localizations") if l["attributes"]["locale"] == LOCALE), None)
+        if loc is None:
+            created = api.write(
+                "POST", "/v1/appEventLocalizations",
+                {"data": {"type": "appEventLocalizations", "attributes": {"locale": LOCALE, **spec.localization},
+                          "relationships": {"appEvent": {"data": {"type": "appEvents", "id": event_id}}}}},
+                f"add the {LOCALE} text: " + ", ".join(f"{k} {json.dumps(v, ensure_ascii=False)}" for k, v in spec.localization.items()),
+            )
+            loc_id = created["data"]["id"]
+        else:
+            loc_id = loc["id"]
+            changes = {k: v for k, v in spec.localization.items() if (loc["attributes"].get(k) or "") != v}
+            if changes:
+                api.write(
+                    "PATCH", f"/v1/appEventLocalizations/{loc_id}",
+                    {"data": {"type": "appEventLocalizations", "id": loc_id, "attributes": changes}},
+                    f"update the {LOCALE} text: " + "; ".join(
+                        f"{k} {json.dumps(loc['attributes'].get(k), ensure_ascii=False)} -> {json.dumps(v, ensure_ascii=False)}" for k, v in changes.items()),
+                )
+
+        # Event card and details image
+        shots = []
+        if not is_placeholder(loc_id) and api.online:
+            shots = api.get_all(f"/v1/appEventLocalizations/{loc_id}/appEventScreenshots")
+        for asset_type, path in spec.media.items():
+            if path is None:
+                continue
+            have = [s for s in shots if s["attributes"].get("appEventAssetType") == asset_type]
+            same = [s for s in have if s["attributes"].get("fileName") == path.name
+                    and s["attributes"].get("fileSize") == path.stat().st_size
+                    and (s["attributes"].get("assetDeliveryState") or {}).get("state") == "COMPLETE"]
+            if same and len(have) == 1:
+                continue
+            for old in have:
+                api.write("DELETE", f"/v1/appEventScreenshots/{old['id']}", None,
+                          f"remove the old {asset_type} {old['attributes'].get('fileName')}")
+            upload_asset(
+                api, "/v1/appEventScreenshots",
+                {"data": {"type": "appEventScreenshots",
+                          "attributes": {"fileName": path.name, "fileSize": path.stat().st_size, "appEventAssetType": asset_type},
+                          "relationships": {"appEventLocalization": {"data": {"type": "appEventLocalizations", "id": loc_id}}}}},
+                path, "appEventScreenshots", checksum=False,
+            )
+        print()
+
+    finish(api, "events")
+    return 0
+
+
+# ---------------------------------------------------------------- custom product pages
+
+
+@dataclass
+class PageSpec:
+    folder: Path
+    name: str
+    promotional_text: str
+    screenshots: list[Path]
+    keywords: list[str]
+    warnings: list[str] = field(default_factory=list)
+
+
+def load_pages(media_dir: Path) -> list[PageSpec]:
+    specs = []
+    for folder in sorted(p for p in PAGES_DIR.iterdir() if p.is_dir()):
+        warnings = []
+        name = read_text(folder / "name.txt") or folder.name
+        promo = read_text(folder / "promotional_text.txt")
+        if len(promo) > 170:
+            raise ASCError(f"{folder.name}: promotional text is {len(promo)} characters; the limit is 170")
+        shots = []
+        for stem in read_text(folder / "screenshots.txt").split():
+            path = media_dir / "framed" / f"{stem}.png"
+            if path.is_file():
+                shots.append(path)
+            else:
+                warnings.append(f"framed/{stem}.png is not on the screenshots branch")
+        keywords = [k.strip() for k in read_text(folder / "keywords.txt").split(",") if k.strip()]
+        specs.append(PageSpec(folder, name, promo, shots, keywords, warnings))
+    return specs
+
+
+def cmd_pages(api: Client, args) -> int:
+    media_dir = ensure_screenshot_branch()
+    specs = load_pages(media_dir)
+    app = find_app(api) if api.online else None
+    existing = {}
+    available_keywords: dict[str, str] | None = None
+    if app:
+        for page in api.get_all(f"/v1/apps/{app['id']}/appCustomProductPages"):
+            existing[page["attributes"]["name"]] = page
+        # Pages can only use keywords from the latest approved version's keyword field.
+        kw = api.get_all(f"/v1/apps/{app['id']}/searchKeywords", **{"filter[locale]": LOCALE, "filter[platform]": "IOS"})
+        available_keywords = {k["id"].strip().lower(): k["id"] for k in kw}
+    else:
+        print("No credentials: showing everything as new without reading App Store Connect.\n")
+
+    for spec in specs:
+        print(f"{spec.folder.name}: {spec.name!r}")
+        for w in spec.warnings:
+            print(f"  warning: {w}")
+        page = existing.get(spec.name)
+        loc_id = None
+        version_id = None
+        if page is None:
+            created = api.write(
+                "POST", "/v1/appCustomProductPages",
+                {"data": {"type": "appCustomProductPages", "attributes": {"name": spec.name},
+                          "relationships": {"app": {"data": {"type": "apps", "id": app["id"] if app else "(app)"}},
+                                            "appCustomProductPageVersions": {"data": [{"type": "appCustomProductPageVersions", "id": "${version}"}]}}},
+                 "included": [
+                     {"type": "appCustomProductPageVersions", "id": "${version}",
+                      "relationships": {"appCustomProductPageLocalizations": {"data": [{"type": "appCustomProductPageLocalizations", "id": "${localization}"}]}}},
+                     {"type": "appCustomProductPageLocalizations", "id": "${localization}",
+                      "attributes": {"locale": LOCALE, "promotionalText": spec.promotional_text}},
+                 ]},
+                f"create the page with {LOCALE} promotional text {json.dumps(spec.promotional_text, ensure_ascii=False)}",
+            )
+            page_id = created["data"]["id"]
+        else:
+            page_id = page["id"]
+            print(f"  exists ({page_id}), {page['attributes'].get('url') or 'no url yet'}")
+
+        if not is_placeholder(page_id) and api.online:
+            versions = api.get_all(f"/v1/appCustomProductPages/{page_id}/appCustomProductPageVersions")
+            editable = [v for v in versions if v["attributes"].get("state") in EDITABLE_PAGE_STATES]
+            pending = [v for v in versions if v["attributes"].get("state") in {"READY_FOR_REVIEW", "WAITING_FOR_REVIEW", "IN_REVIEW"}]
+            if editable:
+                version_id = editable[0]["id"]
+            elif pending:
+                print(f"  version {pending[0]['attributes'].get('version')} is {pending[0]['attributes']['state']}; skipping until review finishes\n")
+                continue
+            else:
+                created = api.write(
+                    "POST", "/v1/appCustomProductPageVersions",
+                    {"data": {"type": "appCustomProductPageVersions",
+                              "relationships": {"appCustomProductPage": {"data": {"type": "appCustomProductPages", "id": page_id}}}}},
+                    "start a new page version (the current one is approved)",
+                )
+                version_id = created["data"]["id"]
+        if version_id and not is_placeholder(version_id):
+            locs = api.get_all(f"/v1/appCustomProductPageVersions/{version_id}/appCustomProductPageLocalizations")
+            loc = next((l for l in locs if l["attributes"]["locale"] == LOCALE), None)
+            if loc is None:
+                created = api.write(
+                    "POST", "/v1/appCustomProductPageLocalizations",
+                    {"data": {"type": "appCustomProductPageLocalizations",
+                              "attributes": {"locale": LOCALE, "promotionalText": spec.promotional_text},
+                              "relationships": {"appCustomProductPageVersion": {"data": {"type": "appCustomProductPageVersions", "id": version_id}}}}},
+                    f"add {LOCALE} with promotional text {json.dumps(spec.promotional_text, ensure_ascii=False)}",
+                )
+                loc_id = created["data"]["id"]
+            else:
+                loc_id = loc["id"]
+                if (loc["attributes"].get("promotionalText") or "") != spec.promotional_text:
+                    api.write(
+                        "PATCH", f"/v1/appCustomProductPageLocalizations/{loc_id}",
+                        {"data": {"type": "appCustomProductPageLocalizations", "id": loc_id,
+                                  "attributes": {"promotionalText": spec.promotional_text}}},
+                        f"update promotional text {json.dumps(loc['attributes'].get('promotionalText'), ensure_ascii=False)} -> {json.dumps(spec.promotional_text, ensure_ascii=False)}",
+                    )
+        elif page is None and not api.apply:
+            loc_id = "(new-localization)"
+        elif page is None and api.apply:
+            # Find the localization the create request made.
+            versions = api.get_all(f"/v1/appCustomProductPages/{page_id}/appCustomProductPageVersions")
+            locs = api.get_all(f"/v1/appCustomProductPageVersions/{versions[0]['id']}/appCustomProductPageLocalizations")
+            loc_id = next(l["id"] for l in locs if l["attributes"]["locale"] == LOCALE)
+        if loc_id is None:
+            loc_id = "(new-localization)"
+
+        sync_page_screenshots(api, loc_id, spec)
+        sync_page_keywords(api, loc_id, spec, available_keywords)
+
+        if not is_placeholder(page_id):
+            hint = "  (paste into customPageId in docs/open.html)" if spec.folder.name == "crew-invite" else ""
+            print(f"  page id {page_id}{hint}")
+        print()
+
+    finish(api, "pages")
+    return 0
+
+
+def sync_page_screenshots(api: Client, loc_id: str, spec: PageSpec) -> None:
+    sets = []
+    if not is_placeholder(loc_id) and api.online:
+        sets = api.get_all(f"/v1/appCustomProductPageLocalizations/{loc_id}/appScreenshotSets")
+    phone = next((s for s in sets if s["attributes"].get("screenshotDisplayType") == PHONE_DISPLAY_TYPE), None)
+    current = []
+    if phone:
+        set_id = phone["id"]
+        current = api.get_all(f"/v1/appScreenshotSets/{set_id}/appScreenshots")
+        have = [(s["attributes"].get("fileName"), s["attributes"].get("sourceFileChecksum")) for s in current]
+        want = [(p.name, md5(p)) for p in spec.screenshots]
+        if have == want:
+            return
+    else:
+        if not spec.screenshots:
+            return
+        created = api.write(
+            "POST", "/v1/appScreenshotSets",
+            {"data": {"type": "appScreenshotSets", "attributes": {"screenshotDisplayType": PHONE_DISPLAY_TYPE},
+                      "relationships": {"appCustomProductPageLocalization": {"data": {"type": "appCustomProductPageLocalizations", "id": loc_id}}}}},
+            f"add a {PHONE_DISPLAY_TYPE} (6.9-inch) screenshot set",
+        )
+        set_id = created["data"]["id"]
+    print(f"  screenshots: {' '.join(p.stem for p in spec.screenshots)}"
+          + (f" (replacing {' '.join(s['attributes'].get('fileName', '?') for s in current)})" if current else ""))
+    for old in current:
+        api.write("DELETE", f"/v1/appScreenshots/{old['id']}", None, f"remove {old['attributes'].get('fileName')}")
+    ids = []
+    for path in spec.screenshots:
+        ids.append(upload_asset(
+            api, "/v1/appScreenshots",
+            {"data": {"type": "appScreenshots", "attributes": {"fileName": path.name, "fileSize": path.stat().st_size},
+                      "relationships": {"appScreenshotSet": {"data": {"type": "appScreenshotSets", "id": set_id}}}}},
+            path, "appScreenshots", checksum=True,
+        ))
+    if ids:
+        api.write(
+            "PATCH", f"/v1/appScreenshotSets/{set_id}/relationships/appScreenshots",
+            {"data": [{"type": "appScreenshots", "id": i} for i in ids]},
+            "set the screenshot order to match screenshots.txt",
+        )
+
+
+def sync_page_keywords(api: Client, loc_id: str, spec: PageSpec, available: dict[str, str] | None) -> None:
+    if not spec.keywords:
+        return
+    if available is None:
+        api.writes += 1
+        print(f"  would assign keywords: {', '.join(spec.keywords)} (not checked against the approved keyword list)")
+        return
+    usable = [available[k.lower()] for k in spec.keywords if k.lower() in available]
+    missing = [k for k in spec.keywords if k.lower() not in available]
+    if missing:
+        print(f"  note: not in the latest approved version's {LOCALE} keywords, so Apple will not accept them yet: {', '.join(missing)}")
+    current = []
+    if not is_placeholder(loc_id) and api.online:
+        current = [k["id"] for k in api.get_all(f"/v1/appCustomProductPageLocalizations/{loc_id}/relationships/searchKeywords")]
+    add = [k for k in usable if k not in current]
+    remove = [k for k in current if k not in usable]
+    if add:
+        api.write("POST", f"/v1/appCustomProductPageLocalizations/{loc_id}/relationships/searchKeywords",
+                  {"data": [{"type": "appKeywords", "id": k} for k in add]}, f"assign keywords: {', '.join(add)}")
+    if remove:
+        api.write("DELETE", f"/v1/appCustomProductPageLocalizations/{loc_id}/relationships/searchKeywords",
+                  {"data": [{"type": "appKeywords", "id": k} for k in remove]}, f"unassign keywords: {', '.join(remove)}")
+
+
+def finish(api: Client, what: str) -> None:
+    if api.writes == 0:
+        print(f"Nothing to change; App Store Connect matches the {what} folders.")
+    elif api.apply:
+        print(f"Done: {api.writes} writes. Nothing was submitted for review.")
+    else:
+        print(f"Dry run: {api.writes} writes would be sent. Run again with --apply (make appstore-{what} APPLY=1).")
+
+
+# ---------------------------------------------------------------- CLI
+
+
+def parse_date(value: str) -> dt.date:
+    try:
+        return dt.date.fromisoformat(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"expected YYYY-MM-DD, got {value!r}") from exc
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="asc.py", description=__doc__.split("\n\n")[0],
+                                     formatter_class=argparse.RawDescriptionHelpFormatter,
+                                     epilog="Credentials: ASC_KEY_ID, ASC_ISSUER_ID, ASC_KEY_PATH. Nothing is ever submitted for review.")
+    sub = parser.add_subparsers(dest="command", required=True)
+    sub.add_parser("status", help="latest 5 builds with processing and TestFlight state")
+    ev = sub.add_parser("events", help="create or update the in-app events (dry run unless --apply)")
+    ev.add_argument("--start", type=parse_date, help="date the schedules are computed from (default today); "
+                                                     "for crews-and-tournaments, the day 1.3.0 goes live")
+    ev.add_argument("--apply", action="store_true", help="send the writes")
+    pg = sub.add_parser("pages", help="create or update the custom product pages (dry run unless --apply)")
+    pg.add_argument("--apply", action="store_true", help="send the writes")
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+    creds = Credentials.from_env()
+    apply = getattr(args, "apply", False)
+    if apply and creds is None:
+        print("error: --apply needs ASC_KEY_ID, ASC_ISSUER_ID and the key file", file=sys.stderr)
+        return 2
+    api = Client(creds, apply)
+    try:
+        return {"status": cmd_status, "events": cmd_events, "pages": cmd_pages}[args.command](api, args)
+    except ASCError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

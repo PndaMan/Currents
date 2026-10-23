@@ -6,9 +6,9 @@
   "deep_link": "currents://sessions",
   "territories": "all",
   "schedule": {
-    "publish": "a week before the month starts",
-    "start": "first of the month",
-    "end": "last day of the month"
+    "rule": "month",
+    "note": "The first calendar month that starts on or after --start, published a week before. Re-run each month with a new --start.",
+    "publish_days_before": 7
   },
   "media": {
     "captures": ["04_logbook", "03_catch"],

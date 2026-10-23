@@ -6,9 +6,10 @@
   "deep_link": "currents://community",
   "territories": "all",
   "schedule": {
-    "publish": "with the 1.3.0 release",
-    "start": "the day 1.3.0 goes live",
-    "end": "14 days later"
+    "rule": "release",
+    "note": "Starts the day 1.3.0 goes live (pass that date as --start), publishes the same day and runs 14 days.",
+    "publish_days_before": 0,
+    "duration_days": 14
   },
   "media": {
     "captures": ["06_crew", "07_leaderboard"],
