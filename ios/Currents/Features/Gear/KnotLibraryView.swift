@@ -15,12 +15,14 @@ struct KnotLibraryView: View {
         KnotFeatures.personalTools ? KnotFavourites.decode(favouritesRaw) : []
     }
 
+    private var query: String { search.trimmingCharacters(in: .whitespaces) }
+
     private var filtered: [KnotEntry] {
         let matches = catalog.entries.filter { entry in
             (category == nil || entry.category == category)
-            && (search.isEmpty
-                || entry.name.localizedCaseInsensitiveContains(search)
-                || entry.useCase.localizedCaseInsensitiveContains(search))
+            && (query.isEmpty
+                || entry.name.localizedCaseInsensitiveContains(query)
+                || entry.useCase.localizedCaseInsensitiveContains(query))
         }
         guard KnotFeatures.personalTools else { return matches }
         let saved = favourites
@@ -28,43 +30,30 @@ struct KnotLibraryView: View {
     }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: DS.Space.s4) {
+        List {
+            Section {
                 DetailHeader(title: "Knots and rigs", subtitle: "Step by step. Works offline.")
-                PFSearchField(prompt: "Search knots", text: $search)
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 6) {
-                        Chip("All", isSelected: category == nil) { category = nil }
-                        ForEach(KnotEntry.Category.allCases, id: \.self) { c in
-                            Chip(c.rawValue, isSelected: category == c) {
-                                category = category == c ? nil : c
-                            }
-                        }
-                    }
-                    .padding(.horizontal, DS.gutter)
-                }
-
+                    .dsListRow()
+                chips
+                    .padding(.bottom, DS.Space.s2)
+                    .dsListRow()
+            }
+            Section {
                 if filtered.isEmpty {
-                    ContentUnavailableView("No knots found", systemImage: "magnifyingglass",
-                                           description: Text("Try clinch, loop or snell."))
-                        .padding(.top, DS.Space.s6)
+                    emptyState.dsListRow()
                 } else {
-                    LazyVStack(spacing: 0) {
-                        ForEach(filtered) { knot in
-                            NavigationLink(value: KnotRoute(id: knot.id)) {
-                                knotRow(knot)
-                            }
-                            .buttonStyle(.dim)
-                        }
+                    ForEach(filtered) { knot in
+                        knotLink(knot).dsListRow()
                     }
                 }
             }
-            .padding(.bottom, DS.Space.s8)
-            .pageWidth()
         }
+        .dsPlainList()
         .detailTint(nil)
         .pfTrackScroll($titleShown, threshold: 60)
         .pfScrollTitle("Knots and rigs", shown: titleShown)
+        .searchable(text: $search, placement: .navigationBarDrawer(displayMode: .automatic),
+                    prompt: "Knot name or use")
         .navigationDestination(for: KnotRoute.self) { route in
             if let knot = catalog.entry(id: route.id) {
                 KnotDetailView(knot: knot)
@@ -75,34 +64,60 @@ struct KnotLibraryView: View {
         }
     }
 
-    private func knotRow(_ knot: KnotEntry) -> some View {
-        HStack(spacing: 14) {
-            KnotThumb(knot: knot, size: 56)
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 6) {
-                    Text(knot.name)
-                        .foregroundStyle(.dsText)
-                        .lineLimit(1)
-                    if KnotFavourites.contains(knot, in: favourites) {
-                        Image(systemName: "star.fill")
-                            .font(.caption)
-                            .foregroundStyle(.yellow)
-                            .accessibilityLabel("Saved")
+    private var chips: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                Chip("All", isSelected: category == nil) { category = nil }
+                ForEach(KnotEntry.Category.allCases, id: \.self) { c in
+                    Chip(c.rawValue, isSelected: category == c) {
+                        category = category == c ? nil : c
                     }
                 }
-                Text(knot.useCase)
-                    .font(.subheadline)
-                    .foregroundStyle(.dsText2)
-                    .lineLimit(1)
-                Text("\(knot.category.rawValue), \(knot.steps.count) steps")
-                    .font(.footnote)
-                    .foregroundStyle(.dsText3)
             }
-            Spacer(minLength: 4)
+            .padding(.horizontal, DS.gutter)
+            .padding(.vertical, DS.Space.s1)
         }
-        .padding(.horizontal, DS.gutter)
-        .padding(.vertical, DS.Space.s2)
-        .contentShape(Rectangle())
+        .scrollBounceBehavior(.basedOnSize, axes: [.horizontal])
+    }
+
+    /// Nothing matches the search, or the chosen group has no knots yet.
+    @ViewBuilder
+    private var emptyState: some View {
+        if !query.isEmpty {
+            ContentUnavailableView.search(text: query)
+                .padding(.top, DS.Space.s6)
+        } else {
+            InlineEmpty(systemImage: category?.icon ?? "point.topleft.down.to.point.bottomright.curvepath",
+                        text: "No \(category?.rawValue.lowercased() ?? "knots") in the library yet. Pick another group.",
+                        actionTitle: "Show all knots") { category = nil }
+                .padding(.top, DS.Space.s2)
+        }
+    }
+
+    /// A hidden link under the row, so the row keeps the page's own chevron
+    /// and padding instead of the list's disclosure arrow.
+    private func knotLink(_ knot: KnotEntry) -> some View {
+        ZStack {
+            NavigationLink(value: KnotRoute(id: knot.id)) { EmptyView() }
+                .opacity(0)
+            knotRow(knot)
+        }
+    }
+
+    private func knotRow(_ knot: KnotEntry) -> some View {
+        let saved = KnotFavourites.contains(knot, in: favourites)
+        let steps = knot.steps.count == 1 ? "1 step" : "\(knot.steps.count) steps"
+        return ArtRow(over: "\(knot.category.rawValue), \(steps)", title: knot.name,
+                      subtitle: knot.useCase, chevron: true) {
+            KnotThumb(knot: knot, size: 56)
+        } trailing: {
+            if saved {
+                Image(systemName: "star.fill")
+                    .font(.footnote)
+                    .foregroundStyle(.yellow)
+                    .accessibilityLabel("Saved")
+            }
+        }
     }
 }
 
@@ -133,19 +148,22 @@ enum KnotFavourites {
     }
 }
 
-/// The knot's bundled illustration on white, or its category symbol.
+
+/// The knot's bundled illustration on white (the engravings are drawn on
+/// white paper), or its category symbol.
 struct KnotThumb: View {
     let knot: KnotEntry
     var size: CGFloat = 56
 
     var body: some View {
         if let img = KnotImageStore.image(knot.imageName) {
-            Image(uiImage: img)
-                .resizable().scaledToFill()
-                .frame(width: size, height: size)
-                .background(Color.white)
-                .clipShape(RoundedRectangle(cornerRadius: DS.Radius.thumb, style: .continuous))
-                .accessibilityHidden(true)
+            ThumbView(tint: .gray, size: size) {
+                Image(uiImage: img)
+                    .resizable().scaledToFill()
+                    .frame(width: size, height: size)
+                    .background(Color.white)
+            }
+            .accessibilityHidden(true)
         } else {
             ThumbView(systemImage: knot.category.icon, tint: .cyan, size: size)
         }
@@ -206,40 +224,16 @@ struct KnotDetailView: View {
 
                 KeyValueList(rows: facts)
 
-                VStack(alignment: .leading, spacing: 0) {
-                    SectionTitle("Steps", detail: "\(knot.steps.count)")
-                    VStack(spacing: DS.Space.s2) {
-                        ForEach(Array(knot.steps.enumerated()), id: \.offset) { i, step in
-                            Button { stepping = i } label: {
-                                HStack(alignment: .top, spacing: 12) {
-                                    Text("\(i + 1)")
-                                        .font(.subheadline.weight(.semibold))
-                                        .monospacedDigit()
-                                        .frame(width: 28, height: 28)
-                                        .background(Color.dsFill2, in: Circle())
-                                        .foregroundStyle(.dsText)
-                                    Text(step)
-                                        .foregroundStyle(.dsText)
-                                        .multilineTextAlignment(.leading)
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                }
-                                .padding(DS.Space.s3)
-                                .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.button, style: .continuous))
-                            }
-                            .buttonStyle(.dim)
-                            .accessibilityLabel("Step \(i + 1). \(step)")
-                        }
-                    }
-                    .padding(.horizontal, DS.gutter)
-                }
+                stepsSection
 
                 if !knot.tip.isEmpty {
                     VStack(alignment: .leading, spacing: 0) {
                         SectionTitle("Tip")
-                        Text(knot.tip)
+                        Label(knot.tip, systemImage: "lightbulb")
                             .foregroundStyle(.dsText)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(DS.Space.s4)
+                            .padding(.horizontal, DS.Space.s4)
+                            .padding(.vertical, 13)
                             .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
                             .padding(.horizontal, DS.gutter)
                     }
@@ -289,6 +283,48 @@ struct KnotDetailView: View {
                 }
             }
         }
+    }
+
+    /// The steps as rows on one card, like the facts above. Each opens the
+    /// step-by-step sheet at that step.
+    private var stepsSection: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            SectionTitle("Steps", detail: "\(knot.steps.count)")
+            VStack(spacing: 0) {
+                ForEach(Array(knot.steps.enumerated()), id: \.offset) { i, step in
+                    Button { stepping = i } label: {
+                        stepRow(number: i + 1, text: step)
+                    }
+                    .buttonStyle(.dim)
+                    .accessibilityLabel("Step \(i + 1). \(step)")
+                    .accessibilityHint("Opens this step on its own")
+                    if i < knot.steps.count - 1 {
+                        PFDivider(inset: 56)
+                    }
+                }
+            }
+            .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
+            .padding(.horizontal, DS.gutter)
+            SectionFootnote("Tap a step to go through them one at a time.")
+        }
+    }
+
+    private func stepRow(number: Int, text: String) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Text("\(number)")
+                .font(.subheadline.weight(.semibold))
+                .monospacedDigit()
+                .foregroundStyle(.dsText)
+                .frame(minWidth: 28, minHeight: 28)
+                .background(Color.dsFill2, in: Circle())
+            Text(text)
+                .foregroundStyle(.dsText)
+                .multilineTextAlignment(.leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.horizontal, DS.Space.s4)
+        .padding(.vertical, 12)
+        .contentShape(Rectangle())
     }
 
     private var stepThroughButton: some View {
