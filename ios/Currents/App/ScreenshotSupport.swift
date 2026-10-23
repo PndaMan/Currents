@@ -159,7 +159,7 @@ enum ScreenshotSupport {
 
     static let me = DemoAngler(code: "KOGEL1", name: "Jordan", title: "Unstoppable",
                                bio: "Bass on the dams, kob in the estuary.",
-                               homeWater: "Steenbras Dam", avatar: ["bass", "scene"])
+                               homeWater: "Steenbras Dam", avatar: ["bass"])
 
     static let crewCode = "DAWN01"
     static let tournamentCode = "SPRING"
@@ -167,10 +167,10 @@ enum ScreenshotSupport {
     static let mates: [DemoAngler] = [
         .init(code: "REEF07", name: "Sipho", title: "Heavy Hitter",
               bio: "Estuary kob and the odd garrick.", homeWater: "Breede Estuary",
-              avatar: ["kob", "scene"]),
+              avatar: ["drum", "scene"]),
         .init(code: "TIDE22", name: "Megan", title: "Early Riser",
               bio: "First light on the rocks.", homeWater: "Kogel Bay",
-              avatar: ["yellowtail", "scene"]),
+              avatar: ["scene-coast", "scene"]),
         .init(code: "KLIP31", name: "Thabo", title: "Rod Bender",
               bio: "Carp, patience and a flask of coffee.", homeWater: "Theewaterskloof Dam",
               avatar: ["carp", "scene"]),
@@ -204,12 +204,12 @@ enum ScreenshotSupport {
         .init(name: "Largemouth Bass", photos: ["bass"], lengthCm: 32...54, k: 1.76e-5, spots: [1, 2], loadout: 0),
         .init(name: "Common Carp", photos: ["carp"], lengthCm: 48...82, k: 1.75e-5, spots: [2, 5], loadout: 2),
         .init(name: "Rainbow Trout", photos: ["trout"], lengthCm: 30...52, k: 1.2e-5, spots: [4], loadout: 3),
-        .init(name: "Dusky Kob", photos: ["kob", "mulloway", "saltwater"], lengthCm: 62...112, k: 9.0e-6, spots: [3, 0], loadout: 1),
-        .init(name: "Yellowtail Kingfish", photos: ["yellowtail", "amberjack", "saltwater"], lengthCm: 70...98, k: 1.1e-5, spots: [0], loadout: 1),
+        .init(name: "Dusky Kob", photos: ["kob", "drum"], lengthCm: 62...112, k: 9.0e-6, spots: [3, 0], loadout: 1),
+        .init(name: "Yellowtail Kingfish", photos: ["yellowtail", "drum"], lengthCm: 70...98, k: 1.1e-5, spots: [0], loadout: 1),
         .init(name: "Nile Tilapia", photos: ["tilapia", "perch"], lengthCm: 26...40, k: 1.87e-5, spots: [5], loadout: 0),
         .init(name: "African Sharptooth Catfish", photos: ["catfish"], lengthCm: 60...104, k: 9.6e-6, spots: [5, 2], loadout: 2),
-        .init(name: "Leervis (Garrick)", photos: ["garrick", "saltwater", "kob"], lengthCm: 72...104, k: 1.1e-5, spots: [3], loadout: 1),
-        .init(name: "Galjoen", photos: ["galjoen", "saltwater"], lengthCm: 30...48, k: 2.3e-5, spots: [0], loadout: 1),
+        .init(name: "Leervis (Garrick)", photos: ["garrick", "drum", "yellowtail"], lengthCm: 72...104, k: 1.1e-5, spots: [3], loadout: 1),
+        .init(name: "Galjoen", photos: ["galjoen", "drum"], lengthCm: 30...48, k: 2.3e-5, spots: [0], loadout: 1),
     ]
 
     private static func speciesNamed(_ name: String) -> DemoSpecies? {
@@ -255,7 +255,7 @@ enum ScreenshotSupport {
 
     private static let demoSpots: [(name: String, lat: Double, lon: Double, type: Spot.SpotType, cover: String?)] = [
         ("Kogel Bay Reef", -34.235, 18.848, .reef, "scene-coast"),
-        ("Steenbras Dam north bank", -34.186, 18.879, .dam, "scene-dam"),
+        ("Steenbras Dam north bank", -34.186, 18.879, .dam, "scene-lake"),
         ("Theewaterskloof weed beds", -34.050, 19.280, .dam, nil),
         ("Breede Estuary channel", -34.400, 20.840, .estuary, "scene-river"),
         ("Palmiet River pools", -34.290, 18.990, .river, nil),
@@ -456,7 +456,7 @@ enum ScreenshotSupport {
         if let banner = picker.next(["scene-coast", "scene"]) {
             CommunityDiskCache.saveImage(banner, key: "crewbanner-\(crewCode)")
         }
-        if let icon = picker.next(["scene-dam", "scene"]) {
+        if let icon = picker.next(["scene-lake", "scene"]) {
             CommunityDiskCache.saveImage(square(icon, side: 256), key: "crewicon-\(crewCode)")
         }
 
