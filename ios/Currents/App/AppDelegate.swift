@@ -40,18 +40,47 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
             // about your own actions on another of your devices. Any wake is
             // a chance to pull those back down.
             Self.removeDeliveredSelfNotifications()
-            // Pre-warm the crew feed the event landed in, so opening the app
-            // (or the notification) shows it instantly.
-            if let crewCode = Self.queryFields(userInfo)?["crewCode"] as? String {
-                _ = await CommunityService.shared.crewFeed(code: crewCode)
-            }
-            await CommunityService.shared.refreshTripInvites()
-            await CommunityService.shared.refreshFriendRequests()
-            // Every community screen watches the revision — a push means
-            // something changed, so whatever is open refreshes itself.
-            CommunityService.shared.bumpRevision()
+            await Self.refreshAfterPush(crewCode: Self.queryFields(userInfo)?["crewCode"] as? String)
             completionHandler(.newData)
         }
+    }
+
+    // MARK: - Push refresh
+
+    @MainActor private static var pushRefresh: Task<Void, Never>?
+    @MainActor private static var pushDirty = false
+    @MainActor private static var pushCrewCodes: Set<String> = []
+
+    /// Refresh after a push. A foreground push arrives here twice (remote
+    /// notification and banner) and pushes come in bursts; each used to run
+    /// the whole refresh and bump the revision, reloading every open crew
+    /// screen once per push. Pushes that land while a refresh runs fold into
+    /// one more pass, and the revision is bumped once when all of it is done.
+    @MainActor
+    private static func refreshAfterPush(crewCode: String?) async {
+        if let crewCode { pushCrewCodes.insert(crewCode) }
+        pushDirty = true
+        if pushRefresh == nil {
+            pushRefresh = Task { @MainActor in
+                while Self.pushDirty {
+                    Self.pushDirty = false
+                    let codes = Self.pushCrewCodes
+                    Self.pushCrewCodes = []
+                    // Pre-warm the crew feed the event landed in, so opening
+                    // the app (or the notification) shows it instantly.
+                    for code in codes {
+                        _ = await CommunityService.shared.crewFeed(code: code)
+                    }
+                    await CommunityService.shared.refreshTripInvites()
+                    await CommunityService.shared.refreshFriendRequests()
+                }
+                // Every community screen watches the revision — a push means
+                // something changed, so whatever is open refreshes itself.
+                CommunityService.shared.bumpRevision()
+                Self.pushRefresh = nil
+            }
+        }
+        await pushRefresh?.value
     }
 
     // MARK: - CloudKit event payload helpers
@@ -105,13 +134,8 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         let userInfo = notification.request.content.userInfo
         completionHandler(Self.isSelfEvent(userInfo) ? [] : [.banner, .list, .sound, .badge])
         Task { @MainActor in
-            if let crewCode = Self.queryFields(userInfo)?["crewCode"] as? String {
-                _ = await CommunityService.shared.crewFeed(code: crewCode)
-            }
-            await CommunityService.shared.refreshTripInvites()
-            await CommunityService.shared.refreshFriendRequests()
             // Refresh whatever community screen is open right now.
-            CommunityService.shared.bumpRevision()
+            await Self.refreshAfterPush(crewCode: Self.queryFields(userInfo)?["crewCode"] as? String)
         }
     }
 
