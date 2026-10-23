@@ -469,7 +469,7 @@ struct ExploreSearchPane: View {
             ExploreSearchRow(title: Self.highlight(water.name, query),
                              subtitle: waterSubtitle(water),
                              trailing: distance.map { Units.distance(m: $0) }) {
-                ThumbView(systemImage: ExploreFormat.waterIcon(water.type), tint: Color.exploreWater, size: 48)
+                PlaceSnapshotThumb(water: water, size: 48)
             }
         }
         .buttonStyle(.dsRow)
@@ -511,11 +511,10 @@ struct ExploreSearchPane: View {
             if let spot = spots.first(where: { $0.id == recent.key }) {
                 spotThumb(spot)
             } else {
-                ThumbView(systemImage: "mappin", tint: DS.accent, size: 48)
+                PlaceSnapshotThumb(coordinate: recent.coordinate, size: 48)
             }
         case .water:
-            ThumbView(systemImage: ExploreFormat.waterIcon(Waterbody.WaterbodyType(rawValue: recent.extra ?? "") ?? .lake),
-                      tint: Color.exploreWater, size: 48)
+            recentWaterThumb(recent)
         case .ramp:
             PlaceSnapshotThumb(place: ramp(from: recent), size: 48)
         case .species:
@@ -525,16 +524,31 @@ struct ExploreSearchPane: View {
                 ThumbView(systemImage: "fish", tint: .gray, size: 48)
             }
         case .place:
-            ThumbView(systemImage: "mappin.and.ellipse", tint: .gray, size: 48)
+            PlaceSnapshotThumb(coordinate: recent.coordinate, size: 48)
+        }
+    }
+
+    /// The water itself when it is still loaded, so the render is framed to
+    /// its size and shared with its search row.
+    @ViewBuilder
+    private func recentWaterThumb(_ recent: ExploreRecent) -> some View {
+        if let water = waters.first(where: { String($0.id ?? 0) == recent.key }) {
+            PlaceSnapshotThumb(water: water, size: 48)
+        } else {
+            let type = Waterbody.WaterbodyType(rawValue: recent.extra ?? "") ?? .lake
+            PlaceSnapshotThumb(id: "water-\(recent.key)", coordinate: recent.coordinate,
+                               systemImage: ExploreFormat.waterIcon(type), tint: Color.exploreWater,
+                               size: 48, span: 1300, showsPin: false)
         }
     }
 
     @ViewBuilder
     private func spotThumb(_ spot: Spot) -> some View {
-        if let sp = topSpecies[spot.id] {
+        // A picture the angler chose wins over the top species.
+        if spot.cover == .map, let sp = topSpecies[spot.id] {
             ThumbView(species: sp, size: 48)
         } else {
-            ThumbView(systemImage: spot.type.icon, tint: DS.accent, size: 48)
+            PlaceSnapshotThumb(spot: spot, size: 48)
         }
     }
 

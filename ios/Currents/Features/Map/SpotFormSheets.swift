@@ -72,7 +72,8 @@ struct AddSpotSheet: View {
 
 // MARK: - Edit spot
 
-/// Edits every field of a saved spot, including moving it on the map.
+/// Edits every field of a saved spot, including moving it on the map and
+/// its picture.
 struct EditSpotSheet: View {
     @Environment(\.dismiss) private var dismiss
     let spot: Spot
@@ -83,6 +84,11 @@ struct EditSpotSheet: View {
     @State private var isPrivate: Bool = true
     @State private var spotType: Spot.SpotType = .general
     @State private var coordinate: CLLocationCoordinate2D?
+    @State private var cover: Spot.Cover = .map
+    @State private var coverPhotoPath: String?
+    /// Photos stored while picking; the ones not kept go when the sheet closes.
+    @State private var pickedPaths: [String] = []
+    @State private var saved = false
     @State private var loaded = false
 
     var body: some View {
@@ -93,7 +99,9 @@ struct EditSpotSheet: View {
                 usingCurrentLocation: false,
                 moveTitle: "Move on map",
                 saveTitle: "Save changes",
-                onSave: save
+                onSave: save,
+                picture: SpotPictureField(spot: spot, cover: $cover, photoPath: $coverPhotoPath,
+                                          pickedPaths: $pickedPaths)
             )
             .navigationTitle("Edit spot")
             .navigationBarTitleDisplayMode(.inline)
@@ -109,12 +117,23 @@ struct EditSpotSheet: View {
                 notes = spot.notes ?? ""
                 isPrivate = spot.isPrivate
                 spotType = spot.type
+                cover = spot.cover
+                coverPhotoPath = spot.coverPhotoPath
                 if coordinate == nil {
                     coordinate = CLLocationCoordinate2D(latitude: spot.latitude, longitude: spot.longitude)
                 }
             }
         }
         .presentationDragIndicator(.visible)
+        .onDisappear(perform: clearPickedPhotos)
+    }
+
+    /// Removes the photos picked here that the spot does not use, and on
+    /// save the photo a new one replaced.
+    private func clearPickedPhotos() {
+        let kept = saved ? coverPhotoPath : spot.coverPhotoPath
+        for path in pickedPaths where path != kept { PhotoManager.delete(path) }
+        if saved, let old = spot.coverPhotoPath, old != kept { PhotoManager.delete(old) }
     }
 
     private func save() {
@@ -128,11 +147,14 @@ struct EditSpotSheet: View {
         updated.notes = notes.isEmpty ? nil : notes
         updated.isPrivate = isPrivate
         updated.type = spotType
+        updated.coverPhotoPath = coverPhotoPath
+        updated.cover = cover
         if let coord = coordinate {
             updated.latitude = coord.latitude
             updated.longitude = coord.longitude
             updated.geohash = Geohash.encode(latitude: coord.latitude, longitude: coord.longitude, precision: 7)
         }
+        saved = true
         onSave(updated)
         dismiss()
     }
@@ -150,6 +172,8 @@ private struct SpotFormBody: View {
     var moveTitle = "Change"
     let saveTitle: String
     let onSave: () -> Void
+    /// Editing only: a new spot has no catches or picture yet.
+    var picture: SpotPictureField? = nil
 
     @State private var showingLocationPicker = false
     @FocusState private var nameFocused: Bool
@@ -166,6 +190,10 @@ private struct SpotFormBody: View {
                         .frame(minHeight: 50)
                         .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.button, style: .continuous))
                         .padding(.horizontal, DS.gutter)
+                }
+
+                if let picture {
+                    field("Picture") { picture }
                 }
 
                 field("Location") {

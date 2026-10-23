@@ -419,6 +419,15 @@ final class AppDatabase: Sendable {
             }
         }
 
+        migrator.registerMigration("v24_spot_cover") { db in
+            // A spot's picture. No style means the map render; a photo is a
+            // file in the catch photo store.
+            try db.alter(table: "spot") { t in
+                t.add(column: "coverStyle", .text)
+                t.add(column: "coverPhotoPath", .text)
+            }
+        }
+
         return migrator
     }
 }

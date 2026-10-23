@@ -46,7 +46,7 @@ struct PinPeekSheet: View {
         let name = c.species?.commonName ?? "Catch"
         let length = c.catchRecord.lengthCm.map { ", \(Units.length(cm: $0))" } ?? ""
         HStack(spacing: 14) {
-            if let sp = c.species { ThumbView(species: sp) } else { ThumbView(systemImage: "fish.fill", tint: DS.accent) }
+            CatchThumb(detail: c, size: 64)
             VStack(alignment: .leading, spacing: 2) {
                 Text(name + length)
                     .font(.title2.bold())
