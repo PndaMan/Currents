@@ -87,9 +87,12 @@ struct GroupTripSetupView: View {
 
     private func content(_ proxy: ScrollViewProxy) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            DetailHeader(over: crewCode.flatMap { svc.crew(withCode: $0)?.name },
-                         title: "Group trip",
-                         subtitle: "Fish together. Everyone sees every catch, live.")
+            CommunityHero(label: crewCode.flatMap { svc.crew(withCode: $0)?.name } ?? "Fish together",
+                          title: "Group trip",
+                          line: "Everyone sees every catch, live.") {
+                ThumbView(systemImage: "person.3.fill", tint: CrewTint.region, size: 92)
+            }
+            .padding(.top, DS.Space.s2)
             actions(proxy)
                 .padding(.top, DS.Space.s5)
             if !startableTrips.isEmpty {
@@ -132,7 +135,7 @@ struct GroupTripSetupView: View {
 
     private var joinForm: some View {
         VStack(alignment: .leading, spacing: DS.Space.s4) {
-            Text("Enter the 6-character code from whoever started it, or tap their invite.")
+            Text("Enter the 6-character code from whoever started it.")
                 .font(.body)
                 .foregroundStyle(.dsText2)
                 .fixedSize(horizontal: false, vertical: true)
@@ -157,8 +160,11 @@ struct GroupTripSetupView: View {
                 ArtRow(over: t.plannedDate.map { $0.formatted(date: .abbreviated, time: .shortened) },
                        title: t.name,
                        subtitle: t.isPlanned ? "Planned. Tap to edit." : "Active session") {
-                    ThumbView(systemImage: t.plannedDate != nil ? "calendar.badge.clock" : "figure.fishing",
-                              tint: DS.accent, size: 56)
+                    if t.plannedDate != nil {
+                        ThumbView(systemImage: "calendar.badge.clock", tint: CrewTint.calendar, size: 56)
+                    } else {
+                        ThumbView(systemImage: "figure.fishing", tint: .dsScoreGood, size: 56)
+                    }
                 }
             }
             .buttonStyle(.dim)
@@ -283,10 +289,11 @@ private struct StartLiveTripSheet: View {
 
     private var form: some View {
         VStack(alignment: .leading, spacing: DS.Space.s5) {
-            Text("Starts a GPS session where you are and shares it live.")
-                .font(.body)
-                .foregroundStyle(.dsText2)
-                .fixedSize(horizontal: false, vertical: true)
+            CommunityHero(label: "Live now", title: "Start a trip",
+                          line: "GPS starts where you are and the crew follows along.") {
+                ThumbView(systemImage: "dot.radiowaves.left.and.right", tint: .dsScoreGood, size: 72)
+            }
+            .padding(.horizontal, -DS.gutter)
             CrewTextField(label: "Trip name", placeholder: "Morning session", text: $name)
                 .submitLabel(.go)
                 .onSubmit(go)
@@ -528,15 +535,68 @@ struct GroupTripView: View {
         return host
     }
 
-    @ViewBuilder private var tripHeader: some View {
+    /// Today's hero: status over the trip name, the host, and the anglers'
+    /// faces on the right.
+    private var tripHeader: some View {
+        HStack(alignment: .center, spacing: DS.Space.s4) {
+            VStack(alignment: .leading, spacing: 4) {
+                tripStatus
+                    .font(.subheadline)
+                    .foregroundStyle(.dsText2)
+                    .lineLimit(1)
+                Text(trip?.name ?? tripName)
+                    .font(.title.bold())
+                    .foregroundStyle(.dsText)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityAddTraits(.isHeader)
+                if let hostLine {
+                    Text(hostLine)
+                        .font(.callout)
+                        .foregroundStyle(.dsText2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            Spacer(minLength: 0)
+            heroVisual
+        }
+        .padding(.horizontal, DS.gutter)
+    }
+
+    @ViewBuilder private var tripStatus: some View {
         if ended {
-            DetailHeader(over: endedLine, title: trip?.name ?? tripName, subtitle: hostLine)
+            Text(endedLine)
         } else {
-            EventHeader(title: trip?.name ?? tripName, subtitle: hostLine) {
+            HStack(spacing: 6) {
                 EventLiveTag()
                 if let start = trip?.createdAt {
                     Text("Since \(eventTimeText(start))")
                 }
+            }
+        }
+    }
+
+    @ViewBuilder private var heroVisual: some View {
+        if members.isEmpty {
+            ThumbView(systemImage: "person.3.fill", tint: CrewTint.region, size: 92)
+        } else {
+            EventAvatarStack(images: members.prefix(3).map { memberAvatars[$0.id] }, size: 52)
+        }
+    }
+
+    /// Anglers, fish, species and time on the water as Today's stat tiles.
+    private var tripStats: some View {
+        let speciesCount = Set(feed.map(\.species)).count
+        return StatStrip {
+            StatTile("Anglers", systemImage: "person.2.fill", tint: CrewTint.people,
+                     value: "\(members.count)", width: 120)
+            StatTile("Fish", systemImage: "fish.fill", tint: CrewTint.fish,
+                     value: "\(feed.count)", width: 120)
+            StatTile("Species", systemImage: "leaf.fill", tint: CrewTint.species,
+                     value: "\(speciesCount)", width: 120)
+            if let trip {
+                StatTile(trip.endedAt == nil ? "Fishing for" : "Fished for", systemImage: "timer",
+                         tint: CrewTint.region, value: elapsedLabel(from: trip.createdAt, to: trip.endedAt),
+                         width: 132)
             }
         }
     }
@@ -551,8 +611,10 @@ struct GroupTripView: View {
     /// session still ticking against it, and offer one-tap cleanup.
     private func tripMissingView(_ code: String) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            DetailHeader(over: "No longer available", title: trip?.name ?? tripName)
-                .padding(.top, DS.Space.s4)
+            CommunityHero(label: "No longer available", title: trip?.name ?? tripName) {
+                ThumbView(systemImage: "flag.slash.fill", tint: .dsScoreSlow, size: 72)
+            }
+            .padding(.top, DS.Space.s4)
             InlineEmpty(systemImage: "flag.slash",
                         text: "This trip was deleted, usually with its tournament. Your catches are still in your logbook.")
                 .padding(.top, DS.Space.s5)
@@ -576,8 +638,8 @@ struct GroupTripView: View {
     private var joinGate: some View {
         VStack(alignment: .leading, spacing: 0) {
             cover
-            DetailHeader(over: "Trip invite", title: trip?.name ?? tripName,
-                         subtitle: "Pick a name to join. No account needed.")
+            CommunityHero(label: "Trip invite", title: trip?.name ?? tripName,
+                          line: "Pick a name to join. No account needed.")
                 .padding(.top, DS.Space.s4)
             CrewJoinForm(buttonTitle: "Join and continue") { await afterProfileJoin() }
                 .padding(.horizontal, DS.gutter)
@@ -602,8 +664,11 @@ struct GroupTripView: View {
 
     private var setup: some View {
         VStack(alignment: .leading, spacing: 0) {
-            DetailHeader(over: "Group trip", title: tripName,
-                         subtitle: "Share it and everyone you invite sees every catch, live.")
+            CommunityHero(label: "Group trip", title: tripName,
+                          line: "Everyone you invite sees every catch, live.") {
+                ThumbView(systemImage: "person.3.fill", tint: CrewTint.region, size: 92)
+            }
+            .padding(.top, DS.Space.s2)
             Button { Task { await startShared() } } label: {
                 if busy { ProgressView() } else { Text("Start a shared trip") }
             }
@@ -658,8 +723,8 @@ struct GroupTripView: View {
     private func confirmJoin(_ code: String) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             cover
-            DetailHeader(over: isTournamentTeam ? "Tournament team" : "Trip invite",
-                         title: trip?.name ?? tripName, subtitle: hostLine)
+            CommunityHero(label: isTournamentTeam ? "Tournament team" : "Trip invite",
+                          title: trip?.name ?? tripName, line: hostLine)
                 .padding(.top, DS.Space.s4)
             if !members.isEmpty {
                 CrewSection(title: "Going", detail: "\(members.count)") { goingStrip }
@@ -721,6 +786,8 @@ struct GroupTripView: View {
             }
             .padding(.top, DS.Space.s4)
         }
+        tripStats
+            .padding(.top, DS.Space.s5)
         standingsSection
         // The gear checklist lives in the planned-trip editor only. A live
         // session isn't the place to be packing.
@@ -974,12 +1041,12 @@ struct GroupTripView: View {
             VStack(spacing: 0) {
                 Button { showingInvite = true } label: {
                     ArtRow(title: "Invite friends", subtitle: "Send an invite in one tap", chevron: true) {
-                        ThumbView(systemImage: "person.badge.plus", tint: DS.accent, size: 44)
+                        ThumbView(systemImage: "person.badge.plus", tint: .dsScoreGood, size: 44)
                     }
                 }
                 .buttonStyle(.dim)
                 ArtRow(title: "Trip code", subtitle: "Tap the code to copy it") {
-                    ThumbView(systemImage: "number", tint: DS.accent, size: 44)
+                    ThumbView(systemImage: "number", tint: CrewTint.region, size: 44)
                 } trailing: {
                     CopyableCode(code: code, font: .system(.headline, design: .monospaced))
                 }
@@ -989,33 +1056,57 @@ struct GroupTripView: View {
 
     private var detailsSection: some View {
         CrewSection(title: "Details") {
-            KeyValueList(rows: detailRows)
+            detailCard
             if isTournamentTeam {
                 SectionFootnote("Crewmates join this team from the tournament page.")
             }
         }
     }
 
-    private var detailRows: [KeyValueList.Row] {
-        var rows: [KeyValueList.Row] = []
+    private struct DetailItem {
+        let title: String
+        let value: String
+        let systemImage: String
+        let tint: Color
+    }
+
+    private var detailItems: [DetailItem] {
+        var rows: [DetailItem] = []
         if let trip {
-            rows.append(.init(label: "Host", value: trip.hostCode == service.friendCode ? "You" : trip.hostName))
-            rows.append(.init(label: "Started", value: trip.createdAt.formatted(date: .abbreviated, time: .shortened)))
+            rows.append(.init(title: "Host", value: trip.hostCode == service.friendCode ? "You" : trip.hostName,
+                              systemImage: "person.fill", tint: CrewTint.people))
+            rows.append(.init(title: "Started", value: trip.createdAt.formatted(date: .abbreviated, time: .shortened),
+                              systemImage: "play.fill", tint: .dsScoreGood))
             if let endedAt = trip.endedAt {
-                rows.append(.init(label: "Ended", value: endedAt.formatted(date: .abbreviated, time: .shortened)))
-                rows.append(.init(label: "Fished for", value: elapsedLabel(from: trip.createdAt, to: endedAt)))
-            } else {
-                rows.append(.init(label: "Fishing for", value: elapsedLabel(from: trip.createdAt, to: nil)))
+                rows.append(.init(title: "Ended", value: endedAt.formatted(date: .abbreviated, time: .shortened),
+                                  systemImage: "flag.checkered", tint: CrewTint.calendar))
             }
             if let crewCode = trip.crewCode, let crew = svc.crew(withCode: crewCode) {
-                rows.append(.init(label: "Crew", value: crew.name))
+                rows.append(.init(title: "Crew", value: crew.name, systemImage: "person.3.fill", tint: CrewTint.region))
             }
             if let team = trip.teamName {
-                rows.append(.init(label: "Tournament team", value: team))
+                rows.append(.init(title: "Tournament team", value: team, systemImage: "trophy.fill",
+                                  tint: CrewTint.trophy))
             }
         }
-        rows.append(.init(label: "Anglers", value: "\(members.count)"))
         return rows
+    }
+
+    @ViewBuilder private var detailCard: some View {
+        let items = detailItems
+        if !items.isEmpty {
+            GroupedCard {
+                ForEach(Array(items.enumerated()), id: \.offset) { i, item in
+                    if i > 0 { CardDivider() }
+                    IconRow(item.title, systemImage: item.systemImage, tint: item.tint) {
+                        Text(item.value)
+                            .foregroundStyle(.dsText2)
+                            .lineLimit(1)
+                    }
+                    .accessibilityElement(children: .combine)
+                }
+            }
+        }
     }
 
     // MARK: - Invite sheet
