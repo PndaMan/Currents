@@ -17,14 +17,21 @@ struct LocationInspectorSheet: View {
     /// Closes the sheet. The map opens a spot or water as its place sheet
     /// and pushes anything else on the Explore stack.
     var onOpen: (ExploreRoute) -> Void = { _ in }
+    /// A fish tapped under "Biting near you": the map narrows to the spots
+    /// and waters where it is confirmed.
+    var onShowSpecies: (Species) -> Void = { _ in }
 
     @State private var weather: WeatherService.WeatherData?
     @State private var bite: BiteSnapshot?
     @State private var placeName: String?
     @State private var nearbySpots: [ScoredSpot] = []
     @State private var probableSpots: [ProbableSpot] = []
-    @State private var observedFish: [ObservedSpeciesRepository.FishResult] = []
+    @State private var biting: [BitingFish] = []
+    /// Recorded fish that are not in the species guide, so have no art or
+    /// bite of their own.
+    @State private var unlistedFish = 0
     @State private var isLoading = true
+    @State private var isLoadingFish = true
     @State private var isLoadingWater = true
     @State private var showingSaveAsSpot = false
 
@@ -120,99 +127,133 @@ struct LocationInspectorSheet: View {
         }
         .padding(.top, DS.Space.s4)
 
-        if !observedFish.isEmpty {
-            GroupLabel(isUserLocation ? "What is biting near you" : "What is biting here")
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(alignment: .top, spacing: DS.Space.s3) {
-                    ForEach(Array(observedFish.prefix(10).enumerated()), id: \.offset) { _, fish in
-                        fishTile(fish)
-                    }
-                }
-                .padding(.horizontal, DS.gutter)
-            }
-            ExploreFootnote("Recorded within 10 km, from iNaturalist and GBIF observations.")
-        }
+        bitingSection
 
         if weather != nil {
-            GroupLabel("Conditions")
-            ExploreConditions(weather: weather)
-            if let reason = bite?.reasons.first {
-                ExploreFootnote(ExploreFormat.sentence(reason))
+            section {
+                SectionTitle("Conditions")
+                ExploreConditions(weather: weather)
+                if let reason = bite?.reasons.first {
+                    ExploreFootnote(ExploreFormat.sentence(reason))
+                }
             }
         }
 
-        GroupLabel("Water nearby")
-        if probableSpots.isEmpty {
-            if isLoadingWater {
-                HStack(spacing: DS.Space.s2) {
-                    ProgressView()
-                    Text("Looking for water").foregroundStyle(.dsText2)
-                }
-                .padding(.horizontal, DS.gutter)
-            } else {
-                Text("No mapped dams, rivers or lakes near this point. Try closer to water.")
-                    .font(.subheadline)
-                    .foregroundStyle(.dsText2)
-                    .padding(.horizontal, DS.gutter)
-            }
-        } else {
-            ForEach(probableSpots.prefix(6)) { p in
-                Button {
-                    onOpen(.waterbody(WaterbodyRef(p.waterbody)))
-                } label: {
-                    ArtRow(title: p.name, subtitle: "\(p.reason), \(p.distanceString)", chevron: true) {
-                        PlaceSnapshotThumb(water: p.waterbody, size: 48)
-                    } trailing: {
-                        Text("\(p.score)")
-                            .foregroundStyle(DS.scoreInk(p.score))
-                    }
-                }
-                .buttonStyle(.dsRow)
-            }
-        }
+        waterSection
 
         if !nearbySpots.isEmpty {
-            GroupLabel("Your spots nearby")
-            ForEach(nearbySpots) { entry in
-                Button {
-                    onOpen(.spot(SpotRef(entry.spot)))
-                } label: {
-                    ArtRow(title: entry.spot.name,
-                           subtitle: "\(entry.catchCount) \(entry.catchCount == 1 ? "catch" : "catches"), \(entry.distanceString)",
-                           chevron: true) {
-                        PlaceSnapshotThumb(spot: entry.spot, size: 48)
+            section {
+                SectionTitle("Your spots nearby")
+                ForEach(nearbySpots) { entry in
+                    Button {
+                        onOpen(.spot(SpotRef(entry.spot)))
+                    } label: {
+                        ArtRow(title: entry.spot.name,
+                               subtitle: "\(entry.catchCount) \(entry.catchCount == 1 ? "catch" : "catches"), \(entry.distanceString)",
+                               chevron: true) {
+                            PlaceSnapshotThumb(spot: entry.spot, size: 48)
+                        }
                     }
+                    .buttonStyle(.dsRow)
                 }
-                .buttonStyle(.dsRow)
             }
         }
     }
 
-    private func fishTile(_ fish: ObservedSpeciesRepository.FishResult) -> some View {
-        let tile = VStack(alignment: .leading, spacing: 6) {
-            if let sp = fish.localSpecies {
-                ThumbView(species: sp, size: 96)
+    private var waterSection: some View {
+        section {
+            SectionTitle("Water nearby")
+            if probableSpots.isEmpty {
+                if isLoadingWater {
+                    loadingRow("Looking for water")
+                } else {
+                    InlineEmpty(systemImage: "water.waves",
+                                text: "No mapped dams, rivers or lakes near this point. Try closer to water.")
+                }
             } else {
-                ThumbView(systemImage: "fish", tint: .gray, size: 96)
+                ForEach(probableSpots.prefix(6)) { p in
+                    Button {
+                        onOpen(.waterbody(WaterbodyRef(p.waterbody)))
+                    } label: {
+                        ArtRow(title: p.name, subtitle: "\(p.reason), \(p.distanceString)", chevron: true) {
+                            PlaceSnapshotThumb(water: p.waterbody, size: 48)
+                        } trailing: {
+                            Text("\(p.score)")
+                                .foregroundStyle(DS.scoreInk(p.score))
+                        }
+                    }
+                    .buttonStyle(.dsRow)
+                }
             }
-            Text(fish.commonName)
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(.dsText)
-                .lineLimit(2)
-            Text("\(fish.observationCount) \(fish.observationCount == 1 ? "record" : "records")")
-                .font(.footnote)
-                .foregroundStyle(.dsText2)
         }
-        .frame(width: 96, alignment: .leading)
+    }
 
-        return Group {
-            if let sp = fish.localSpecies {
-                Button { onOpen(.species(sp)) } label: { tile }
-                    .buttonStyle(.dim)
+    // MARK: - Biting
+
+    private var bitingSection: some View {
+        section {
+            SectionTitle(isUserLocation ? "Biting near you" : "Biting here")
+            if isLoadingFish {
+                loadingRow("Checking fish records near here")
+            } else if biting.isEmpty {
+                InlineEmpty(systemImage: "fish", text: bitingEmptyText)
             } else {
-                tile
+                ForEach(biting.prefix(8)) { fish in
+                    fishRow(fish)
+                }
+                ExploreFootnote(bitingNote)
             }
         }
+    }
+
+    private func fishRow(_ fish: BitingFish) -> some View {
+        Button { onShowSpecies(fish.species) } label: {
+            ArtRow(over: "\(fish.records) \(fish.records == 1 ? "record" : "records") nearby",
+                   title: fish.species.commonName,
+                   subtitle: fish.why) {
+                ThumbView(species: fish.species, size: 56)
+            } trailing: {
+                Text("\(fish.score)")
+                    .foregroundStyle(DS.scoreInk(fish.score))
+            }
+        }
+        .buttonStyle(.dsRow)
+        .accessibilityHint("Shows the spots and waters where it is confirmed")
+        .contextMenu {
+            Button { onOpen(.species(fish.species)) } label: {
+                Label("Open species page", systemImage: "book")
+            }
+        }
+    }
+
+    private var bitingEmptyText: String {
+        if unlistedFish > 0 {
+            return "Fish have been recorded near here, but none of them are in the species guide yet."
+        }
+        return "No fish records near here yet. They load from iNaturalist and GBIF when you have signal."
+    }
+
+    private var bitingNote: String {
+        var note = "Tap a fish to show the spots and waters where it is confirmed. Records are iNaturalist and GBIF observations within 10 km."
+        if unlistedFish > 0 {
+            note += " \(unlistedFish) more \(unlistedFish == 1 ? "is" : "are") not in the species guide yet."
+        }
+        return note
+    }
+
+    // MARK: - Layout
+
+    private func section<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 0) { content() }
+            .padding(.top, DS.Space.s8)
+    }
+
+    private func loadingRow(_ text: String) -> some View {
+        HStack(spacing: DS.Space.s2) {
+            ProgressView()
+            Text(text).foregroundStyle(.dsText2)
+        }
+        .padding(.horizontal, DS.gutter)
     }
 
     private var mapsURL: URL {
@@ -246,19 +287,68 @@ struct LocationInspectorSheet: View {
         probableSpots = probableWater(baseScore: b.now)
         isLoadingWater = false
 
-        // Outside the bundled area, top up from Overpass when online.
-        if !BundledMapData.covers(minLat: waterBox.minLat, maxLat: waterBox.maxLat,
-                                  minLon: waterBox.minLon, maxLon: waterBox.maxLon),
-           let fresh = await OverpassService.shared.fetchWaterbodies(
-               minLat: waterBox.minLat, maxLat: waterBox.maxLat,
-               minLon: waterBox.minLon, maxLon: waterBox.maxLon
-           ) {
-            _ = try? appState.waterbodyRepository.insertFromOverpass(fresh)
-            probableSpots = probableWater(baseScore: b.now)
-        }
+        // The fish list does not wait on the water top-up.
+        async let topUp: Void = topUpWater(baseScore: b.now)
 
-        observedFish = await fishTask
+        let fish = await fishTask
+        biting = bitingFish(from: fish, weather: w)
+        unlistedFish = Set(fish.filter { $0.localSpecies == nil }.map(\.scientificName)).count
+        isLoadingFish = false
+
+        await topUp
         isLoading = false
+    }
+
+    /// Outside the bundled area, tops up the water from Overpass when online.
+    private func topUpWater(baseScore: Int) async {
+        guard !BundledMapData.covers(minLat: waterBox.minLat, maxLat: waterBox.maxLat,
+                                     minLon: waterBox.minLon, maxLon: waterBox.maxLon),
+              let fresh = await OverpassService.shared.fetchWaterbodies(
+                  minLat: waterBox.minLat, maxLat: waterBox.maxLat,
+                  minLon: waterBox.minLon, maxLon: waterBox.maxLon
+              ) else { return }
+        _ = try? appState.waterbodyRepository.insertFromOverpass(fresh)
+        probableSpots = probableWater(baseScore: baseScore)
+    }
+
+    /// Each recorded fish in the species guide, with its own bite now and the
+    /// reason for it, best bite first. Two sources naming the same species
+    /// count once.
+    private func bitingFish(from fish: [ObservedSpeciesRepository.FishResult],
+                            weather w: WeatherService.WeatherData?) -> [BitingFish] {
+        var records: [Int64: (species: Species, count: Int)] = [:]
+        for result in fish {
+            guard let sp = result.localSpecies else { continue }
+            let count = max(records[sp.id]?.count ?? 0, result.observationCount)
+            records[sp.id] = (sp, count)
+        }
+        let rows = records.values.map { entry -> BitingFish in
+            let result = forecast(for: entry.species, weather: w)
+            return BitingFish(species: entry.species, records: entry.count,
+                              score: result.score, why: Self.why(result, species: entry.species))
+        }
+        return rows.sorted { ($0.score, $0.records) > ($1.score, $1.records) }
+    }
+
+    private func forecast(for species: Species, weather w: WeatherService.WeatherData?) -> ForecastEngine.ForecastResult {
+        ForecastEngine.forecast(
+            coordinate: coordinate,
+            currentPressureHpa: w?.pressureHpa,
+            pressureChange6h: w?.pressureChange6h,
+            waterTempC: w?.waterTempC,
+            windSpeedKmh: w?.windSpeedKmh,
+            windDirection: w?.windDirectionDeg,
+            species: species,
+            isInSpawningZone: false
+        )
+    }
+
+    /// The reason that is about this fish (its water temperature, or feeding
+    /// after dark), else the strongest general one.
+    private static func why(_ result: ForecastEngine.ForecastResult, species: Species) -> String {
+        let own = result.reasons.first { $0.contains(species.commonName) }
+        let line = own ?? result.reasons.first ?? BiteWindows.guidance(forScore: result.score)
+        return ExploreFormat.sentence(line)
     }
 
     private func reverseGeocode(_ coord: CLLocationCoordinate2D) async -> String? {
@@ -350,6 +440,15 @@ struct LocationInspectorSheet: View {
 }
 
 // MARK: - Supporting Types
+
+private struct BitingFish: Identifiable {
+    let species: Species
+    let records: Int
+    let score: Int
+    let why: String
+
+    var id: Int64 { species.id }
+}
 
 private struct ScoredSpot: Identifiable {
     let spot: Spot

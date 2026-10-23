@@ -212,6 +212,47 @@ struct BiteSnapshot {
     }
 }
 
+// MARK: - Species filter
+
+/// The Explore map narrowed to one species: your spots where you caught it
+/// or that sit on a water known to hold it, and waters whose species list
+/// includes it. Only confirmed records count, never nearby sightings.
+struct SpeciesMapFilter {
+    let species: Species
+    /// Where the filter was asked for; waters are looked for around it.
+    let origin: CLLocationCoordinate2D
+    let spotIds: Set<String>
+    /// Waters that hold it and are not saved as one of the spots.
+    let waters: [Waterbody]
+    /// Your catches of it, for the catch pins.
+    let catchIds: Set<String>
+
+    var placeCount: Int { spotIds.count + waters.count }
+
+    /// Whether a place opened through a map link stays on the filtered map.
+    func keeps(_ target: ExploreFocus.Target) -> Bool {
+        switch target {
+        case .spot(let id): return spotIds.contains(id)
+        case .water(let id): return waters.contains { $0.id == id }
+        case .ramp, .point: return false
+        }
+    }
+
+    @MainActor
+    static func load(_ species: Species, near origin: CLLocationCoordinate2D, appState: AppState) -> SpeciesMapFilter {
+        let caught = (try? appState.catchRepository.fetchForSpecies(species.id)) ?? []
+        let saved = (try? appState.spotRepository.fetchAll()) ?? []
+        let holding = TargetData.waters(holding: species.id, near: origin, appState: appState)
+        let spots = TargetData.spots(catches: caught, saved: saved,
+                                     holdingWaterIds: Set(holding.compactMap(\.id)), from: origin)
+        let savedWaters = Set(spots.compactMap { $0.spot.waterbodyId })
+        let waters = holding.filter { wb in wb.id.map { !savedWaters.contains($0) } ?? true }
+        return SpeciesMapFilter(species: species, origin: origin,
+                                spotIds: Set(spots.map(\.spot.id)), waters: waters,
+                                catchIds: Set(caught.map(\.catchRecord.id)))
+    }
+}
+
 // MARK: - Small components
 
 /// A plain label and value row, Luma's key-value list.

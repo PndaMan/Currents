@@ -95,8 +95,15 @@ struct MapTab: View {
     @State private var shownPlace: ExplorePlace?
     @State private var isPlaceOpen = false
     @State private var placeDetent: PresentationDetent = .medium
+    /// Counts links opened into the place sheet, so a link to the place
+    /// already showing starts its page again instead of leaving a page
+    /// pushed inside the sheet on top.
+    @State private var placeVisit = 0
 
     @State private var isSearchOpen = false
+    /// A fish tapped under "Biting near you": only the places where it is
+    /// confirmed stay on the map until the filter is cleared.
+    @State private var speciesFilter: SpeciesMapFilter?
 
     enum MapStyleOption: String, CaseIterable {
         case offline = "Offline"
@@ -150,6 +157,7 @@ struct MapTab: View {
     private var unassignedCatches: [CatchDetail] {
         catches.filter { detail in
             guard detail.catchRecord.spotId == nil else { return false }
+            if let speciesFilter, !speciesFilter.catchIds.contains(detail.catchRecord.id) { return false }
             let loc = CLLocation(
                 latitude: detail.catchRecord.latitude,
                 longitude: detail.catchRecord.longitude
@@ -161,16 +169,25 @@ struct MapTab: View {
         }
     }
 
-    /// Water in view, outlines included.
+    /// Spots on the map: those a species filter keeps, else every spot
+    /// while the layer is on.
+    private var shownSpots: [Spot] {
+        if let speciesFilter { return spots.filter { speciesFilter.spotIds.contains($0.id) } }
+        return showSpots ? spots : []
+    }
+
+    /// Water in view, outlines included. A species filter shows the waters
+    /// that hold it wherever they are.
     private var waterInView: [Waterbody] {
-        showWaterbodies && currentLatSpan < 3 ? waterbodies : []
+        if let speciesFilter { return speciesFilter.waters }
+        return showWaterbodies && currentLatSpan < 3 ? waterbodies : []
     }
 
     /// Water that gets its own pin. A saved water is a spot, so while spots
     /// are on the map its spot pin stands for it and the water pin is left
     /// out; it comes back when the spot is removed.
     private var visibleWaterbodies: [Waterbody] {
-        guard showSpots else { return waterInView }
+        guard showSpots, speciesFilter == nil else { return waterInView }
         let saved = Set(spots.compactMap(\.waterbodyId))
         guard !saved.isEmpty else { return waterInView }
         return waterInView.filter { wb in
@@ -180,7 +197,7 @@ struct MapTab: View {
     }
 
     private var visibleRamps: [BoatRamp] {
-        guard layerRamps && currentLatSpan < 2.5 else {
+        guard layerRamps && currentLatSpan < 2.5 && speciesFilter == nil else {
             // A ramp opened from a list or search keeps its pin while its
             // sheet is up, even with the layer off.
             return selectedRamp.map { [$0] } ?? []
@@ -190,7 +207,7 @@ struct MapTab: View {
 
     private var clusters: [PinCluster] {
         var features: [ExploreFeature] = []
-        if showSpots { features += spots.map(ExploreFeature.spot) }
+        features += shownSpots.map(ExploreFeature.spot)
         features += visibleWaterbodies.map(ExploreFeature.water)
         if showCatchPins { features += unassignedCatches.map(ExploreFeature.catchPin) }
         features += visibleRamps.map(ExploreFeature.ramp)
@@ -262,9 +279,9 @@ struct MapTab: View {
         }
         .sheet(item: $inspector, onDismiss: { Task { await loadData() } }) { target in
             LocationInspectorSheet(coordinate: target.coord, isUserLocation: target.isUserLocation,
-                                   title: target.title) { route in
-                openRoute(route)
-            }
+                                   title: target.title,
+                                   onOpen: { route in openRoute(route) },
+                                   onShowSpecies: { species in showSpecies(species, near: target.coord) })
         }
         .sheet(item: $addSpotAt, onDismiss: { Task { await loadData() } }) { target in
             AddSpotSheet(prefillCoordinate: target.coord)
@@ -390,7 +407,7 @@ struct MapTab: View {
             // for everywhere the auto-cache has covered.
             OfflineMapView(
                 overlay: appState.mapManager.offlineOverlay,
-                spots: showSpots ? spots : [],
+                spots: shownSpots,
                 catches: showCatchPins ? unassignedCatches : [],
                 waterbodies: visibleWaterbodies,
                 spotScores: spotScores,
@@ -563,7 +580,7 @@ struct MapTab: View {
                     ExplorePlacePage(waterbody: w, style: .sheet, onSavedChange: reloadSpots)
                 }
             }
-            .id(place.id)
+            .id("\(place.id)#\(placeVisit)")
             // Only a drag ticks; showPlace resetting the detent stays quiet.
             .presentationDetents([.medium, .large], selection: $placeDetent.haptic())
             .presentationDragIndicator(.visible)
@@ -649,6 +666,11 @@ struct MapTab: View {
         selectedRamp = nil
         catchStack = nil
         showingLayers = false
+        // A filter that would hide the linked place goes.
+        if let speciesFilter, !speciesFilter.keeps(target) { self.speciesFilter = nil }
+        // A link from a page inside the live session sheet; the session
+        // keeps recording, as when it is minimised.
+        showingLiveTrip = false
         // The place sheet swaps to another spot or water where it is; a ramp
         // or point needs it gone.
         switch target {
@@ -670,10 +692,12 @@ struct MapTab: View {
             let saved = (try? appState.spotRepository.fetchAll()) ?? []
             guard let spot = saved.first(where: { $0.id == id }) else { return }
             frameAboveSheet(.spot(spot))
+            placeVisit += 1
             showPlace(.spot(spot))
         case .water(let id):
             guard let place = focusedWater(id) else { return }
             frameAboveSheet(place)
+            placeVisit += 1
             showPlace(place)
         case .ramp(let id, let lat, let lon):
             var near: CLLocationCoordinate2D?
@@ -774,17 +798,13 @@ struct MapTab: View {
             }
             .padding(.horizontal, DS.Space.s4)
 
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: DS.Space.s2) {
-                    chip("Your spots", systemImage: "mappin", route: .spots)
-                    chip("Species", systemImage: "fish", route: .speciesGuide)
-                    chip("Water", systemImage: "water.waves", route: .waters)
-                    chip("Ramps and access", systemImage: "figure.fishing", route: .ramps)
-                }
-                .padding(.horizontal, DS.Space.s4)
-                .padding(.vertical, 2)
+            if let speciesFilter {
+                filterChip(speciesFilter)
+                    .padding(.horizontal, DS.Space.s4)
+                    .padding(.vertical, 2)
+            } else {
+                shortcutChips
             }
-            .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
 
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: DS.Space.s3) {
@@ -815,6 +835,53 @@ struct MapTab: View {
         // field never read as one row.
         .padding(.top, DS.Space.s3)
         .animation(reduceMotion ? nil : DS.Motion.easeOut, value: isLoadingWaterbodies)
+    }
+
+    private var shortcutChips: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: DS.Space.s2) {
+                chip("Your spots", systemImage: "mappin", route: .spots)
+                chip("Species", systemImage: "fish", route: .speciesGuide)
+                chip("Water", systemImage: "water.waves", route: .waters)
+                chip("Ramps and access", systemImage: "figure.fishing", route: .ramps)
+            }
+            .padding(.horizontal, DS.Space.s4)
+            .padding(.vertical, 2)
+        }
+        .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
+    }
+
+    /// The species the map is narrowed to and how many places it is
+    /// confirmed at, or that it is confirmed nowhere yet. The cross clears it.
+    private func filterChip(_ filter: SpeciesMapFilter) -> some View {
+        HStack(spacing: DS.Space.s2) {
+            ThumbView(species: filter.species, size: 28)
+            Text(filterTitle(filter))
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.dsText)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+            Button { speciesFilter = nil } label: {
+                Image(systemName: "xmark")
+                    .font(.footnote.weight(.bold))
+                    .foregroundStyle(.dsText2)
+                    .frame(width: 32, height: 32)
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.dim)
+            .accessibilityLabel("Clear \(filter.species.commonName) filter")
+        }
+        .padding(.leading, 4)
+        .padding(.trailing, 2)
+        .frame(minHeight: 36)
+        .glassEffect(.regular, in: Capsule())
+    }
+
+    private func filterTitle(_ filter: SpeciesMapFilter) -> String {
+        let name = filter.species.commonName
+        let n = filter.placeCount
+        if n == 0 { return "No spots or waters with \(name) yet" }
+        return "\(name) in \(n) \(n == 1 ? "place" : "places")"
     }
 
     private func chip(_ title: String, systemImage: String, route: ExploreRoute) -> some View {
@@ -984,6 +1051,52 @@ struct MapTab: View {
         return ExploreFormat.verdict(nearBite.now)
     }
 
+    // MARK: - Species filter
+
+    /// Narrows the map to where a fish tapped in the inspector is confirmed
+    /// and frames those places.
+    private func showSpecies(_ species: Species, near origin: CLLocationCoordinate2D) {
+        inspector = nil
+        let filter = SpeciesMapFilter.load(species, near: origin, appState: appState)
+        speciesFilter = filter
+        frameFilter(filter)
+    }
+
+    private func filterCoordinates(_ filter: SpeciesMapFilter) -> [CLLocationCoordinate2D] {
+        let spotCoords = spots.filter { filter.spotIds.contains($0.id) }
+            .map { CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude) }
+        let waterCoords = filter.waters.map { CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude) }
+        return spotCoords + waterCoords
+    }
+
+    /// Fits the filtered places within 400 km of where it was asked for, or
+    /// the nearest one when all are further. The offline map can only fly to
+    /// a fixed zoom, so there it goes to the nearest.
+    private func frameFilter(_ filter: SpeciesMapFilter) {
+        let here = CLLocation(latitude: filter.origin.latitude, longitude: filter.origin.longitude)
+        func distance(_ c: CLLocationCoordinate2D) -> CLLocationDistance {
+            here.distance(from: CLLocation(latitude: c.latitude, longitude: c.longitude))
+        }
+        let sorted = filterCoordinates(filter).sorted { distance($0) < distance($1) }
+        guard let nearest = sorted.first else { return }
+        if mapStyle == .offline {
+            flyToCoordinate = nearest
+            return
+        }
+        let near = sorted.filter { distance($0) < 400_000 }
+        let framed = near.isEmpty ? [nearest] : near
+        let lats = framed.map(\.latitude)
+        let lons = framed.map(\.longitude)
+        guard let minLat = lats.min(), let maxLat = lats.max(),
+              let minLon = lons.min(), let maxLon = lons.max() else { return }
+        let center = CLLocationCoordinate2D(latitude: (minLat + maxLat) / 2, longitude: (minLon + maxLon) / 2)
+        let span = MKCoordinateSpan(latitudeDelta: max((maxLat - minLat) * 1.4, 0.05),
+                                    longitudeDelta: max((maxLon - minLon) * 1.4, 0.05))
+        withAnimation(reduceMotion ? nil : DS.Motion.softSpring) {
+            position = .region(MKCoordinateRegion(center: center, span: span))
+        }
+    }
+
     // MARK: - Drop mode
 
     /// The pin fixed at the map's centre while placing a spot.
@@ -1142,6 +1255,10 @@ struct MapTab: View {
     private func loadData() async {
         spots = (try? appState.spotRepository.fetchAll()) ?? []
         catches = (try? appState.catchRepository.fetchAll(limit: 200)) ?? []
+        // A spot saved or a catch logged since can change where it is confirmed.
+        if let filter = speciesFilter {
+            speciesFilter = SpeciesMapFilter.load(filter.species, near: filter.origin, appState: appState)
+        }
 
         // The most caught species at each spot draws its pin.
         var tops: [String: Species] = [:]
