@@ -108,6 +108,8 @@ struct MapTab: View {
     /// A fish tapped under "Biting near you": only the places where it is
     /// confirmed stay on the map until the filter is cleared.
     @State private var speciesFilter: SpeciesMapFilter?
+    /// Where the record lookup for the filtered fish stands.
+    @State private var waterLookup: WaterLookup = .idle
 
     enum MapStyleOption: String, CaseIterable {
         case offline = "Offline"
@@ -884,7 +886,12 @@ struct MapTab: View {
     /// confirmed at, or that it is confirmed nowhere yet. The cross clears it.
     private func filterChip(_ filter: SpeciesMapFilter) -> some View {
         HStack(spacing: DS.Space.s2) {
-            ThumbView(species: filter.species, size: 28)
+            if filter.placeCount == 0, waterLookup == .searching {
+                ProgressView()
+                    .frame(width: 28, height: 28)
+            } else {
+                ThumbView(species: filter.species, size: 28)
+            }
             Text(filterTitle(filter))
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(.dsText)
@@ -909,7 +916,13 @@ struct MapTab: View {
     private func filterTitle(_ filter: SpeciesMapFilter) -> String {
         let name = filter.species.commonName
         let n = filter.placeCount
-        if n == 0 { return "No spots or waters with \(name) yet" }
+        if n == 0 {
+            switch waterLookup {
+            case .searching: return "Finding waters with \(name)"
+            case .offline: return "\(name) records load when you have signal"
+            case .idle: return "No \(name) on record nearby"
+            }
+        }
         return "\(name) in \(n) \(n == 1 ? "place" : "places")"
     }
 
@@ -1089,6 +1102,29 @@ struct MapTab: View {
         let filter = SpeciesMapFilter.load(species, near: origin, appState: appState)
         speciesFilter = filter
         frameFilter(filter)
+        lookUpWaters(for: species, near: origin)
+    }
+
+    enum WaterLookup { case idle, searching, offline }
+
+    /// Asks GBIF which waters around here have the fish on record, then
+    /// redraws the filter with any new ones and frames them if the map had
+    /// nothing to show before.
+    private func lookUpWaters(for species: Species, near origin: CLLocationCoordinate2D) {
+        guard !ScreenshotSupport.isActive else { return }
+        waterLookup = .searching
+        Task {
+            let found = await WaterSpeciesService.shared.findWaters(
+                for: species, near: origin,
+                waters: appState.waterbodyRepository, database: appState.db)
+            guard speciesFilter?.species.id == species.id else { return }
+            waterLookup = found == nil ? .offline : .idle
+            guard let found, found > 0 else { return }
+            let wasEmpty = speciesFilter?.placeCount == 0
+            let filter = SpeciesMapFilter.load(species, near: origin, appState: appState)
+            speciesFilter = filter
+            if wasEmpty { frameFilter(filter) }
+        }
     }
 
     private func filterCoordinates(_ filter: SpeciesMapFilter) -> [CLLocationCoordinate2D] {

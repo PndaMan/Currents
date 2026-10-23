@@ -10,7 +10,7 @@ import GRDB
 /// the bundled tiles.
 enum BundledMapData {
     /// Bump when the bundled water file changes so existing installs import it again.
-    static let waterVersion = 1
+    static let waterVersion = 2
     private static let waterVersionKey = "bundledWaterVersion"
 
     // MARK: Coverage
@@ -94,8 +94,9 @@ enum BundledMapData {
         let task = Task.detached(priority: .userInitiated) {
             do {
                 let count = try importWater(into: database)
+                let linked = try importWaterSpecies(into: database)
                 UserDefaults.standard.set(waterVersion, forKey: waterVersionKey)
-                print("[Currents] Imported \(count) bundled water bodies")
+                print("[Currents] Imported \(count) bundled water bodies, fish on record at \(linked)")
             } catch {
                 print("[Currents] Bundled water import failed: \(error)")
             }
@@ -159,6 +160,35 @@ enum BundledMapData {
                 inserted += 1
             }
             return inserted
+        }
+    }
+
+    /// The fish on record at each bundled water (Resources/Data/
+    /// water_species_za.json, built from GBIF by
+    /// scripts/build_water_species.py), merged into each water's species
+    /// list so the species filter finds them offline. Returns the number of
+    /// waters that gained a fish.
+    private static func importWaterSpecies(into database: AppDatabase) throws -> Int {
+        guard let url = resource("water_species_za") else { return 0 }
+        struct File: Decodable { let water: [String: [[Int?]]] }  // [speciesId, records, latestYear or null]
+        let file = try JSONDecoder().decode(File.self, from: Data(contentsOf: url))
+
+        return try database.db.write { db in
+            var changed = 0
+            for (osm, entries) in file.water {
+                guard let osmId = Int64(osm),
+                      let row = try Row.fetchOne(db, sql: "SELECT id, fishSpeciesIds FROM waterbody WHERE osmId = ?",
+                                                 arguments: [osmId]) else { continue }
+                let current: String? = row["fishSpeciesIds"]
+                let have = current.flatMap { try? JSONDecoder().decode([Int64].self, from: Data($0.utf8)) } ?? []
+                let add = entries.compactMap { $0.first.flatMap { $0 }.map(Int64.init) }.filter { !have.contains($0) }
+                guard !add.isEmpty else { continue }
+                let json = String(data: try JSONEncoder().encode(have + add), encoding: .utf8)
+                let id: Int64 = row["id"]
+                try db.execute(sql: "UPDATE waterbody SET fishSpeciesIds = ? WHERE id = ?", arguments: [json, id])
+                changed += 1
+            }
+            return changed
         }
     }
 
