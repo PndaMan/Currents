@@ -91,7 +91,7 @@ struct CrewFriendsPage: View {
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
-                DetailHeader(title: "Friends", subtitle: "Your angler code is \(svc.friendCode)")
+                hero
                 actions
                     .padding(.top, DS.Space.s5)
                 // With nothing saved, the empty friends list says it instead.
@@ -143,6 +143,26 @@ struct CrewFriendsPage: View {
         }
         .task { await load() }
         .onChange(of: svc.revision) { _, _ in Task { await load() } }
+    }
+
+    /// Today's hero: your code over the title, the count, and your friends'
+    /// faces stacked on the right.
+    private var hero: some View {
+        CommunityHero(label: "Your code \(svc.friendCode)", title: "Friends", line: heroLine) {
+            if friends.isEmpty {
+                ThumbView(systemImage: "person.2.fill", tint: CrewTint.people, size: 92)
+            } else {
+                EventAvatarStack(images: friends.prefix(3).map(\.avatar), size: 56)
+            }
+        }
+        .padding(.top, DS.Space.s2)
+    }
+
+    private var heroLine: String {
+        let n = svc.friends.count
+        let base = n == 0 ? "No friends yet" : (n == 1 ? "1 friend" : "\(n) friends")
+        guard !requests.isEmpty else { return base }
+        return "\(base), \(requests.count) waiting"
     }
 
     private var actions: some View {
@@ -241,7 +261,11 @@ struct CrewRequestsPage: View {
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
-                DetailHeader(title: "Requests", subtitle: subtitle)
+                CommunityHero(label: "Friends and trips", title: "Requests", line: subtitle) {
+                    ThumbView(systemImage: "bell.fill", tint: CrewTint.trophy, size: 92)
+                }
+                .padding(.top, DS.Space.s2)
+                .padding(.bottom, DS.Space.s2)
                 if connection.isOffline {
                     EventNotice("Offline. New requests and invites show when you're back online.",
                                 systemImage: "wifi.slash") { EmptyView() }
@@ -252,9 +276,8 @@ struct CrewRequestsPage: View {
                         .frame(height: 88).frame(maxWidth: .infinity)
                         .padding(.top, DS.Space.s6)
                 } else if requests.isEmpty && invites.isEmpty {
-                    ContentUnavailableView("You're all caught up", systemImage: "bell.slash",
-                                           description: Text("Friend requests and trip invites show up here."))
-                        .padding(.top, DS.Space.s8)
+                    caughtUp
+                        .padding(.top, DS.Space.s4)
                 } else {
                     if !requests.isEmpty {
                         CrewSection(title: "Friend requests") {
@@ -282,6 +305,26 @@ struct CrewRequestsPage: View {
         .onChange(of: svc.revision) { _, _ in Task { await load() } }
     }
 
+    /// Nothing waiting: a green check tile on a card, not a system screen.
+    private var caughtUp: some View {
+        HStack(spacing: DS.Space.s3) {
+            ThumbView(systemImage: "checkmark", tint: .dsScoreGood, size: 48)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("You're all caught up")
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(.dsText)
+                Text("Friend requests and trip invites show up here.")
+                    .font(.footnote)
+                    .foregroundStyle(.dsText2)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(DS.Space.s4)
+        .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
+        .padding(.horizontal, DS.gutter)
+        .accessibilityElement(children: .combine)
+    }
+
     private var subtitle: String? {
         guard loaded else { return nil }
         let n = requests.count + invites.count
@@ -292,7 +335,7 @@ struct CrewRequestsPage: View {
         VStack(alignment: .leading, spacing: DS.Space.s2) {
             ArtRow(over: "Invited by \(inv.fromName)", title: inv.tripName,
                    subtitle: inv.date.formatted(.relative(presentation: .named))) {
-                ThumbView(systemImage: "person.3.fill", tint: .dsScoreLow)
+                ThumbView(systemImage: "person.3.fill", tint: CrewTint.region)
             }
             CrewAcceptDecline(acceptTitle: "Join trip") {
                 await svc.acceptInvite(inv)
@@ -453,6 +496,11 @@ struct CrewAddFriendSheet: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: DS.Space.s5) {
+                    CommunityHero(label: "Swap codes", title: "Add a friend",
+                                  line: "Type the code from their profile.") {
+                        ThumbView(systemImage: "person.badge.plus", tint: .dsScoreGood, size: 72)
+                    }
+                    .padding(.horizontal, -DS.gutter)
                     VStack(alignment: .leading, spacing: DS.Space.s3) {
                         CodeField(text: $addCode, placeholder: "Their angler code")
                             .onChange(of: addCode) { _, _ in error = nil }
@@ -509,7 +557,7 @@ struct CrewAddFriendSheet: View {
                 }
             }
             .padding(DS.Space.s4)
-            .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.button, style: .continuous))
+            .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
             Text("Friends see your best catches. You choose which spots they see.")
                 .font(.footnote)
                 .foregroundStyle(.dsText2)
