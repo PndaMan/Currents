@@ -1,5 +1,8 @@
 """Which fish are on record at each bundled South African water.
 
+Also writes Resources/Data/gbif_species_keys.json ({"<species id>": GBIF key}),
+which the app uses to fetch the same records around the user anywhere.
+
 Pulls every georeferenced occurrence of the app's species in South Africa from
 GBIF (museum specimens, surveys and research-grade iNaturalist observations;
 no key needed), and attaches each record to the bundled water it falls on or
@@ -105,6 +108,9 @@ def main() -> None:
         keys = dict(pool.map(match, species))
     matched = {sid: k for sid, k in keys.items() if k}
     print(f"matched {len(matched)} of {len(species)} species to GBIF", file=sys.stderr)
+    # The app asks GBIF for the fish around the user by these keys.
+    (DATA / "gbif_species_keys.json").write_text(
+        json.dumps({str(sid): k for sid, k in sorted(matched.items())}, separators=(",", ":")) + "\n")
 
     def count(item):
         sid, k = item

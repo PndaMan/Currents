@@ -377,6 +377,7 @@ struct MapTab: View {
             await loadData()
             if let loc = appState.locationManager.currentLocation {
                 appState.mapManager.maintainOfflineCache(around: loc.coordinate)
+                downloadFishArea(around: loc.coordinate)
             }
             // Screenshot mode: frame the demo coast AND the seeded dam/lake
             // bubbles after first layout. A runtime .camera applies
@@ -400,7 +401,21 @@ struct MapTab: View {
         .onChange(of: appState.locationManager.currentLocation) { _, loc in
             if let loc {
                 appState.mapManager.maintainOfflineCache(around: loc.coordinate)
+                downloadFishArea(around: loc.coordinate)
             }
+        }
+    }
+
+    /// Which fish are on record at the waters around the user, fetched once
+    /// a month per area so filtering by a fish works offline there. An open
+    /// filter picks up what arrives.
+    private func downloadFishArea(around origin: CLLocationCoordinate2D) {
+        guard !ScreenshotSupport.isActive else { return }
+        Task {
+            let added = await WaterSpeciesService.shared.downloadArea(
+                around: origin, waters: appState.waterbodyRepository, database: appState.db)
+            guard let added, added > 0, let current = speciesFilter else { return }
+            speciesFilter = SpeciesMapFilter.load(current.species, near: current.origin, appState: appState)
         }
     }
 
