@@ -586,19 +586,17 @@ def cmd_pages(api: Client, args) -> int:
     specs = load_pages(media_dir)
     app = find_app(api) if api.online else None
     existing = {}
-    available_keywords: dict[str, str] | None = None
-    template = None
+    # A new page must start in the app's primary locale; LOCALE is added beside it.
+    primary = (app["attributes"].get("primaryLocale") if app else None) or LOCALE
+    locales = list(dict.fromkeys([primary, LOCALE]))
+    available_keywords: dict[str, dict[str, str] | None] = {locale: None for locale in locales}
     if app:
         for page in api.get_all(f"/v1/apps/{app['id']}/appCustomProductPages"):
             existing[page["attributes"]["name"]] = page
         # Pages can only use keywords from the latest approved version's keyword field.
-        kw = api.get_all(f"/v1/apps/{app['id']}/searchKeywords", **{"filter[locale]": LOCALE, "filter[platform]": "IOS"})
-        available_keywords = {k["id"].strip().lower(): k["id"] for k in kw}
-        live = api.get_all(f"/v1/apps/{app['id']}/appStoreVersions",
-                           **{"filter[appStoreState]": "READY_FOR_SALE", "filter[platform]": "IOS"})
-        template = live[0] if live else None
-        if template is None:
-            print("No live version to copy new pages from.\n")
+        for locale in locales:
+            kw = api.get_all(f"/v1/apps/{app['id']}/searchKeywords", **{"filter[locale]": locale, "filter[platform]": "IOS"})
+            available_keywords[locale] = {k["id"].strip().lower(): k["id"] for k in kw}
     else:
         print("No credentials: showing everything as new without reading App Store Connect.\n")
 
@@ -607,20 +605,22 @@ def cmd_pages(api: Client, args) -> int:
         for w in spec.warnings:
             print(f"  warning: {w}")
         page = existing.get(spec.name)
-        loc_id = None
         version_id = None
         if page is None:
-            # Apple rejects the inline version and localisation creates, so the
-            # page starts as a copy of the live version; the steps below then
-            # set its promotional text, screenshots and keywords.
-            relationships = {"app": {"data": {"type": "apps", "id": app["id"] if app else "(app)"}}}
-            if template:
-                relationships["appStoreVersionTemplate"] = {"data": {"type": "appStoreVersions", "id": template["id"]}}
+            version_ref = "${new-appCustomProductPageVersion-id}"
+            loc_ref = "${new-appCustomProductPageLocalization-id}"
             created = api.write(
                 "POST", "/v1/appCustomProductPages",
                 {"data": {"type": "appCustomProductPages", "attributes": {"name": spec.name},
-                          "relationships": relationships}},
-                f"create the page from version {template['attributes']['versionString'] if template else '(live version)'}",
+                          "relationships": {"app": {"data": {"type": "apps", "id": app["id"] if app else "(app)"}},
+                                            "appCustomProductPageVersions": {"data": [{"type": "appCustomProductPageVersions", "id": version_ref}]}}},
+                 "included": [
+                     {"type": "appCustomProductPageVersions", "id": version_ref,
+                      "relationships": {"appCustomProductPageLocalizations": {"data": [{"type": "appCustomProductPageLocalizations", "id": loc_ref}]}}},
+                     {"type": "appCustomProductPageLocalizations", "id": loc_ref,
+                      "attributes": {"locale": primary, "promotionalText": spec.promotional_text}},
+                 ]},
+                f"create the page with {primary} promotional text {json.dumps(spec.promotional_text, ensure_ascii=False)}",
             )
             page_id = created["data"]["id"]
         else:
@@ -644,39 +644,36 @@ def cmd_pages(api: Client, args) -> int:
                     "start a new page version (the current one is approved)",
                 )
                 version_id = created["data"]["id"]
+
+        locs = []
         if version_id and not is_placeholder(version_id):
             locs = api.get_all(f"/v1/appCustomProductPageVersions/{version_id}/appCustomProductPageLocalizations")
-            loc = next((l for l in locs if l["attributes"]["locale"] == LOCALE), None)
-            if loc is None:
-                created = api.write(
-                    "POST", "/v1/appCustomProductPageLocalizations",
-                    {"data": {"type": "appCustomProductPageLocalizations",
-                              "attributes": {"locale": LOCALE, "promotionalText": spec.promotional_text},
-                              "relationships": {"appCustomProductPageVersion": {"data": {"type": "appCustomProductPageVersions", "id": version_id}}}}},
-                    f"add {LOCALE} with promotional text {json.dumps(spec.promotional_text, ensure_ascii=False)}",
-                )
-                loc_id = created["data"]["id"]
-            else:
+        for locale in locales:
+            print(f"  {locale}:")
+            loc = next((l for l in locs if l["attributes"]["locale"] == locale), None)
+            if loc is not None:
                 loc_id = loc["id"]
                 if (loc["attributes"].get("promotionalText") or "") != spec.promotional_text:
                     api.write(
                         "PATCH", f"/v1/appCustomProductPageLocalizations/{loc_id}",
                         {"data": {"type": "appCustomProductPageLocalizations", "id": loc_id,
                                   "attributes": {"promotionalText": spec.promotional_text}}},
-                        f"update promotional text {json.dumps(loc['attributes'].get('promotionalText'), ensure_ascii=False)} -> {json.dumps(spec.promotional_text, ensure_ascii=False)}",
+                        f"update {locale} promotional text {json.dumps(loc['attributes'].get('promotionalText'), ensure_ascii=False)} -> {json.dumps(spec.promotional_text, ensure_ascii=False)}",
                     )
-        elif page is None and not api.apply:
-            loc_id = "(new-localization)"
-        elif page is None and api.apply:
-            # Find the localization the create request made.
-            versions = api.get_all(f"/v1/appCustomProductPages/{page_id}/appCustomProductPageVersions")
-            locs = api.get_all(f"/v1/appCustomProductPageVersions/{versions[0]['id']}/appCustomProductPageLocalizations")
-            loc_id = next(l["id"] for l in locs if l["attributes"]["locale"] == LOCALE)
-        if loc_id is None:
-            loc_id = "(new-localization)"
-
-        sync_page_screenshots(api, loc_id, spec)
-        sync_page_keywords(api, loc_id, spec, available_keywords)
+            elif page is None and locale == primary and is_placeholder(page_id):
+                # Dry run: the create request above makes this one.
+                loc_id = "(new-localization)"
+            else:
+                created = api.write(
+                    "POST", "/v1/appCustomProductPageLocalizations",
+                    {"data": {"type": "appCustomProductPageLocalizations",
+                              "attributes": {"locale": locale, "promotionalText": spec.promotional_text},
+                              "relationships": {"appCustomProductPageVersion": {"data": {"type": "appCustomProductPageVersions", "id": version_id or "(version)"}}}}},
+                    f"add {locale} with promotional text {json.dumps(spec.promotional_text, ensure_ascii=False)}",
+                )
+                loc_id = created["data"]["id"]
+            sync_page_screenshots(api, loc_id, spec)
+            sync_page_keywords(api, loc_id, spec, available_keywords[locale], locale)
 
         if not is_placeholder(page_id):
             hint = "  (paste into customPageId in docs/open.html)" if spec.folder.name == "crew-invite" else ""
@@ -730,7 +727,8 @@ def sync_page_screenshots(api: Client, loc_id: str, spec: PageSpec) -> None:
         )
 
 
-def sync_page_keywords(api: Client, loc_id: str, spec: PageSpec, available: dict[str, str] | None) -> None:
+def sync_page_keywords(api: Client, loc_id: str, spec: PageSpec, available: dict[str, str] | None,
+                       locale: str = LOCALE) -> None:
     if not spec.keywords:
         return
     if available is None:
@@ -740,7 +738,7 @@ def sync_page_keywords(api: Client, loc_id: str, spec: PageSpec, available: dict
     usable = [available[k.lower()] for k in spec.keywords if k.lower() in available]
     missing = [k for k in spec.keywords if k.lower() not in available]
     if missing:
-        print(f"  note: not in the latest approved version's {LOCALE} keywords, so Apple will not accept them yet: {', '.join(missing)}")
+        print(f"  note: not in the latest approved version's {locale} keywords, so Apple will not accept them yet: {', '.join(missing)}")
     current = []
     if not is_placeholder(loc_id) and api.online:
         current = [k["id"] for k in api.get_all(f"/v1/appCustomProductPageLocalizations/{loc_id}/relationships/searchKeywords")]
