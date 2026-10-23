@@ -1,6 +1,7 @@
 import Foundation
 import CloudKit
 import UIKit
+import ImageIO
 
 // MARK: - Crew roles
 
@@ -446,6 +447,26 @@ enum CommunityDiskCache {
         try? FileManager.default.removeItem(at: dir.appendingPathComponent("\(key).jpg"))
     }
 
+    /// Decodes image bytes straight to at most `maxPixel` on the long edge,
+    /// fully decoded so drawing it costs nothing more. Safe off the main
+    /// thread; the expensive part of showing a photo happens here instead of
+    /// on the main thread at first draw.
+    static func downsample(data: Data, maxPixel: CGFloat) -> UIImage? {
+        guard let src = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+        return downsample(source: src, maxPixel: maxPixel)
+    }
+
+    static func downsample(source src: CGImageSource, maxPixel: CGFloat) -> UIImage? {
+        let opts: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceThumbnailMaxPixelSize: max(1, maxPixel.rounded()),
+        ]
+        guard let cg = CGImageSourceCreateThumbnailAtIndex(src, 0, opts as CFDictionary) else { return nil }
+        return UIImage(cgImage: cg)
+    }
+
     // Freshness stamps, so callers can serve cache-and-refresh with a TTL.
     static func touch(key: String) {
         UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: "cdc-\(key)")
@@ -538,13 +559,13 @@ extension CommunityService {
            let kg = big.c.weightKg, kg > 0 {
             out.append(.init(id: "biggest", title: "Biggest fish", icon: "scalemass.fill",
                              anglerCode: big.c.friendCode, anglerName: big.c.anglerName,
-                             teamName: big.team, detail: "\(big.c.species) · \(Units.weight(kg: kg))"))
+                             teamName: big.team, detail: "\(big.c.species), \(Units.weight(kg: kg))"))
         }
         if let first = all.min(by: { $0.c.date < $1.c.date }) {
             out.append(.init(id: "first", title: "First fish", icon: "bolt.fill",
                              anglerCode: first.c.friendCode, anglerName: first.c.anglerName,
                              teamName: first.team,
-                             detail: "\(first.c.species) · \(first.c.date.formatted(date: .omitted, time: .shortened))"))
+                             detail: "\(first.c.species), \(first.c.date.formatted(date: .omitted, time: .shortened))"))
         }
         return out
     }

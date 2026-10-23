@@ -469,9 +469,25 @@ final class CommunityService: ObservableObject {
         if code.uppercased() == Self.demoCode { return demoProfile }
         let id = CKRecord.ID(recordName: "profile-\(code)")
         guard let r = try? await db.record(for: id) else { return nil }
-        let p = profile(from: r)
-        cache(profile: p, code: code)
+        // The avatar is read and decoded off the main thread.
+        let avatar = await Self.loadAvatar(from: (r["avatar"] as? CKAsset)?.fileURL)
+        let p = profile(from: r, avatar: avatar.image)
+        cache(profile: p, code: code, avatarData: avatar.data)
         return p
+    }
+
+    /// Reads a profile's avatar asset and decodes it at avatar size on a
+    /// background thread. Also returns the bytes for the profile cache: the
+    /// asset as it is when already small, else a small re-encode (older
+    /// avatars were full camera photos).
+    private static func loadAvatar(from url: URL?) async -> (image: UIImage?, data: Data?) {
+        guard let url else { return (nil, nil) }
+        return await Task.detached(priority: .userInitiated) { () -> (image: UIImage?, data: Data?) in
+            guard let data = try? Data(contentsOf: url),
+                  let image = CommunityDiskCache.downsample(data: data, maxPixel: 512) else { return (nil, nil) }
+            if data.count <= 200_000 { return (image, data) }
+            return (image, image.jpegData(compressionQuality: 0.8))
+        }.value
     }
 
     // MARK: - Local profile cache (instant friend rendering)
@@ -479,7 +495,7 @@ final class CommunityService: ObservableObject {
     /// A Codable snapshot of a friend's profile so the Friends list can render
     /// immediately on launch instead of blocking on a CloudKit round-trip. The
     /// (small) avatar is stored inline as JPEG data.
-    private struct ProfileDTO: Codable {
+    private struct ProfileDTO: Codable, Equatable {
         var id, name, bio, region, homeWater: String
         var memberSince: Date
         var totalCatches, speciesCount: Int
@@ -488,14 +504,16 @@ final class CommunityService: ObservableObject {
         var title: String?
         var avatarData: Data?
 
-        init(_ p: Profile) {
+        /// `avatarData` is the avatar's stored bytes, passed in rather than
+        /// re-encoded from the image on the main thread.
+        init(_ p: Profile, avatarData: Data?) {
             id = p.id; name = p.name; bio = p.bio; region = p.region
             homeWater = p.homeWater; memberSince = p.memberSince
             totalCatches = p.totalCatches; speciesCount = p.speciesCount
             bestWeightKg = p.bestWeightKg; bestLengthCm = p.bestLengthCm
             favoriteSpecies = p.favoriteSpecies
             title = p.title
-            avatarData = p.avatar?.jpegData(compressionQuality: 0.6)
+            self.avatarData = avatarData
         }
 
         var profile: Profile {
@@ -509,33 +527,64 @@ final class CommunityService: ObservableObject {
 
     private static let profileCacheKey = "cachedFriendProfiles"
 
+    /// The profile cache, decoded once and kept in memory. Rows call
+    /// `cachedProfiles(for: [code])` from their bodies, and decoding the
+    /// whole JSON blob (avatars included) on every call stalled scrolling.
+    private var profileStore: [String: ProfileDTO]?
+    /// Profiles already built from the cache, so every read hands back the
+    /// same avatar image instead of decoding a new one each render.
+    private var profileMemo: [String: Profile] = [:]
+    private var profileWritePending = false
+
     private var profileCache: [String: ProfileDTO] {
-        get {
-            guard let data = UserDefaults.standard.data(forKey: Self.profileCacheKey) else { return [:] }
-            return (try? JSONDecoder().decode([String: ProfileDTO].self, from: data)) ?? [:]
+        if let profileStore { return profileStore }
+        var loaded: [String: ProfileDTO] = [:]
+        if let data = UserDefaults.standard.data(forKey: Self.profileCacheKey) {
+            loaded = (try? JSONDecoder().decode([String: ProfileDTO].self, from: data)) ?? [:]
         }
-        set { UserDefaults.standard.set(try? JSONEncoder().encode(newValue), forKey: Self.profileCacheKey) }
+        profileStore = loaded
+        return loaded
     }
 
-    private func cache(profile p: Profile, code: String) {
-        var c = profileCache
-        c[code.uppercased()] = ProfileDTO(p)
-        profileCache = c
+    private func cache(profile p: Profile, code: String, avatarData: Data?) {
+        let key = code.uppercased()
+        let dto = ProfileDTO(p, avatarData: avatarData)
+        var store = profileCache
+        guard store[key] != dto else { return }
+        store[key] = dto
+        profileStore = store
+        profileMemo[key] = p
+        scheduleProfileWrite()
+    }
+
+    /// One write for a burst of fetches (a friends list loads every profile
+    /// at once) instead of re-encoding the whole cache once per profile.
+    private func scheduleProfileWrite() {
+        guard !profileWritePending else { return }
+        profileWritePending = true
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            self.profileWritePending = false
+            guard let store = self.profileStore else { return }
+            UserDefaults.standard.set(try? JSONEncoder().encode(store), forKey: Self.profileCacheKey)
+        }
     }
 
     /// Last-known profiles for these friend codes, in the same order, for
     /// instant display while the network refresh runs.
     func cachedProfiles(for codes: [String]) -> [Profile] {
-        let c = profileCache
-        return codes.compactMap { c[$0.uppercased()]?.profile }
+        let store = profileCache
+        return codes.compactMap { code in
+            let key = code.uppercased()
+            if let p = profileMemo[key] { return p }
+            guard let p = store[key]?.profile else { return nil }
+            profileMemo[key] = p
+            return p
+        }
     }
 
-    private func profile(from r: CKRecord) -> Profile {
-        var avatar: UIImage?
-        if let asset = r["avatar"] as? CKAsset, let url = asset.fileURL, let data = try? Data(contentsOf: url) {
-            avatar = UIImage(data: data)
-        }
-        return Profile(
+    private func profile(from r: CKRecord, avatar: UIImage?) -> Profile {
+        Profile(
             id: r["friendCode"] as? String ?? r.recordID.recordName,
             name: r["displayName"] as? String ?? "Angler",
             bio: r["bio"] as? String ?? "",
