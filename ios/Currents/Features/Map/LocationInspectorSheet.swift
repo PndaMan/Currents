@@ -51,7 +51,7 @@ struct LocationInspectorSheet: View {
                 .pageWidth()
             }
             .detailScrollEdge()
-            .background(Color.dsElevated.ignoresSafeArea())
+            .background(Color.dsBackground.ignoresSafeArea())
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Done") { dismiss() }
@@ -65,7 +65,7 @@ struct LocationInspectorSheet: View {
         }
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
-        .presentationBackground(Color.dsElevated)
+        .presentationBackground(Color.dsBackground)
     }
 
     // MARK: - Header
