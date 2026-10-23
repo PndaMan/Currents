@@ -1,67 +1,6 @@
 import SwiftUI
 import PhotosUI
 
-// MARK: - Segmented pills
-
-/// Segment switcher for a screen's two-or-three peer views: plain labels
-/// with icons over a hairline, and an accent underline that slides to the
-/// selection — the same underline language as every filter row, no pills.
-struct SegmentedPills<T: Hashable & Identifiable>: View {
-    let options: [T]
-    @Binding var selection: T
-    let title: (T) -> String
-    let icon: (T) -> String
-
-    @Namespace private var ns
-    // Observed so the underline re-tints the moment the theme changes.
-    @AppStorage("selectedTheme") private var selectedTheme = ThemeOption.ocean.rawValue
-    private var accent: Color { (ThemeOption(rawValue: selectedTheme) ?? .ocean).primary }
-
-    var body: some View {
-        HStack(spacing: 0) {
-            ForEach(options) { option in
-                let isSelected = option == selection
-                Button {
-                    // One haptic source covers every segment row in the app.
-                    if !isSelected { Haptics.selection() }
-                    withAnimation(.snappy(duration: 0.22)) { selection = option }
-                } label: {
-                    VStack(spacing: 7) {
-                        HStack(spacing: 5) {
-                            Image(systemName: icon(option))
-                                .font(.caption.weight(.semibold))
-                            Text(title(option))
-                                .font(.subheadline.weight(isSelected ? .bold : .medium))
-                                .lineLimit(1)
-                        }
-                        .foregroundStyle(isSelected ? accent : Color.secondary)
-                        ZStack {
-                            Capsule().fill(Color.clear).frame(height: 3)
-                            if isSelected {
-                                Capsule().fill(accent).frame(height: 3)
-                                    .matchedGeometryEffect(id: "segment-underline", in: ns)
-                            }
-                        }
-                        .padding(.horizontal, 22)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.top, 6)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        // A hairline base the underline sits on, so the row reads as tabs.
-        .background(alignment: .bottom) {
-            Rectangle().fill(Color.secondary.opacity(0.18)).frame(height: 1)
-        }
-    }
-}
-
-// MARK: - Score ring
-
-// ScoreRing moved to DS/ScoreRing.swift (same init, restyled).
-
 // MARK: - Water clarity
 
 /// Three cards showing what the water actually looks like, rather than a
@@ -373,19 +312,6 @@ struct GearGlyph: View {
     }
 }
 
-/// Label equivalent, for rows and menus that want glyph + text.
-struct GearCategoryLabel: View {
-    let category: OwnedGear.Category
-    var text: String? = nil
-
-    var body: some View {
-        HStack(spacing: 8) {
-            GearGlyph(category: category, size: 17)
-            Text(text ?? category.rawValue)
-        }
-    }
-}
-
 // MARK: - Gear thumbnail
 
 /// Row-sized gear image: the photo when there is one, the category glyph when
@@ -472,25 +398,6 @@ struct GearFieldPicker: View {
         _isCustom = State(initialValue: !isKnown)
         _customText = State(initialValue: isKnown ? "" : value)
     }
-}
-
-// MARK: - Prominent button labels
-
-/// Label style for filled accent buttons. Inside a List or Form the default
-/// label style tints SF-symbol icons with the accent colour — invisible on a
-/// borderedProminent accent fill — so this pins both glyph and title white.
-struct ProminentButtonLabelStyle: LabelStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        HStack(spacing: 6) {
-            configuration.icon
-            configuration.title
-        }
-        .foregroundStyle(.white)
-    }
-}
-
-extension LabelStyle where Self == ProminentButtonLabelStyle {
-    static var prominentButton: ProminentButtonLabelStyle { ProminentButtonLabelStyle() }
 }
 
 // MARK: - Tap-to-fullscreen images
