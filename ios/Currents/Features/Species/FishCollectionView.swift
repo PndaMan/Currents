@@ -123,7 +123,7 @@ struct FishCollectionView: View {
             .pageWidth()
         }
         .scrollDismissesKeyboard(.immediately)
-        .detailTint(Color.dsScoreGood)
+        .detailTint(nil)
         .pfTrackScroll($titleShown, threshold: 60)
         .pfScrollTitle("Fishdex", shown: titleShown)
         .toolbar {

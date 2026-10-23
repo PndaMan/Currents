@@ -143,7 +143,7 @@ struct SettingsView: View {
             .pfRows()
         }
         .pfGroupedList()
-        .detailTint(DS.accent)
+        .detailTint(nil)
         .pfTrackScroll($titleShown, threshold: 160)
         .pfScrollTitle(displayName, shown: titleShown)
         .navigationDestination(for: SettingsRoute.self) { route in
@@ -635,7 +635,7 @@ struct StorageSettingsView: View {
             .pfRows()
         }
         .pfGroupedList()
-        .detailTint(.gray)
+        .detailTint(nil)
         .pfTrackScroll($titleShown)
         .pfScrollTitle("Storage and backups", shown: titleShown)
         .task { await load() }
@@ -1044,7 +1044,7 @@ struct UnitsSettingsView: View {
             .padding(.bottom, DS.Space.s8)
             .pageWidth()
         }
-        .detailTint(.orange)
+        .detailTint(nil)
         .pfTrackScroll($titleShown, threshold: 60)
         .pfScrollTitle("Units", shown: titleShown)
     }
@@ -1235,7 +1235,7 @@ struct PrivacySettingsView: View {
             .pfRows()
         }
         .pfGroupedList()
-        .detailTint(.blue)
+        .detailTint(nil)
         .pfTrackScroll($titleShown)
         .pfScrollTitle("Privacy", shown: titleShown)
     }
@@ -1360,7 +1360,7 @@ struct WidgetsSiriView: View {
             .padding(.bottom, DS.Space.s8)
             .pageWidth()
         }
-        .detailTint(.indigo)
+        .detailTint(nil)
         .pfTrackScroll($titleShown, threshold: 60)
         .pfScrollTitle("Widgets and Siri", shown: titleShown)
         .task { snapshot = SharedStore.load() }
@@ -1590,7 +1590,7 @@ struct AboutView: View {
             .pfRows()
         }
         .pfGroupedList()
-        .detailTint(DS.accent)
+        .detailTint(nil)
         .pfTrackScroll($titleShown, threshold: 140)
         .pfScrollTitle("About", shown: titleShown)
         .navigationDestination(for: AboutRoute.self) { _ in TipJarView() }

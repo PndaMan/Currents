@@ -62,7 +62,7 @@ struct OfflineRegionBrowser: View {
             }
         }
         .pfGroupedList()
-        .detailTint(.green)
+        .detailTint(nil)
         .pfTrackScroll($titleShown)
         .pfScrollTitle("Countries and regions", shown: titleShown)
         .scrollDismissesKeyboard(.immediately)
@@ -184,7 +184,7 @@ struct OfflineCountryView: View {
             }
         }
         .pfGroupedList()
-        .detailTint(.green)
+        .detailTint(nil)
         .pfTrackScroll($titleShown)
         .pfScrollTitle(name, shown: titleShown)
         .scrollDismissesKeyboard(.immediately)

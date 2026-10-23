@@ -70,7 +70,7 @@ struct SpotAlertsView: View {
             upcomingSection
         }
         .pfGroupedList()
-        .detailTint(.red)
+        .detailTint(nil)
         .pfTrackScroll($titleShown)
         .pfScrollTitle(spot.name, shown: titleShown)
         .task { await load() }

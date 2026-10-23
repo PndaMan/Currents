@@ -62,7 +62,7 @@ struct KnotLibraryView: View {
             .padding(.bottom, DS.Space.s8)
             .pageWidth()
         }
-        .detailTint(.cyan)
+        .detailTint(nil)
         .pfTrackScroll($titleShown, threshold: 60)
         .pfScrollTitle("Knots and rigs", shown: titleShown)
         .navigationDestination(for: KnotRoute.self) { route in
@@ -248,7 +248,7 @@ struct KnotDetailView: View {
             .padding(.bottom, DS.Space.s8)
             .pageWidth()
         }
-        .detailTint(.cyan)
+        .detailTint(nil)
         .pfTrackScroll($titleShown, threshold: 100)
         .pfScrollTitle(knot.name, shown: titleShown)
         .sheet(isPresented: Binding(get: { stepping != nil }, set: { if !$0 { stepping = nil } })) {

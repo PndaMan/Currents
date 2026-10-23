@@ -58,7 +58,7 @@ struct CrewsListPage: View {
             .padding(.bottom, DS.Space.s8)
             .pageWidth()
         }
-        .detailTint(DS.accent)
+        .detailTint(nil)
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .sheet(item: $setup) { mode in CrewSetupView(joining: mode == .join) }

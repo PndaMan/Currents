@@ -85,7 +85,7 @@ struct SpeciesBrowserView: View {
             .pageWidth()
         }
         .scrollDismissesKeyboard(.immediately)
-        .detailTint(DS.accent)
+        .detailTint(nil)
         .pfTrackScroll($titleShown, threshold: 60)
         .pfScrollTitle("Species guide", shown: titleShown)
         .toolbar {

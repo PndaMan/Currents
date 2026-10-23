@@ -77,7 +77,7 @@ struct OfflinePackDetailView: View {
             .padding(.bottom, DS.Space.s8)
             .pageWidth()
         }
-        .detailTint(.green)
+        .detailTint(nil)
         .pfTrackScroll($titleShown, threshold: 260)
         .confirmationDialog("Delete \(pack.name)?", isPresented: $confirmDelete, titleVisibility: .visible) {
             Button("Delete map", role: .destructive) {

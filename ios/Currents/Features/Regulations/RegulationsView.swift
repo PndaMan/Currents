@@ -71,7 +71,7 @@ struct RegulationsView: View {
             .padding(.bottom, DS.Space.s8)
             .pageWidth()
         }
-        .detailTint(.purple)
+        .detailTint(nil)
         .pfTrackScroll($titleShown, threshold: 60)
         .pfScrollTitle("Size and bag limits", shown: titleShown)
         .sheet(item: $selected) { reg in

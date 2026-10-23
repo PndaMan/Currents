@@ -172,7 +172,7 @@ struct CrewFriendsPage: View {
             .padding(.bottom, DS.Space.s8)
             .pageWidth()
         }
-        .detailTint(DS.accent)
+        .detailTint(nil)
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $showingAdd, onDismiss: { Task { await load() } }) {

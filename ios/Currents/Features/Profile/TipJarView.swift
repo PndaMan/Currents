@@ -47,7 +47,7 @@ struct TipJarView: View {
             }
         }
         .pfGroupedList()
-        .detailTint(.pink)
+        .detailTint(nil)
         .pfTrackScroll($titleShown)
         .pfScrollTitle("Leave a tip", shown: titleShown)
         .task {

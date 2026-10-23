@@ -57,7 +57,7 @@ struct GearTab: View {
             .animation(reduceMotion ? nil : .easeOut(duration: DS.Motion.fast), value: categoryFilter)
             .pageWidth()
         }
-        .detailTint(.orange)
+        .detailTint(nil)
         .pfTrackScroll($titleShown, threshold: 60)
         .pfScrollTitle("Tackle box", shown: titleShown)
         .navigationDestination(for: GearItemRoute.self) { route in
@@ -1043,7 +1043,7 @@ struct GearDetailSheet: View {
                 .padding(.vertical, DS.Space.s4)
                 .pageWidth()
             }
-            .detailTint(.orange)
+            .detailTint(nil)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {

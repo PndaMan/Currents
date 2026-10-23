@@ -65,7 +65,7 @@ struct LeaderboardView: View {
             .padding(.bottom, DS.Space.s6)
             .pageWidth()
         }
-        .detailTint(.dsScoreFair)
+        .detailTint(nil)
         .eventPageTitle("Leaderboard")
         .safeAreaInset(edge: .bottom) {
             if let pinned = pinnedStanding {

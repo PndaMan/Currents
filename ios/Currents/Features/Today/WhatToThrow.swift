@@ -490,7 +490,7 @@ struct WhatToThrowPage: View {
             .padding(.bottom, 40)
             .pageWidth()
         }
-        .detailTint(DS.accent)
+        .detailTint(nil)
         .navigationTitle("What to throw")
         .navigationBarTitleDisplayMode(.inline)
         .task {

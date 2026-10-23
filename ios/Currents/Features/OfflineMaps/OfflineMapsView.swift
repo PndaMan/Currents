@@ -49,7 +49,7 @@ struct OfflineMapsView: View {
             attributionSection
         }
         .pfGroupedList()
-        .detailTint(.green)
+        .detailTint(nil)
         .pfTrackScroll($titleShown)
         .pfScrollTitle("Offline maps", shown: titleShown)
     }

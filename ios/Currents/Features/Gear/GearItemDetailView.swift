@@ -101,7 +101,7 @@ struct GearItemDetailView: View {
                     .pageWidth()
             }
         }
-        .detailTint(item?.category.tint ?? .orange)
+        .detailTint(nil)
         .pfTrackScroll($titleShown, threshold: 200)
         .pfScrollTitle(item?.name ?? "Gear", shown: titleShown)
         .task { load() }
@@ -313,7 +313,7 @@ struct GearEffectivenessView: View {
             .padding(.bottom, DS.Space.s8)
             .pageWidth()
         }
-        .detailTint(.orange)
+        .detailTint(nil)
         .pfTrackScroll($titleShown, threshold: 60)
         .pfScrollTitle("Gear effectiveness", shown: titleShown)
         .task {

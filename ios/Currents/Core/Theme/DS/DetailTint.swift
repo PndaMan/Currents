@@ -2,7 +2,7 @@ import SwiftUI
 
 extension View {
     /// Luma's art-colour fade at the top of a pushed detail page: the tint at
-    /// 34 percent fading into the page background over 560 pt. Apply to the
+    /// 17 percent fading into the page background over 560 pt. Apply to the
     /// page's ScrollView or List. Pass nil for a plain background.
     ///
     /// It also gives the navigation bar the hard scroll edge effect, so text
@@ -13,7 +13,7 @@ extension View {
             ZStack(alignment: .top) {
                 Color.dsBackground
                 if let color {
-                    LinearGradient(colors: [color.opacity(0.34), color.opacity(0)],
+                    LinearGradient(colors: [color.opacity(0.17), color.opacity(0)],
                                    startPoint: .top, endPoint: .bottom)
                         .frame(height: 560)
                         .animation(.easeInOut(duration: DS.Motion.slow), value: color)

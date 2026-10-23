@@ -206,7 +206,7 @@ struct ForecastWeekPage: View {
             .padding(.bottom, 40)
             .pageWidth()
         }
-        .detailTint(DS.accent)
+        .detailTint(nil)
         .navigationTitle("Next 7 days")
         .navigationBarTitleDisplayMode(.inline)
         .refreshable {

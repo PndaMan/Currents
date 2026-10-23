@@ -88,7 +88,7 @@ struct AppearanceSettingsView: View {
             .padding(.bottom, DS.Space.s8)
             .pageWidth()
         }
-        .detailTint(theme.primary)
+        .detailTint(nil)
         .pfTrackScroll($titleShown, threshold: 60)
         .pfScrollTitle("Appearance", shown: titleShown)
     }

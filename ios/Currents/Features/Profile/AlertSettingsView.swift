@@ -164,7 +164,7 @@ struct AlertSettingsView: View {
             }
         }
         .pfGroupedList()
-        .detailTint(.red)
+        .detailTint(nil)
         .pfTrackScroll($titleShown)
         .pfScrollTitle("Notifications", shown: titleShown)
         .task {
