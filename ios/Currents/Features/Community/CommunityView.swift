@@ -403,7 +403,7 @@ struct CommunityView: View {
     private var crewsSection: some View {
         CrewSection(title: "Your crews", link: .crews) {
             if svc.myCrews.isEmpty {
-                CrewInlineEmpty(systemImage: "person.3",
+                InlineEmpty(systemImage: "person.3",
                                 text: "No crews yet. Start one, or join with a code from a friend.",
                                 actionTitle: "Start a crew") { sheet = .newCrew }
             } else {
@@ -466,14 +466,14 @@ struct CommunityView: View {
     private var feedSection: some View {
         CrewSection(title: "Crew catches") {
             if svc.myCrews.isEmpty {
-                CrewInlineEmpty(systemImage: "fish",
+                InlineEmpty(systemImage: "fish",
                                 text: "Join or start a crew and everyone's catches land here.",
                                 actionTitle: "Join a crew") { sheet = .joinCrew }
             } else if mergedFeed.isEmpty && feedLoading {
                 FishLoader(message: "Loading the feed")
                     .frame(height: 90)
             } else if mergedFeed.isEmpty {
-                CrewInlineEmpty(systemImage: "fish",
+                InlineEmpty(systemImage: "fish",
                                 text: "Nothing in the feed yet. When you or a crewmate log a catch, it shows up here.")
             } else {
                 ForEach(mergedFeed) { post in
@@ -494,7 +494,7 @@ struct CommunityView: View {
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, DS.Space.s4)
                 } else if !feedHasMore.values.contains(true), mergedFeed.count > 20 {
-                    CrewFootnote(text: "You're all caught up.")
+                    SectionFootnote("You're all caught up.")
                 }
             }
         }
@@ -705,7 +705,7 @@ struct MyProfileView: View {
                     }
                     .padding(.horizontal, DS.gutter)
                     if !stats.favoriteSpecies.isEmpty {
-                        CrewFootnote(text: "Favourite species: \(stats.favoriteSpecies)")
+                        SectionFootnote("Favourite species: \(stats.favoriteSpecies)")
                     }
                 }
 
@@ -716,7 +716,7 @@ struct MyProfileView: View {
                         .padding(.horizontal, DS.gutter)
                 }
 
-                CrewDangerButton(title: "Leave the community", systemImage: "rectangle.portrait.and.arrow.right") {
+                DangerButton(title: "Leave the community", systemImage: "rectangle.portrait.and.arrow.right") {
                     confirmLeave = true
                 }
                 .padding(.top, DS.Space.s8)
@@ -1152,14 +1152,14 @@ struct FriendProfileView: View {
                         .frame(maxWidth: .infinity)
                         .padding(.top, DS.Space.s5)
                 } else {
-                    CrewInlineEmpty(systemImage: "wifi.slash",
+                    InlineEmpty(systemImage: "wifi.slash",
                                     text: "Couldn't load this profile. Check your connection and come back.")
                         .padding(.top, DS.Space.s5)
                 }
                 catchesSection
                 if !sharedSpots.isEmpty { spotsSection }
                 if isFriend && !isSelf {
-                    CrewDangerButton(title: "Remove friend", systemImage: "person.badge.minus") {
+                    DangerButton(title: "Remove friend", systemImage: "person.badge.minus") {
                         confirmRemove = true
                     }
                     .padding(.top, DS.Space.s8)
@@ -1368,13 +1368,13 @@ struct FriendProfileView: View {
     private var catchesSection: some View {
         CrewSection(title: "Catches", detail: catchAccess && !catches.isEmpty ? "\(catches.count)" : nil) {
             if !catchAccess && !catchesLoading {
-                CrewInlineEmpty(systemImage: "lock",
+                InlineEmpty(systemImage: "lock",
                                 text: "\(isSelf ? "You haven't" : "This angler hasn't") shared their catch history with you.")
             } else if catches.isEmpty && catchesLoading {
                 FishLoader(message: "Reeling in their catches")
                     .frame(height: 84).frame(maxWidth: .infinity)
             } else if catches.isEmpty {
-                CrewInlineEmpty(systemImage: "fish", text: "No catches shared yet.")
+                InlineEmpty(systemImage: "fish", text: "No catches shared yet.")
             } else {
                 ForEach(visibleCatches) { c in
                     NavigationLink { CommunityCatchDetailView(row: c) } label: {
@@ -1682,7 +1682,7 @@ struct SharedSpotDetailView: View {
                     .padding(.horizontal, DS.gutter)
                     .padding(.top, DS.Space.s5)
                     if spot.isApproximate {
-                        CrewFootnote(text: "Saves the approximate area. You can fine-tune the pin afterwards.")
+                        SectionFootnote("Saves the approximate area. You can fine-tune the pin afterwards.")
                     }
                 }
 
@@ -1803,7 +1803,7 @@ struct CommunityCatchDetailView: View {
                             .padding(.top, DS.Space.s3)
                     }
                 } else if !row.region.isEmpty {
-                    CrewFootnote(text: row.region)
+                    SectionFootnote(row.region)
                         .padding(.top, DS.Space.s3)
                 }
             }
@@ -2032,7 +2032,7 @@ struct AddFriendConfirmView: View {
                 }
                 .padding(.horizontal, DS.gutter)
                 .padding(.top, DS.Space.s5)
-                CrewFootnote(text: "They'll see your request on their Crew tab.")
+                SectionFootnote("They'll see your request on their Crew tab.")
             } else {
                 ContentUnavailableView(
                     "Angler not found",
