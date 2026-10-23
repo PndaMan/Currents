@@ -608,7 +608,9 @@ def cmd_pages(api: Client, args) -> int:
                 "POST", "/v1/appCustomProductPages",
                 {"data": {"type": "appCustomProductPages", "attributes": {"name": spec.name},
                           "relationships": {"app": {"data": {"type": "apps", "id": app["id"] if app else "(app)"}},
-                                            "appCustomProductPageVersions": {"data": [{"type": "appCustomProductPageVersions", "id": "${version}"}]}}},
+                                            "appCustomProductPageVersions": {"data": [{"type": "appCustomProductPageVersions", "id": "${version}"}]},
+                                            # Apple also wants the inline localisation linked from the page itself.
+                                            "appCustomProductPageLocalizations": {"data": [{"type": "appCustomProductPageLocalizations", "id": "${localization}"}]}}},
                  "included": [
                      {"type": "appCustomProductPageVersions", "id": "${version}",
                       "relationships": {"appCustomProductPageLocalizations": {"data": [{"type": "appCustomProductPageLocalizations", "id": "${localization}"}]}}},
