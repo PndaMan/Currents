@@ -175,16 +175,16 @@ final class GameCenter {
         }
     }
 
-    /// Submits leaderboard scores by id. A score already sent is skipped; the
-    /// weekly board is keyed by its week so each week gets its first score.
+    /// Submits leaderboard scores by id. A score already sent (same key and
+    /// marker) is skipped.
     func submitScores(_ scores: [GameCenterProgress.Score]) async {
         guard isAuthenticated else { return }
         var sent = reported
-        for score in scores where score.value > 0 && Double(score.value) != sent["s." + score.key] {
+        for score in scores where score.value > 0 && score.marker != sent["s." + score.key] {
             do {
                 try await GKLeaderboard.submitScore(score.value, context: 0, player: GKLocalPlayer.local,
                                                     leaderboardIDs: [score.leaderboardID])
-                sent["s." + score.key] = Double(score.value)
+                sent["s." + score.key] = score.marker
             } catch {
                 continue
             }
@@ -216,6 +216,16 @@ struct GameCenterProgress {
         let value: Int
         /// The cache key: the leaderboard id, plus the week for the weekly board.
         let key: String
+        /// What makes this submission new: the value itself, or for the
+        /// latest catch, when it was logged.
+        let marker: Double
+
+        init(_ leaderboardID: String, value: Int, key: String? = nil, marker: Double? = nil) {
+            self.leaderboardID = leaderboardID
+            self.value = value
+            self.key = key ?? leaderboardID
+            self.marker = marker ?? Double(value)
+        }
     }
 
     enum Leaderboard {
@@ -246,18 +256,29 @@ struct GameCenterProgress {
         let week = utc.dateInterval(of: .weekOfYear, for: now)
         let thisWeek = week.map { interval in records.filter { interval.contains($0.caughtAt) }.count } ?? 0
         let weekKey = Leaderboard.thisWeek + "@" + String(Int(week?.start.timeIntervalSince1970 ?? 0))
-        scores = [
-            Score(leaderboardID: Leaderboard.mostFish, value: catches.count, key: Leaderboard.mostFish),
-            Score(leaderboardID: Leaderboard.heaviest, value: grams, key: Leaderboard.heaviest),
-            Score(leaderboardID: Leaderboard.longest, value: millimetres, key: Leaderboard.longest),
-            Score(leaderboardID: Leaderboard.thisWeek, value: thisWeek, key: weekKey),
+        var scores = [
+            Score(Leaderboard.mostFish, value: catches.count),
+            Score(Leaderboard.heaviest, value: grams),
+            Score(Leaderboard.longest, value: millimetres),
+            Score(Leaderboard.thisWeek, value: thisWeek, key: weekKey),
         ]
+        // A challenge counts the scores sent while it runs, so the newest
+        // catch's size goes up too, once. The boards keep the best either way.
+        if let latest = records.max(by: { $0.createdAt < $1.createdAt }) {
+            let logged = latest.createdAt.timeIntervalSince1970
+            scores.append(Score(Leaderboard.heaviest, value: Int(((latest.weightKg ?? 0) * 1000).rounded()),
+                                key: Leaderboard.heaviest + ".latest", marker: logged))
+            scores.append(Score(Leaderboard.longest, value: Int(((latest.lengthCm ?? 0) * 10).rounded()),
+                                key: Leaderboard.longest + ".latest", marker: logged))
+        }
+        self.scores = scores
     }
 
-    /// "badge.first_catch" for "First Catch". Stable as long as the title is;
-    /// scripts/render_achievement_art.py makes the same id.
+    /// "badge.first.catch" for "First Catch". Stable as long as the title is;
+    /// scripts/render_achievement_art.py makes the same id. Periods only, as
+    /// App Store Connect ids take letters, digits and periods.
     static func achievementID(for title: String) -> String {
         let words = title.lowercased().split { !($0.isASCII && ($0.isLetter || $0.isNumber)) }
-        return "badge." + words.joined(separator: "_")
+        return "badge." + words.joined(separator: ".")
     }
 }
