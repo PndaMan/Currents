@@ -691,12 +691,12 @@ struct MyProfileView: View {
         }
     }
 }
-
 // MARK: - Profile parts
 
-/// The top of an angler's page, after Luma's profile: the round photo, the
-/// name with their code under it, the title they wear, their bio and a few
-/// icon facts. Left aligned in the gutter.
+/// The top of an angler's page in Today's hero shape: their code (or your
+/// nickname for them) over the name, the bio as the one line, the round
+/// photo on the right. Under it the title they wear as a badge, and their
+/// facts with coloured icons.
 private struct AnglerProfileHeader: View {
     let avatar: UIImage?
     let name: String
@@ -709,31 +709,28 @@ private struct AnglerProfileHeader: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            CrewAvatar(image: avatar, name: name, size: 88)
-                .zoomableOnTap(avatar)
-                .padding(.horizontal, DS.gutter)
-                .padding(.top, DS.Space.s2)
-            DetailHeader(over: over, title: name, subtitle: handle)
-                .padding(.top, DS.Space.s4)
-            if title != nil || !bio.isEmpty || facts.contains(where: { !$0.1.isEmpty }) {
-                details
+            CommunityHero(label: heroLabel, title: name, line: bio.isEmpty ? nil : bio) {
+                CrewAvatar(image: avatar, name: name, size: 92)
+                    .zoomableOnTap(avatar)
+            }
+            .padding(.top, DS.Space.s2)
+            if let title {
+                TitleFlairChip(title: title)
                     .padding(.horizontal, DS.gutter)
-                    .padding(.top, DS.Space.s3)
+                    .padding(.top, DS.Space.s5)
+            }
+            if facts.contains(where: { !$0.1.isEmpty }) {
+                AnglerFactsLine(facts: facts)
+                    .padding(.top, DS.Space.s4)
             }
         }
     }
 
-    private var details: some View {
-        VStack(alignment: .leading, spacing: DS.Space.s2) {
-            if let title { TitleFlairChip(title: title) }
-            if !bio.isEmpty {
-                Text(bio)
-                    .font(.body)
-                    .foregroundStyle(.dsText)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            CrewMetaLine(items: facts)
-        }
+    /// "Nickname, angler code ABC123" or just the code line.
+    private var heroLabel: String {
+        let code = handle ?? "Angler"
+        guard let over, !over.isEmpty else { return code }
+        return "\(over), \(code.prefix(1).lowercased())\(code.dropFirst())"
     }
 
     /// Home water, region, favourite species and joining month, as icon
@@ -741,18 +738,66 @@ private struct AnglerProfileHeader: View {
     static func facts(homeWater: String, region: String, favourite: String, since: Date?) -> [(String, String)] {
         [("water.waves", homeWater),
          ("mappin.and.ellipse", region),
-         ("fish", favourite.isEmpty ? "" : "Mostly \(favourite)"),
-         ("calendar", since.map { "Angler since \($0.formatted(.dateTime.month(.wide).year()))" } ?? "")]
+         ("fish.fill", favourite.isEmpty ? "" : "Mostly \(favourite)"),
+         ("calendar", since.map { "Since \($0.formatted(.dateTime.month(.wide).year()))" } ?? "")]
     }
 }
 
-/// An angler's counts on one line, as Luma's "2 Hosted  4 Attended": the
-/// number in the text colour, its label secondary. Two to a line, then one,
-/// when the text is too large to fit.
+/// An angler's facts as a scrolling row of filled chips, each icon in its
+/// own colour: water cyan, region orange, fish blue, calendar red.
+private struct AnglerFactsLine: View {
+    let facts: [(String, String)]
+
+    private var shown: [(String, String)] { facts.filter { !$0.1.isEmpty } }
+
+    private func tint(_ symbol: String) -> Color {
+        switch symbol {
+        case "water.waves": return CrewTint.water
+        case "mappin.and.ellipse": return CrewTint.region
+        case "fish.fill": return CrewTint.fish
+        case "calendar": return CrewTint.calendar
+        default: return DS.accent
+        }
+    }
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: DS.Space.s2) {
+                ForEach(shown.indices, id: \.self) { i in
+                    chip(shown[i].0, shown[i].1)
+                }
+            }
+            .padding(.horizontal, DS.gutter)
+        }
+        .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
+        .accessibilityElement(children: .combine)
+    }
+
+    private func chip(_ symbol: String, _ text: String) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: symbol)
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(tint(symbol))
+            Text(text)
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.dsText)
+                .lineLimit(1)
+        }
+        .padding(.horizontal, 12)
+        .frame(minHeight: 34)
+        .background(tint(symbol).opacity(0.14), in: Capsule())
+    }
+}
+
+/// An angler's counts as Logbook stat tiles in a scrolling strip: catches,
+/// species, and their heaviest and longest once there is one.
 private struct AnglerStatsLine: View {
     struct Item: Identifiable {
-        let value: String
         let label: String
+        let systemImage: String
+        let tint: Color
+        let value: String
+        var unit: String? = nil
         var id: String { label }
     }
 
@@ -760,46 +805,28 @@ private struct AnglerStatsLine: View {
     init(_ items: [Item]) { self.items = items }
 
     var body: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(spacing: DS.Space.s4) { cells(items) }
-            VStack(alignment: .leading, spacing: DS.Space.s1) {
-                ForEach(Array(stride(from: 0, to: items.count, by: 2)), id: \.self) { i in
-                    HStack(spacing: DS.Space.s4) { cells(Array(items[i..<min(i + 2, items.count)])) }
-                }
+        StatStrip {
+            ForEach(items) { item in
+                StatTile(item.label, systemImage: item.systemImage, tint: item.tint,
+                         value: item.value, unit: item.unit, width: 128)
             }
-            VStack(alignment: .leading, spacing: DS.Space.s1) { cells(items) }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, DS.gutter)
-        .accessibilityElement(children: .combine)
-    }
-
-    private func cells(_ list: [Item]) -> some View {
-        ForEach(list) { item in
-            HStack(alignment: .firstTextBaseline, spacing: 4) {
-                Text(item.value)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.dsText)
-                    .monospacedDigit()
-                Text(item.label)
-                    .font(.subheadline)
-                    .foregroundStyle(.dsText2)
-            }
-            .lineLimit(1)
-            .fixedSize()
         }
     }
 
     /// Catches and species always; heaviest and longest once there is one.
     static func items(catches: Int, species: Int, bestWeightKg: Double, bestLengthCm: Double,
                       imperial: Bool) -> [Item] {
-        var out = [Item(value: "\(catches)", label: catches == 1 ? "catch" : "catches"),
-                   Item(value: "\(species)", label: "species")]
+        var out = [Item(label: "Catches", systemImage: "fish.fill", tint: CrewTint.fish, value: "\(catches)"),
+                   Item(label: "Species", systemImage: "leaf.fill", tint: CrewTint.species, value: "\(species)")]
         if bestWeightKg > 0 {
-            out.append(Item(value: Units.weight(kg: bestWeightKg, imperial: imperial), label: "heaviest"))
+            let p = Units.weightParts(kg: bestWeightKg, imperial: imperial)
+            out.append(Item(label: "Heaviest", systemImage: "scalemass.fill", tint: CrewTint.weight,
+                            value: p.0, unit: p.1))
         }
         if bestLengthCm > 0 {
-            out.append(Item(value: Units.length(cm: bestLengthCm, imperial: imperial), label: "longest"))
+            let p = Units.lengthParts(cm: bestLengthCm, imperial: imperial)
+            out.append(Item(label: "Longest", systemImage: "ruler.fill", tint: CrewTint.length,
+                            value: p.0, unit: p.1))
         }
         return out
     }
@@ -1073,32 +1100,43 @@ struct ProfileEditView: View {
                 .font(.subheadline.weight(.medium))
                 .foregroundStyle(.dsText2)
             Button { showingTitlePicker = true } label: {
-                HStack(spacing: DS.Space.s3) {
-                    ThumbView(systemImage: flair?.icon ?? "rosette",
-                              tint: flair?.rarity.color ?? .dsText2, size: 44)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(flair?.name ?? "No title")
-                            .font(.body.weight(.medium))
-                            .foregroundStyle(.dsText)
-                        Text(earnedFlairs.isEmpty ? "Earn achievements to unlock titles"
-                                                  : "\(earnedFlairs.count) unlocked")
-                            .font(.subheadline)
-                            .foregroundStyle(.dsText2)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    if !earnedFlairs.isEmpty {
+                if let flair {
+                    TitleBadge(flair: flair, subtitle: "\(earnedFlairs.count) unlocked", medallionSize: 48) {
                         Image(systemName: "chevron.right")
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(.dsText3)
                     }
+                } else {
+                    noTitleLabel
                 }
-                .padding(DS.Space.s3)
-                .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
             }
             .buttonStyle(.dim)
             .disabled(earnedFlairs.isEmpty)
             .accessibilityHint("Choose the title shown under your name")
         }
+    }
+
+    private var noTitleLabel: some View {
+        HStack(spacing: DS.Space.s3) {
+            ThumbView(systemImage: "rosette", tint: .dsScoreFair, size: 44)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("No title")
+                    .font(.body.weight(.medium))
+                    .foregroundStyle(.dsText)
+                Text(earnedFlairs.isEmpty ? "Earn achievements to unlock titles"
+                                          : "\(earnedFlairs.count) unlocked")
+                    .font(.subheadline)
+                    .foregroundStyle(.dsText2)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            if !earnedFlairs.isEmpty {
+                Image(systemName: "chevron.right")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.dsText3)
+            }
+        }
+        .padding(DS.Space.s3)
+        .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
     }
 
     private func save() {
@@ -1552,40 +1590,23 @@ struct FriendProfileView: View {
     private var friendSettingsSheet: some View {
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: DS.Space.s5) {
-                    CrewTextField(label: "Nickname", placeholder: "Only you see it", text: $privacy.nickname)
-                        .submitLabel(.done)
-                        .onSubmit { svc.setNickname(privacy.nickname, for: code) }
-                    if isFriend {
-                        VStack(alignment: .leading, spacing: DS.Space.s3) {
-                            Text("What you share")
-                                .font(.title3.weight(.semibold))
-                                .foregroundStyle(.dsText)
-                                .accessibilityAddTraits(.isHeader)
-                            overrideRow("Catch history", systemImage: "fish",
-                                        globalOn: svc.shareCatchesWithFriends,
-                                        value: $override.shareCatches)
-                            overrideRow("Spots", systemImage: "mappin.and.ellipse",
-                                        globalOn: svc.shareSpotsWithFriends,
-                                        value: $override.shareSpots)
-                            overrideRow("Exact spot locations", systemImage: "scope",
-                                        globalOn: svc.shareSpotExactLocations,
-                                        value: $override.shareExactLocations)
-                            Text("Default follows your privacy settings.")
-                                .font(.footnote)
-                                .foregroundStyle(.dsText2)
-                        }
+                VStack(alignment: .leading, spacing: 0) {
+                    CommunityHero(label: "Sharing with", title: displayName, line: sharingSummary) {
+                        CrewAvatar(image: profile?.avatar, name: displayName, size: 64)
                     }
+                    .padding(.top, DS.Space.s2)
+                    SectionTitle("Nickname")
+                        .padding(.top, DS.Space.s6)
+                    GroupedCard { nicknameRow }
+                    if isFriend { shareSection }
                 }
-                .padding(.horizontal, DS.gutter)
-                .padding(.top, DS.Space.s2)
                 .padding(.bottom, DS.Space.s8)
                 .pageWidth()
             }
             .scrollDismissesKeyboard(.interactively)
             .dsScreenBackground()
             .detailScrollEdge()
-            .navigationTitle(displayName)
+            .navigationTitle("Sharing")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
@@ -1597,7 +1618,7 @@ struct FriendProfileView: View {
                 // changes the user actually made.
                 guard overrideLoaded else { return }
                 svc.setOverride(o, for: code)
-                ToastCenter.shared.show("Sharing updated", style: .info, haptic: false)
+                ToastCenter.shared.show("Sharing updated", style: .success, haptic: false)
                 let spots = (try? appState.spotRepository.fetchAll()) ?? []
                 Task { await svc.applyPrivacy(for: code, spots: spots) }
             }
@@ -1607,27 +1628,71 @@ struct FriendProfileView: View {
         .presentationDragIndicator(.visible)
     }
 
-    /// A three-way per-friend override on its own card: Default (follow the
-    /// global setting), Share or Hide.
-    private func overrideRow(_ title: String, systemImage: String, globalOn: Bool,
-                             value: Binding<Bool?>) -> some View {
-        VStack(alignment: .leading, spacing: DS.Space.s2) {
-            Label(title, systemImage: systemImage)
-                .font(.body.weight(.medium))
+    private var nicknameRow: some View {
+        IconRow("Nickname", systemImage: "person.text.rectangle.fill", tint: DS.accent) {
+            TextField("Only you see it", text: $privacy.nickname)
+                .multilineTextAlignment(.trailing)
                 .foregroundStyle(.dsText)
+                .submitLabel(.done)
+                .onSubmit { svc.setNickname(privacy.nickname, for: code) }
+                .accessibilityLabel("Nickname")
+        }
+    }
+
+    private var shareSection: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            SectionTitle("What you share")
+                .padding(.top, DS.Space.s6)
+            GroupedCard {
+                overrideRow("Catches", systemImage: "fish.fill", tint: CrewTint.fish,
+                            globalOn: svc.shareCatchesWithFriends, value: $override.shareCatches)
+                CardDivider()
+                overrideRow("Spots", systemImage: "mappin.and.ellipse", tint: CrewTint.spot,
+                            globalOn: svc.shareSpotsWithFriends, value: $override.shareSpots)
+                CardDivider()
+                overrideRow("Exact locations", systemImage: "scope", tint: CrewTint.exact,
+                            globalOn: svc.shareSpotExactLocations, value: $override.shareExactLocations)
+            }
+            SectionFootnote("Default follows your privacy settings.")
+        }
+    }
+
+    /// What the friend gets, in one line for the hero.
+    private var sharingSummary: String {
+        guard isFriend else { return "Only you see the nickname." }
+        let catches = override.shareCatches ?? svc.shareCatchesWithFriends
+        let spots = override.shareSpots ?? svc.shareSpotsWithFriends
+        switch (catches, spots) {
+        case (true, true): return "Catches and spots shared"
+        case (true, false): return "Catches shared, spots hidden"
+        case (false, true): return "Spots shared, catches hidden"
+        case (false, false): return "Nothing shared"
+        }
+    }
+
+    /// A three-way per-friend override: Default (follow the global setting),
+    /// Share or Hide, as a menu on the right of a coloured icon row.
+    private func overrideRow(_ title: String, systemImage: String, tint: Color, globalOn: Bool,
+                             value: Binding<Bool?>) -> some View {
+        IconRow(title, subtitle: overrideSubtitle(value.wrappedValue, globalOn: globalOn),
+                systemImage: systemImage, tint: tint) {
             Picker(title, selection: Binding(
                 get: { value.wrappedValue == nil ? 0 : (value.wrappedValue! ? 1 : 2) },
                 set: { value.wrappedValue = $0 == 0 ? nil : ($0 == 1) }
             ).haptic()) {
-                Text(globalOn ? "Default, on" : "Default, off").tag(0)
+                Text("Default").tag(0)
                 Text("Share").tag(1)
                 Text("Hide").tag(2)
             }
-            .pickerStyle(.segmented)
+            .pickerStyle(.menu)
             .labelsHidden()
+            .fixedSize()
         }
-        .padding(DS.Space.s3)
-        .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
+    }
+
+    private func overrideSubtitle(_ value: Bool?, globalOn: Bool) -> String {
+        guard let value else { return globalOn ? "On by default" : "Off by default" }
+        return value ? "Always shared with them" : "Hidden from them"
     }
 }
 
@@ -1652,20 +1717,26 @@ struct FriendBadgesCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Space.s3) {
-            Text("\(earned.count) of \(visible.count) earned")
-                .font(.subheadline)
-                .monospacedDigit()
-                .foregroundStyle(.dsText2)
-            if earned.isEmpty {
-                Text("No badges yet.")
-                    .font(.subheadline)
-                    .foregroundStyle(.dsText2)
-            } else {
-                medals
+            HStack(spacing: DS.Space.s3) {
+                ThumbView(systemImage: "trophy.fill", tint: CrewTint.trophy, size: 36)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("\(earned.count) of \(visible.count)")
+                        .font(.headline)
+                        .monospacedDigit()
+                        .foregroundStyle(.dsText)
+                    Text(earned.isEmpty ? "No badges yet" : "Badges earned")
+                        .font(.footnote)
+                        .foregroundStyle(.dsText2)
+                }
             }
+            .accessibilityElement(children: .combine)
+            if !earned.isEmpty { medals }
             Button("Show all achievements") { showingAll = true }
                 .buttonStyle(.dsTonal)
         }
+        .padding(DS.Space.s4)
+        .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
         .sheet(item: $selected) { badge in
             BadgeDetailView(badge: badge)
         }
