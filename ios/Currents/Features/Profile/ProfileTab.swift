@@ -331,58 +331,17 @@ private struct LocalProfileEditSheet: View {
     @State private var earnedFlairs: [TitleFlair] = []
     @State private var showingTitlePicker = false
 
+    private var trimmedName: String { name.trimmingCharacters(in: .whitespaces) }
+
     var body: some View {
         NavigationStack {
-            Form {
-                Section {
-                    VStack(spacing: DS.Space.s3) {
-                        ZStack {
-                            Circle().fill(DS.accent)
-                            if let avatar {
-                                Image(uiImage: avatar).resizable().scaledToFill()
-                            } else {
-                                Image(systemName: "figure.fishing")
-                                    .font(.title.weight(.semibold))
-                                    .foregroundStyle(.white)
-                            }
-                        }
-                        .frame(width: 88, height: 88)
-                        .clipShape(Circle())
-                        PhotosPicker(selection: $avatarItem, matching: .images) {
-                            Text("Change photo").font(.subheadline.weight(.semibold))
-                        }
-                    }
-                    .frame(maxWidth: .infinity)
-                    .listRowBackground(Color.clear)
-                }
-                Section("About you") {
-                    TextField("Name", text: $name)
-                        .textContentType(.name)
-                    TextField("Home water", text: $homeWater)
-                    TextField("Bio", text: $bio, axis: .vertical)
-                        .lineLimit(2...4)
-                }
-                .pfRows()
-                Section {
-                    Button { showingTitlePicker = true } label: {
-                        HStack {
-                            Text("Title").foregroundStyle(.dsText)
-                            Spacer()
-                            Text(TitleFlair.resolve(title)?.name ?? "None")
-                                .foregroundStyle(.dsText2)
-                        }
-                    }
-                    .disabled(earnedFlairs.isEmpty)
-                } footer: {
-                    Text(earnedFlairs.isEmpty
-                         ? "Titles unlock from achievements."
-                         : "Titles unlock from achievements. Only crew and friends see your profile once you join Crew.")
-                }
-                .pfRows()
+            List {
+                photoSection
+                aboutSection
+                bioSection
+                titleSection
             }
-            .scrollContentBackground(.hidden)
-            .dsScreenBackground()
-            .detailScrollEdge()
+            .gearFormStyle()
             .navigationTitle("Edit profile")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -390,27 +349,10 @@ private struct LocalProfileEditSheet: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") { save() }
                         .bold()
-                        .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
+                        .disabled(trimmedName.isEmpty)
                 }
             }
-            .task {
-                name = UserDefaults.standard.string(forKey: "communityName") ?? ""
-                homeWater = svc.myHomeWater
-                bio = svc.myBio
-                title = svc.myTitle
-                avatar = svc.myAvatar
-                let all = (try? appState.catchRepository.fetchAll(limit: 2000)) ?? []
-                let streak = BadgeDefinition.streakWeeks(from: all)
-                let earned = Set(BadgeDefinition.compute(from: all, streakWeeks: streak)
-                    .filter(\.earned).map(\.title))
-                earnedFlairs = TitleFlair.all
-                    .filter { earned.contains($0.achievement) }
-                    .sorted { $0.rarity.rawValue > $1.rarity.rawValue }
-                if let current = TitleFlair.resolve(title),
-                   !earnedFlairs.contains(where: { $0.id == current.id }) {
-                    earnedFlairs.append(current)
-                }
-            }
+            .task { load() }
             .onChange(of: avatarItem) { _, item in
                 Task {
                     if let data = try? await item?.loadTransferable(type: Data.self),
@@ -426,9 +368,102 @@ private struct LocalProfileEditSheet: View {
         }
     }
 
+    private var photoSection: some View {
+        Section {
+            HStack(spacing: DS.Space.s4) {
+                avatarImage
+                Text("Photo")
+                    .foregroundStyle(.dsText)
+                Spacer(minLength: DS.Space.s2)
+                PhotosPicker(selection: $avatarItem, matching: .images) {
+                    Text(avatar == nil ? "Choose" : "Change")
+                }
+            }
+        }
+        .pfRows()
+    }
+
+    private var avatarImage: some View {
+        ZStack {
+            Circle().fill(DS.accent)
+            if let avatar {
+                Image(uiImage: avatar).resizable().scaledToFill()
+            } else {
+                Image(systemName: "figure.fishing")
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(.white)
+            }
+        }
+        .frame(width: 56, height: 56)
+        .clipShape(Circle())
+        .accessibilityHidden(true)
+    }
+
+    private var aboutSection: some View {
+        Section {
+            GearFormField("Name", text: $name, prompt: "Your name")
+                .textContentType(.name)
+            GearFormField("Home water", text: $homeWater, prompt: "Optional")
+        } header: {
+            Text("About you")
+        }
+        .pfRows()
+    }
+
+    private var bioSection: some View {
+        Section {
+            TextField("Bio", text: $bio, prompt: Text("What and where you fish"), axis: .vertical)
+                .lineLimit(2...4)
+        } header: {
+            Text("Bio")
+        }
+        .pfRows()
+    }
+
+    private var titleSection: some View {
+        Section {
+            Button { showingTitlePicker = true } label: {
+                LabeledContent("Title") {
+                    HStack(spacing: DS.Space.s1) {
+                        Text(TitleFlair.resolve(title)?.name ?? "None")
+                        Image(systemName: "chevron.right")
+                            .font(.footnote.weight(.semibold))
+                            .foregroundStyle(.dsText3)
+                    }
+                }
+                .foregroundStyle(.dsText)
+            }
+            .disabled(earnedFlairs.isEmpty)
+        } footer: {
+            Text(earnedFlairs.isEmpty
+                 ? "Titles unlock from achievements."
+                 : "Titles unlock from achievements. Only crew and friends see your profile once you join Crew.")
+        }
+        .pfRows()
+    }
+
+    private func load() {
+        name = UserDefaults.standard.string(forKey: "communityName") ?? ""
+        homeWater = svc.myHomeWater
+        bio = svc.myBio
+        title = svc.myTitle
+        avatar = svc.myAvatar
+        let all = (try? appState.catchRepository.fetchAll(limit: 2000)) ?? []
+        let streak = BadgeDefinition.streakWeeks(from: all)
+        let earned = Set(BadgeDefinition.compute(from: all, streakWeeks: streak)
+            .filter(\.earned).map(\.title))
+        earnedFlairs = TitleFlair.all
+            .filter { earned.contains($0.achievement) }
+            .sorted { $0.rarity.rawValue > $1.rarity.rawValue }
+        if let current = TitleFlair.resolve(title),
+           !earnedFlairs.contains(where: { $0.id == current.id }) {
+            earnedFlairs.append(current)
+        }
+    }
+
     private func save() {
         let defaults = UserDefaults.standard
-        defaults.set(name.trimmingCharacters(in: .whitespaces), forKey: "communityName")
+        defaults.set(trimmedName, forKey: "communityName")
         defaults.set(homeWater.trimmingCharacters(in: .whitespaces), forKey: "communityHomeWater")
         defaults.set(bio, forKey: "communityBio")
         defaults.set(title, forKey: "communityTitle")
@@ -451,104 +486,94 @@ private struct ProfileShareSheet: View {
     let spots: Int
 
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.displayScale) private var displayScale
     @State private var rendered: UIImage?
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: DS.Space.s4) {
-                card
-                    .padding(.horizontal, DS.gutter)
-                    .padding(.top, DS.Space.s4)
-                Text("No spots or locations are on the card.")
-                    .font(.footnote)
-                    .foregroundStyle(.dsText2)
-                Spacer()
-                if let rendered {
-                    let image = Image(uiImage: rendered)
-                    ShareLink(item: image, preview: SharePreview(name, image: image)) {
-                        Label("Share card", systemImage: "square.and.arrow.up")
-                    }
-                    .buttonStyle(.dsPrimary)
-                    .padding(.horizontal, DS.gutter)
-                    .padding(.bottom, DS.Space.s4)
-                } else {
-                    ProgressView().padding(.bottom, DS.Space.s4)
+            ScrollView {
+                VStack(spacing: DS.Space.s4) {
+                    card
+                        .clipShape(RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
+                        .accessibilityElement(children: .combine)
+                    SectionFootnote("No spots or locations are on the card.")
                 }
+                .padding(.top, DS.Space.s4)
+                .padding(.bottom, DS.Space.s8)
+                .frame(maxWidth: .infinity)
             }
-            .dsScreenBackground()
+            .detailTint(nil)
+            .safeAreaInset(edge: .bottom) { shareButton }
             .navigationTitle("Share card")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } }
             }
-            .task { render() }
+            .task { rendered = ShareCardRenderer.image(card) }
         }
     }
 
+    @ViewBuilder
+    private var shareButton: some View {
+        Group {
+            if let rendered {
+                let image = Image(uiImage: rendered)
+                ShareLink(item: image, preview: SharePreview(name, image: image)) {
+                    Label("Share card", systemImage: "square.and.arrow.up")
+                }
+                .buttonStyle(.dsPrimary)
+            } else {
+                ProgressView()
+                    .frame(maxWidth: .infinity, minHeight: 52)
+            }
+        }
+        .padding(.horizontal, DS.gutter)
+        .padding(.bottom, DS.Space.s4)
+    }
+
+    /// The card in the share card family: avatar as the cover, name and
+    /// subtitle, three stats and the wordmark footer. Fits its content.
     private var card: some View {
-        VStack(spacing: DS.Space.s3) {
-            ZStack {
-                Circle().fill(DS.accent)
+        ShareCardCanvas(height: nil) {
+            avatarCover
+            Text(name)
+                .font(.title.bold())
+                .foregroundStyle(Color.dsText)
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+                .padding(.top, DS.Space.s4)
+            if !subtitle.isEmpty {
+                Text(subtitle)
+                    .font(.callout)
+                    .foregroundStyle(Color.dsText2)
+                    .lineLimit(2)
+            }
+            HStack(spacing: DS.Space.s2) {
+                ShareCardStat(value: "\(catches)", label: catches == 1 ? "Catch" : "Catches")
+                ShareCardStat(value: "\(species)", label: "Species")
+                ShareCardStat(value: "\(spots)", label: spots == 1 ? "Spot" : "Spots")
+            }
+            .padding(.top, DS.Space.s4)
+            ShareCardFooter(detail: "Tight lines")
+                .padding(.top, DS.Space.s5)
+        }
+    }
+
+    /// The photo when there is one, otherwise the initial on the accent.
+    private var avatarCover: some View {
+        Color.dsFill
+            .overlay { DS.accent.opacity(0.3) }
+            .overlay {
                 if let avatar {
                     Image(uiImage: avatar).resizable().scaledToFill()
                 } else if let initial = name.first {
                     Text(String(initial).uppercased())
-                        .font(.title.weight(.semibold))
-                        .foregroundStyle(.white)
+                        .font(.largeTitle.bold())
+                        .foregroundStyle(DS.accent)
                 }
             }
-            .frame(width: 76, height: 76)
-            .clipShape(Circle())
-            Text(name)
-                .font(.title2.bold())
-                .foregroundStyle(.white)
-            if !subtitle.isEmpty {
-                Text(subtitle)
-                    .font(.subheadline)
-                    .foregroundStyle(.white.opacity(0.7))
-                    .multilineTextAlignment(.center)
-            }
-            HStack(spacing: DS.Space.s6) {
-                cardStat(catches, "catches")
-                cardStat(species, "species")
-                cardStat(spots, "spots")
-            }
-            .padding(.top, DS.Space.s2)
-            HStack(spacing: 6) {
-                CurrentsMark()
-                    .stroke(DS.accent, style: StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round))
-                    .frame(width: 18, height: 18)
-                Text("Currents")
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(.white.opacity(0.8))
-            }
-            .padding(.top, DS.Space.s3)
-        }
-        .padding(.vertical, DS.Space.s8)
-        .padding(.horizontal, DS.Space.s6)
-        .frame(maxWidth: .infinity)
-        .background(DS.accent.opacity(0.3), in: RoundedRectangle(cornerRadius: DS.Radius.sheet, style: .continuous))
-        .background(Color.black, in: RoundedRectangle(cornerRadius: DS.Radius.sheet, style: .continuous))
-        .accessibilityElement(children: .combine)
-    }
-
-    private func cardStat(_ value: Int, _ label: String) -> some View {
-        VStack(spacing: 2) {
-            Text("\(value)")
-                .font(.title3.bold())
-                .monospacedDigit()
-                .foregroundStyle(.white)
-            Text(label)
-                .font(.caption)
-                .foregroundStyle(.white.opacity(0.7))
-        }
-    }
-
-    @MainActor private func render() {
-        let renderer = ImageRenderer(content: card.frame(width: 340).environment(\.colorScheme, .dark))
-        renderer.scale = displayScale
-        rendered = renderer.uiImage
+            .frame(maxWidth: .infinity)
+            .frame(height: 224)
+            .clipShape(RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
     }
 }
 

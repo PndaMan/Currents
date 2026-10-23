@@ -57,15 +57,12 @@ enum CatchActions {
     static func shareImage(for detail: CatchDetail, photoIndex: Int = 0) async -> UIImage? {
         let paths = detail.catchRecord.allPhotoPaths
         let index = paths.indices.contains(photoIndex) ? photoIndex : 0
-        var photo: UIImage?
-        if paths.indices.contains(index) {
-            photo = PhotoManager.load(paths[index])
+        if paths.indices.contains(index), let photo = PhotoManager.load(paths[index]) {
+            return await CatchShareCard.render(detail: detail, photo: photo)
         }
-        if photo == nil, let species = detail.species {
-            photo = UIImage(named: species.artworkAssetName)
-        }
-        guard let photo else { return nil }
-        return await CatchShareCard.render(detail: detail, photo: photo)
+        guard let species = detail.species,
+              let art = UIImage(named: species.artworkAssetName) else { return nil }
+        return await CatchShareCard.render(detail: detail, photo: art, isArtwork: true)
     }
 
     static func shareFilename(for detail: CatchDetail) -> String {
