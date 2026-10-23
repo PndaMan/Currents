@@ -1,4 +1,5 @@
 import Foundation
+import CoreLocation
 
 /// Turns the hour-by-hour bite scores into the two or three windows worth
 /// planning your day around, rather than 24 numbers to read yourself.
@@ -81,5 +82,83 @@ enum BiteWindows {
         default:
             return "Tough. Finesse presentations on the highest-percentage spots you know."
         }
+    }
+}
+
+// MARK: - Days ahead
+
+extension BiteWindows {
+    /// A window on the clock, for planning alerts ahead of time.
+    struct Upcoming: Sendable {
+        let start: Date
+        /// Exclusive: the top of the hour after the window's last hour.
+        let end: Date
+        let peakScore: Int
+    }
+
+    /// The windows for today and the following days at a place, worked out
+    /// the way Today shows them. A window running past midnight joins the
+    /// next day's first window, so it is one window, not two.
+    static func upcoming(coordinate: CLLocationCoordinate2D,
+                         current: WeatherService.WeatherData?,
+                         outlook: [WeatherService.WeatherData],
+                         species: Species?,
+                         days: Int,
+                         now: Date = .now) -> [Upcoming] {
+        let cal = Calendar.current
+        var all: [Upcoming] = []
+        for offset in 0..<days {
+            let day = ForecastEngine.day(offset, coordinate: coordinate, current: current,
+                                         outlook: outlook, species: species, now: now)
+            let dayStart = cal.startOfDay(for: day.date)
+            for window in best(from: day.result.hourlyScores) {
+                guard let start = cal.date(byAdding: .hour, value: window.startHour, to: dayStart),
+                      let end = cal.date(byAdding: .hour, value: window.endHour + 1, to: dayStart)
+                else { continue }
+                if let last = all.last, last.end == start {
+                    all[all.count - 1] = Upcoming(start: last.start, end: end,
+                                                  peakScore: max(last.peakScore, window.peakScore))
+                } else {
+                    all.append(Upcoming(start: start, end: end, peakScore: window.peakScore))
+                }
+            }
+        }
+        return all
+    }
+}
+
+extension ForecastEngine {
+    /// One day's forecast as Today shows it: this moment with the live
+    /// reading for today, noon with the outlook's day for later days. Today,
+    /// the widget and the bite alerts all go through here so they agree.
+    static func day(_ offset: Int,
+                    coordinate: CLLocationCoordinate2D,
+                    current: WeatherService.WeatherData?,
+                    outlook: [WeatherService.WeatherData],
+                    species: Species?,
+                    now: Date = .now) -> (date: Date, weather: WeatherService.WeatherData?, result: ForecastResult) {
+        let cal = Calendar.current
+        let date: Date
+        let weather: WeatherService.WeatherData?
+        if offset == 0 {
+            date = now
+            weather = current ?? outlook.first
+        } else {
+            let start = cal.date(byAdding: .day, value: offset, to: cal.startOfDay(for: now)) ?? now
+            date = start.addingTimeInterval(12 * 3600)
+            weather = outlook.indices.contains(offset) ? outlook[offset] : nil
+        }
+        let result = forecast(
+            date: date,
+            coordinate: coordinate,
+            currentPressureHpa: weather?.pressureHpa,
+            pressureChange6h: weather?.pressureChange6h,
+            waterTempC: weather?.waterTempC,
+            windSpeedKmh: weather?.windSpeedKmh,
+            windDirection: weather?.windDirectionDeg,
+            species: species,
+            isInSpawningZone: false
+        )
+        return (date, weather, result)
     }
 }

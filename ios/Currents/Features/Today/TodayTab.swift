@@ -7,6 +7,7 @@ struct TodayTab: View {
     @Environment(AppState.self) private var appState
     @Environment(\.openURL) private var openURL
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.scenePhase) private var scenePhase
     @AppStorage("use24HourTime") private var use24 = true
     /// Angler's clarity call, remembered between sessions. Empty means infer it.
     @AppStorage("waterClarityOverride") private var clarityOverride = ""
@@ -142,6 +143,9 @@ struct TodayTab: View {
         }
         .onAppear { refreshLocalData() }
         .onChange(of: appState.tripTracker.isTracking) { _, _ in refreshLocalData() }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { Task { await refreshIfStale() } }
+        }
         .sheet(isPresented: $showLocation) {
             TodayLocationSheet(
                 spots: spots,
@@ -499,9 +503,19 @@ struct TodayTab: View {
     }
 
     private func writeWidget() {
-        let f = store.day(0).result
+        let today = store.day(0).result
+        let hourly = WidgetSnapshotWriter.hourlyEntries(today: today.hourlyScores,
+                                                        tomorrow: store.day(1).result.hourlyScores)
         WidgetSnapshotWriter.writeBite(
-            score: f.score, verdict: ForecastFormat.verdict(f.score), location: store.placeName,
-            hourly: WidgetSnapshotWriter.hourlyEntries(from: f.hourlyScores))
+            score: today.score, location: store.placeName,
+            latitude: store.coordinate.latitude, longitude: store.coordinate.longitude,
+            hourly: hourly)
+    }
+
+    /// Back in the app after a while: the score is for an old moment and the
+    /// weather may have moved, so read it again.
+    private func refreshIfStale() async {
+        guard let updated = store.updatedAt, Date.now.timeIntervalSince(updated) > 15 * 60 else { return }
+        await reload(force: false)
     }
 }

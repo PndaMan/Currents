@@ -164,25 +164,11 @@ final class ForecastStore {
     func day(_ offset: Int) -> ForecastDay {
         if let cached = cache[offset] { return cached }
         let cal = Calendar.current
-        let date: Date
-        if offset == 0 {
-            date = .now
-        } else {
-            let start = cal.date(byAdding: .day, value: offset, to: cal.startOfDay(for: .now)) ?? .now
-            date = start.addingTimeInterval(12 * 3600)
-        }
-        let w = weather(for: offset)
-        let result = ForecastEngine.forecast(
-            date: date,
-            coordinate: coordinate,
-            currentPressureHpa: w?.pressureHpa,
-            pressureChange6h: w?.pressureChange6h,
-            waterTempC: w?.waterTempC,
-            windSpeedKmh: w?.windSpeedKmh,
-            windDirection: w?.windDirectionDeg,
-            species: species,
-            isInSpawningZone: false
-        )
+        let computed = ForecastEngine.day(offset, coordinate: coordinate, current: current,
+                                          outlook: outlook, species: species)
+        let date = computed.date
+        let w = computed.weather
+        let result = computed.result
         let day = ForecastDay(
             offset: offset,
             date: date,

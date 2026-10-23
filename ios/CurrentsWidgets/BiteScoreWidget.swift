@@ -19,32 +19,29 @@ private struct SnapshotProvider: TimelineProvider {
         let snap = SharedStore.load() ?? placeholder(in: context).snapshot
         let cal = Calendar.current
         let now = Date()
-        let hourStart = cal.date(bySetting: .minute, value: 0, of: now) ?? now
+        let hourStart = cal.dateInterval(of: .hour, for: now)?.start ?? now
 
-        // Build one entry per upcoming hour from the stored hourly scores, so the
-        // widget ticks through the day on its own — the bite score updates every
-        // hour without the app being opened. Falls back to a single entry.
-        let upcoming = snap.hourly.filter { $0.date >= hourStart }.prefix(24)
-        var entries: [SnapshotEntry] = upcoming.map { h in
+        // One entry per upcoming hour from the stored hourly scores, so the
+        // widget ticks through the day without the app being opened. The
+        // current hour keeps the live score the app wrote this hour, so the
+        // widget matches Today; an older write falls back to the hour's score.
+        var current = snap
+        if snap.updatedAt < hourStart, let hour = snap.hourly.last(where: { $0.date <= now }) {
+            current.biteScore = hour.score
+            current.biteVerdict = BiteVerdict.word(hour.score)
+        }
+        let upcoming = snap.hourly.filter { $0.date > hourStart }.prefix(30)
+        var entries = [SnapshotEntry(date: now, snapshot: current)]
+        for h in upcoming {
             var s = snap
             s.biteScore = h.score
-            s.biteVerdict = verdict(for: h.score)
-            return SnapshotEntry(date: h.date, snapshot: s)
+            s.biteVerdict = BiteVerdict.word(h.score)
+            entries.append(SnapshotEntry(date: h.date, snapshot: s))
         }
-        if entries.isEmpty { entries = [SnapshotEntry(date: now, snapshot: snap)] }
-        // Reload after the last known hour (or in an hour) to pull fresh scores.
-        let next = entries.last.map { cal.date(byAdding: .hour, value: 1, to: $0.date) ?? $0.date }
-            ?? (cal.date(byAdding: .hour, value: 1, to: now) ?? now.addingTimeInterval(3600))
-        completion(Timeline(entries: entries, policy: .after(next)))
-    }
-}
-
-private func verdict(for score: Int) -> String {
-    switch score {
-    case 80...: return "Excellent"
-    case 60..<80: return "Good"
-    case 40..<60: return "Fair"
-    default: return "Slow"
+        // Ask again in a few hours even with entries left: a background
+        // refresh may have written newer weather by then.
+        let refresh = cal.date(byAdding: .hour, value: 3, to: now) ?? now.addingTimeInterval(3 * 3600)
+        completion(Timeline(entries: entries, policy: .after(refresh)))
     }
 }
 
@@ -73,7 +70,7 @@ private struct ScoreTintBackground: View {
     var body: some View {
         ZStack {
             WidgetTheme.background
-            LinearGradient(colors: [WidgetTheme.scoreColor(score).opacity(0.16), .clear],
+            LinearGradient(colors: [WidgetTheme.scoreColor(score).opacity(0.16), .clear], // ui-lint: allow, the score tint of the Today hero
                            startPoint: .top, endPoint: .bottom)
         }
     }
