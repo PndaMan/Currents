@@ -1464,58 +1464,42 @@ struct AboutView: View {
     }
 
     var body: some View {
-        List {
-            Section {
-                VStack(spacing: DS.Space.s2) {
-                    AppIconPreview(tint: ThemeOption.current.primary, size: 84)
-                    Text("Currents")
-                        .font(.largeTitle.bold())
-                        .foregroundStyle(.dsText)
-                    Text("Fish smarter. Log everything.")
-                        .font(.callout)
-                        .foregroundStyle(.dsText2)
-                    Text(version)
-                        .font(.footnote)
-                        .foregroundStyle(.dsText3)
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, DS.Space.s4)
-                .pfBareRow()
-            }
-
-            Section {
-                // Hidden until the App Store returns the tips, so a build
-                // without them never shows a dead row.
-                if TipJar.shared.isAvailable {
-                    NavigationLink(value: AboutRoute.tips) {
-                        PFRowLabel(title: "Leave a tip", systemImage: "heart.fill", color: .pink)
+        ScrollView {
+            VStack(alignment: .leading, spacing: DS.Space.s6) {
+                header
+                CardSection("Support", note: "Free, with no ads and no account.") {
+                    // Hidden until the App Store returns the tips, so a build
+                    // without them never shows a dead row.
+                    if TipJar.shared.isAvailable {
+                        NavigationLink(value: AboutRoute.tips) {
+                            CardRow("Leave a tip", systemImage: "heart.fill", tint: .pink, chevron: true)
+                        }
+                        .buttonStyle(.dsCardRow)
                     }
+                    // The App Store's write-review page, as Apple recommends for
+                    // a permanent Rate button.
+                    Link(destination: ReviewPrompt.writeReviewURL) {
+                        CardRow("Rate Currents", systemImage: "star.fill", tint: .yellow, chevron: true)
+                    }
+                    .buttonStyle(.dsCardRow)
+                    .accessibilityHint("Opens the App Store")
                 }
-                // The App Store's write-review page, as Apple recommends for
-                // a permanent Rate button.
-                Link(destination: ReviewPrompt.writeReviewURL) {
-                    PFRowLabel(title: "Rate Currents", systemImage: "star.fill", color: .yellow)
+                VStack(alignment: .leading, spacing: 0) {
+                    SectionTitle("Data sources")
+                    KeyValueList(rows: [
+                        ("Species", "FishBase"),
+                        ("Weather", "Open-Meteo"),
+                        ("Satellite map", TileSources.current.name),
+                        ("Countries and provinces", "Natural Earth"),
+                        ("Rain radar", "RainViewer"),
+                        ("Bathymetry", "GLOBathy"),
+                        ("Water, ramps and access", "OpenStreetMap contributors"),
+                    ])
                 }
-                .accessibilityHint("Opens the App Store")
-            } header: {
-                Text("Support")
-            } footer: {
-                Text("Currents is free, with no ads and no account.")
             }
-            .pfRows()
-
-            Section("Data sources") {
-                LabeledContent("Species", value: "FishBase")
-                LabeledContent("Weather", value: "Open-Meteo")
-                LabeledContent("Satellite map", value: TileSources.current.name)
-                LabeledContent("Countries and provinces", value: "Natural Earth")
-                LabeledContent("Rain radar", value: "RainViewer")
-                LabeledContent("Bathymetry", value: "GLOBathy")
-                LabeledContent("Water, ramps and access", value: "OpenStreetMap contributors")
-            }
-            .pfRows()
+            .padding(.bottom, DS.Space.s8)
+            .pageWidth()
         }
-        .pfGroupedList()
         .detailTint(nil)
         .pfTrackScroll($titleShown, threshold: 140)
         .pfScrollTitle("About", shown: titleShown)
@@ -1525,6 +1509,23 @@ struct AboutView: View {
             // (offline, or not on sale yet).
             if TipJar.shared.state != .loaded { await TipJar.shared.load() }
         }
+    }
+
+    private var header: some View {
+        VStack(spacing: DS.Space.s2) {
+            AppIconPreview(tint: ThemeOption.current.primary, size: 84)
+            Text("Currents")
+                .font(.largeTitle.bold())
+                .foregroundStyle(.dsText)
+            Text("Fish smarter. Log everything.")
+                .font(.callout)
+                .foregroundStyle(.dsText2)
+            Text(version)
+                .font(.footnote)
+                .foregroundStyle(.dsText3)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, DS.Space.s4)
     }
 }
 
