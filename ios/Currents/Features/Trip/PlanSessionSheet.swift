@@ -148,8 +148,7 @@ struct PlanSessionSheet: View {
             }
 
             ForEach(spots) { spot in
-                ChoiceRow(title: spot.name, subtitle: spotSubtitle(spot),
-                          systemImage: spot.type.icon, selected: spotId == spot.id) {
+                ChoiceRow(spot: spot, subtitle: spotSubtitle(spot), selected: spotId == spot.id) {
                     spotId = spot.id
                     forecastPin = CLLocationCoordinate2D(latitude: spot.latitude, longitude: spot.longitude)
                 }

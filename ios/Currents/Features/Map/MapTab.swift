@@ -121,6 +121,8 @@ struct MapTab: View {
     struct InspectTarget: Identifiable {
         let coord: CLLocationCoordinate2D
         var isUserLocation = false
+        /// A name from the list that opened it, such as a session stop.
+        var title: String? = nil
         var id: String { "\(coord.latitude),\(coord.longitude),\(isUserLocation)" }
     }
 
@@ -178,7 +180,12 @@ struct MapTab: View {
     }
 
     private var visibleRamps: [BoatRamp] {
-        layerRamps && currentLatSpan < 2.5 ? rampService.ramps : []
+        guard layerRamps && currentLatSpan < 2.5 else {
+            // A ramp opened from a list or search keeps its pin while its
+            // sheet is up, even with the layer off.
+            return selectedRamp.map { [$0] } ?? []
+        }
+        return rampService.ramps
     }
 
     private var clusters: [PinCluster] {
@@ -254,7 +261,8 @@ struct MapTab: View {
             RampDetailSheet(ramp: ramp)
         }
         .sheet(item: $inspector, onDismiss: { Task { await loadData() } }) { target in
-            LocationInspectorSheet(coordinate: target.coord, isUserLocation: target.isUserLocation) { route in
+            LocationInspectorSheet(coordinate: target.coord, isUserLocation: target.isUserLocation,
+                                   title: target.title) { route in
                 openRoute(route)
             }
         }
@@ -334,17 +342,12 @@ struct MapTab: View {
         .onChange(of: appState.openLiveSession) { _, open in
             // A Live Activity / notification tap asked to open the live
             // session so a catch can be logged straight away.
-            guard open else { return }
-            appState.openLiveSession = false
-            if appState.tripTracker.isTracking { showingLiveTrip = true }
+            if open { openLiveSession() }
         }
         .task {
             // Cold-launch case: the flag may already be set before onChange
             // starts observing.
-            if appState.openLiveSession {
-                appState.openLiveSession = false
-                if appState.tripTracker.isTracking { showingLiveTrip = true }
-            }
+            if appState.openLiveSession { openLiveSession() }
         }
         .task {
             appState.mapManager.refreshDownloadedRegions()
@@ -606,11 +609,16 @@ struct MapTab: View {
 
     /// Flies to a place picked in search or a list, framed above the sheet.
     private func frameAboveSheet(_ place: ExplorePlace) {
-        let coord = place.coordinate
-        var span = 0.02 // about 2 km, a spot and its shore
+        var span = 0.02
         if case .water(let w) = place {
             span = min(max(w.approximateRadiusM * 3 / 111_000, 0.02), 1.0)
         }
+        frameAboveSheet(at: place.coordinate, span: span)
+    }
+
+    /// `span` is in degrees of latitude; the default is about 2 km, a spot
+    /// and its shore.
+    private func frameAboveSheet(at coord: CLLocationCoordinate2D, span: Double = 0.02) {
         if mapStyle == .offline {
             // The offline map flies to a 2 km square around the point.
             flyToCoordinate = CLLocationCoordinate2D(latitude: coord.latitude - 0.25 * 2000 / 111_000,
@@ -626,37 +634,97 @@ struct MapTab: View {
         }
     }
 
-    /// Opens the place a `currents://map/...` link named, as the place sheet.
+    /// Opens the place a `currents://map/...` link named, centred above its
+    /// half-height sheet: a spot or water as the place sheet, a ramp as its
+    /// own sheet, any other point as the dropped-pin sheet.
     private func openFocus() {
         guard let target = ExploreFocus.shared.target else { return }
         ExploreFocus.shared.target = nil
-        let saved = (try? appState.spotRepository.fetchAll()) ?? []
-        let place: ExplorePlace
-        switch target {
-        case .spot(let id):
-            guard let spot = saved.first(where: { $0.id == id }) else { return }
-            place = .spot(spot)
-        case .water(let id):
-            if let spot = saved.first(where: { $0.waterbodyId == id }) {
-                place = .spot(spot)
-            } else if let wb = try? appState.waterbodyRepository.fetch(id: id) {
-                place = .water(wb)
-            } else {
-                return
-            }
-        }
-        // Any other sheet goes first; the place opens once it has gone.
-        let busy = peek != nil || inspector != nil || selectedRamp != nil || catchStack != nil || showingLayers
+        // A page pushed from a sheet sits outside the stack's path, which
+        // the link has already emptied, so it is popped here.
+        pendingRoute = nil
         isSearchOpen = false
         peek = nil
         inspector = nil
         selectedRamp = nil
         catchStack = nil
         showingLayers = false
+        // The place sheet swaps to another spot or water where it is; a ramp
+        // or point needs it gone.
+        switch target {
+        case .spot, .water: break
+        case .ramp, .point: isPlaceOpen = false
+        }
+        // The link usually comes from a list on another tab or a page pushed
+        // over the map, so the sheet waits for the switch or pop back and for
+        // any sheet closing above: a sheet cannot present before then.
         Task {
-            if busy { try? await Task.sleep(for: .milliseconds(400)) }
+            try? await Task.sleep(for: .milliseconds(400))
+            await showFocus(target)
+        }
+    }
+
+    private func showFocus(_ target: ExploreFocus.Target) async {
+        switch target {
+        case .spot(let id):
+            let saved = (try? appState.spotRepository.fetchAll()) ?? []
+            guard let spot = saved.first(where: { $0.id == id }) else { return }
+            frameAboveSheet(.spot(spot))
+            showPlace(.spot(spot))
+        case .water(let id):
+            guard let place = focusedWater(id) else { return }
             frameAboveSheet(place)
             showPlace(place)
+        case .ramp(let id, let lat, let lon):
+            var near: CLLocationCoordinate2D?
+            if let lat, let lon { near = CLLocationCoordinate2D(latitude: lat, longitude: lon) }
+            if let ramp = await focusedRamp(id, near: near) {
+                frameAboveSheet(at: ramp.coordinate)
+                selectedRamp = ramp
+            } else if let near {
+                frameAboveSheet(at: near)
+                inspector = InspectTarget(coord: near)
+            }
+        case .point(let lat, let lon, let title):
+            let coord = CLLocationCoordinate2D(latitude: lat, longitude: lon)
+            frameAboveSheet(at: coord)
+            inspector = InspectTarget(coord: coord, title: title)
+        }
+    }
+
+    /// A saved water opens as its spot.
+    private func focusedWater(_ id: Int64) -> ExplorePlace? {
+        let saved = (try? appState.spotRepository.fetchAll()) ?? []
+        if let spot = saved.first(where: { $0.waterbodyId == id }) { return .spot(spot) }
+        guard let wb = try? appState.waterbodyRepository.fetch(id: id) else { return nil }
+        return .water(wb)
+    }
+
+    /// A ramp from those already loaded, or loaded around where the link
+    /// says it is.
+    private func focusedRamp(_ id: String, near: CLLocationCoordinate2D?) async -> BoatRamp? {
+        if let hit = rampService.ramps.first(where: { $0.id == id }) { return hit }
+        guard let near else { return nil }
+        await rampService.load(around: near, latSpan: 0.1)
+        return rampService.ramps.first { $0.id == id }
+    }
+
+    /// Shows the live session sheet a `currents://session` link asked for.
+    /// Anything else over the map closes first, and the sheet waits for the
+    /// tab switch and any closing sheet (the link can come from a sheet on
+    /// another tab), since a sheet cannot present while another is up.
+    private func openLiveSession() {
+        appState.openLiveSession = false
+        guard appState.tripTracker.isTracking, !showingLiveTrip else { return }
+        isPlaceOpen = false
+        peek = nil
+        inspector = nil
+        selectedRamp = nil
+        catchStack = nil
+        showingLayers = false
+        Task {
+            try? await Task.sleep(for: .milliseconds(450))
+            if appState.tripTracker.isTracking { showingLiveTrip = true }
         }
     }
 
@@ -1006,7 +1074,7 @@ struct MapTab: View {
             frameAboveSheet(place)
             showPlace(place)
         case .ramp(let r):
-            fly(to: r.coordinate)
+            frameAboveSheet(at: r.coordinate)
             selectedRamp = r
         case .species(let sp):
             pendingRoute = .species(sp)

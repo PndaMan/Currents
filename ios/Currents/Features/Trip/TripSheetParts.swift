@@ -29,21 +29,30 @@ struct TripNameField: View {
 }
 
 /// One option in a pick-one list: square thumb, title, subtitle, and a tick
-/// when it is the chosen one.
-struct ChoiceRow: View {
+/// when it is the chosen one. A saved spot leads with a map of where it is.
+struct ChoiceRow<Thumb: View>: View {
     let title: String
     var subtitle: String? = nil
-    let systemImage: String
     let selected: Bool
     let action: () -> Void
+    private let thumb: Thumb
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    init(title: String, subtitle: String? = nil, selected: Bool,
+         action: @escaping () -> Void, @ViewBuilder thumb: () -> Thumb) {
+        self.title = title
+        self.subtitle = subtitle
+        self.selected = selected
+        self.action = action
+        self.thumb = thumb()
+    }
 
     var body: some View {
         Button {
             withAnimation(reduceMotion ? nil : DS.Motion.press) { action() }
         } label: {
             ArtRow(title: title, subtitle: subtitle) {
-                ThumbView(systemImage: systemImage, tint: DS.accent, size: 44)
+                thumb
             } trailing: {
                 if selected {
                     Image(systemName: "checkmark")
@@ -55,6 +64,25 @@ struct ChoiceRow: View {
         .buttonStyle(.dsRow)
         .buttonHaptic(.selection)
         .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+}
+
+extension ChoiceRow where Thumb == ThumbView<ThumbSymbol> {
+    /// An option shown by a symbol, such as My location or Drop a pin.
+    init(title: String, subtitle: String? = nil, systemImage: String, selected: Bool,
+         action: @escaping () -> Void) {
+        self.init(title: title, subtitle: subtitle, selected: selected, action: action) {
+            ThumbView(systemImage: systemImage, tint: DS.accent, size: 44)
+        }
+    }
+}
+
+extension ChoiceRow where Thumb == PlaceSnapshotThumb {
+    /// A saved spot, led by a map of where it is.
+    init(spot: Spot, subtitle: String?, selected: Bool, action: @escaping () -> Void) {
+        self.init(title: spot.name, subtitle: subtitle, selected: selected, action: action) {
+            PlaceSnapshotThumb(spot: spot, size: 44)
+        }
     }
 }
 
@@ -94,8 +122,7 @@ struct SpotChoices: View {
             ChoiceRow(title: noneTitle, subtitle: noneSubtitle, systemImage: noneIcon,
                       selected: spotId == nil) { spotId = nil }
             ForEach(shown) { spot in
-                ChoiceRow(title: spot.name, subtitle: subtitle(spot),
-                          systemImage: spot.type.icon, selected: spotId == spot.id) { spotId = spot.id }
+                ChoiceRow(spot: spot, subtitle: subtitle(spot), selected: spotId == spot.id) { spotId = spot.id }
             }
             if showingAll || spots.count > shown.count {
                 Button(showingAll ? "Show fewer spots" : "Show all \(spots.count) spots") {

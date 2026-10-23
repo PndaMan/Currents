@@ -12,7 +12,10 @@ struct LocationInspectorSheet: View {
 
     let coordinate: CLLocationCoordinate2D
     var isUserLocation = false
-    /// Closes the sheet and pushes a page on the Explore stack.
+    /// A name the caller already has for the point, such as a session stop.
+    var title: String? = nil
+    /// Closes the sheet. The map opens a spot or water as its place sheet
+    /// and pushes anything else on the Explore stack.
     var onOpen: (ExploreRoute) -> Void = { _ in }
 
     @State private var weather: WeatherService.WeatherData?
@@ -60,14 +63,25 @@ struct LocationInspectorSheet: View {
 
     // MARK: - Header
 
+    private var heading: String {
+        title ?? placeName ?? (isUserLocation ? "Near you" : "Dropped pin")
+    }
+
+    /// Under a given title the place name, once found, replaces the coordinates.
+    private var subheading: String {
+        if isUserLocation { return "Your location" }
+        if title != nil, let placeName { return placeName }
+        return ExploreFormat.coords(coordinate)
+    }
+
     private var header: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(placeName ?? (isUserLocation ? "Near you" : "Dropped pin"))
+            Text(heading)
                 .font(.title2.bold())
                 .foregroundStyle(.dsText)
                 .lineLimit(2)
                 .accessibilityAddTraits(.isHeader)
-            Text(isUserLocation ? "Your location" : ExploreFormat.coords(coordinate))
+            Text(subheading)
                 .font(.subheadline.monospacedDigit())
                 .foregroundStyle(.dsText2)
         }
@@ -97,7 +111,7 @@ struct LocationInspectorSheet: View {
                 Label("Save spot", systemImage: "mappin.and.ellipse")
             }
             .buttonStyle(ActionTileStyle(.primary))
-            DirectionsMenu(coordinate: coordinate, name: placeName ?? "Dropped pin") {
+            DirectionsMenu(coordinate: coordinate, name: heading) {
                 ActionTileLabel("Directions", systemImage: "location.north.line")
             }
             ShareLink(item: mapsURL) {
@@ -147,8 +161,7 @@ struct LocationInspectorSheet: View {
                     onOpen(.waterbody(WaterbodyRef(p.waterbody)))
                 } label: {
                     ArtRow(title: p.name, subtitle: "\(p.reason), \(p.distanceString)", chevron: true) {
-                        ThumbView(systemImage: ExploreFormat.waterIcon(p.waterbody.type),
-                                  tint: Color.exploreWater, size: 48)
+                        PlaceSnapshotThumb(water: p.waterbody, size: 48)
                     } trailing: {
                         Text("\(p.score)")
                             .foregroundStyle(DS.scoreInk(p.score))
@@ -167,7 +180,7 @@ struct LocationInspectorSheet: View {
                     ArtRow(title: entry.spot.name,
                            subtitle: "\(entry.catchCount) \(entry.catchCount == 1 ? "catch" : "catches"), \(entry.distanceString)",
                            chevron: true) {
-                        ThumbView(systemImage: entry.spot.type.icon, tint: DS.accent, size: 48)
+                        PlaceSnapshotThumb(spot: entry.spot, size: 48)
                     }
                 }
                 .buttonStyle(.dsRow)

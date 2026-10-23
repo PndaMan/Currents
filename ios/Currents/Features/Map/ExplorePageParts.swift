@@ -213,11 +213,11 @@ struct ExploreBaitRows: View {
 // MARK: - Access and ramps nearby
 
 /// Public fishing access and boat ramps within 5 km, nearest first. Hidden
-/// when there are none.
+/// when there are none. Each opens on the map in its sheet.
 struct ExploreNearbyPlaces: View {
     let coordinate: CLLocationCoordinate2D
+    @Environment(AppState.self) private var appState
     @ObservedObject private var service = BoatRampService.shared
-    @State private var selected: BoatRamp?
 
     private struct Nearby: Identifiable {
         let place: BoatRamp
@@ -239,7 +239,7 @@ struct ExploreNearbyPlaces: View {
             if !list.isEmpty {
                 SectionTitle("Access and ramps")
                 ForEach(list) { entry in
-                    Button { selected = entry.place } label: {
+                    Button { appState.pendingDeepLink = MapLink.ramp(entry.place) } label: {
                         ArtRow(title: entry.place.name,
                                subtitle: "\(entry.place.kind.label), \(Units.distance(m: entry.metres))",
                                chevron: true) {
@@ -260,6 +260,5 @@ struct ExploreNearbyPlaces: View {
                 await service.load(around: coordinate, latSpan: 0.1)
             }
         }
-        .sheet(item: $selected) { RampDetailSheet(ramp: $0) }
     }
 }

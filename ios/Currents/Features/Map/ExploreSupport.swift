@@ -548,9 +548,12 @@ enum ExploreSpots {
 
 // MARK: - Focus from other tabs
 
-/// A place another tab asked Explore to show, from a
-/// `currents://map/spot/<id>` or `currents://map/water/<id>` link. The map
-/// opens it as its place sheet and clears it.
+/// A place a list or another tab asked Explore to show. The map centres on
+/// it, opens its sheet at half height and clears it. The links:
+///   currents://map/spot/<id>
+///   currents://map/water/<id>
+///   currents://map/ramp/<osm type>/<osm id>?lat=<lat>&lon=<lon>
+///   currents://map/point?lat=<lat>&lon=<lon>&name=<title>
 @MainActor
 @Observable
 final class ExploreFocus {
@@ -559,6 +562,11 @@ final class ExploreFocus {
     enum Target: Equatable {
         case spot(String)
         case water(Int64)
+        /// A boat ramp or fishing access point, with where it is in case it
+        /// has not been loaded yet.
+        case ramp(id: String, latitude: Double?, longitude: Double?)
+        /// A point saved nowhere, which opens as a dropped pin.
+        case point(latitude: Double, longitude: Double, title: String?)
     }
 
     var target: Target?
@@ -567,16 +575,63 @@ final class ExploreFocus {
     @discardableResult
     func open(_ url: URL) -> Bool {
         let parts = url.pathComponents.filter { $0 != "/" }
-        guard parts.count >= 2 else { return false }
-        switch parts[0] {
-        case "spot":
+        let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        func value(_ name: String) -> String? { query.first { $0.name == name }?.value }
+        let lat = value("lat").flatMap(Double.init)
+        let lon = value("lon").flatMap(Double.init)
+        guard let kind = parts.first else { return false }
+        switch kind {
+        case "spot" where parts.count >= 2:
             target = .spot(parts[1])
-        case "water":
+        case "water" where parts.count >= 2:
             guard let id = Int64(parts[1]) else { return false }
             target = .water(id)
+        case "ramp" where parts.count >= 2:
+            // OpenStreetMap ids carry a slash, such as node/123.
+            target = .ramp(id: parts.dropFirst().joined(separator: "/"), latitude: lat, longitude: lon)
+        case "point":
+            guard let lat, let lon else { return false }
+            target = .point(latitude: lat, longitude: lon, title: value("name"))
         default:
             return false
         }
         return true
+    }
+}
+
+/// The links that show a place on the Explore map. A list sets one as
+/// `appState.pendingDeepLink`; the app goes back to the map from any tab or
+/// page, centres it on the place and opens the place's half-height sheet.
+enum MapLink {
+    static func spot(_ spot: Spot) -> URL? {
+        link("/spot/\(spot.id)")
+    }
+
+    /// Nil for a water that was never stored, which has no id to look up.
+    static func water(_ water: Waterbody) -> URL? {
+        water.id.flatMap { link("/water/\($0)") }
+    }
+
+    static func ramp(_ ramp: BoatRamp) -> URL? {
+        link("/ramp/\(ramp.id)", query: coordinateItems(ramp.coordinate))
+    }
+
+    static func point(_ coordinate: CLLocationCoordinate2D, title: String? = nil) -> URL? {
+        var items = coordinateItems(coordinate)
+        if let title { items.append(URLQueryItem(name: "name", value: title)) }
+        return link("/point", query: items)
+    }
+
+    private static func coordinateItems(_ c: CLLocationCoordinate2D) -> [URLQueryItem] {
+        [URLQueryItem(name: "lat", value: String(c.latitude)), URLQueryItem(name: "lon", value: String(c.longitude))]
+    }
+
+    private static func link(_ path: String, query: [URLQueryItem] = []) -> URL? {
+        var parts = URLComponents()
+        parts.scheme = "currents"
+        parts.host = "map"
+        parts.path = path
+        parts.queryItems = query.isEmpty ? nil : query
+        return parts.url
     }
 }

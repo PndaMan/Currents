@@ -10,6 +10,8 @@ enum AppRoute: Hashable {
     case licenses
     case sessions
     case fishdex
+    /// One planned session, by trip id.
+    case plan(String)
 }
 
 struct ContentView: View {
@@ -121,6 +123,7 @@ struct ContentView: View {
         case .licenses: LicenseWalletView()
         case .sessions: SessionsView()
         case .fishdex: FishCollectionView(embedded: true)
+        case .plan(let id): PlanDetailView(tripId: id)
         }
     }
 
@@ -210,12 +213,15 @@ struct ContentView: View {
     ///   currents://log           → Logbook, log sheet open
     ///   currents://session       → the live session (Explore presents it)
     ///   currents://sessions      → Logbook > Sessions (start a planned trip)
+    ///   currents://plan/<id>     → Logbook > that plan (its reminder)
     ///   currents://community     → Crew (friend requests / trip invites)
     ///   currents://crewfeed/<C>  → Crew, straight into that crew
     ///   currents://tournament    → Crew (the live tournament lives in its crew)
     ///   currents://gear          → Profile > Gear (low-stock reorder)
     ///   currents://licenses      → Profile > Licences (expiry)
     ///   currents://map           → Explore (bite alerts)
+    ///   currents://map/<place>   → Explore, centred on a spot, water, ramp
+    ///                              or point with its sheet open
     ///   currents://fishdex       → Logbook > Fishdex
     ///   currents://trip/<CODE>   → Join Trip confirmation
     ///   currents://friend/<CODE> → Add Friend confirmation
@@ -227,9 +233,10 @@ struct ContentView: View {
         // Simple screen routes (no code needed).
         switch host {
         case "log":
-            // Quick-log from the widget / shortcut: Logbook presents the log
-            // sheet (CatchesTab watches this flag).
-            navigate(.logbook)
+            // Quick-log from the widget / shortcut / a place page: Logbook
+            // presents the log sheet (CatchesTab watches this flag). Its stack
+            // is kept, so logging from a page pushed there returns to it.
+            selectedTab = .logbook
             appState.siriRequestedLogCatch = true
             return
         case "session":
@@ -239,6 +246,14 @@ struct ContentView: View {
             return
         case "sessions":
             navigate(.logbook, .sessions)
+            return
+        case "plan":
+            let id = url.lastPathComponent
+            if id.isEmpty || id == "/" || id == host {
+                navigate(.logbook, .sessions)
+            } else {
+                navigate(.logbook, .plan(id))
+            }
             return
         case "community", "tournament":
             navigate(.crew)
@@ -256,9 +271,13 @@ struct ContentView: View {
             navigate(selectedTab, .profile, .licenses)
             return
         case "map":
-            // currents://map/spot/<id> and currents://map/water/<id> open
-            // that place's sheet on Explore.
+            // A place link (spot, water, ramp or point, see ExploreFocus)
+            // opens that place's sheet on the Explore map. Sheets shown from
+            // here close first, since the group trip one can link to a place.
             ExploreFocus.shared.open(url)
+            joinGroupCode = nil
+            pendingFriend = nil
+            pendingCrew = nil
             navigate(.explore)
             return
         case "fishdex":

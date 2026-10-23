@@ -1,14 +1,24 @@
 import SwiftUI
 import MapKit
+import PhotosUI
 
 // MARK: - Your spots
 
-/// Every saved spot, best bite today first. Pushed from Explore.
+/// Every saved spot, best bite today first. Pushed from Explore; a spot
+/// opens back on the map in its sheet.
 struct SpotsListView: View {
     @Environment(AppState.self) private var appState
     @State private var spots: [Spot] = []
     @State private var catchCounts: [String: Int] = [:]
     @State private var topSpecies: [String: Species] = [:]
+    /// The newest catch photo taken at each spot.
+    @State private var latestPhoto: [String: String] = [:]
+    /// Catches with a photo at each spot, for the collage picture.
+    @State private var photoCounts: [String: Int] = [:]
+    /// The spot whose picture is being picked from the library.
+    @State private var pictureSpot: Spot?
+    @State private var choosingPhoto = false
+    @State private var pickerItem: PhotosPickerItem?
     @State private var scores: [String: Int] = [:]
     @State private var loaded = false
     @State private var showingAddSpot = false
@@ -41,10 +51,11 @@ struct SpotsListView: View {
                     .padding(.top, DS.Space.s8)
                 } else {
                     ForEach(filtered) { spot in
-                        NavigationLink(value: ExploreRoute.spot(SpotRef(spot))) {
+                        Button { appState.pendingDeepLink = MapLink.spot(spot) } label: {
                             row(spot)
                         }
                         .buttonStyle(.dsRow)
+                        .contextMenu { pictureMenu(spot) }
                     }
                     if !searchText.isEmpty && filtered.isEmpty {
                         ContentUnavailableView.search(text: searchText)
@@ -75,6 +86,12 @@ struct SpotsListView: View {
             AddSpotSheet()
                 .presentationDetents([.large])
         }
+        .photosPicker(isPresented: $choosingPhoto, selection: $pickerItem, matching: .images)
+        .onChange(of: pickerItem) { _, item in
+            guard let item, let spot = pictureSpot else { return }
+            pickerItem = nil
+            usePhoto(item, for: spot)
+        }
         .task {
             await loadData()
         }
@@ -85,15 +102,74 @@ struct SpotsListView: View {
         var parts = [ExploreFormat.spotType(spot), "\(count) \(count == 1 ? "catch" : "catches")"]
         if FeatureFlags.spotPrivacy, spot.isPrivate { parts.append("private") }
         return ArtRow(title: spot.name, subtitle: parts.joined(separator: ", "), chevron: true) {
-            if let sp = topSpecies[spot.id] {
-                ThumbView(species: sp)
+            if spot.cover != .map {
+                // The picture the angler chose.
+                PlaceSnapshotThumb(spot: spot)
+            } else if let path = latestPhoto[spot.id] {
+                PhotoThumbnail(path: path, size: 64, cornerRadius: DS.Radius.thumb) {
+                    spotArt(spot)
+                }
             } else {
-                ThumbView(systemImage: spot.type.icon, tint: DS.accent)
+                spotArt(spot)
             }
         } trailing: {
             if let score = scores[spot.id] {
                 ScoreDisc(score: score, size: 40)
             }
+        }
+    }
+
+    /// Without a catch photo: the most caught species, else the map.
+    @ViewBuilder
+    private func spotArt(_ spot: Spot) -> some View {
+        if let sp = topSpecies[spot.id] {
+            ThumbView(species: sp)
+        } else {
+            PlaceSnapshotThumb(spot: spot)
+        }
+    }
+
+    // MARK: Picture
+
+    /// The spot's picture from a long press on its row: the same choices as
+    /// the edit form, saved straight away.
+    private func pictureMenu(_ spot: Spot) -> some View {
+        Menu {
+            SpotPictureMenu(cover: Binding(get: { spot.cover }, set: { setCover($0, of: spot) }),
+                            hasPhoto: spot.coverPhotoPath != nil,
+                            catchPhotos: photoCounts[spot.id] ?? 0) {
+                pictureSpot = spot
+                choosingPhoto = true
+            }
+        } label: {
+            Label("Picture", systemImage: "photo")
+        }
+    }
+
+    private func setCover(_ cover: Spot.Cover, of spot: Spot, photo: String? = nil) {
+        var updated = spot
+        if let photo { updated.coverPhotoPath = photo }
+        updated.cover = cover
+        do {
+            try appState.spotRepository.save(&updated)
+        } catch {
+            ToastCenter.shared.show("Could not change the picture", style: .error)
+            return
+        }
+        if let i = spots.firstIndex(where: { $0.id == spot.id }) { spots[i] = updated }
+    }
+
+    /// Stores the picked photo and makes it the picture, removing the photo
+    /// it replaces.
+    private func usePhoto(_ item: PhotosPickerItem, for spot: Spot) {
+        Task {
+            guard let path = await SpotCovers.store(item, spotId: spot.id) else {
+                ToastCenter.shared.show("Could not use that photo", style: .error)
+                return
+            }
+            setCover(.photo, of: spot, photo: path)
+            if let old = spot.coverPhotoPath, old != path { PhotoManager.delete(old) }
+            ToastCenter.shared.show("Picture updated", icon: "photo")
         }
     }
 
@@ -104,6 +180,8 @@ struct SpotsListView: View {
             catchCounts[spot.id] = spotCatches.count
             let grouped = Dictionary(grouping: spotCatches.compactMap(\.species), by: \.id)
             topSpecies[spot.id] = grouped.values.max(by: { $0.count < $1.count })?.first
+            latestPhoto[spot.id] = spotCatches.lazy.compactMap { $0.catchRecord.allPhotoPaths.first }.first
+            photoCounts[spot.id] = spotCatches.filter { !$0.catchRecord.allPhotoPaths.isEmpty }.count
         }
         loaded = true
         for spot in spots where scores[spot.id] == nil {
@@ -125,7 +203,8 @@ struct SpotsListView: View {
 
 // MARK: - Water
 
-/// Dams, rivers and lakes around the angler, nearest first.
+/// Dams, rivers and lakes around the angler, nearest first. Each opens on
+/// the map in its sheet.
 struct WaterListView: View {
     @Environment(AppState.self) private var appState
     @State private var waters: [(Waterbody, Double)] = []
@@ -174,12 +253,11 @@ struct WaterListView: View {
                 } else {
                     ForEach(Array(filtered.enumerated()), id: \.offset) { _, entry in
                         let (wb, distance) = entry
-                        NavigationLink(value: ExploreRoute.waterbody(WaterbodyRef(wb))) {
+                        Button { appState.pendingDeepLink = MapLink.water(wb) } label: {
                             ArtRow(title: wb.name,
                                    subtitle: waterSubtitle(wb, distance: distance),
                                    chevron: true) {
-                                ThumbView(systemImage: ExploreFormat.waterIcon(wb.type),
-                                          tint: Color.exploreWater)
+                                PlaceSnapshotThumb(water: wb)
                             } trailing: {
                                 if let area = wb.surfaceAreaKm2, area > 0 {
                                     Text(ExploreFormat.area(area))
@@ -230,11 +308,11 @@ struct WaterListView: View {
 
 // MARK: - Fishing access and ramps
 
-/// Public fishing access points and boat ramps near the angler, nearest first.
+/// Public fishing access points and boat ramps near the angler, nearest
+/// first. Each opens on the map in its sheet.
 struct RampListView: View {
     @Environment(AppState.self) private var appState
     @StateObject private var rampService = BoatRampService.shared
-    @State private var selectedRamp: BoatRamp?
     @State private var loading = false
     @State private var filter: PlaceFilter = .all
 
@@ -296,7 +374,7 @@ struct RampListView: View {
                     ForEach(Array(sorted.prefix(150).enumerated()), id: \.offset) { _, entry in
                         let (ramp, distance) = entry
                         Button {
-                            selectedRamp = ramp
+                            appState.pendingDeepLink = MapLink.ramp(ramp)
                         } label: {
                             ArtRow(title: ramp.name,
                                    subtitle: "\(ramp.kind.label), \(Units.distance(m: distance)) away") {
@@ -314,9 +392,6 @@ struct RampListView: View {
         .detailScrollEdge()
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
-        .sheet(item: $selectedRamp) { ramp in
-            RampDetailSheet(ramp: ramp)
-        }
         .task {
             guard rampService.ramps.isEmpty else { return }
             loading = true

@@ -286,29 +286,19 @@ struct PlanDetailView: View {
             SectionTitle(spot == nil ? "Forecast pin" : "Spot")
                 .padding(.top, DS.Space.s8)
             if let spot {
-                NavigationLink {
-                    SpotDetailView(spot: spot)
-                } label: {
+                Button { appState.pendingDeepLink = MapLink.spot(spot) } label: {
                     ArtRow(title: spot.name,
                            subtitle: spot.type == .general ? nil : spot.type.rawValue,
                            chevron: true) {
-                        ThumbView(systemImage: spot.type.icon, tint: DS.accent, size: 52)
+                        PlaceSnapshotThumb(spot: spot, size: 52)
                     }
                 }
                 .buttonStyle(.dsRow)
             }
             if let coord {
-                Map(initialPosition: .camera(MapCamera(centerCoordinate: coord, distance: 3000))) {
-                    Marker(spot?.name ?? "Forecast pin", systemImage: "mappin", coordinate: coord)
-                        .tint(DS.accent)
-                }
-                .mapStyle(.hybrid)
-                .frame(height: 170)
-                .clipShape(RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
-                .allowsHitTesting(false)
-                .accessibilityLabel("Map of the plan's location")
-                .padding(.horizontal, DS.gutter)
-                .padding(.top, DS.Space.s2)
+                locationMap(coord)
+                    .padding(.horizontal, DS.gutter)
+                    .padding(.top, DS.Space.s2)
                 DirectionsButton(coordinate: coord, name: spot?.name ?? trip.name)
                     .padding(.horizontal, DS.gutter)
                     .padding(.top, DS.Space.s3)
@@ -316,6 +306,30 @@ struct PlanDetailView: View {
                     SectionFoot("The session tracks wherever you are when you start it.")
                 }
             }
+        }
+    }
+
+    /// The plan's place on a map. Tapping it opens the place on the Explore
+    /// map in its sheet: the spot, or a forecast pin as a dropped pin.
+    @ViewBuilder
+    private func locationMap(_ coord: CLLocationCoordinate2D) -> some View {
+        let map = Map(initialPosition: .camera(MapCamera(centerCoordinate: coord, distance: 3000))) {
+            Marker(spot?.name ?? "Forecast pin", systemImage: "mappin", coordinate: coord)
+                .tint(DS.accent)
+        }
+        .mapStyle(.hybrid)
+        .frame(height: 170)
+        .clipShape(RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
+        .allowsHitTesting(false)
+
+        if let spot {
+            Button { appState.pendingDeepLink = MapLink.spot(spot) } label: { map }
+                .buttonStyle(.dim)
+                .accessibilityLabel("Show \(spot.name) on the map")
+        } else {
+            Button { appState.pendingDeepLink = MapLink.point(coord, title: "Forecast pin") } label: { map }
+                .buttonStyle(.dim)
+                .accessibilityLabel("Show the forecast pin on the map")
         }
     }
 

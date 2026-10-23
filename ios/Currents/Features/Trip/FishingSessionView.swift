@@ -15,6 +15,7 @@ struct SessionsView: View {
     @State private var sessions: [Trip] = []
     @State private var planned: [Trip] = []
     @State private var catchCounts: [String: Int] = [:]
+    @State private var catchPhotos: [String: String] = [:]
     @State private var loaded = false
     @State private var showingNew = false
     @State private var showingPlanner = false
@@ -79,7 +80,8 @@ struct SessionsView: View {
                         NavigationLink {
                             SessionDetailView(trip: trip)
                         } label: {
-                            SessionRow(trip: trip, catchCount: catchCounts[trip.id] ?? 0)
+                            SessionRow(trip: trip, catchCount: catchCounts[trip.id] ?? 0,
+                                       photoPath: catchPhotos[trip.id])
                         }
                         .buttonStyle(.dsRow)
                         .contextMenu { rowMenu(trip) }
@@ -149,7 +151,9 @@ struct SessionsView: View {
         sessions = (try? appState.tripRepository.fetchAll()) ?? []
         planned = (try? appState.tripRepository.fetchPlanned()) ?? []
         for trip in sessions {
-            catchCounts[trip.id] = (try? appState.tripRepository.catchCount(tripId: trip.id)) ?? 0
+            let tripCatches = (try? appState.tripRepository.catches(tripId: trip.id)) ?? []
+            catchCounts[trip.id] = tripCatches.count
+            catchPhotos[trip.id] = tripCatches.lazy.compactMap { $0.catchRecord.allPhotoPaths.first }.first
         }
         loaded = true
     }
@@ -324,6 +328,8 @@ struct ActiveSessionRow: View {
 struct SessionRow: View {
     let trip: Trip
     let catchCount: Int
+    /// The newest catch photo, shown when the session has no track.
+    var photoPath: String? = nil
 
     /// The shared-trip identity of this local session, if any, so the list
     /// says which session was a tournament team, a crew trip, or a plain
@@ -351,7 +357,7 @@ struct SessionRow: View {
 
     var body: some View {
         ArtRow(title: trip.name, subtitle: subtitle, chevron: true) {
-            TrackThumb(points: trip.allTrackPoints, size: 52)
+            TrackThumb(points: trip.allTrackPoints, size: 52, photoPath: photoPath)
         }
     }
 }
@@ -707,6 +713,7 @@ struct SessionDetailView: View {
     @State private var showingEdit = false
     @State private var suggestedSpots: [CoordItem] = []
     @State private var spotToAdd: CoordItem?
+    @State private var sessionSpot: Spot?
     @State private var recapImage: UIImage?
     @State private var showingShare = false
     @State private var generatingRecap = false
@@ -742,6 +749,8 @@ struct SessionDetailView: View {
                         .buttonStyle(ActionTileStyle(.primary))
                         .disabled(generatingRecap)
 
+                        // Scrolls to the replay and plays it from its playhead,
+                        // the same as its own play button.
                         Button {
                             withAnimation(DS.Motion.softSpring) { proxy.scrollTo("replay", anchor: .top) }
                             replayToken += 1
@@ -806,7 +815,7 @@ struct SessionDetailView: View {
 
                     CatchLimitBar(catches: catches)
 
-                    if !suggestedSpots.isEmpty { suggestedSpotsSection }
+                    if sessionSpot != nil || !suggestedSpots.isEmpty { spotsSection }
 
                     SectionTitle("Fish with friends")
                         .padding(.top, DS.Space.s8)
@@ -893,6 +902,7 @@ struct SessionDetailView: View {
     private func load() {
         catches = (try? appState.tripRepository.catches(tripId: trip.id)) ?? []
         let existing = (try? appState.spotRepository.fetchAll()) ?? []
+        sessionSpot = trip.spotId.flatMap { id in existing.first { $0.id == id } }
         // Detected dwell spots not already close to a saved spot.
         let detected = SpotDetector.detectDwellSpots(in: trip.allTrackPoints)
         suggestedSpots = detected.filter { c in
@@ -903,23 +913,46 @@ struct SessionDetailView: View {
         }.map { CoordItem(coord: $0) }
     }
 
-    @ViewBuilder private var suggestedSpotsSection: some View {
+    /// The spot picked for the session, then the places you stopped that are
+    /// not saved yet. Each opens on the Explore map in its sheet; a stop opens
+    /// as a dropped pin there.
+    @ViewBuilder private var spotsSection: some View {
         SectionTitle("Spots you fished")
             .padding(.top, DS.Space.s8)
-        ForEach(Array(suggestedSpots.enumerated()), id: \.element.id) { index, item in
-            HStack(spacing: 0) {
-                ArtRow(title: "Stop \(index + 1)", subtitle: "You stayed a while here") {
-                    StopMapThumb(coordinate: item.coord)
+        if let sessionSpot {
+            Button { appState.pendingDeepLink = MapLink.spot(sessionSpot) } label: {
+                ArtRow(over: "Session spot", title: sessionSpot.name,
+                       subtitle: ExploreFormat.spotType(sessionSpot), chevron: true) {
+                    PlaceSnapshotThumb(spot: sessionSpot, size: 52)
                 }
-                Button("Save spot") { spotToAdd = item }
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.dsText)
-                    .padding(.horizontal, 14)
-                    .frame(minHeight: 34)
-                    .background(Color.dsTonal, in: Capsule())
-                    .buttonStyle(.dim)
-                    .padding(.trailing, DS.gutter)
             }
+            .buttonStyle(.dsRow)
+        }
+        ForEach(Array(suggestedSpots.enumerated()), id: \.element.id) { index, item in
+            stopRow(item, title: "Stop \(index + 1)")
+        }
+    }
+
+    private func stopRow(_ item: CoordItem, title: String) -> some View {
+        HStack(spacing: 0) {
+            Button {
+                appState.pendingDeepLink = MapLink.point(item.coord, title: title)
+            } label: {
+                ArtRow(title: title, subtitle: "You stayed a while here") {
+                    PlaceSnapshotThumb(coordinate: item.coord, size: 52)
+                }
+            }
+            .buttonStyle(.dsRow)
+
+            Button("Save spot") { spotToAdd = item }
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.dsText)
+                .padding(.horizontal, 14)
+                .frame(minHeight: 34)
+                .background(Color.dsTonal, in: Capsule())
+                .buttonStyle(.dim)
+                .accessibilityLabel("Save \(title) as a spot")
+                .padding(.trailing, DS.gutter)
         }
     }
 
@@ -928,33 +961,19 @@ struct SessionDetailView: View {
         SectionTitle("Days", detail: "\(trip.allDayLogs.count)")
             .padding(.top, DS.Space.s8)
         ForEach(trip.allDayLogs) { day in
-            let dayCatches = catches.filter { $0.catchRecord.caughtAt >= day.start && $0.catchRecord.caughtAt <= day.end }.count
-            ArtRow(title: "Day \(day.index + 1), \(LogbookFormat.shortDay(day.start))",
-                   subtitle: "\(LogbookFormat.duration(day.durationSeconds)), \(SessionFormat.distance(day.distanceMeters)), \(dayCatches) \(dayCatches == 1 ? "catch" : "catches")") {
-                TrackThumb(points: day.track, size: 44)
-            }
+            dayRow(day)
         }
     }
-}
 
-/// A small satellite map of one place with a pin, as a row thumbnail.
-struct StopMapThumb: View {
-    let coordinate: CLLocationCoordinate2D
-    var size: CGFloat = 52
-
-    var body: some View {
-        Map(initialPosition: .camera(MapCamera(centerCoordinate: coordinate, distance: 600))) {
-            Annotation("", coordinate: coordinate) {
-                Image(systemName: "mappin.circle.fill")
-                    .font(.title3)
-                    .foregroundStyle(.white, DS.accent)
-            }
+    /// A day's track, or a catch photo from the day when it has no track.
+    private func dayRow(_ day: Trip.DayLog) -> some View {
+        let dayCatches = catches.filter { $0.catchRecord.caughtAt >= day.start && $0.catchRecord.caughtAt <= day.end }
+        let photo = dayCatches.lazy.compactMap { $0.catchRecord.allPhotoPaths.first }.first
+        let count = dayCatches.count
+        let subtitle = "\(LogbookFormat.duration(day.durationSeconds)), \(SessionFormat.distance(day.distanceMeters)), \(count) \(count == 1 ? "catch" : "catches")"
+        return ArtRow(title: "Day \(day.index + 1), \(LogbookFormat.shortDay(day.start))", subtitle: subtitle) {
+            TrackThumb(points: day.track, size: 44, photoPath: photo)
         }
-        .mapStyle(.hybrid)
-        .frame(width: size, height: size)
-        .clipShape(RoundedRectangle(cornerRadius: DS.Radius.thumb, style: .continuous))
-        .allowsHitTesting(false)
-        .accessibilityHidden(true)
     }
 }
 
@@ -1069,14 +1088,17 @@ struct SessionBiteChart: View {
 // MARK: - Timeline scrubber
 
 /// Drag along the session timeline to replay it: the playhead moves along the
-/// route and surfaces the catch logged closest to that moment. Replay plays
-/// it through from the start.
+/// route and surfaces the catch logged closest to that moment. Play carries on
+/// from the playhead, and starts over only once it has reached the end.
+/// Dragging while it plays holds it, and it carries on from where you let go.
 struct TripScrubberCard: View {
     let trip: Trip
     let catches: [CatchDetail]
     var playToken: Int = 0
     @State private var progress: Double = 1.0
     @State private var playTask: Task<Void, Never>?
+    /// Playing when the drag began, so letting go carries on playing.
+    @State private var resumeAfterDrag = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var track: [Trip.TrackPoint] { trip.allTrackPoints }
@@ -1175,9 +1197,11 @@ struct TripScrubberCard: View {
                         .contentTransition(.symbolEffect(.replace))
                 }
                 .buttonStyle(.dim)
+                .buttonHaptic(.toggle)
                 .accessibilityLabel(playTask != nil ? "Pause replay" : "Play replay")
 
-                Slider(value: Binding(get: { progress }, set: { stop(); progress = $0 }), in: 0...1)
+                Slider(value: Binding(get: { progress }, set: { stop(); progress = $0 }),
+                       in: 0...1, onEditingChanged: dragging)
                     .tint(DS.accent)
                     .accessibilityLabel("Replay time")
                     .accessibilityValue(currentTime.map { LogbookFormat.time($0) } ?? "")
@@ -1212,20 +1236,37 @@ struct TripScrubberCard: View {
         return .region(region)
     }
 
-    /// Plays the session through in about eight seconds. With Reduce Motion
-    /// it steps in larger jumps instead of gliding.
+    /// The playhead counts as at the end within a hair of it.
+    private var atEnd: Bool { progress >= 0.999 }
+
+    /// Plays from the playhead to the end, at about eight seconds for the
+    /// whole session. From the end it starts over. With Reduce Motion it
+    /// steps in larger jumps instead of gliding.
     private func play() {
         stop()
-        progress = 0
-        let steps = reduceMotion ? 8 : 160
+        if atEnd { progress = 0 }
+        let step = reduceMotion ? 1.0 / 8 : 1.0 / 160
         let interval: UInt64 = reduceMotion ? 900_000_000 : 50_000_000
         playTask = Task { @MainActor in
-            for i in 1...steps {
+            while progress < 1 {
                 try? await Task.sleep(nanoseconds: interval)
                 if Task.isCancelled { return }
-                progress = Double(i) / Double(steps)
+                progress = min(1, progress + step)
             }
             playTask = nil
+        }
+    }
+
+    /// Holds playback while the playhead is dragged and carries on from where
+    /// it is let go. Let go at the end, it stays there.
+    private func dragging(_ editing: Bool) {
+        if editing {
+            let wasPlaying = playTask != nil
+            stop()
+            resumeAfterDrag = wasPlaying
+        } else if resumeAfterDrag {
+            resumeAfterDrag = false
+            if !atEnd { play() }
         }
     }
 
@@ -1241,6 +1282,7 @@ struct TripScrubberCard: View {
 /// then species and how many were kept.
 struct TripOverviewHighlights: View {
     let catches: [CatchDetail]
+    @Environment(AppState.self) private var appState
     @AppStorage("units") private var units = "metric"
     private var imperial: Bool { units == "imperial" }
 
@@ -1265,9 +1307,9 @@ struct TripOverviewHighlights: View {
                     }
                 }
                 if let best = bestSpot {
-                    NavigationLink { SpotDetailView(spot: best.spot) } label: {
+                    Button { appState.pendingDeepLink = MapLink.spot(best.spot) } label: {
                         ArtRow(over: "Best spot", title: best.spot.name, subtitle: fish(best.count), chevron: true) {
-                            ThumbView(systemImage: best.spot.type.icon, tint: DS.accent, size: 52)
+                            PlaceSnapshotThumb(spot: best.spot, size: 52)
                         }
                     }
                     .buttonStyle(.dsRow)
@@ -1344,31 +1386,46 @@ struct CatchLimitBar: View {
                     .padding(.top, DS.Space.s8)
                 VStack(spacing: 0) {
                     ForEach(Array(items.enumerated()), id: \.element.id) { i, item in
-                        VStack(alignment: .leading, spacing: 6) {
-                            HStack(alignment: .firstTextBaseline) {
-                                Text(item.name)
-                                    .foregroundStyle(.dsText)
-                                Spacer()
-                                Text(item.remaining == 0 ? "Limit reached" : "\(item.kept) of \(item.limit) kept")
-                                    .fontWeight(.semibold)
-                                    .monospacedDigit()
-                                    .foregroundStyle(tint(item))
-                            }
-                            .font(.body)
-                            ProgressView(value: Double(min(item.kept, item.limit)), total: Double(max(item.limit, 1)))
-                                .tint(tint(item))
+                        // Each species opens its page, where its rules are.
+                        NavigationLink { SpeciesDetailView(species: item.species) } label: {
+                            limitRow(item)
                         }
-                        .padding(.vertical, 12)
-                        .accessibilityElement(children: .combine)
+                        .buttonStyle(.dsRow)
                         if i < items.count - 1 {
                             Rectangle().fill(Color.dsSeparator).frame(height: 0.5)
+                                .padding(.horizontal, DS.gutter)
                         }
                     }
                 }
-                .padding(.horizontal, DS.gutter)
                 SectionFoot("Check local rules before you keep a fish.")
             }
         }
+    }
+
+    private func limitRow(_ item: LimitItem) -> some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text(item.name)
+                        .foregroundStyle(.dsText)
+                    Spacer()
+                    Text(item.remaining == 0 ? "Limit reached" : "\(item.kept) of \(item.limit) kept")
+                        .fontWeight(.semibold)
+                        .monospacedDigit()
+                        .foregroundStyle(tint(item))
+                }
+                .font(.body)
+                ProgressView(value: Double(min(item.kept, item.limit)), total: Double(max(item.limit, 1)))
+                    .tint(tint(item))
+            }
+            Image(systemName: "chevron.right")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.dsText3)
+        }
+        .padding(.vertical, 12)
+        .padding(.horizontal, DS.gutter)
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
     }
 
     private func tint(_ item: LimitItem) -> Color {
@@ -1376,10 +1433,11 @@ struct CatchLimitBar: View {
     }
 
     struct LimitItem: Identifiable {
-        let id: Int64
-        let name: String
+        let species: Species
         let kept: Int
         let limit: Int
+        var id: Int64 { species.id }
+        var name: String { species.commonName }
         var remaining: Int { max(0, limit - kept) }
     }
 
@@ -1388,16 +1446,17 @@ struct CatchLimitBar: View {
     }
 
     static func limitedSpecies(in catches: [CatchDetail]) -> [LimitItem] {
-        var acc: [Int64: (name: String, kept: Int, limit: Int)] = [:]
+        var acc: [Int64: (species: Species, kept: Int, limit: Int)] = [:]
         for c in catches {
             guard let sp = c.species, !c.catchRecord.released,
                   let reg = RegulationsService.shared.regulation(for: sp),
                   let limit = reg.bagLimit else { continue }
-            var e = acc[sp.id] ?? (sp.commonName, 0, limit)
+            var e = acc[sp.id] ?? (sp, 0, limit)
             e.kept += 1
             acc[sp.id] = e
         }
-        return acc.map { LimitItem(id: $0.key, name: $0.value.name, kept: $0.value.kept, limit: $0.value.limit) }
+        return acc.values
+            .map { LimitItem(species: $0.species, kept: $0.kept, limit: $0.limit) }
             .sorted { $0.name < $1.name }
     }
 
