@@ -100,7 +100,7 @@ struct TodayLocationSheet: View {
                                 dismiss()
                             } label: {
                                 ArtRow(title: spot.name, subtitle: spot.type.rawValue) {
-                                    ThumbView(systemImage: spot.type.icon, tint: DS.accent, size: 44)
+                                    PlaceSnapshotThumb(spot: spot, size: 44)
                                 } trailing: {
                                     if spot.id == selectedSpotId {
                                         Image(systemName: "checkmark").foregroundStyle(DS.accent)

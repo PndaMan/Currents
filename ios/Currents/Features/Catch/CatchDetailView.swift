@@ -418,13 +418,12 @@ struct CatchDetailView: View {
             SectionTitle("Spot")
                 .padding(.top, DS.Space.s8)
             if let spot = detail.spot {
-                NavigationLink {
-                    SpotDetailView(spot: spot)
-                } label: {
+                // The spot opens on the Explore map in its sheet.
+                Button { appState.pendingDeepLink = MapLink.spot(spot) } label: {
                     ArtRow(title: spot.name,
                            subtitle: spot.type == .general ? nil : spot.type.rawValue,
                            chevron: true) {
-                        ThumbView(systemImage: spot.type.icon, tint: DS.accent, size: 52)
+                        PlaceSnapshotThumb(spot: spot, size: 52)
                     }
                 }
                 .buttonStyle(.dsRow)

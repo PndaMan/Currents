@@ -10,9 +10,6 @@ struct SpotsListView: View {
     @Environment(AppState.self) private var appState
     @State private var spots: [Spot] = []
     @State private var catchCounts: [String: Int] = [:]
-    @State private var topSpecies: [String: Species] = [:]
-    /// The newest catch photo taken at each spot.
-    @State private var latestPhoto: [String: String] = [:]
     /// Catches with a photo at each spot, for the collage picture.
     @State private var photoCounts: [String: Int] = [:]
     /// The spot whose picture is being picked from the library.
@@ -102,30 +99,12 @@ struct SpotsListView: View {
         var parts = [ExploreFormat.spotType(spot), "\(count) \(count == 1 ? "catch" : "catches")"]
         if FeatureFlags.spotPrivacy, spot.isPrivate { parts.append("private") }
         return ArtRow(title: spot.name, subtitle: parts.joined(separator: ", "), chevron: true) {
-            if spot.cover != .map {
-                // The picture the angler chose.
-                PlaceSnapshotThumb(spot: spot)
-            } else if let path = latestPhoto[spot.id] {
-                PhotoThumbnail(path: path, size: 64, cornerRadius: DS.Radius.thumb) {
-                    spotArt(spot)
-                }
-            } else {
-                spotArt(spot)
-            }
+            // The picture the angler chose, else the map.
+            PlaceSnapshotThumb(spot: spot)
         } trailing: {
             if let score = scores[spot.id] {
                 ScoreDisc(score: score, size: 40)
             }
-        }
-    }
-
-    /// Without a catch photo: the most caught species, else the map.
-    @ViewBuilder
-    private func spotArt(_ spot: Spot) -> some View {
-        if let sp = topSpecies[spot.id] {
-            ThumbView(species: sp)
-        } else {
-            PlaceSnapshotThumb(spot: spot)
         }
     }
 
@@ -178,9 +157,6 @@ struct SpotsListView: View {
         for spot in spots {
             let spotCatches = (try? appState.catchRepository.fetchForSpot(spot.id)) ?? []
             catchCounts[spot.id] = spotCatches.count
-            let grouped = Dictionary(grouping: spotCatches.compactMap(\.species), by: \.id)
-            topSpecies[spot.id] = grouped.values.max(by: { $0.count < $1.count })?.first
-            latestPhoto[spot.id] = spotCatches.lazy.compactMap { $0.catchRecord.allPhotoPaths.first }.first
             photoCounts[spot.id] = spotCatches.filter { !$0.catchRecord.allPhotoPaths.isEmpty }.count
         }
         loaded = true

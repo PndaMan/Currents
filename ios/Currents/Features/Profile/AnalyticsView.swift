@@ -397,9 +397,8 @@ struct AnalyticsView: View {
         } else {
             ForEach(sorted.prefix(10), id: \.key) { _, catches in
                 if let spot = catches.first?.spot {
-                    NavigationLink {
-                        SpotDetailView(spot: spot)
-                    } label: {
+                    // The spot opens on the Explore map in its sheet.
+                    Button { appState.pendingDeepLink = MapLink.spot(spot) } label: {
                         ArtRow(title: spot.name, subtitle: speciesMix(catches), chevron: true) {
                             PlaceSnapshotThumb(spot: spot, size: 52)
                         } trailing: {

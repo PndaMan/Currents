@@ -4,7 +4,8 @@ import CoreLocation
 /// Notification choices for one saved spot, like a location's page in the
 /// Weather app's notification settings: which alerts it sends, the score a
 /// window must reach, and the windows that will alert over the next days.
-/// Pushed from the spot rows on the Notifications page.
+/// Pushed from the spot rows on the Notifications page and from a saved
+/// spot's place page.
 struct SpotAlertsView: View {
     let spot: Spot
     @Environment(AppState.self) private var appState

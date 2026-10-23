@@ -19,7 +19,6 @@ struct SpeciesDetailView: View {
     @State private var showingRules = false
     @State private var showingTarget = false
     @State private var openCatchId: String?
-    @State private var openSpotId: String?
     @State private var aboutExpanded = false
     @State private var titleShown = false
     @AppStorage("units") private var units = "metric"
@@ -94,11 +93,6 @@ struct SpeciesDetailView: View {
         .navigationDestination(item: $openCatchId) { id in
             if let detail = catches.first(where: { $0.id == id }) {
                 CatchDetailView(detail: detail)
-            }
-        }
-        .navigationDestination(item: $openSpotId) { id in
-            if let spot = catches.lazy.compactMap(\.spot).first(where: { $0.id == id }) {
-                SpotDetailView(spot: spot)
             }
         }
         .navigationDestination(isPresented: $showingRules) {
@@ -403,8 +397,9 @@ struct SpeciesDetailView: View {
     private var whereSection: some View {
         section("Where you caught it") {
             ForEach(spotGroups, id: \.key) { spot in
+                // A spot opens on the Explore map in its sheet.
                 Button {
-                    openSpotId = spot.key
+                    if let place = spot.spot { appState.pendingDeepLink = MapLink.spot(place) }
                 } label: {
                     ArtRow(title: spot.name, subtitle: tallySubtitle(spot), chevron: true) {
                         spotThumb(spot)
