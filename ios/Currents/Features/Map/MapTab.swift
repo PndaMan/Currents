@@ -35,6 +35,7 @@ enum ExplorePlace: Identifiable {
 struct MapTab: View {
     @Environment(AppState.self) private var appState
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorScheme) private var colorScheme
     @Namespace private var mapScope
     @State private var position: MapCameraPosition = ScreenshotSupport.isActive
         ? .camera(MapCamera(centerCoordinate: ScreenshotSupport.demoCoordinate, distance: 42000))
@@ -47,6 +48,9 @@ struct MapTab: View {
     // The standard Apple map is the default view; persisted so a style choice
     // (incl. the offline cached-tile map) sticks across launches.
     @AppStorage("mapStyleOption") private var mapStyleRaw = MapStyleOption.standard.rawValue
+    /// The style the map was on before a layer that only the offline map can
+    /// draw switched it over; it goes back when the last such layer is off.
+    @AppStorage("mapStyleBeforeLayers") private var styleBeforeLayers = ""
     // On by default: anglers want to see their catches on the map.
     @AppStorage("showCatchPins") private var showCatchPins = true
     @AppStorage("mapLayer_spots") private var showSpots = true
@@ -294,7 +298,7 @@ struct MapTab: View {
             }
         }) {
             MapLayersSheet(
-                style: Binding(get: { mapStyle }, set: { mapStyle = $0 }),
+                style: Binding(get: { mapStyle }, set: { mapStyle = $0; styleBeforeLayers = "" }),
                 showSpots: $showSpots,
                 showCatches: $showCatchPins,
                 showWater: $showWaterbodies,
@@ -344,10 +348,10 @@ struct MapTab: View {
         }
         // Overlays only render on the offline (MKMapView) map, so switch to
         // it automatically when a layer is enabled.
-        .onChange(of: layerNautical) { _, on in if on { mapStyle = .offline } }
-        .onChange(of: layerRadar) { _, on in if on { mapStyle = .offline } }
-        .onChange(of: layerWind) { _, on in if on { mapStyle = .offline } }
-        .onChange(of: layerCurrent) { _, on in if on { mapStyle = .offline } }
+        .onChange(of: layerNautical) { _, on in layerToggled(on) }
+        .onChange(of: layerRadar) { _, on in layerToggled(on) }
+        .onChange(of: layerWind) { _, on in layerToggled(on) }
+        .onChange(of: layerCurrent) { _, on in layerToggled(on) }
         // Fetch ramps as soon as the layer is switched on for wherever the
         // camera already sits.
         .onChange(of: layerRamps) { _, on in
@@ -398,6 +402,24 @@ struct MapTab: View {
         }
     }
 
+    /// Nautical, radar, wind and current draw only on the offline map, so
+    /// turning one on switches to it, and turning the last one off returns
+    /// to the style from before. Picking a style by hand forgets that.
+    private func layerToggled(_ on: Bool) {
+        if on {
+            if mapStyle != .offline {
+                styleBeforeLayers = mapStyle.rawValue
+                mapStyle = .offline
+            }
+            return
+        }
+        guard !(layerNautical || layerRadar || layerWind || layerCurrent),
+              mapStyle == .offline,
+              let previous = MapStyleOption(rawValue: styleBeforeLayers) else { return }
+        styleBeforeLayers = ""
+        mapStyle = previous
+    }
+
     // MARK: - Map
 
     @ViewBuilder
@@ -407,12 +429,14 @@ struct MapTab: View {
             // for everywhere the auto-cache has covered.
             OfflineMapView(
                 overlay: appState.mapManager.offlineOverlay,
-                spots: shownSpots,
-                catches: showCatchPins ? unassignedCatches : [],
-                waterbodies: visibleWaterbodies,
-                spotScores: spotScores,
-                waterbodyScores: waterbodyScores,
-                accent: accent,
+                pins: clusters,
+                pinFace: { cluster in
+                    AnyView(pinFace(cluster).environment(appState).tint(accent).environment(\.colorScheme, colorScheme))
+                },
+                onSelectPin: { tapPin($0) },
+                waterOutlines: currentLatSpan < 1.0 ? waterInView : [],
+                userMarker: AnyView(UserLocationMarker(heading: appState.locationManager.heading, accent: accent)),
+                region: position.region,
                 showNautical: layerNautical,
                 radarOverlay: layerRadar ? radarOverlay : nil,
                 showWind: layerWind,
@@ -420,14 +444,8 @@ struct MapTab: View {
                 windSpeedKmh: weather?.windSpeedKmh,
                 windFromDeg: weather?.windDirectionDeg ?? 0,
                 flyTo: $flyToCoordinate,
-                onSelectSpot: { select(.spot($0)) },
-                onSelectWaterbody: { select(.water($0)) },
                 onTap: { coord in mapTapped(at: coord) },
                 onRegionChange: { handleRegionChange($0) },
-                ramps: visibleRamps,
-                onSelectRamp: { select(.ramp($0)) },
-                onSelectCatch: { select(.catchPin($0)) },
-                onSelectCatches: { list in openStack(list) },
                 onLongPress: { coord in Haptics.press(); dropSpot(at: coord) },
                 compassTopInset: 164
             )
@@ -484,8 +502,15 @@ struct MapTab: View {
         }
     }
 
-    @ViewBuilder
     private func pinView(_ cluster: PinCluster) -> some View {
+        pinFace(cluster)
+            .onTapGesture { tapPin(cluster) }
+    }
+
+    /// A pin's look, shared by every map style. The offline map hosts it in
+    /// its own annotation views and routes taps to `tapPin`.
+    @ViewBuilder
+    private func pinFace(_ cluster: PinCluster) -> some View {
         if cluster.members.count == 1 {
             let feature = cluster.lead
             ExplorePin(
@@ -494,22 +519,26 @@ struct MapTab: View {
                 topSpecies: spotSpecies(feature),
                 showsLabel: showsLabel(feature)
             )
-            .onTapGesture { select(feature) }
         } else {
             ClusterPin(cluster: cluster, topSpecies: { topSpecies[$0.id] })
-                .onTapGesture {
-                    // Catches logged on the same few metres never split:
-                    // list them instead of zooming.
-                    if let list = PinClustering.inseparableCatches(cluster) {
-                        openStack(list)
-                        return
-                    }
-                    Haptics.tap()
-                    let region = PinClustering.region(for: cluster, currentSpan: currentLatSpan)
-                    withAnimation(reduceMotion ? nil : DS.Motion.softSpring) {
-                        position = .region(region)
-                    }
-                }
+        }
+    }
+
+    private func tapPin(_ cluster: PinCluster) {
+        guard cluster.members.count > 1 else {
+            select(cluster.lead)
+            return
+        }
+        // Catches logged on the same few metres never split: list them
+        // instead of zooming.
+        if let list = PinClustering.inseparableCatches(cluster) {
+            openStack(list)
+            return
+        }
+        Haptics.tap()
+        let region = PinClustering.region(for: cluster, currentSpan: currentLatSpan)
+        withAnimation(reduceMotion ? nil : DS.Motion.softSpring) {
+            position = .region(region)
         }
     }
 

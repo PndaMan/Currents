@@ -8,12 +8,18 @@ import MapKit
 /// from disk when there's no signal.
 struct OfflineMapView: UIViewRepresentable {
     let overlay: OfflineTileOverlay
-    var spots: [Spot]
-    var catches: [CatchDetail]
-    var waterbodies: [Waterbody]
-    var spotScores: [String: Int]
-    var waterbodyScores: [Int64: Int]
-    var accent: Color
+    /// The same clustered pins the standard and satellite maps show, drawn
+    /// by the same SwiftUI views, so every map style looks alike.
+    var pins: [PinCluster]
+    var pinFace: (PinCluster) -> AnyView
+    var onSelectPin: (PinCluster) -> Void
+    /// Water drawn as a soft blue outline, as on the other styles.
+    var waterOutlines: [Waterbody] = []
+    /// The location marker the other styles use, in place of the blue dot.
+    var userMarker: AnyView
+    /// A region the parent asked for (a cluster zoom, framing a list); applied
+    /// once each time it changes.
+    var region: MKCoordinateRegion? = nil
     /// Optional overlay tile layers (off by default). The radar overlay is
     /// built asynchronously by the parent (it needs a fetched frame path).
     var showNautical: Bool = false
@@ -27,17 +33,8 @@ struct OfflineMapView: UIViewRepresentable {
 
     /// Set to move the camera (search result, recentre button); consumed once.
     @Binding var flyTo: CLLocationCoordinate2D?
-    var onSelectSpot: (Spot) -> Void
-    var onSelectWaterbody: (Waterbody) -> Void
     var onTap: (CLLocationCoordinate2D) -> Void
     var onRegionChange: (MKCoordinateRegion) -> Void
-    /// Public boat ramps and access points, when that layer is on.
-    var ramps: [BoatRamp] = []
-    var onSelectRamp: ((BoatRamp) -> Void)? = nil
-    var onSelectCatch: ((CatchDetail) -> Void)? = nil
-    /// A photo stack that zooming cannot split, newest first. Without it,
-    /// such a stack opens its newest catch through `onSelectCatch`.
-    var onSelectCatches: (([CatchDetail]) -> Void)? = nil
     /// Long press drops a new spot there.
     var onLongPress: ((CLLocationCoordinate2D) -> Void)? = nil
     /// Distance from the top safe area to the compass, so it clears the
@@ -95,6 +92,7 @@ struct OfflineMapView: UIViewRepresentable {
         map.addSubview(wind)
         context.coordinator.windField = wind
 
+        context.coordinator.appliedRegion = region
         context.coordinator.centerInitially(map)
         return map
     }
@@ -108,6 +106,7 @@ struct OfflineMapView: UIViewRepresentable {
             )
             DispatchQueue.main.async { flyTo = nil }
         }
+        context.coordinator.apply(region, on: map)
         context.coordinator.syncAnnotations(on: map)
         context.coordinator.syncOverlays(on: map)
         context.coordinator.syncFlowFields(on: map)
@@ -117,59 +116,37 @@ struct OfflineMapView: UIViewRepresentable {
 
     // MARK: - Annotations
 
-    final class SpotAnnotation: NSObject, MKAnnotation {
-        let spot: Spot
-        let score: Int?
-        var coordinate: CLLocationCoordinate2D {
-            CLLocationCoordinate2D(latitude: spot.latitude, longitude: spot.longitude)
-        }
-        var title: String? { spot.name }
-        var subtitle: String? {
-            score.map { "Bite \($0)" }
-        }
-        init(spot: Spot, score: Int?) {
-            self.spot = spot
-            self.score = score
+    final class PinAnnotation: NSObject, MKAnnotation {
+        var cluster: PinCluster
+        var coordinate: CLLocationCoordinate2D { cluster.coordinate }
+        init(cluster: PinCluster) {
+            self.cluster = cluster
         }
     }
 
-    final class CatchAnnotation: NSObject, MKAnnotation {
-        let detail: CatchDetail
-        var coordinate: CLLocationCoordinate2D {
-            CLLocationCoordinate2D(
-                latitude: detail.catchRecord.latitude,
-                longitude: detail.catchRecord.longitude
-            )
-        }
-        var title: String? { detail.species?.commonName ?? "Catch" }
-        init(detail: CatchDetail) {
-            self.detail = detail
-        }
-    }
+    /// An annotation view that shows a SwiftUI view, anchored like SwiftUI's
+    /// `Annotation`: at its bottom centre for pins, at its centre for the
+    /// location marker. Taps go to MapKit's selection, not the SwiftUI view.
+    final class HostedAnnotationView: MKAnnotationView {
+        static let reuseID = "hosted"
+        private var host: UIHostingController<AnyView>?
+        var anchorsAtBottom = true
 
-    final class WaterbodyAnnotation: NSObject, MKAnnotation {
-        let waterbody: Waterbody
-        let score: Int?
-        var coordinate: CLLocationCoordinate2D {
-            CLLocationCoordinate2D(latitude: waterbody.latitude, longitude: waterbody.longitude)
-        }
-        var title: String? { waterbody.name }
-        var subtitle: String? {
-            let type = ExploreFormat.waterType(waterbody.type)
-            return score.map { "\(type), bite \($0)" } ?? type
-        }
-        init(waterbody: Waterbody, score: Int?) {
-            self.waterbody = waterbody
-            self.score = score
-        }
-    }
-
-    final class RampAnnotation: NSObject, MKAnnotation {
-        let ramp: BoatRamp
-        var coordinate: CLLocationCoordinate2D { ramp.coordinate }
-        var title: String? { ramp.name }
-        init(ramp: BoatRamp) {
-            self.ramp = ramp
+        func show(_ content: AnyView) {
+            if let host {
+                host.rootView = content
+            } else {
+                let host = UIHostingController(rootView: content)
+                host.view.backgroundColor = .clear
+                host.view.isUserInteractionEnabled = false
+                addSubview(host.view)
+                self.host = host
+            }
+            guard let view = host?.view else { return }
+            let size = view.sizeThatFits(UIView.layoutFittingExpandedSize)
+            view.frame = CGRect(origin: .zero, size: size)
+            frame.size = size
+            centerOffset = CGPoint(x: 0, y: anchorsAtBottom ? -size.height / 2 : 0)
         }
     }
 
@@ -177,7 +154,11 @@ struct OfflineMapView: UIViewRepresentable {
 
     final class Coordinator: NSObject, MKMapViewDelegate, UIGestureRecognizerDelegate {
         var parent: OfflineMapView
-        private var fingerprint = ""
+        private var pinAnnotations: [String: PinAnnotation] = [:]
+        private var waterFingerprint = ""
+        /// Seeded with the region the map opened with, which is the parent's
+        /// starting value rather than a request.
+        var appliedRegion: MKCoordinateRegion?
         private var seamarkOverlay: MKTileOverlay?
         private var currentRadarOverlay: MKTileOverlay?
         weak var windField: WindFieldView?
@@ -235,148 +216,105 @@ struct OfflineMapView: UIViewRepresentable {
             }
         }
 
-        /// Rebuild pins only when the underlying data actually changed. A
-        /// catch's photos and species count too, so an edited catch redraws.
-        func syncAnnotations(on map: MKMapView) {
-            let catchKey: String = parent.catches.map { (d: CatchDetail) -> String in
-                let r = d.catchRecord
-                return "\(r.id)\(r.photoPaths ?? r.photoPath ?? "")\(r.speciesId ?? 0)"
-            }.joined()
-            let fp = parent.spots.map(\.id).joined()
-                + catchKey
-                + parent.waterbodies.map { "\($0.id ?? 0)" }.joined()
-                + parent.ramps.map(\.id).joined()
-            guard fp != fingerprint else { return }
-            fingerprint = fp
+        /// Moves the camera when the parent asks for a new region.
+        func apply(_ region: MKCoordinateRegion?, on map: MKMapView) {
+            guard let region else { return }
+            if let last = appliedRegion,
+               last.center.latitude == region.center.latitude,
+               last.center.longitude == region.center.longitude,
+               last.span.latitudeDelta == region.span.latitudeDelta,
+               last.span.longitudeDelta == region.span.longitudeDelta { return }
+            appliedRegion = region
+            map.setRegion(region, animated: true)
+        }
 
-            map.removeAnnotations(map.annotations.filter { !($0 is MKUserLocation) })
-            map.addAnnotations(parent.spots.map {
-                SpotAnnotation(spot: $0, score: parent.spotScores[$0.id])
-            })
-            map.addAnnotations(parent.catches.map(CatchAnnotation.init))
-            map.addAnnotations(parent.waterbodies.map {
-                WaterbodyAnnotation(waterbody: $0, score: parent.waterbodyScores[$0.id ?? 0])
-            })
-            map.addAnnotations(parent.ramps.map(RampAnnotation.init))
+        /// Keeps one annotation per pin id, moving or redrawing it in place,
+        /// so a pin's view (and its grow-in) survives a refresh.
+        func syncAnnotations(on map: MKMapView) {
+            var keep: Set<String> = []
+            var added: [PinAnnotation] = []
+            for cluster in parent.pins {
+                keep.insert(cluster.id)
+                if let existing = pinAnnotations[cluster.id] {
+                    let moved = existing.coordinate.latitude != cluster.coordinate.latitude
+                        || existing.coordinate.longitude != cluster.coordinate.longitude
+                    if moved {
+                        map.removeAnnotation(existing)
+                        existing.cluster = cluster
+                        added.append(existing)
+                    } else {
+                        existing.cluster = cluster
+                        (map.view(for: existing) as? HostedAnnotationView)?.show(parent.pinFace(cluster))
+                    }
+                } else {
+                    let annotation = PinAnnotation(cluster: cluster)
+                    pinAnnotations[cluster.id] = annotation
+                    added.append(annotation)
+                }
+            }
+            let gone = pinAnnotations.filter { !keep.contains($0.key) }
+            map.removeAnnotations(Array(gone.values))
+            gone.keys.forEach { pinAnnotations[$0] = nil }
+            map.addAnnotations(added)
+
+            if let user = map.view(for: map.userLocation) as? HostedAnnotationView {
+                user.show(parent.userMarker)
+            }
+            syncWater(on: map)
+        }
+
+        private func syncWater(on map: MKMapView) {
+            let fp = parent.waterOutlines.map { "\($0.id ?? 0)" }.joined(separator: ",")
+            guard fp != waterFingerprint else { return }
+            waterFingerprint = fp
+            map.removeOverlays(map.overlays.filter { $0 is MKCircle })
+            map.addOverlays(parent.waterOutlines.map {
+                MKCircle(center: CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude),
+                         radius: CLLocationDistance(min($0.approximateRadiusM, 50000)))
+            }, level: .aboveLabels)
         }
 
         func mapView(_ mapView: MKMapView, rendererFor overlay: MKOverlay) -> MKOverlayRenderer {
             if let tiles = overlay as? MKTileOverlay {
                 return MKTileOverlayRenderer(tileOverlay: tiles)
             }
+            if let circle = overlay as? MKCircle {
+                let renderer = MKCircleRenderer(circle: circle)
+                renderer.fillColor = UIColor(Color.exploreWater.opacity(0.16))
+                renderer.strokeColor = UIColor(Color.exploreWater.opacity(0.55))
+                renderer.lineWidth = 1.5
+                return renderer
+            }
             return MKOverlayRenderer(overlay: overlay)
         }
 
         func mapView(_ mapView: MKMapView, viewFor annotation: MKAnnotation) -> MKAnnotationView? {
-            guard !(annotation is MKUserLocation) else { return nil }
-            // Catches draw as their photos, and merge into photo stacks.
-            if let cluster = annotation as? MKClusterAnnotation,
-               cluster.memberAnnotations.allSatisfy({ $0 is CatchAnnotation }) {
-                let view = (mapView.dequeueReusableAnnotationView(withIdentifier: CatchStackAnnotationView.reuseID)
-                    as? CatchStackAnnotationView)
-                    ?? CatchStackAnnotationView(annotation: cluster, reuseIdentifier: CatchStackAnnotationView.reuseID)
-                view.annotation = cluster
-                view.canShowCallout = false
-                return view
-            }
-            if annotation is CatchAnnotation {
-                let view = (mapView.dequeueReusableAnnotationView(withIdentifier: CatchPhotoAnnotationView.reuseID)
-                    as? CatchPhotoAnnotationView)
-                    ?? CatchPhotoAnnotationView(annotation: annotation, reuseIdentifier: CatchPhotoAnnotationView.reuseID)
-                view.annotation = annotation
-                // Without a catch handler, the name and date show in a callout.
-                view.canShowCallout = parent.onSelectCatch == nil
-                return view
-            }
-            if let cluster = annotation as? MKClusterAnnotation {
-                let id = "cluster"
-                let view = (mapView.dequeueReusableAnnotationView(withIdentifier: id) as? MKMarkerAnnotationView)
-                    ?? MKMarkerAnnotationView(annotation: cluster, reuseIdentifier: id)
-                view.annotation = cluster
-                view.canShowCallout = false
-                // Water clusters stay blue, like single water pins.
-                let allWater = cluster.memberAnnotations.allSatisfy { $0 is WaterbodyAnnotation }
-                view.markerTintColor = allWater ? UIColor(Color.exploreWater) : UIColor(parent.accent)
-                view.glyphText = "\(cluster.memberAnnotations.count)"
-                view.accessibilityLabel = "\(cluster.memberAnnotations.count) \(allWater ? "waters" : "places"). Zooms in."
-                return view
-            }
-            let id = "pin"
-            let view = (mapView.dequeueReusableAnnotationView(withIdentifier: id) as? MKMarkerAnnotationView)
-                ?? MKMarkerAnnotationView(annotation: annotation, reuseIdentifier: id)
+            let view = (mapView.dequeueReusableAnnotationView(withIdentifier: HostedAnnotationView.reuseID)
+                as? HostedAnnotationView)
+                ?? HostedAnnotationView(annotation: annotation, reuseIdentifier: HostedAnnotationView.reuseID)
             view.annotation = annotation
-            view.canShowCallout = true
-            view.displayPriority = .defaultHigh
-            // Nearby pins merge into a numbered marker that zooms in on tap.
-            // Water, ramps and catches each cluster on their own, so a
-            // cluster never mixes water and spots.
-            view.clusteringIdentifier = annotation is RampAnnotation ? "ramps"
-                : annotation is WaterbodyAnnotation ? "water" : "places"
-            view.glyphText = nil
-            view.glyphTintColor = .white
-
-            switch annotation {
-            case is SpotAnnotation:
-                view.markerTintColor = UIColor(parent.accent)
-                view.glyphImage = UIImage(systemName: "mappin.and.ellipse")
-            case let w as WaterbodyAnnotation:
-                view.markerTintColor = UIColor(Color.exploreWater)
-                view.glyphImage = UIImage(systemName: ExploreFormat.waterIcon(w.waterbody.type))
-            case let r as RampAnnotation:
-                view.markerTintColor = UIColor.white
-                view.glyphTintColor = UIColor(ExploreFormat.placeTint(r.ramp.kind))
-                view.glyphImage = UIImage(systemName: r.ramp.kind.icon)
-                view.displayPriority = .defaultLow
-                view.canShowCallout = false
-            default:
-                break
+            view.canShowCallout = false
+            if annotation is MKUserLocation {
+                view.anchorsAtBottom = false
+                view.displayPriority = .required
+                view.zPriority = .min
+                view.show(parent.userMarker)
+                return view
             }
+            guard let pin = annotation as? PinAnnotation else { return nil }
+            view.anchorsAtBottom = true
+            view.displayPriority = .required
+            view.zPriority = .defaultUnselected
+            view.show(parent.pinFace(pin.cluster))
             return view
         }
 
         func mapView(_ mapView: MKMapView, didSelect view: MKAnnotationView) {
-            switch view.annotation {
-            case let cluster as MKClusterAnnotation:
-                mapView.deselectAnnotation(cluster, animated: false)
-                // A stack that zooming can no longer split (catches logged on
-                // the same few metres) lists its catches instead.
-                if let stack = Self.inseparableCatches(cluster.memberAnnotations, on: mapView) {
-                    if let onSelectCatches = parent.onSelectCatches {
-                        onSelectCatches(stack)
-                        return
-                    }
-                    if let onSelectCatch = parent.onSelectCatch, let newest = stack.first {
-                        onSelectCatch(newest)
-                        return
-                    }
-                }
-                mapView.showAnnotations(cluster.memberAnnotations, animated: true)
-            case let ramp as RampAnnotation:
-                mapView.deselectAnnotation(view.annotation, animated: false)
-                parent.onSelectRamp?(ramp.ramp)
-            case let c as CatchAnnotation where parent.onSelectCatch != nil:
-                mapView.deselectAnnotation(view.annotation, animated: false)
-                parent.onSelectCatch?(c.detail)
-            case let spot as SpotAnnotation:
-                mapView.deselectAnnotation(view.annotation, animated: false)
-                parent.onSelectSpot(spot.spot)
-            case let wb as WaterbodyAnnotation:
-                mapView.deselectAnnotation(view.annotation, animated: false)
-                parent.onSelectWaterbody(wb.waterbody)
-            default:
-                break // catches keep their callout
+            guard let annotation = view.annotation else { return }
+            mapView.deselectAnnotation(annotation, animated: false)
+            if let pin = annotation as? PinAnnotation {
+                parent.onSelectPin(pin.cluster)
             }
-        }
-
-        /// The catches of an all-catch cluster, newest first, when they sit
-        /// within a few metres of each other or the map is zoomed right in
-        /// and they still collide. Nil when zooming in would split it.
-        private static func inseparableCatches(_ members: [MKAnnotation], on map: MKMapView) -> [CatchDetail]? {
-            let catches = members.compactMap { ($0 as? CatchAnnotation)?.detail }
-            guard catches.count == members.count, catches.count > 1 else { return nil }
-            guard PinClustering.spread(catches) < PinClustering.stackMetres
-                    || map.region.span.latitudeDelta < 0.002 else { return nil }
-            return catches.sorted { $0.catchRecord.caughtAt > $1.catchRecord.caughtAt }
         }
 
         func mapView(_ mapView: MKMapView, regionDidChangeAnimated animated: Bool) {
