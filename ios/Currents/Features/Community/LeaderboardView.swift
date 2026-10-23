@@ -376,12 +376,13 @@ private struct LeaderCatchGalleryCell: View {
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(eventOrdinal(rank)), \(value), \(row.species), \(isSelf ? "you" : row.anglerName)")
         .task(id: row.id) {
+            let px = 240 * displayScale
             if let path = row.localPhotoPath {
-                let px = 240 * displayScale
                 let scale = displayScale
                 photo = await Task.detached { PhotoManager.thumbnail(path, maxPixel: px, scale: scale) }.value
             } else if row.hasRemotePhoto {
-                photo = await CommunityService.shared.catchPhoto(recordName: row.id)
+                // Same cell size as a local photo, not the full image.
+                photo = await CommunityService.shared.catchPhoto(recordName: row.id, maxPixel: px)
             }
             if photo == nil {
                 species = (try? appState.speciesRepository.fetchByCommonName(row.species)) ?? nil

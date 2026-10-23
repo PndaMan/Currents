@@ -2099,12 +2099,13 @@ struct CommunityCatchThumb: View {
         }
         .accessibilityHidden(true)
         .task(id: row.id) {
+            let px = size * displayScale
             if let path = row.localPhotoPath {
-                let px = size * displayScale
                 let scale = displayScale
                 photo = await Task.detached { PhotoManager.thumbnail(path, maxPixel: px, scale: scale) }.value
             } else if row.hasRemotePhoto, CrewCloud.shared.isAvailable {
-                photo = await CommunityService.shared.catchPhoto(recordName: row.id)
+                // Same thumbnail size as a local photo, not the full image.
+                photo = await CommunityService.shared.catchPhoto(recordName: row.id, maxPixel: px)
             }
             if photo == nil {
                 species = (try? appState.speciesRepository.fetchByCommonName(row.species)) ?? nil

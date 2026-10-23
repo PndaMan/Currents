@@ -114,6 +114,7 @@ struct CrewThumb: View {
     let emoji: String?
     var size: CGFloat = 64
     @State private var icon: UIImage?
+    @Environment(\.displayScale) private var displayScale
 
     var body: some View {
         Group {
@@ -129,7 +130,8 @@ struct CrewThumb: View {
         }
         .accessibilityHidden(true)
         .task(id: code) {
-            icon = CommunityDiskCache.loadImage(key: "crewicon-\(code)")
+            // Read and decoded off the main thread at the size drawn.
+            icon = await CommunityDiskCache.image(key: "crewicon-\(code)", maxPixel: size * displayScale)
             if icon == nil, CrewCloud.shared.isAvailable {
                 icon = await CommunityService.shared.crewArt(code: code).icon
             }
@@ -311,6 +313,7 @@ struct CrewFeedRow: View {
     @Environment(AppState.self) private var appState
     private var svc: CommunityService { .shared }
     @State private var photo: UIImage?
+    @Environment(\.displayScale) private var displayScale
 
     private var who: String {
         post.authorCode == svc.friendCode ? "You" : (post.authorName.split(separator: " ").first.map(String.init) ?? post.authorName)
@@ -343,7 +346,9 @@ struct CrewFeedRow: View {
         }
         .task(id: post.id) {
             if post.hasPhoto, photo == nil, CrewCloud.shared.isAvailable {
-                photo = await svc.crewPostImage(recordName: post.id)
+                // Decoded at thumbnail size (doubled so an aspect-fill crop
+                // stays sharp), not the full photo, for a 64 pt square.
+                photo = await svc.crewPostImage(recordName: post.id, maxPixel: 128 * displayScale)
             }
         }
     }

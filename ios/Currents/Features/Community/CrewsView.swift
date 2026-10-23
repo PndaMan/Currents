@@ -311,7 +311,7 @@ struct CrewDetailView: View {
                 }
             }
             .task {
-                loadCached()
+                await loadCached()
                 await refresh()
                 await pollLoop()
             }
@@ -730,14 +730,16 @@ struct CrewDetailView: View {
     // MARK: Loading
 
     /// Instant from what this phone saved, before the refresh.
-    private func loadCached() {
+    private func loadCached() async {
         crew = svc.crew(withCode: code)
         members = svc.cachedCrewMembers(code)
         let cached = CommunityDiskCache.loadFeed(code)
         if !cached.isEmpty { feed = cached }
-        banner = CommunityDiskCache.loadImage(key: "crewbanner-\(code)")
-        setIcon(CommunityDiskCache.loadImage(key: "crewicon-\(code)"))
         if !feed.isEmpty || !members.isEmpty { isLoading = false }
+        // Banner and icon are read and decoded off the main thread; the
+        // synchronous decode held up the push into the crew page.
+        banner = await CommunityDiskCache.image(key: "crewbanner-\(code)")
+        setIcon(await CommunityDiskCache.image(key: "crewicon-\(code)"))
     }
 
     private func setIcon(_ image: UIImage?) {
@@ -1104,6 +1106,10 @@ struct CrewSettingsView: View {
     @State private var removeBanner = false
     @State private var hasIcon: Bool
     @State private var hasBanner: Bool
+    /// The saved icon and banner, decoded off the main thread once instead
+    /// of read from disk in `body`.
+    @State private var savedIcon: UIImage?
+    @State private var savedBanner: UIImage?
     @State private var saving = false
     @State private var confirmingRemove: CommunityService.GroupMember?
     @State private var confirmingTransfer: CommunityService.GroupMember?
@@ -1119,8 +1125,12 @@ struct CrewSettingsView: View {
         self.onChange = onChange
         _currentCrew = State(initialValue: crew)
         _name = State(initialValue: crew.name)
-        _hasIcon = State(initialValue: CommunityDiskCache.loadImage(key: "crewicon-\(crew.code)") != nil)
-        _hasBanner = State(initialValue: CommunityDiskCache.loadImage(key: "crewbanner-\(crew.code)") != nil)
+        // Existence checks only; init runs on every parent render, so it
+        // must not read and decode the images.
+        _hasIcon = State(initialValue: CommunityDiskCache.hasImage(key: "crewicon-\(crew.code)"))
+        _hasBanner = State(initialValue: CommunityDiskCache.hasImage(key: "crewbanner-\(crew.code)"))
+        _savedIcon = State(initialValue: CommunityDiskCache.memoryImage(key: "crewicon-\(crew.code)"))
+        _savedBanner = State(initialValue: CommunityDiskCache.memoryImage(key: "crewbanner-\(crew.code)"))
     }
 
     private var myRole: CrewRole { svc.myRole(in: currentCrew) }
@@ -1183,6 +1193,14 @@ struct CrewSettingsView: View {
                 removeIcon = false
             }
         }
+        .task {
+            if hasBanner, savedBanner == nil {
+                savedBanner = await CommunityDiskCache.image(key: "crewbanner-\(crew.code)")
+            }
+            if hasIcon, savedIcon == nil {
+                savedIcon = await CommunityDiskCache.image(key: "crewicon-\(crew.code)")
+            }
+        }
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)
     }
@@ -1192,12 +1210,10 @@ struct CrewSettingsView: View {
     /// What the banner and icon currently look like, folding in pending picks
     /// and removals so the header previews what Save does.
     private var currentBanner: UIImage? {
-        newBanner ?? (removeBanner || !hasBanner ? nil
-                      : CommunityDiskCache.loadImage(key: "crewbanner-\(crew.code)"))
+        newBanner ?? (removeBanner || !hasBanner ? nil : savedBanner)
     }
     private var currentIcon: UIImage? {
-        newIcon ?? (removeIcon || !hasIcon ? nil
-                    : CommunityDiskCache.loadImage(key: "crewicon-\(crew.code)"))
+        newIcon ?? (removeIcon || !hasIcon ? nil : savedIcon)
     }
 
     /// The banner is the banner control, the icon is the icon control, and
@@ -1354,10 +1370,10 @@ struct CrewSettingsView: View {
             if ok {
                 ToastCenter.shared.show("Crew updated", style: .success)
                 currentCrew.name = trimmedName
-                if newIcon != nil { hasIcon = true }
-                if removeIcon { hasIcon = false; removeIcon = false }
-                if newBanner != nil { hasBanner = true }
-                if removeBanner { hasBanner = false; removeBanner = false }
+                if let newIcon { hasIcon = true; savedIcon = newIcon }
+                if removeIcon { hasIcon = false; removeIcon = false; savedIcon = nil }
+                if let newBanner { hasBanner = true; savedBanner = newBanner }
+                if removeBanner { hasBanner = false; removeBanner = false; savedBanner = nil }
                 newIcon = nil; newBanner = nil
                 withAnimation(DS.Motion.softSpring) { showingArt = false }
                 onChange()

@@ -494,6 +494,12 @@ enum CommunityDiskCache {
         }.value
     }
 
+    /// Whether a cached image exists, without reading or decoding it.
+    static func hasImage(key: String) -> Bool {
+        memory.object(forKey: key as NSString) != nil
+            || FileManager.default.fileExists(atPath: dir.appendingPathComponent("\(key).jpg").path)
+    }
+
     /// An image already decoded in memory at `maxPixel` or larger.
     static func memoryImage(key: String, maxPixel: CGFloat = fullPixel) -> UIImage? {
         guard let entry = memory.object(forKey: key as NSString), entry.maxPixel >= maxPixel else { return nil }
