@@ -519,7 +519,7 @@ struct CatchDetailView: View {
         if !items.isEmpty {
             SectionTitle("Conditions at the time")
                 .padding(.top, DS.Space.s8)
-            ConditionGrid(items: items)
+            CatchConditionGrid(items: items)
             SectionFootnote("Saved when you logged it. Tide and moon are predicted for the spot.")
         }
     }
@@ -649,7 +649,7 @@ private struct ConditionItem: Identifiable {
 
 /// The conditions as the app's condition tiles, two across (one at
 /// accessibility sizes), as on Today and the spot pages.
-private struct ConditionGrid: View {
+private struct CatchConditionGrid: View {
     let items: [ConditionItem]
     @Environment(\.dynamicTypeSize) private var typeSize
 
