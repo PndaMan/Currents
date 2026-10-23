@@ -55,3 +55,4 @@ build-logs/
 Currents-IPA/
 Currents-simulator/
 logo-transparent.png
+.cache/
