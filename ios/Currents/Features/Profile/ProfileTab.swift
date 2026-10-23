@@ -62,86 +62,22 @@ struct SettingsView: View {
     private var theme: ThemeOption { ThemeOption(rawValue: selectedTheme) ?? .ocean }
 
     var body: some View {
-        List {
-            Section {
-                header
-                    .pfBareRow()
-                ActionTriple {
-                    Button { showingEdit = true } label: {
-                        Label("Edit profile", systemImage: "pencil")
-                    }
-                    .buttonStyle(ActionTileStyle(.primary))
-                    Button { showingShare = true } label: {
-                        Label("Share card", systemImage: "square.and.arrow.up")
-                    }
-                    .buttonStyle(ActionTileStyle())
-                    NavigationLink(value: AppRoute.gear) {
-                        ActionTileLabel("Tackle box", systemImage: "shippingbox")
-                    }
-                    .buttonStyle(.dim)
+        ScrollView {
+            VStack(alignment: .leading, spacing: DS.Space.s6) {
+                VStack(alignment: .leading, spacing: 0) {
+                    header
+                    profileActions
                 }
-                .padding(.bottom, 4)
-                .pfBareRow()
-            }
-
-            Section("Kit and reference") {
-                NavigationLink(value: AppRoute.gear) {
-                    PFRowLabel(title: "Tackle box", systemImage: "shippingbox.fill", color: .orange,
-                               value: lowStockCount > 0 ? "\(lowStockCount) running low" : "\(gearCount) items",
-                               valueColor: lowStockCount > 0 ? .dsScoreLow : .dsText2)
-                }
-                NavigationLink(value: AppRoute.licenses) {
-                    PFRowLabel(title: "Licences", systemImage: "person.text.rectangle.fill", color: .green,
-                               value: licenceValue.text, valueColor: licenceValue.color)
-                }
-                NavigationLink(value: SettingsRoute.knots) {
-                    PFRowLabel(title: "Knots and rigs", systemImage: "link", color: .cyan,
-                               value: "\(KnotCatalog.shared.entries.count)")
-                }
-                NavigationLink(value: SettingsRoute.regulations) {
-                    PFRowLabel(title: "Size and bag limits", systemImage: "list.bullet.clipboard.fill", color: .purple)
+                kitSection
+                settingsSection
+                CardSection {
+                    row(SettingsRoute.about, "About Currents", "info.circle.fill", .teal,
+                        value: AboutView.shortVersion)
                 }
             }
-            .pfRows()
-
-            Section("Settings") {
-                NavigationLink(value: SettingsRoute.appearance) {
-                    PFRowLabel(title: "Appearance", systemImage: "paintpalette.fill", color: theme.primary,
-                               value: "\(AppearanceMode(rawValue: appearanceMode)?.title ?? "Dark"), \(theme.displayName)")
-                }
-                NavigationLink(value: SettingsRoute.units) {
-                    PFRowLabel(title: "Units", systemImage: "ruler.fill", color: .orange,
-                               value: units == "imperial" ? "Imperial" : "Metric")
-                }
-                NavigationLink(value: SettingsRoute.notifications) {
-                    PFRowLabel(title: "Notifications", systemImage: "bell.badge.fill", color: .red,
-                               value: alertsEnabled ? "On" : "Off")
-                }
-                NavigationLink(value: SettingsRoute.privacy) {
-                    PFRowLabel(title: "Privacy", systemImage: "hand.raised.fill", color: .blue)
-                }
-                NavigationLink(value: SettingsRoute.widgets) {
-                    PFRowLabel(title: "Widgets and Siri", systemImage: "square.grid.2x2.fill", color: .indigo)
-                }
-                NavigationLink(value: SettingsRoute.offlineMaps) {
-                    PFRowLabel(title: "Offline maps", systemImage: "map.fill", color: .green,
-                               value: regionsValue)
-                }
-                NavigationLink(value: SettingsRoute.storage) {
-                    PFRowLabel(title: "Storage and backups", systemImage: "externaldrive.fill", color: .gray)
-                }
-            }
-            .pfRows()
-
-            Section {
-                NavigationLink(value: SettingsRoute.about) {
-                    PFRowLabel(title: "About Currents", systemImage: "info.circle.fill", color: .teal,
-                               value: AboutView.shortVersion)
-                }
-            }
-            .pfRows()
+            .padding(.bottom, DS.Space.s8)
+            .pageWidth()
         }
-        .pfGroupedList()
         .detailTint(nil)
         .pfTrackScroll($titleShown, threshold: 160)
         .pfScrollTitle(displayName, shown: titleShown)
@@ -185,6 +121,62 @@ struct SettingsView: View {
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
         }
+    }
+
+    // MARK: - Sections
+
+    private var profileActions: some View {
+        ActionTriple {
+            Button { showingEdit = true } label: {
+                Label("Edit profile", systemImage: "pencil")
+            }
+            .buttonStyle(ActionTileStyle(.primary))
+            Button { showingShare = true } label: {
+                Label("Share card", systemImage: "square.and.arrow.up")
+            }
+            .buttonStyle(ActionTileStyle())
+            NavigationLink(value: AppRoute.gear) {
+                ActionTileLabel("Tackle box", systemImage: "shippingbox")
+            }
+            .buttonStyle(.dim)
+        }
+    }
+
+    private var kitSection: some View {
+        CardSection("Kit and reference") {
+            row(AppRoute.gear, "Tackle box", "shippingbox.fill", .orange,
+                value: lowStockCount > 0 ? "\(lowStockCount) running low" : "\(gearCount) items",
+                valueTint: lowStockCount > 0 ? .dsScoreLow : .dsText2)
+            row(AppRoute.licenses, "Licences", "person.text.rectangle.fill", .green,
+                value: licenceValue.text, valueTint: licenceValue.color)
+            row(SettingsRoute.knots, "Knots and rigs", "link", .cyan,
+                value: "\(KnotCatalog.shared.entries.count)")
+            row(SettingsRoute.regulations, "Size and bag limits", "list.bullet.clipboard.fill", .purple)
+        }
+    }
+
+    private var settingsSection: some View {
+        CardSection("Settings") {
+            row(SettingsRoute.appearance, "Appearance", "paintpalette.fill", theme.primary,
+                value: AppearanceMode(rawValue: appearanceMode)?.title ?? "Dark")
+            row(SettingsRoute.units, "Units", "ruler.fill", .orange,
+                value: units == "imperial" ? "Imperial" : "Metric")
+            row(SettingsRoute.notifications, "Notifications", "bell.badge.fill", .red,
+                value: alertsEnabled ? "On" : "Off")
+            row(SettingsRoute.privacy, "Privacy", "hand.raised.fill", .blue)
+            row(SettingsRoute.widgets, "Widgets and Siri", "square.grid.2x2.fill", .indigo)
+            row(SettingsRoute.offlineMaps, "Offline maps", "map.fill", .green, value: regionsValue)
+            row(SettingsRoute.storage, "Storage and backups", "externaldrive.fill", .mint)
+        }
+    }
+
+    /// One navigation row on a settings card.
+    private func row<Route: Hashable>(_ route: Route, _ title: String, _ systemImage: String, _ tint: Color,
+                                      value: String? = nil, valueTint: Color = .dsText2) -> some View {
+        NavigationLink(value: route) {
+            CardRow(title, systemImage: systemImage, tint: tint, value: value, valueTint: valueTint, chevron: true)
+        }
+        .buttonStyle(.dsCardRow)
     }
 
     // MARK: - Header
