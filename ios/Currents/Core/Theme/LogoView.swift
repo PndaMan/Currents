@@ -54,11 +54,11 @@ struct LogoView: View {
         }
     }
 
-    // MARK: - Symbol (vector current mark)
+    // MARK: - Symbol (vector fish mark)
 
     private var symbolView: some View {
         CurrentsMark()
-            .stroke(tint, style: StrokeStyle(lineWidth: size * 0.11, lineCap: .round, lineJoin: .round))
+            .filled(tint)
             .frame(width: size, height: size)
     }
 
@@ -69,28 +69,6 @@ struct LogoView: View {
             .font(.system(size: size * 0.62, weight: .semibold, design: .rounded))
             .tracking(-0.5)
             .foregroundStyle(tint)
-    }
-}
-
-/// A minimal "current" glyph — three flowing streamlines — that reads as moving
-/// water. Stroked in a single colour on a transparent background.
-struct CurrentsMark: Shape {
-    func path(in rect: CGRect) -> Path {
-        var p = Path()
-        let w = rect.width, h = rect.height
-        let amp = h * 0.11
-        let xL = w * 0.10, xR = w * 0.90
-        let xM = (xL + xR) / 2
-        for y in [h * 0.32, h * 0.52, h * 0.72] {
-            p.move(to: CGPoint(x: xL, y: y))
-            p.addCurve(to: CGPoint(x: xM, y: y),
-                       control1: CGPoint(x: xL + (xM - xL) * 0.35, y: y - amp * 1.7),
-                       control2: CGPoint(x: xM - (xM - xL) * 0.35, y: y + amp * 1.7))
-            p.addCurve(to: CGPoint(x: xR, y: y),
-                       control1: CGPoint(x: xM + (xR - xM) * 0.35, y: y - amp * 1.7),
-                       control2: CGPoint(x: xR - (xR - xM) * 0.35, y: y + amp * 1.7))
-        }
-        return p
     }
 }
 

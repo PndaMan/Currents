@@ -252,9 +252,8 @@ struct ShareCardFooter: View {
 
     var body: some View {
         HStack(spacing: DS.Space.s2) {
-            Image("Logo")
-                .resizable()
-                .scaledToFit()
+            CurrentsMark()
+                .filled(ThemeOption.current.primary)
                 .frame(width: 22, height: 22)
             Text("Currents")
                 .font(.subheadline.weight(.bold))

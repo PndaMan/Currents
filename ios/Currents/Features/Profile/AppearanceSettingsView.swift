@@ -190,14 +190,7 @@ struct AppearanceSettingsView: View {
             selectIcon(option)
         } label: {
             VStack(spacing: 8) {
-                RoundedRectangle(cornerRadius: DS.Radius.button, style: .continuous)
-                    .fill(Color.black)
-                    .frame(width: 64, height: 64)
-                    .overlay(
-                        CurrentsMark()
-                            .stroke(tint, style: StrokeStyle(lineWidth: 4.5, lineCap: .round, lineJoin: .round))
-                            .frame(width: 40, height: 40)
-                    )
+                AppIconPreview(tint: tint, size: 64)
                     .padding(3)
                     .overlay(
                         RoundedRectangle(cornerRadius: DS.Radius.button + 3, style: .continuous)

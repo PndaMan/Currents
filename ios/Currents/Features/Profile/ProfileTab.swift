@@ -1546,7 +1546,7 @@ struct AboutView: View {
         List {
             Section {
                 VStack(spacing: DS.Space.s2) {
-                    LogoView(style: .symbol, size: 84)
+                    AppIconPreview(tint: ThemeOption.current.primary, size: 84)
                     Text("Currents")
                         .font(.largeTitle.bold())
                         .foregroundStyle(.dsText)

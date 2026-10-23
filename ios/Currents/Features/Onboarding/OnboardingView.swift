@@ -213,9 +213,7 @@ struct OnboardingView: View {
 
     private func banner(title: String, detail: String) -> some View {
         HStack(alignment: .top, spacing: 10) {
-            LogoView(style: .symbol, size: 26)
-                .frame(width: 36, height: 36)
-                .background(Color.black, in: RoundedRectangle(cornerRadius: DS.Radius.thumb - 3, style: .continuous))
+            AppIconPreview(tint: ThemeOption.current.primary, size: 36)
             VStack(alignment: .leading, spacing: 2) {
                 Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(.dsText)
                 Text(detail).font(.subheadline).foregroundStyle(.dsText2)
