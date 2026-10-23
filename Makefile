@@ -3,7 +3,7 @@
 # Since we can't run Xcode on Linux, this Makefile provides shortcuts
 # for triggering CI builds, checking status, and common dev tasks.
 
-.PHONY: help ci ci-status ci-logs lint test-local clean screenshots-frame appstore-check appstore-setup appstore-status appstore-metadata appstore-screenshots appstore-events appstore-pages
+.PHONY: help ci ci-status ci-logs lint test-local clean screenshots-frame appstore-check appstore-setup appstore-status appstore-metadata appstore-screenshots appstore-events appstore-pages push-test
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | \
@@ -62,6 +62,12 @@ appstore-events: ## In-app events; dry run unless APPLY=1, START=YYYY-MM-DD sets
 
 appstore-pages: ## Custom product pages; dry run unless APPLY=1
 	$(ASC_ENV) uv run scripts/asc.py pages $(APPLY_FLAG)
+
+# CloudKit pushes to one device. CK_KEY_ID and CK_KEY_PATH (server-to-server
+# key) come from the environment or .env.local.
+push-test: ## Send every CloudKit push to CODE's phone; dry run unless APPLY=1
+	@test -n "$(CODE)" || { echo "usage: make push-test CODE=<friend code> [APPLY=1]"; exit 2; }
+	scripts/with_ck_env.sh uv run scripts/push_test.py --code $(CODE) $(APPLY_FLAG)
 
 swift-check: ## Check Swift syntax (requires swift on PATH)
 	@which swift > /dev/null 2>&1 && \
