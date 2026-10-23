@@ -40,7 +40,6 @@ struct SettingsView: View {
     @State private var titleShown = false
     @State private var showingEdit = false
     @State private var showingShare = false
-    @State private var showingAchievements = false
     /// Programmatic destination pushed by a notification or Live Activity tap.
     @State private var moreDest: AppState.MoreDestination?
 
@@ -186,27 +185,6 @@ struct SettingsView: View {
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
         }
-        .sheet(isPresented: $showingAchievements) {
-            NavigationStack {
-                ScrollView {
-                    AchievementsCard(catches: catches, topCount: 50)
-                        .padding(.horizontal, DS.gutter)
-                        .padding(.vertical, DS.Space.s4)
-                        .pageWidth()
-                }
-                .dsScreenBackground()
-                .detailScrollEdge()
-                .navigationTitle("Achievements")
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button("Done") { showingAchievements = false }
-                    }
-                }
-            }
-            .presentationDetents([.medium, .large])
-            .presentationDragIndicator(.visible)
-        }
     }
 
     // MARK: - Header
@@ -231,14 +209,16 @@ struct SettingsView: View {
             .font(.callout)
 
             if totalBadges > 0 {
-                Button { showingAchievements = true } label: {
+                NavigationLink {
+                    AchievementsView(catches: catches)
+                } label: {
                     VStack(spacing: DS.Space.s2) {
                         HStack {
                             Text("Achievements")
                                 .font(.subheadline.weight(.semibold))
                                 .foregroundStyle(.dsText)
                             Spacer()
-                            Text("\(earnedBadges) of \(totalBadges) unlocked")
+                            Text("\(earnedBadges) of \(totalBadges) earned")
                                 .font(.subheadline)
                                 .foregroundStyle(.dsText2)
                                 .monospacedDigit()
@@ -249,7 +229,7 @@ struct SettingsView: View {
                 }
                 .buttonStyle(.dim)
                 .padding(.top, DS.Space.s2)
-                .accessibilityHint("Shows your achievements")
+                .accessibilityHint("Opens your achievements")
             }
         }
         .padding(.horizontal, DS.gutter)

@@ -767,7 +767,6 @@ struct TitleFlairChip: View {
         .sheet(isPresented: $showingBadge) {
             if let flair {
                 BadgeDetailView(badge: flair.badge)
-                    .presentationDetents([.medium]).presentationDragIndicator(.visible)
             }
         }
     }
@@ -1541,7 +1540,6 @@ struct FriendBadgesCard: View {
         .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
         .sheet(item: $selected) { badge in
             BadgeDetailView(badge: badge)
-                .presentationDetents([.medium]).presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $showingAll) { allBadgesSheet }
     }
