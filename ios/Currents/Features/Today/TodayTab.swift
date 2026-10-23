@@ -21,6 +21,8 @@ struct TodayTab: View {
     @State private var nextPlan: Trip?
     @State private var sessionCatches = 0
     @State private var selectedHour: Int?
+    /// Set by the session sheet's "Live map"; acted on when the sheet closes.
+    @State private var openMapAfterSession = false
 
     @State private var showLocation = false
     @State private var showSession = false
@@ -156,11 +158,18 @@ struct TodayTab: View {
                 onOpenExplore: { appState.pendingDeepLink = URL(string: "currents://map") }
             )
         }
-        .sheet(isPresented: $showSession) {
+        .sheet(isPresented: $showSession, onDismiss: {
+            // Open the live map once the sheet has gone, so the map's own
+            // presentation does not race this one closing.
+            if openMapAfterSession {
+                openMapAfterSession = false
+                appState.pendingDeepLink = URL(string: "currents://session")
+            }
+        }) {
             if let trip = appState.tripTracker.activeTrip {
                 TodaySessionSheet(trip: trip, catches: sessionCatches,
                                   onLogCatch: logCatch,
-                                  onOpenMap: { appState.pendingDeepLink = URL(string: "currents://session") },
+                                  onOpenMap: { openMapAfterSession = true },
                                   onEnd: endSession)
             }
         }

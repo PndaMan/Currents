@@ -217,7 +217,7 @@ final class NotificationManager: @unchecked Sendable {
         content.title = "Session soon: \(trip.name)"
         content.body = "Your planned session starts at \(planned.formatted(date: .omitted, time: .shortened)). Open Currents to start tracking."
         content.sound = .default
-        content.userInfo = ["deepLink": "currents://sessions"]
+        content.userInfo = ["deepLink": "currents://plan/\(trip.id)"]
 
         let comps = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: fire)
         let trigger = UNCalendarNotificationTrigger(dateMatching: comps, repeats: false)
