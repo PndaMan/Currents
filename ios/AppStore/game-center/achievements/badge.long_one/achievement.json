@@ -1,0 +1,11 @@
+{
+  "reference_name": "Long One",
+  "vendor_identifier": "badge.long_one",
+  "points": 15,
+  "show_before_earned": true,
+  "repeatable": false,
+  "rarity": "rare",
+  "name": "Long One",
+  "before_earned_description": "Land a fish 50 cm (20 in) or longer.",
+  "after_earned_description": "Landed a fish of 50 cm (20 in) or longer."
+}

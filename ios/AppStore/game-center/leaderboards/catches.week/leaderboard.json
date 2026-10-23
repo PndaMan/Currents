@@ -1,0 +1,13 @@
+{
+  "reference_name": "Fish this week",
+  "vendor_identifier": "catches.week",
+  "formatter": "INTEGER",
+  "submission_type": "BEST_SCORE",
+  "sort": "DESC",
+  "recurrence": {"start": "2026-11-02T00:00:00Z", "duration": "P7D", "rule": "FREQ=WEEKLY;INTERVAL=1"},
+  "name": "Fish this week",
+  "description": "Catches logged since Monday 00:00 UTC. Starts again every week.",
+  "suffix": " fish",
+  "suffix_singular": " fish",
+  "art": {"icon": "calendar-check", "color": "#30D158"}
+}

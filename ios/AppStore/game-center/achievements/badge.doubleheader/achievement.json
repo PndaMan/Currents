@@ -1,0 +1,11 @@
+{
+  "reference_name": "Doubleheader",
+  "vendor_identifier": "badge.doubleheader",
+  "points": 5,
+  "show_before_earned": true,
+  "repeatable": false,
+  "rarity": "common",
+  "name": "Doubleheader",
+  "before_earned_description": "Log 2 catches in a single day.",
+  "after_earned_description": "Logged 2 catches in a single day."
+}

@@ -10,6 +10,15 @@ be answered confidently, and so the marketing screenshots stay rights-clean.
 - **Rights:** Original works produced for this app; no third-party photographs
   are bundled. Used freely in-app and in marketing screenshots.
 
+## Game Center images (`ios/AppStore/game-center/**/image.png`)
+- **Origin:** Rendered by `scripts/render_achievement_art.py`: medallions drawn
+  by the script, with icons from Phosphor Icons 2.1.1
+  (https://github.com/phosphor-icons/core, fill weight) standing in for the
+  SF Symbols used in the app, which Apple licenses only inside its platforms.
+- **Rights:** Phosphor Icons is MIT licensed (Copyright (c) 2023 Phosphor
+  Icons), which allows commercial use and modification. Only uploaded to App
+  Store Connect; not bundled in the app.
+
 ## Knot & rig diagrams (`Resources/Knots/*.jpeg`)
 - **Origin:** Freshwater and Marine Image Bank (FMIB) vintage engravings.
 - **Rights:** Public domain. Attributed in-app ("Illustration: Freshwater and

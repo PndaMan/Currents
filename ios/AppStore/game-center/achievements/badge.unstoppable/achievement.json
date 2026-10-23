@@ -1,0 +1,11 @@
+{
+  "reference_name": "Unstoppable",
+  "vendor_identifier": "badge.unstoppable",
+  "points": 30,
+  "show_before_earned": true,
+  "repeatable": false,
+  "rarity": "legendary",
+  "name": "Unstoppable",
+  "before_earned_description": "Keep a weekly fishing streak alive for 12 weeks.",
+  "after_earned_description": "Fished 12 weeks in a row."
+}

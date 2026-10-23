@@ -1,0 +1,11 @@
+{
+  "reference_name": "Collector",
+  "vendor_identifier": "badge.collector",
+  "points": 20,
+  "show_before_earned": true,
+  "repeatable": false,
+  "rarity": "epic",
+  "name": "Collector",
+  "before_earned_description": "Catch 15 different species.",
+  "after_earned_description": "Caught 15 different species."
+}

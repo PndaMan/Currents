@@ -1,0 +1,11 @@
+{
+  "reference_name": "Weekend Warrior",
+  "vendor_identifier": "badge.weekend_warrior",
+  "points": 5,
+  "show_before_earned": true,
+  "repeatable": false,
+  "rarity": "common",
+  "name": "Weekend Warrior",
+  "before_earned_description": "Log a catch on a Saturday or Sunday.",
+  "after_earned_description": "Logged a catch on a weekend."
+}

@@ -1,0 +1,11 @@
+{
+  "reference_name": "10 Club",
+  "vendor_identifier": "badge.10_club",
+  "points": 10,
+  "show_before_earned": true,
+  "repeatable": false,
+  "rarity": "uncommon",
+  "name": "10 Club",
+  "before_earned_description": "Log 10 catches.",
+  "after_earned_description": "Logged 10 catches."
+}

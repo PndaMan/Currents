@@ -1,0 +1,11 @@
+{
+  "reference_name": "Year-Round",
+  "vendor_identifier": "badge.year_round",
+  "points": 20,
+  "show_before_earned": true,
+  "repeatable": false,
+  "rarity": "epic",
+  "name": "Year-Round",
+  "before_earned_description": "Log catches in 8 different months of the year.",
+  "after_earned_description": "Logged catches in 8 different months of the year."
+}

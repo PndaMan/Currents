@@ -1,0 +1,11 @@
+{
+  "reference_name": "Release Artist",
+  "vendor_identifier": "badge.release_artist",
+  "points": 15,
+  "show_before_earned": true,
+  "repeatable": false,
+  "rarity": "rare",
+  "name": "Release Artist",
+  "before_earned_description": "Release 25 catches.",
+  "after_earned_description": "Released 25 catches."
+}

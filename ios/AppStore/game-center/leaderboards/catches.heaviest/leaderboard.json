@@ -1,0 +1,12 @@
+{
+  "reference_name": "Heaviest fish",
+  "vendor_identifier": "catches.heaviest",
+  "formatter": "DECIMAL_POINT_3_PLACE",
+  "submission_type": "BEST_SCORE",
+  "sort": "DESC",
+  "name": "Heaviest fish",
+  "description": "Your heaviest logged catch, in kilograms.",
+  "suffix": " kg",
+  "suffix_singular": " kg",
+  "art": {"icon": "scales", "color": "#FF9F0A"}
+}

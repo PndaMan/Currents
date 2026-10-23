@@ -1,0 +1,11 @@
+{
+  "reference_name": "Photographer",
+  "vendor_identifier": "badge.photographer",
+  "points": 10,
+  "show_before_earned": true,
+  "repeatable": false,
+  "rarity": "uncommon",
+  "name": "Photographer",
+  "before_earned_description": "Add photos to 10 of your catches.",
+  "after_earned_description": "Added photos to 10 catches."
+}

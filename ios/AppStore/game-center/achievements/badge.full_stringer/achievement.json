@@ -1,0 +1,11 @@
+{
+  "reference_name": "Full Stringer",
+  "vendor_identifier": "badge.full_stringer",
+  "points": 15,
+  "show_before_earned": true,
+  "repeatable": false,
+  "rarity": "rare",
+  "name": "Full Stringer",
+  "before_earned_description": "Log 5 catches in a single day.",
+  "after_earned_description": "Logged 5 catches in a single day."
+}

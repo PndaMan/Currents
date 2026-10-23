@@ -1,0 +1,11 @@
+{
+  "reference_name": "First Catch",
+  "vendor_identifier": "badge.first_catch",
+  "points": 5,
+  "show_before_earned": true,
+  "repeatable": false,
+  "rarity": "common",
+  "name": "First Catch",
+  "before_earned_description": "Log your very first catch in Currents.",
+  "after_earned_description": "Logged your first catch."
+}

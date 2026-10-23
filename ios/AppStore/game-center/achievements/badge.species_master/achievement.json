@@ -1,0 +1,11 @@
+{
+  "reference_name": "Species Master",
+  "vendor_identifier": "badge.species_master",
+  "points": 30,
+  "show_before_earned": true,
+  "repeatable": false,
+  "rarity": "legendary",
+  "name": "Species Master",
+  "before_earned_description": "Catch 25 different species.",
+  "after_earned_description": "Caught 25 different species."
+}

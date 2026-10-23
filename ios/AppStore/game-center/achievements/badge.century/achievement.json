@@ -1,0 +1,11 @@
+{
+  "reference_name": "Century",
+  "vendor_identifier": "badge.century",
+  "points": 20,
+  "show_before_earned": true,
+  "repeatable": false,
+  "rarity": "epic",
+  "name": "Century",
+  "before_earned_description": "Log 100 catches.",
+  "after_earned_description": "Logged 100 catches."
+}
