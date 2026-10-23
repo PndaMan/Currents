@@ -5,19 +5,15 @@ import SwiftUI
 
 // MARK: - Settings row icon
 
-/// The rounded colour square at the start of a settings row (iOS Settings).
+/// The tile at the start of a settings row: the symbol in its colour on a
+/// faint tile of the same colour, as on Today.
 struct PFIcon: View {
     let systemImage: String
     let color: Color
-    var size: CGFloat = 30
+    var size: CGFloat = 32
 
     var body: some View {
-        Image(systemName: systemImage)
-            .font(.subheadline.weight(.semibold))
-            .foregroundStyle(.white)
-            .frame(width: size, height: size)
-            .background(color, in: RoundedRectangle(cornerRadius: size * 0.27, style: .continuous))
-            .accessibilityHidden(true)
+        TintIcon(systemImage: systemImage, tint: color, size: size)
     }
 }
 
