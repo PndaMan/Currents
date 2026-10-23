@@ -11,48 +11,49 @@ struct FullscreenPhotoViewer: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        ZStack(alignment: .topTrailing) {
-            Color.black.ignoresSafeArea()
-
-            TabView(selection: $currentIndex) {
-                ForEach(Array(photoPaths.enumerated()), id: \.offset) { index, path in
-                    PhotoPage(path: path)
-                        .tag(index)
-                }
+        TabView(selection: $currentIndex) {
+            ForEach(Array(photoPaths.enumerated()), id: \.offset) { index, path in
+                PhotoPage(path: path)
+                    .tag(index)
             }
-            .tabViewStyle(.page(indexDisplayMode: photoPaths.count > 1 ? .automatic : .never))
-            .ignoresSafeArea()
-
-            if photoPaths.count > 1 {
-                Text("\(currentIndex + 1) of \(photoPaths.count)")
-                    .font(.subheadline.weight(.semibold))
-                    .monospacedDigit()
-                    .foregroundStyle(.white)
-                    .contentTransition(.numericText())
-                    .padding(.horizontal, 14)
-                    .frame(height: 44)
-                    .glassEffect(.regular, in: Capsule())
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .padding(.top, 8)
-                    .animation(DS.Motion.press, value: currentIndex)
-                    .accessibilityLabel("Photo \(currentIndex + 1) of \(photoPaths.count)")
-            }
-
-            Button {
-                dismiss()
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.body.weight(.semibold))
-                    .foregroundStyle(.white)
-                    .frame(width: 44, height: 44)
-                    .glassEffect(.regular.interactive(), in: Circle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Close")
-            .padding(.trailing, DS.gutter)
-            .padding(.top, 8)
         }
-        .statusBarHidden()
+        .tabViewStyle(.page(indexDisplayMode: photoPaths.count > 1 ? .automatic : .never))
+        .background(Color.black)
+        .ignoresSafeArea()
+        .viewerChrome(title: photoPaths.count > 1 ? "\(currentIndex + 1) of \(photoPaths.count)" : nil) {
+            dismiss()
+        }
+    }
+}
+
+extension View {
+    /// The viewer's close button and photo count, in a system toolbar over
+    /// the photo. The toolbar is its own bar above the content, so a zoomed
+    /// photo's scroll view can never take the close button's taps, which it
+    /// did when the button was a SwiftUI overlay on top of the zoom view.
+    func viewerChrome(title: String?, close: @escaping () -> Void) -> some View {
+        NavigationStack {
+            self
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    if let title {
+                        ToolbarItem(placement: .principal) {
+                            Text(title)
+                                .font(.subheadline.weight(.semibold))
+                                .monospacedDigit()
+                                .foregroundStyle(.white)
+                                .contentTransition(.numericText())
+                                .animation(DS.Motion.press, value: title)
+                        }
+                    }
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button("Close", systemImage: "xmark", action: close)
+                            .tint(.white)
+                    }
+                }
+                .toolbarBackground(.hidden, for: .navigationBar)
+                .toolbarColorScheme(.dark, for: .navigationBar)
+        }
     }
 }
 
@@ -93,24 +94,10 @@ struct FullscreenImageViewer: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        ZStack(alignment: .topTrailing) {
-            Color.black.ignoresSafeArea()
-            ZoomableImage(image: image).ignoresSafeArea()
-            Button {
-                dismiss()
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.body.weight(.semibold))
-                    .foregroundStyle(.white)
-                    .frame(width: 44, height: 44)
-                    .glassEffect(.regular.interactive(), in: Circle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Close")
-            .padding(.trailing, DS.gutter)
-            .padding(.top, 8)
-        }
-        .statusBarHidden()
+        ZoomableImage(image: image)
+            .background(Color.black)
+            .ignoresSafeArea()
+            .viewerChrome(title: nil) { dismiss() }
     }
 }
 
