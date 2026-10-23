@@ -11,6 +11,7 @@ struct LicenseWalletView: View {
     @State private var didLoad = false
     @State private var titleShown = false
     @State private var toDelete: FishingLicense?
+    @State private var opened: LicenseRoute?
 
     /// Still valid or undated, soonest expiry first (the repository's order).
     private var current: [FishingLicense] { licenses.filter { !$0.isExpired } }
@@ -19,39 +20,35 @@ struct LicenseWalletView: View {
 
     var body: some View {
         List {
-            Section {
-                DetailHeader(title: "Licences")
-                    .padding(.bottom, DS.Space.s2)
-                    .pfBareRow()
-            }
+            DetailHeader(title: "Licences", subtitle: summary)
+                .padding(.bottom, DS.Space.s2)
+                .dsListRow()
             if didLoad && licenses.isEmpty {
-                Section {
-                    emptyState
-                        .pfBareRow()
-                }
+                emptyState
+                    .padding(.top, DS.Space.s4)
+                    .dsListRow()
             }
             if !current.isEmpty {
+                // Rows, not section headers: plain-list headers pin and
+                // draw over the rows on this clear background.
                 Section {
                     rows(current)
-                } footer: {
-                    if current.contains(where: { $0.expiryDate != nil }) {
-                        Text("Reminders start a month before a licence expires.")
-                    }
                 }
-                .pfRows()
             }
             if !expired.isEmpty {
-                Section("Expired") {
+                Section {
+                    SectionTitle("Expired", detail: "\(expired.count)")
+                        .padding(.top, DS.Space.s5)
+                        .dsListRow()
                     rows(expired)
                 }
-                .pfRows()
             }
         }
-        .pfGroupedList()
+        .dsPlainList()
         .detailTint(nil)
         .pfTrackScroll($titleShown, threshold: 60)
         .pfScrollTitle("Licences", shown: titleShown)
-        .navigationDestination(for: LicenseRoute.self) { route in
+        .navigationDestination(item: $opened) { route in
             if let license = licenses.first(where: { $0.id == route.id }) {
                 LicenseDetailView(license: license) { reload() }
             }
@@ -76,22 +73,36 @@ struct LicenseWalletView: View {
         .task { reload() }
     }
 
-    private var emptyState: some View {
-        ContentUnavailableView {
-            Label("No licences yet", systemImage: "person.text.rectangle")
-        } description: {
-            Text("Scan or import a licence to keep it on this phone, with a reminder before it expires.")
-        } actions: {
-            Button("Add licence") { showingAdd = true }
-                .buttonStyle(PrimaryButtonStyle(fullWidth: false))
+    /// One line under the title: what needs doing, or how many are kept.
+    private var summary: String? {
+        guard didLoad, !licenses.isEmpty else { return nil }
+        if let due = current.first(where: \.isRenewalDue), let status = due.expiryStatus {
+            return "\(due.title): \(status.text.lowercased())"
         }
+        return current.count == 1 ? "1 valid licence" : "\(current.count) valid licences"
+    }
+
+    private var emptyState: some View {
+        InlineEmpty(systemImage: "person.text.rectangle",
+                    text: "Scan a licence to keep it here, with a reminder before it expires.",
+                    actionTitle: "Add licence") { showingAdd = true }
     }
 
     private func rows(_ list: [FishingLicense]) -> some View {
         ForEach(list) { license in
-            NavigationLink(value: LicenseRoute(id: license.id)) {
-                LicenseRow(license: license)
+            Button { opened = LicenseRoute(id: license.id) } label: {
+                HStack(spacing: DS.Space.s3) {
+                    LicenseRow(license: license)
+                    Spacer(minLength: 0)
+                    Image(systemName: "chevron.right")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.dsText3)
+                }
+                .padding(.horizontal, DS.gutter)
+                .padding(.vertical, 6)
             }
+            .buttonStyle(.dsRow)
+            .dsListRow()
             .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                 Button(role: .destructive) { toDelete = license } label: {
                     Label("Delete", systemImage: "trash")
@@ -209,36 +220,39 @@ struct LicenseDetailView: View {
     @State private var titleShown = false
 
     var body: some View {
-        List {
-            Section {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
                 if license.fileName != nil {
                     document
-                        .pfBareRow()
                 }
                 DetailHeader(title: license.title, subtitle: license.expiryStatus?.text)
-                    .pfBareRow()
                 actions
-                    .padding(.bottom, DS.Space.s1)
-                    .pfBareRow()
-            }
-            if license.fileName == nil {
-                Section {
-                    Button { showingEdit = true } label: {
-                        Label("Add a photo or PDF", systemImage: "doc.badge.plus")
+                    .padding(.top, DS.Space.s4)
+                if license.fileName == nil {
+                    CardGroup {
+                        Button { showingEdit = true } label: {
+                            CardRow("Add a photo or PDF", systemImage: "doc.badge.plus", tint: .blue, chevron: true)
+                        }
+                        .buttonStyle(.dsCardRow)
                     }
+                    .padding(.top, DS.Space.s6)
                 }
-                .pfRows()
-            }
-            LicenseFieldsSection(license: license)
-            if let notes = license.notes, !notes.isEmpty {
-                Section("Notes") {
+                LicenseFieldsSection(license: license)
+                    .padding(.top, DS.Space.s6)
+                if let notes = license.notes, !notes.isEmpty {
+                    SectionTitle("Notes")
+                        .padding(.top, DS.Space.s6)
                     Text(notes)
                         .foregroundStyle(.dsText)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(DS.Space.s4)
+                        .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
+                        .padding(.horizontal, DS.gutter)
                 }
-                .pfRows()
             }
+            .padding(.bottom, DS.Space.s8)
+            .pageWidth()
         }
-        .pfGroupedList()
         .detailTint(nil)
         .pfTrackScroll($titleShown, threshold: license.fileName == nil ? 60 : 300)
         .pfScrollTitle(license.title, shown: titleShown)
@@ -340,24 +354,34 @@ private struct LicenseFieldsSection: View {
     var body: some View {
         let shown = fields
         if !shown.isEmpty {
-            Section {
-                ForEach(shown) { field in
-                    LabeledContent(field.label) {
-                        Text(field.value)
-                            .foregroundStyle(field.color)
-                            .multilineTextAlignment(.trailing)
-                            .textSelection(.enabled)
+            VStack(alignment: .leading, spacing: 0) {
+                SectionTitle("Details")
+                VStack(spacing: 0) {
+                    ForEach(Array(shown.enumerated()), id: \.element.id) { index, field in
+                        fieldRow(field)
+                        if index < shown.count - 1 { PFDivider() }
                     }
                 }
-            } header: {
-                Text("Details")
-            } footer: {
-                if license.expiryDate != nil && !license.isExpired {
-                    Text("Reminders start a month before expiry.")
-                }
+                .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
+                .padding(.horizontal, DS.gutter)
             }
-            .pfRows()
         }
+    }
+
+    private func fieldRow(_ field: Field) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: DS.Space.s4) {
+            Text(field.label)
+                .foregroundStyle(.dsText)
+            Spacer(minLength: DS.Space.s4)
+            Text(field.value)
+                .foregroundStyle(field.color)
+                .multilineTextAlignment(.trailing)
+                .textSelection(.enabled)
+        }
+        .font(.body)
+        .padding(.horizontal, DS.Space.s4)
+        .padding(.vertical, 13)
+        .accessibilityElement(children: .combine)
     }
 }
 
