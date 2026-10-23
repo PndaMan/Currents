@@ -1243,7 +1243,7 @@ struct WidgetsSiriView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: DS.Space.s8) {
                 DetailHeader(title: "Widgets and Siri",
-                             subtitle: "Check the bite and log a catch without opening the app.")
+                             subtitle: "The bite and a log button, outside the app.")
 
                 VStack(alignment: .leading, spacing: 0) {
                     SectionTitle("Home Screen and Lock Screen")
@@ -1260,11 +1260,11 @@ struct WidgetsSiriView: View {
 
                 VStack(alignment: .leading, spacing: 0) {
                     SectionTitle("Live Activities")
-                    row("Live session", "Timer, catches and the bite on the Lock Screen and in the Dynamic Island",
+                    row("Live session", "Timer, catches and the bite",
                         "record.circle", .red)
-                    row("Tournaments", "Your points against the leader while a tournament runs",
+                    row("Tournaments", "Your points against the leader",
                         "trophy.fill", .yellow)
-                    PFFootnote("They start on their own with a session or tournament.")
+                    PFFootnote("They start on their own.")
                         .padding(.top, DS.Space.s2)
                 }
 
