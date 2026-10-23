@@ -147,9 +147,11 @@ extension CommunityService {
 
     /// Banner + photo icon, served from disk instantly and refreshed from the
     /// server at most once per hour.
+    /// Files are read, stored and decoded off the main thread.
     func crewArt(code: String, forceRefresh: Bool = false) async -> (banner: UIImage?, icon: UIImage?) {
-        let cachedBanner = CommunityDiskCache.loadImage(key: "crewbanner-\(code)")
-        let cachedIcon = CommunityDiskCache.loadImage(key: "crewicon-\(code)")
+        let bannerKey = "crewbanner-\(code)", iconKey = "crewicon-\(code)"
+        let cachedBanner = await CommunityDiskCache.image(key: bannerKey)
+        let cachedIcon = await CommunityDiskCache.image(key: iconKey)
         let fresh = CommunityDiskCache.isFresh(key: "crewart-\(code)", maxAge: 3600)
         if !forceRefresh, fresh, cachedBanner != nil || cachedIcon != nil {
             return (cachedBanner, cachedIcon)
@@ -157,17 +159,16 @@ extension CommunityService {
         guard let r = try? await db.record(for: CKRecord.ID(recordName: "crew-\(code)")) else {
             return (cachedBanner, cachedIcon)
         }
+        let bannerURL = (r["banner"] as? CKAsset)?.fileURL
+        let iconURL = (r["iconPhoto"] as? CKAsset)?.fileURL
+        let stored = await Task.detached(priority: .utility) { () -> (banner: Bool, icon: Bool) in
+            (CommunityDiskCache.storeImageFile(at: bannerURL, key: bannerKey),
+             CommunityDiskCache.storeImageFile(at: iconURL, key: iconKey))
+        }.value
+        withExtendedLifetime(r) {}
         var banner = cachedBanner, icon = cachedIcon
-        if let a = r["banner"] as? CKAsset, let url = a.fileURL,
-           let data = try? Data(contentsOf: url), let img = UIImage(data: data) {
-            banner = img
-            CommunityDiskCache.saveImage(img, key: "crewbanner-\(code)")
-        }
-        if let a = r["iconPhoto"] as? CKAsset, let url = a.fileURL,
-           let data = try? Data(contentsOf: url), let img = UIImage(data: data) {
-            icon = img
-            CommunityDiskCache.saveImage(img, key: "crewicon-\(code)")
-        }
+        if stored.banner { banner = await CommunityDiskCache.image(key: bannerKey) }
+        if stored.icon { icon = await CommunityDiskCache.image(key: iconKey) }
         CommunityDiskCache.touch(key: "crewart-\(code)")
         return (banner, icon)
     }
@@ -370,12 +371,13 @@ extension CommunityService {
     }
 
     /// A crew-post photo, cached to disk so scrolling back through the feed
-    /// never re-downloads assets.
-    func crewPostImage(recordName: String) async -> UIImage? {
-        if let cached = CommunityDiskCache.loadImage(key: "post-\(recordName)") { return cached }
-        guard let img = await crewPostPhoto(recordName: recordName) else { return nil }
-        CommunityDiskCache.saveImage(img, key: "post-\(recordName)")
-        return img
+    /// never re-downloads assets. Decoded off the main thread at up to
+    /// `maxPixel`; rows should pass their thumbnail size.
+    func crewPostImage(recordName: String,
+                       maxPixel: CGFloat = CommunityDiskCache.fullPixel) async -> UIImage? {
+        let key = "post-\(recordName)"
+        if let cached = await CommunityDiskCache.image(key: key, maxPixel: maxPixel) { return cached }
+        return await downloadPhoto(recordName: recordName, cacheKey: key, maxPixel: maxPixel)
     }
 
     /// Batch profile fetch: disk-fresh entries return instantly, the rest load
@@ -438,13 +440,83 @@ enum CommunityDiskCache {
     static func saveImage(_ image: UIImage, key: String) {
         guard let data = image.jpegData(compressionQuality: 0.85) else { return }
         try? data.write(to: dir.appendingPathComponent("\(key).jpg"))
+        memory.removeObject(forKey: key as NSString)
     }
-    static func loadImage(key: String) -> UIImage? {
-        guard let data = try? Data(contentsOf: dir.appendingPathComponent("\(key).jpg")) else { return nil }
-        return UIImage(data: data)
+
+    /// Stores already-encoded image bytes as they are. Downloaded photos
+    /// used to be decoded and re-encoded to JPEG on the main thread.
+    static func saveImageData(_ data: Data, key: String) {
+        try? data.write(to: dir.appendingPathComponent("\(key).jpg"), options: .atomic)
+        memory.removeObject(forKey: key as NSString)
     }
+
+    /// The longest edge community images are decoded at by default: more
+    /// than any screen draws them, a fraction of a camera photo's pixels.
+    static let fullPixel: CGFloat = 1600
+
+    /// A cached image decoded at up to `maxPixel`, from memory when it has
+    /// been shown before. Reads and decodes on the calling thread; async
+    /// code should use `image(key:maxPixel:)`.
+    static func loadImage(key: String, maxPixel: CGFloat = fullPixel) -> UIImage? {
+        if let hit = memoryImage(key: key, maxPixel: maxPixel) { return hit }
+        let url = dir.appendingPathComponent("\(key).jpg")
+        guard let src = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let image = downsample(source: src, maxPixel: maxPixel) else { return nil }
+        remember(image, key: key, maxPixel: maxPixel)
+        return image
+    }
+
+    /// `loadImage` with the file read and decode on a background thread.
+    static func image(key: String, maxPixel: CGFloat = fullPixel) async -> UIImage? {
+        if let hit = memoryImage(key: key, maxPixel: maxPixel) { return hit }
+        return await Task.detached(priority: .userInitiated) {
+            CommunityDiskCache.loadImage(key: key, maxPixel: maxPixel)
+        }.value
+    }
+
+    /// An image already decoded in memory at `maxPixel` or larger.
+    static func memoryImage(key: String, maxPixel: CGFloat = fullPixel) -> UIImage? {
+        guard let entry = memory.object(forKey: key as NSString), entry.maxPixel >= maxPixel else { return nil }
+        return entry.image
+    }
+
     static func deleteImage(key: String) {
         try? FileManager.default.removeItem(at: dir.appendingPathComponent("\(key).jpg"))
+        memory.removeObject(forKey: key as NSString)
+    }
+
+    /// Copies a downloaded asset file into the cache when it holds a
+    /// readable image. Call off the main thread. False leaves the old copy.
+    static func storeImageFile(at url: URL?, key: String) -> Bool {
+        guard let url, let data = try? Data(contentsOf: url), !data.isEmpty,
+              let src = CGImageSourceCreateWithData(data as CFData, nil),
+              CGImageSourceGetCount(src) > 0 else { return false }
+        saveImageData(data, key: key)
+        return true
+    }
+
+    /// Decoded images, so a row scrolling back into view or a page opening
+    /// again doesn't read and decode the file a second time. Bounded by
+    /// decoded bytes; NSCache is safe to use from any thread.
+    private final class ImageEntry {
+        let image: UIImage
+        let maxPixel: CGFloat
+        init(image: UIImage, maxPixel: CGFloat) {
+            self.image = image
+            self.maxPixel = maxPixel
+        }
+    }
+
+    private static let memory: NSCache<NSString, ImageEntry> = {
+        let cache = NSCache<NSString, ImageEntry>()
+        cache.totalCostLimit = 96 * 1024 * 1024
+        return cache
+    }()
+
+    private static func remember(_ image: UIImage, key: String, maxPixel: CGFloat) {
+        if let entry = memory.object(forKey: key as NSString), entry.maxPixel >= maxPixel { return }
+        let cost = image.cgImage.map { $0.bytesPerRow * $0.height } ?? 0
+        memory.setObject(ImageEntry(image: image, maxPixel: maxPixel), forKey: key as NSString, cost: cost)
     }
 
     /// Decodes image bytes straight to at most `maxPixel` on the long edge,

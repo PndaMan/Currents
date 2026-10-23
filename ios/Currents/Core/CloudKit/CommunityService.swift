@@ -628,7 +628,7 @@ final class CommunityService: ObservableObject {
         if let l = catchRecord.lengthCm { record["lengthCm"] = l as CKRecordValue }
         record["region"] = region as CKRecordValue
         record["caughtAt"] = catchRecord.caughtAt as CKRecordValue
-        attachPhoto(catchRecord.photoPath, to: record)
+        await attachPhoto(catchRecord.photoPath, to: record)
         attachLocation(lat: catchRecord.latitude, lon: catchRecord.longitude,
                        seed: catchRecord.id, to: record)
         // Tag the catch to a shared trip so the whole group sees it in real time.
@@ -662,19 +662,26 @@ final class CommunityService: ObservableObject {
 
     /// Attach a catch photo as a CKAsset (and a `hasPhoto` flag so leaderboard
     /// queries can tell there's a photo without downloading the asset).
-    private func attachPhoto(_ photoPath: String?, to record: CKRecord) {
-        guard let photoPath, let image = PhotoManager.load(photoPath),
-              let data = image.jpegData(compressionQuality: 0.7) else {
-            record["hasPhoto"] = 0 as CKRecordValue
-            return
-        }
-        let tmp = FileManager.default.temporaryDirectory
-            .appendingPathComponent("ck-\(UUID().uuidString).jpg")
-        do {
-            try data.write(to: tmp, options: .atomic)
-            record["photo"] = CKAsset(fileURL: tmp)
+    /// The photo is loaded and JPEG-encoded on a background thread: done on
+    /// the main thread, a first sync of a long catch history froze the Crew
+    /// tab for seconds (one full-resolution encode per catch).
+    private func attachPhoto(_ photoPath: String?, to record: CKRecord) async {
+        let file: URL? = await Task.detached(priority: .utility) { () -> URL? in
+            guard let photoPath, let image = PhotoManager.load(photoPath),
+                  let data = image.jpegData(compressionQuality: 0.7) else { return nil }
+            let tmp = FileManager.default.temporaryDirectory
+                .appendingPathComponent("ck-\(UUID().uuidString).jpg")
+            do {
+                try data.write(to: tmp, options: .atomic)
+                return tmp
+            } catch {
+                return nil
+            }
+        }.value
+        if let file {
+            record["photo"] = CKAsset(fileURL: file)
             record["hasPhoto"] = 1 as CKRecordValue
-        } catch {
+        } else {
             record["hasPhoto"] = 0 as CKRecordValue
         }
     }
@@ -843,24 +850,46 @@ final class CommunityService: ObservableObject {
         return rows
     }
 
-    /// Download a single published catch's photo asset by its record id. Cached
-    /// in memory so re-opening a catch (or scrolling a friend's list) is instant.
-    private let photoCache = NSCache<NSString, UIImage>()
-    func catchPhoto(recordName: String) async -> UIImage? {
-        if let cached = photoCache.object(forKey: recordName as NSString) { return cached }
-        // Disk second: survives relaunch, so a friend's catch photo downloads
-        // once ever instead of once per session.
-        if let disk = CommunityDiskCache.loadImage(key: "catchphoto-\(recordName)") {
-            photoCache.setObject(disk, forKey: recordName as NSString)
-            return disk
+    /// Download a single published catch's photo asset by its record id.
+    /// Memory first, then disk (survives relaunch, so a friend's catch photo
+    /// downloads once ever), then the network. Decoded off the main thread
+    /// at up to `maxPixel`; thumbnails should pass their size.
+    func catchPhoto(recordName: String,
+                    maxPixel: CGFloat = CommunityDiskCache.fullPixel) async -> UIImage? {
+        let key = "catchphoto-\(recordName)"
+        if let cached = await CommunityDiskCache.image(key: key, maxPixel: maxPixel) { return cached }
+        return await downloadPhoto(recordName: recordName, cacheKey: key, maxPixel: maxPixel)
+    }
+
+    /// Photo downloads in flight by cache key, so a row that scrolls back
+    /// into view mid-download, or the same post on two pages, shares one.
+    private var photoDownloads: [String: Task<Bool, Never>] = [:]
+
+    /// Fetch a record's `photo` asset into the disk cache as it is (no
+    /// decode and re-encode on the main thread), then decode it at
+    /// `maxPixel` off the main thread.
+    func downloadPhoto(recordName: String, cacheKey: String, maxPixel: CGFloat) async -> UIImage? {
+        let task: Task<Bool, Never>
+        if let running = photoDownloads[cacheKey] {
+            task = running
+        } else {
+            task = Task { await self.fetchPhotoAsset(recordName: recordName, cacheKey: cacheKey) }
+            photoDownloads[cacheKey] = task
         }
-        let id = CKRecord.ID(recordName: recordName)
-        guard let r = try? await db.record(for: id),
-              let asset = r["photo"] as? CKAsset, let url = asset.fileURL,
-              let data = try? Data(contentsOf: url), let image = UIImage(data: data) else { return nil }
-        photoCache.setObject(image, forKey: recordName as NSString)
-        CommunityDiskCache.saveImage(image, key: "catchphoto-\(recordName)")
-        return image
+        let stored = await task.value
+        if photoDownloads[cacheKey] == task { photoDownloads[cacheKey] = nil }
+        guard stored else { return nil }
+        return await CommunityDiskCache.image(key: cacheKey, maxPixel: maxPixel)
+    }
+
+    private func fetchPhotoAsset(recordName: String, cacheKey: String) async -> Bool {
+        guard let r = try? await db.record(for: CKRecord.ID(recordName: recordName)),
+              let url = (r["photo"] as? CKAsset)?.fileURL else { return false }
+        let stored = await Task.detached(priority: .userInitiated) {
+            CommunityDiskCache.storeImageFile(at: url, key: cacheKey)
+        }.value
+        withExtendedLifetime(r) {}
+        return stored
     }
 
     /// Publish every past catch so the leaderboards reflect the full history,
@@ -890,19 +919,22 @@ final class CommunityService: ObservableObject {
         UserDefaults.standard.set(shareCatchLocations, forKey: "lastCatchSyncLocPref")
 
         let region = myRegion
-        let records: [CKRecord] = toPublish.map { d in
-            let id = CKRecord.ID(recordName: "catch-\(friendCode)-\(d.id)")
+        let name = myName, code = friendCode
+        var records: [CKRecord] = []
+        records.reserveCapacity(toPublish.count)
+        for d in toPublish {
+            let id = CKRecord.ID(recordName: "catch-\(code)-\(d.id)")
             let record = CKRecord(recordType: catchType, recordID: id)
-            record["anglerName"] = myName as CKRecordValue
-            record["friendCode"] = friendCode as CKRecordValue
+            record["anglerName"] = name as CKRecordValue
+            record["friendCode"] = code as CKRecordValue
             record["species"] = d.species as CKRecordValue
             if let w = d.weightKg { record["weightKg"] = w as CKRecordValue }
             if let l = d.lengthCm { record["lengthCm"] = l as CKRecordValue }
             record["region"] = region as CKRecordValue
             record["caughtAt"] = d.caughtAt as CKRecordValue
-            attachPhoto(d.photoPath, to: record)
+            await attachPhoto(d.photoPath, to: record)
             attachLocation(lat: d.latitude, lon: d.longitude, seed: d.id, to: record)
-            return record
+            records.append(record)
         }
         // Batch (CloudKit caps ~400/op); force-overwrite so re-runs are safe.
         for chunk in stride(from: 0, to: records.count, by: 300).map({ Array(records[$0..<min($0 + 300, records.count)]) }) {
@@ -1575,12 +1607,10 @@ final class CommunityService: ObservableObject {
         return posts
     }
 
+    /// A crew post's photo, through the same cached, off-main path as
+    /// `crewPostImage`.
     func crewPostPhoto(recordName: String) async -> UIImage? {
-        let id = CKRecord.ID(recordName: recordName)
-        guard let r = try? await db.record(for: id),
-              let asset = r["photo"] as? CKAsset, let url = asset.fileURL,
-              let data = try? Data(contentsOf: url) else { return nil }
-        return UIImage(data: data)
+        await crewPostImage(recordName: recordName)
     }
 
     /// Auto-post a freshly-logged catch into every crew that has auto-post on.
@@ -1608,7 +1638,7 @@ final class CommunityService: ObservableObject {
         record["caughtAt"] = c.caughtAt as CKRecordValue
         record["caption"] = caption as CKRecordValue
         if !tripName.isEmpty { record["tripName"] = tripName as CKRecordValue }
-        attachPhoto(c.photoPath, to: record)
+        await attachPhoto(c.photoPath, to: record)
         _ = try? await db.save(record)
     }
 
