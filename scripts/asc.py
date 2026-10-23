@@ -1106,6 +1106,10 @@ def sync_gc_items(api: Client, kind: GCKind, items: list[GCItem], detail_id: str
                 )
                 version_id = created["data"]["id"]
                 state = GCState(item=current)
+                if api.apply:
+                    # A new version may start with the last one's text; read it
+                    # so those localizations are updated, not added twice.
+                    state = read_gc_state(api, kind, current)
             elif vstate not in EDITABLE_GC_STATES:
                 print(f"  exists ({item_id}), version {version['attributes'].get('version')} is {vstate}; skipping until review finishes")
                 ids[spec.vendor] = item_id
