@@ -1277,10 +1277,13 @@ struct TournamentHistoryView: View {
         } message: {
             Text("It disappears for the whole crew and its history. Everyone keeps their logged catches.")
         }
-        .task {
-            list = await svc.tournaments(crewCode: crew.code)
-            loading = false
-        }
+        .task { await load() }
+        .refreshable { await load() }
+    }
+
+    private func load() async {
+        list = await svc.tournaments(crewCode: crew.code)
+        loading = false
     }
 
     private func deleteChosen() {
@@ -1335,7 +1338,7 @@ struct TournamentHistoryView: View {
                subtitleIcon: t.winnerTeam != nil ? "trophy.fill" : nil,
                chevron: true) {
             ThumbView(systemImage: t.isEnded ? "flag.checkered" : "trophy.fill",
-                      tint: t.isEnded ? Color.gray : DS.accent, size: 56)
+                      tint: t.isEnded ? Color.gray : Color.dsScoreFair, size: 56)
         } trailing: {
             if !t.isEnded { EventLiveTag().font(.subheadline) }
         }
