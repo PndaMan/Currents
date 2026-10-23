@@ -747,7 +747,8 @@ final class CommunityService: ObservableObject {
     /// The full ranked list for a board (no truncation).
     private func rankedRows(metric: Metric, myRows: [LeaderRow],
                             among: Set<String>? = nil) async -> [LeaderRow] {
-        var catches = await fetchAllLeaderCatches()
+        // A crew board fetches its members, who need not be my friends.
+        var catches = await fetchAllLeaderCatches(codes: among.map { Array($0.union([friendCode])) })
         // Local catches are authoritative for me: drop any remote copies of my
         // own catches and use the local ones so I always appear.
         catches.removeAll { $0.friendCode == friendCode }
@@ -842,9 +843,12 @@ final class CommunityService: ObservableObject {
     /// query needs no custom Sortable index — one less CloudKit setup step.
     /// Disk-cached with a short TTL: switching leaderboard metrics or reopening
     /// Community reuses the last fetch instead of re-querying every time.
-    private func fetchAllLeaderCatches(limit: Int = 400,
+    private func fetchAllLeaderCatches(codes scope: [String]? = nil, limit: Int = 400,
                                        maxAge: TimeInterval = 60) async -> [LeaderRow] {
-        let cacheKey = "leadercatches"
+        let codes = (scope ?? friends + [friendCode]).sorted()
+        // One cache per scope, so a crew board and the friends board never
+        // serve each other's rows.
+        let cacheKey = scope == nil ? "leadercatches" : "leadercatches-\(codes.joined(separator: "-"))"
         if maxAge > 0, CommunityDiskCache.isFresh(key: cacheKey, maxAge: maxAge),
            let cached = CommunityDiskCache.load([LeaderRowDTO].self, key: cacheKey) {
             return cached.map(\.row)
@@ -852,7 +856,6 @@ final class CommunityService: ObservableObject {
         // Server-side filter on the indexed friendCode: a TRUEPREDICATE scan
         // capped at `limit` would silently drop friends' catches once the
         // whole public DB outgrew it.
-        let codes = friends + [friendCode]
         let query = CKQuery(recordType: catchType,
                             predicate: NSPredicate(format: "friendCode IN %@", codes))
         guard let results = try? await db.records(
