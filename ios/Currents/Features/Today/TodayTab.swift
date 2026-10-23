@@ -297,7 +297,9 @@ struct TodayTab: View {
                                        : ["12 am", "6 am", "Noon", "6 pm", "11 pm"])
                 Group {
                     if let hour = selectedHour {
-                        HourInfoBox(store: store, day: day, hour: hour, use24: use24)
+                        HourInfoBox(store: store, day: day, hour: hour, use24: use24) {
+                            withAnimation(reduceMotion ? nil : DS.Motion.softSpring) { selectedHour = nil }
+                        }
                     } else {
                         WindowTiles(day: day, use24: use24) { hour in
                             withAnimation(reduceMotion ? nil : DS.Motion.softSpring) { selectedHour = hour }

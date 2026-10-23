@@ -195,11 +195,19 @@ struct HourInfoBox: View {
     let day: ForecastDay
     let hour: Int?
     var use24: Bool = true
+    /// Clears the hour. When set, the card shows a close button and a tap
+    /// anywhere on it goes back to the day view.
+    var onClose: (() -> Void)? = nil
 
     var body: some View {
         Group {
             if let hour, let score = day.score(at: hour) {
                 filled(hour: hour, score: score)
+                    .contentShape(Rectangle())
+                    .onTapGesture { close() }
+                    .overlay(alignment: .topTrailing) {
+                        if onClose != nil { closeButton }
+                    }
             } else {
                 Text("Tap an hour for the score and weather")
                     .font(.subheadline)
@@ -237,6 +245,8 @@ struct HourInfoBox: View {
                 }
                 Spacer(minLength: 0)
             }
+            // Room for the close button in the corner.
+            .padding(.trailing, onClose == nil ? 0 : 24)
             if let reason = detail.reasons.first {
                 Text(ForecastFormat.clean(reason))
                     .font(.footnote)
@@ -257,6 +267,29 @@ struct HourInfoBox: View {
             }
         }
         .transition(.opacity)
+    }
+
+    /// A small close mark in the top corner, like the close button on a sheet.
+    private var closeButton: some View {
+        Button { close() } label: {
+            Image(systemName: "xmark")
+                .font(.caption.weight(.bold))
+                .foregroundStyle(.dsText2)
+                .frame(width: 28, height: 28)
+                .background(Color.dsFill2, in: Circle())
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.dim)
+        // The mark sits 6 points in from the card's corner; the card pads 14.
+        .offset(x: 16, y: -16)
+        .accessibilityLabel("Close hour")
+    }
+
+    private func close() {
+        guard let onClose else { return }
+        Haptics.selection()
+        onClose()
     }
 
     private func weatherLine(_ w: WeatherService.HourlyPoint) -> String {
