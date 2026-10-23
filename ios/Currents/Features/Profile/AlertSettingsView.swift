@@ -220,6 +220,14 @@ struct AlertSettingsView: View {
             } label: {
                 PFRowLabel(title: "Send a test notification", systemImage: "paperplane.fill", color: .indigo)
             }
+            Button {
+                Haptics.tap()
+                Task { await NotificationManager.shared.sendEveryAlertPreview(spotName: spots.first?.name) }
+                ToastCenter.shared.show("Eight sample alerts over the next 40 seconds. Lock your phone to see them.",
+                                        style: .info, haptic: false)
+            } label: {
+                PFRowLabel(title: "Preview every alert", systemImage: "bell.badge.fill", color: .orange)
+            }
             if svc.joined {
                 LabeledContent("Push delivery") {
                     statusText(svc.apnsRegistered ? "Registered" : "Not registered", ok: svc.apnsRegistered)

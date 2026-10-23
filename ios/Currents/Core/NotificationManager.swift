@@ -46,6 +46,38 @@ final class NotificationManager: @unchecked Sendable {
             identifier: "test-\(UUID().uuidString)", content: content, trigger: trigger))
     }
 
+    /// One of every on-device alert, five seconds apart, worded as the real
+    /// ones are, so each can be checked on the phone. Tapping one follows its
+    /// real deep link.
+    func sendEveryAlertPreview(spotName: String?) async {
+        guard await requestPermission() else { return }
+        let spot = spotName ?? "your spot"
+        let start = Date.now.addingTimeInterval(45 * 60)
+        let from = start.formatted(date: .omitted, time: .shortened)
+        let to = start.addingTimeInterval(2 * 3600).formatted(date: .omitted, time: .shortened)
+        let bite = "Bite score up to 82 from \(from) to \(to)."
+        let samples: [(title: String, body: String, link: String)] = [
+            ("Bite window at \(spot) in 45 minutes", bite, "currents://map"),
+            ("Bite window open at \(spot)", bite, "currents://map"),
+            ("Session soon: Dawn session", "Your planned session starts at \(from). Open Currents to start tracking.", "currents://sessions"),
+            ("Slow bite?", "No catches in a while — try switching lure, changing depth, or moving spots.", "currents://session"),
+            ("Running low: Soft plastics", "2 left — time to restock your lures.", "currents://gear"),
+            ("Trip invite from Sam", "Join “Weekend at the dam” on Currents — open the app to accept.", "currents://community"),
+            ("New friend request", "Sam wants to connect on Currents — open the app to accept.", "currents://community"),
+            ("Fishing licence reminder", "Freshwater licence expires in 1 week.", "currents://licenses"),
+        ]
+        for (index, sample) in samples.enumerated() {
+            let content = UNMutableNotificationContent()
+            content.title = sample.title
+            content.body = sample.body
+            content.sound = .default
+            content.userInfo = ["deepLink": sample.link]
+            let trigger = UNTimeIntervalNotificationTrigger(timeInterval: Double(3 + index * 5), repeats: false)
+            try? await center.add(UNNotificationRequest(
+                identifier: "preview-\(index)-\(UUID().uuidString)", content: content, trigger: trigger))
+        }
+    }
+
     // MARK: - Bite alerts
 
     /// How many bite notifications may be pending at once. iOS keeps at most
