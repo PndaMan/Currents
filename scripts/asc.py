@@ -587,12 +587,18 @@ def cmd_pages(api: Client, args) -> int:
     app = find_app(api) if api.online else None
     existing = {}
     available_keywords: dict[str, str] | None = None
+    template = None
     if app:
         for page in api.get_all(f"/v1/apps/{app['id']}/appCustomProductPages"):
             existing[page["attributes"]["name"]] = page
         # Pages can only use keywords from the latest approved version's keyword field.
         kw = api.get_all(f"/v1/apps/{app['id']}/searchKeywords", **{"filter[locale]": LOCALE, "filter[platform]": "IOS"})
         available_keywords = {k["id"].strip().lower(): k["id"] for k in kw}
+        live = api.get_all(f"/v1/apps/{app['id']}/appStoreVersions",
+                           **{"filter[appStoreState]": "READY_FOR_SALE", "filter[platform]": "IOS"})
+        template = live[0] if live else None
+        if template is None:
+            print("No live version to copy new pages from.\n")
     else:
         print("No credentials: showing everything as new without reading App Store Connect.\n")
 
@@ -604,20 +610,17 @@ def cmd_pages(api: Client, args) -> int:
         loc_id = None
         version_id = None
         if page is None:
+            # Apple rejects the inline version and localisation creates, so the
+            # page starts as a copy of the live version; the steps below then
+            # set its promotional text, screenshots and keywords.
+            relationships = {"app": {"data": {"type": "apps", "id": app["id"] if app else "(app)"}}}
+            if template:
+                relationships["appStoreVersionTemplate"] = {"data": {"type": "appStoreVersions", "id": template["id"]}}
             created = api.write(
                 "POST", "/v1/appCustomProductPages",
                 {"data": {"type": "appCustomProductPages", "attributes": {"name": spec.name},
-                          "relationships": {"app": {"data": {"type": "apps", "id": app["id"] if app else "(app)"}},
-                                            "appCustomProductPageVersions": {"data": [{"type": "appCustomProductPageVersions", "id": "${version}"}]}}},
-                 "included": [
-                     {"type": "appCustomProductPageVersions", "id": "${version}",
-                      "relationships": {"appCustomProductPageLocalizations": {"data": [{"type": "appCustomProductPageLocalizations", "id": "${localization}"}]}}},
-                     {"type": "appCustomProductPageLocalizations", "id": "${localization}",
-                      "attributes": {"locale": LOCALE, "promotionalText": spec.promotional_text},
-                      # Inline creates link both ways: version to localisation and back.
-                      "relationships": {"appCustomProductPageVersion": {"data": {"type": "appCustomProductPageVersions", "id": "${version}"}}}},
-                 ]},
-                f"create the page with {LOCALE} promotional text {json.dumps(spec.promotional_text, ensure_ascii=False)}",
+                          "relationships": relationships}},
+                f"create the page from version {template['attributes']['versionString'] if template else '(live version)'}",
             )
             page_id = created["data"]["id"]
         else:
