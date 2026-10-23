@@ -711,6 +711,104 @@ struct CrewDetailView: View {
     }
 }
 
+// MARK: - All catches
+
+/// Every catch posted to a crew, newest first, paged as it scrolls. Pushed
+/// from Recent catches on the crew page.
+private struct CrewCatchesPage: View {
+    let crew: CommunityService.Crew
+    let tint: Color?
+
+    @StateObject private var svc = CommunityService.shared
+    @State private var feed: [CommunityService.CrewPost]
+    @State private var canLoadMore: Bool
+    @State private var loadingMore = false
+    @State private var openedPost: CommunityService.CrewPost?
+
+    private let pageSize = 30
+
+    init(crew: CommunityService.Crew, tint: Color?, feed: [CommunityService.CrewPost], canLoadMore: Bool) {
+        self.crew = crew
+        self.tint = tint
+        _feed = State(initialValue: feed)
+        _canLoadMore = State(initialValue: canLoadMore)
+    }
+
+    var body: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 0) {
+                DetailHeader(over: crew.name, title: "Catches")
+                    .padding(.bottom, DS.Space.s4)
+                rows
+                footer
+            }
+            .padding(.bottom, DS.Space.s8)
+            .pageWidth()
+        }
+        .detailTint(tint)
+        .navigationTitle("")
+        .navigationBarTitleDisplayMode(.inline)
+        .sheet(item: $openedPost) { post in
+            CrewPostSheet(post: post, crew: crew) { await reload() }
+        }
+        .onChange(of: svc.revision) { _, _ in
+            Task { await reload() }
+        }
+    }
+
+    @ViewBuilder private var rows: some View {
+        if feed.isEmpty {
+            InlineEmpty(systemImage: "fish",
+                        text: "No catches yet. When you or a crewmate log a catch, it shows up here.")
+        } else {
+            ForEach(feed) { post in
+                Button { openedPost = post } label: {
+                    CrewFeedRow(post: post)
+                }
+                .buttonStyle(.dsRow)
+                .onAppear { loadMoreIfNeeded(after: post) }
+            }
+        }
+    }
+
+    @ViewBuilder private var footer: some View {
+        if loadingMore {
+            ProgressView()
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, DS.Space.s4)
+        } else if !canLoadMore, feed.count > 20 {
+            SectionFootnote("You're all caught up.")
+        }
+    }
+
+    private func reload() async {
+        let page = await svc.crewFeedPage(code: crew.code)
+        feed = feed.mergingFirstPage(page)
+    }
+
+    private func loadMoreIfNeeded(after post: CommunityService.CrewPost) {
+        guard canLoadMore, !loadingMore, post.id == feed.last?.id else { return }
+        loadingMore = true
+        Task {
+            let page = await svc.crewFeedPage(code: crew.code, before: feed.last?.caughtAt)
+            let ids = Set(feed.map(\.id))
+            feed.append(contentsOf: page.filter { !ids.contains($0.id) })
+            canLoadMore = page.count == pageSize
+            loadingMore = false
+        }
+    }
+}
+
+extension Array where Element == CommunityService.CrewPost {
+    /// Replaces the newest page in place, keeping any older posts already
+    /// loaded (dropping posts the server no longer returns for that window).
+    fileprivate func mergingFirstPage(_ page: [CommunityService.CrewPost]) -> [CommunityService.CrewPost] {
+        let oldest = page.last?.caughtAt ?? .distantPast
+        let ids = Set(page.map(\.id))
+        return page + filter { !ids.contains($0.id) && $0.caughtAt < oldest }
+    }
+}
+
 // MARK: - Crew settings (identity, members, roles)
 
 struct CrewSettingsView: View {
