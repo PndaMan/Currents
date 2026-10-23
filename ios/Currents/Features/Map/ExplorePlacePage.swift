@@ -33,6 +33,7 @@ struct ExplorePlacePage: View {
 
     @State private var showingPlan = false
     @State private var showingEdit = false
+    @State private var showingLog = false
     @State private var confirmingRemove = false
     @State private var confirmingDelete = false
     @State private var shareImage: UIImage?
@@ -201,7 +202,7 @@ struct ExplorePlacePage: View {
 
                 if let spot = savedSpot {
                     aboutSpot(spot)
-                    spotActions
+                    spotActions(spot)
                 }
 
                 if let desc = waterbody?.description, !desc.isEmpty {
@@ -233,6 +234,7 @@ struct ExplorePlacePage: View {
         }
         .task { await load() }
         .sheet(isPresented: $showingPlan) { PlanSessionSheet() }
+        .fullScreenCover(isPresented: $showingLog, onDismiss: reloadCatches) { logSheet }
         .sheet(isPresented: $showingEdit) {
             if let spot {
                 EditSpotSheet(spot: spot) { updated in
@@ -369,11 +371,7 @@ struct ExplorePlacePage: View {
         return ArtRow(title: title + length,
                       subtitle: ExploreFormat.shortDate(detail.catchRecord.caughtAt),
                       chevron: true) {
-            if let sp = detail.species {
-                ThumbView(species: sp, size: 56)
-            } else {
-                ThumbView(systemImage: "fish.fill", tint: DS.accent, size: 56)
-            }
+            CatchThumb(detail: detail, size: 56)
         }
     }
 
@@ -399,10 +397,16 @@ struct ExplorePlacePage: View {
         }
     }
 
-    private var spotActions: some View {
+    private func spotActions(_ spot: Spot) -> some View {
         section {
             Button { showingEdit = true } label: {
                 ExploreActionRow(title: "Edit spot", systemImage: "pencil")
+            }
+            .buttonStyle(.dsRow)
+            NavigationLink {
+                SpotAlertsView(spot: spot)
+            } label: {
+                ExploreActionRow(title: "Notifications", systemImage: "bell")
             }
             .buttonStyle(.dsRow)
             Button { generateShareCard() } label: {
@@ -637,17 +641,24 @@ struct ExplorePlacePage: View {
         if closing { dismiss() }
     }
 
+    /// The log opens over this page, filed under the saved spot, or pinned
+    /// to the place when it is not saved.
     private func logCatch() {
-        guard style == .sheet else {
-            AppState.shared?.pendingDeepLink = URL(string: "currents://log")
-            return
+        showingLog = true
+    }
+
+    @ViewBuilder
+    private var logSheet: some View {
+        if let spot = savedSpot {
+            LogCatchView(presetSpot: spot)
+        } else {
+            LogCatchView(presetCoordinate: coord)
         }
-        // The log sheet comes from the app shell, so this sheet goes first.
-        dismiss()
-        Task {
-            try? await Task.sleep(for: .milliseconds(400))
-            AppState.shared?.pendingDeepLink = URL(string: "currents://log")
-        }
+    }
+
+    private func reloadCatches() {
+        guard let spot = savedSpot else { return }
+        catches = (try? appState.catchRepository.fetchForSpot(spot.id)) ?? []
     }
 
     private func generateShareCard() {

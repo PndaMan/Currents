@@ -35,13 +35,23 @@ struct LogCatchView: View {
     @ScaledMetric(relativeTo: .largeTitle) private var numeralSize: CGFloat = 40
 
     /// New catch. `presetSpecies` opens the composer with that species chosen
-    /// and skips the camera (used from a species page).
-    init(groupCodeOverride: String? = nil, presetSpecies: Species? = nil) {
+    /// and skips the camera (used from a species page). From a place page,
+    /// `presetSpot` files the catch under that saved spot and
+    /// `presetCoordinate` pins it to an unsaved place such as a water.
+    init(groupCodeOverride: String? = nil, presetSpecies: Species? = nil,
+         presetSpot: Spot? = nil, presetCoordinate: CLLocationCoordinate2D? = nil) {
         self.groupCodeOverride = groupCodeOverride
         self.presetSpecies = presetSpecies
         self.editing = nil
         self.onEditSave = nil
         _showingCamera = State(initialValue: presetSpecies == nil)
+        if let presetSpot {
+            _selectedSpotId = State(initialValue: presetSpot.id)
+            _locationMode = State(initialValue: .spot)
+        } else if let presetCoordinate {
+            _pinCoordinate = State(initialValue: presetCoordinate)
+            _locationMode = State(initialValue: .pin)
+        }
     }
 
     /// Edit an existing catch. `onSave` receives the updated record to persist
@@ -1338,7 +1348,8 @@ struct LogCatchView: View {
             if selectedTripId == nil {
                 selectedTripId = allTrips.first(where: { $0.endDate == nil })?.id
             }
-            if let loc = appState.locationManager.currentLocation {
+            // A place page's pin stays where it was put.
+            if pinCoordinate == nil, let loc = appState.locationManager.currentLocation {
                 pinCoordinate = loc.coordinate
             }
             if let presetSpecies {
