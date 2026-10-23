@@ -8,10 +8,17 @@ struct CurrentsApp: App {
     /// System, light or dark, chosen in Settings > Appearance.
     @AppStorage("appearanceMode") private var appearanceMode = AppearanceMode.dark.rawValue
     @Environment(\.scenePhase) private var scenePhase
+    /// The opening animation plays once per launch, never in screenshot mode.
+    @State private var showsLaunch = !ScreenshotSupport.isActive
 
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .overlay {
+                    if showsLaunch {
+                        LaunchAnimation { showsLaunch = false }
+                    }
+                }
                 .environment(appState)
                 .preferredColorScheme((AppearanceMode(rawValue: appearanceMode) ?? .dark).colorScheme)
                 .tint(ThemeOption(rawValue: selectedTheme)?.primary ?? .blue)
