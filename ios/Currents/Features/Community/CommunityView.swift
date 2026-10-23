@@ -888,7 +888,7 @@ struct TitleFlairChip: View {
             showingBadge = true
         } label: {
             if let flair {
-                TitleBadge(flair: flair, subtitle: "Unlocked by \(flair.achievement)") {
+                TitleBadge(flair: flair, subtitle: flair.unlockLine) {
                     Image(systemName: "chevron.right")
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.dsText3)
@@ -1246,7 +1246,7 @@ struct TitleFlairPickerSheet: View {
                         selection = flair.name
                         dismiss()
                     } label: {
-                        TitleBadge(flair: flair, subtitle: "Unlocked by \(flair.achievement)", medallionSize: 48) {
+                        TitleBadge(flair: flair, subtitle: flair.unlockLine, medallionSize: 48) {
                             if selected?.id == flair.id { checkmark }
                         }
                     }

@@ -560,7 +560,24 @@ enum ScreenshotSupport {
                 localPhotoPath: nil, hasRemotePhoto: photo != nil, coordinate: nil)
             return CommunityService.LeaderRowDTO(row)
         }
-        CommunityDiskCache.save(rows, key: "leadercatches")
+        // Smaller fish without photos, so the most fish board is a close race
+        // (the logbook has about 40) while the photo grids keep the big ones.
+        let totals = ["REEF07": 37, "TIDE22": 33, "KLIP31": 28, "VLEI18": 23, "BREE09": 19]
+        var filler: [CommunityService.LeaderRowDTO] = []
+        for (code, total) in totals.sorted(by: { $0.key < $1.key }) {
+            let mine = demoLeaderCatches.filter { $0.code == code }
+            guard let first = mine.first else { continue }
+            for n in 0..<max(0, total - mine.count) {
+                let row = CommunityService.LeaderRow(
+                    id: "leader-demo-\(code)-\(n)", anglerName: angler(code).name, friendCode: code,
+                    species: first.species, weightKg: 0.6 + Double(n % 5) * 0.12, lengthCm: 30 + Double(n % 7),
+                    catchCount: nil, region: "Western Cape",
+                    date: Date(timeIntervalSinceNow: -Double(2 + n * 2) * 86_400),
+                    localPhotoPath: nil, hasRemotePhoto: false, coordinate: nil)
+                filler.append(CommunityService.LeaderRowDTO(row))
+            }
+        }
+        CommunityDiskCache.save(rows + filler, key: "leadercatches")
     }
 
     private static var demoTournament: CommunityService.Tournament {

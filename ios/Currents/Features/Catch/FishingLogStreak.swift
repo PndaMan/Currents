@@ -44,6 +44,12 @@ struct TitleFlair: Identifiable {
     let icon: String          // the achievement's symbol, for the detail modal
     var id: String { achievement }
 
+    /// The line under a worn title; nothing when the title is the
+    /// achievement's own name.
+    var unlockLine: String? {
+        name == achievement ? nil : "Unlocked by \(achievement)"
+    }
+
     /// The unlocking badge, for BadgeDetailView. `earned: true` because a worn
     /// title is proof of unlock by definition.
     var badge: BadgeDefinition {

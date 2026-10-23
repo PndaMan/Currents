@@ -86,7 +86,7 @@ struct TodayTab: View {
     }
 
     private var locationOff: Bool {
-        selectedSpot == nil && !appState.locationManager.isAuthorized
+        selectedSpot == nil && !appState.locationManager.isAuthorized && !ScreenshotSupport.isActive
     }
 
     // MARK: - Body
