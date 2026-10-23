@@ -10,7 +10,6 @@ struct AlertSettingsView: View {
     @AppStorage("lowStockAlerts") private var lowStockAlerts = true
     /// Read by `NotificationManager.scheduleColdStreakNudge`.
     @AppStorage("coldStreakNudges") private var coldStreakNudges = true
-    @State private var titleShown = false
 
     @State private var permissionStatus: UNAuthorizationStatus = .notDetermined
     @State private var spots: [Spot] = []
@@ -55,118 +54,31 @@ struct AlertSettingsView: View {
     }
 
     var body: some View {
-        List {
-            Section {
-                DetailHeader(title: "Notifications", subtitle: "Only what you turn on. No marketing, ever.")
-                    .padding(.bottom, DS.Space.s2)
-                    .pfBareRow()
-                PFNotice(systemImage: allowed ? "bell.badge.fill" : "bell.slash.fill",
-                         tint: allowed ? .dsScoreGood : .dsScoreLow,
-                         title: permissionTitle, message: permissionDetail) {
-                    if permissionStatus == .notDetermined {
-                        Button("Allow") {
-                            Task {
-                                let granted = await NotificationManager.shared.requestPermission()
-                                permissionStatus = granted ? .authorized : .denied
-                            }
-                        }
-                        .buttonStyle(TonalButtonStyle(fullWidth: false))
-                    } else if let url = URL(string: UIApplication.openSettingsURLString) {
-                        Link("Change", destination: url)
-                            .font(.subheadline.weight(.semibold))
-                    }
-                }
-                .pfBareRow()
-            }
-
-            Section {
-                PFToggleRow(title: "Bite window opens", detail: "When a window at a saved spot reaches your score",
-                            systemImage: "fish.fill", color: .green, isOn: $alertsEnabled)
+        TodayPage("Notifications", subtitle: "Only what you turn on.") {
+            permissionNotice
+            CardSection("Bite") {
+                CardToggleRow("Bite window opens", subtitle: "A saved spot reaches your score",
+                              systemImage: "fish.fill", tint: .blue, isOn: $alertsEnabled)
                     .onChange(of: alertsEnabled) { _, on in alertTypeChanged(on) }
-                PFToggleRow(title: "Heads-up", detail: "About 45 minutes before that window",
-                            systemImage: "alarm.fill", color: .orange, isOn: $primeWindowAlerts)
+                CardToggleRow("Heads-up", subtitle: "45 minutes before that window",
+                              systemImage: "alarm.fill", tint: .orange, isOn: $primeWindowAlerts)
                     .onChange(of: primeWindowAlerts) { _, on in alertTypeChanged(on) }
-                PFToggleRow(title: "Slow bite nudge", detail: "After 45 minutes with no catch in a session",
-                            systemImage: "timer", color: .cyan, isOn: $coldStreakNudges)
-            } header: {
-                Text("Bite")
+                CardToggleRow("Slow bite nudge", subtitle: "45 minutes in a session with no catch",
+                              systemImage: "timer", tint: .cyan, isOn: $coldStreakNudges)
             }
-            .pfRows()
-
-            Section {
-                VStack(alignment: .leading, spacing: DS.Space.s2) {
-                    HStack {
-                        Text("Tell me at")
-                            .foregroundStyle(.dsText)
-                        Text("\(Int(alertThreshold))")
-                            .font(.body.weight(.semibold))
-                            .monospacedDigit()
-                            .contentTransition(.numericText())
-                            .foregroundStyle(DS.scoreInk(Int(alertThreshold)))
-                        Text("or more")
-                            .foregroundStyle(.dsText)
-                    }
-                    Slider(value: $alertThreshold, in: 50...95, step: 5, onEditingChanged: { editing in
-                        if !editing { Task { await reschedule() } }
-                    })
-                    .accessibilityLabel("Alert threshold")
-                        .accessibilityValue("\(Int(alertThreshold))")
-                }
-                .padding(.vertical, DS.Space.s1)
-                .haptic(.selection, trigger: alertThreshold)
-            } header: {
-                Text("Default score")
-            } footer: {
-                Text("A window has to reach this score to alert. Lower means more alerts. Each spot can have its own.")
+            thresholdSection
+            spotsSection
+            CardSection("Kit", note: "Licence reminders start a month before expiry.") {
+                CardToggleRow("Low tackle box stock", subtitle: "An item hits its reminder level",
+                              systemImage: "shippingbox.fill", tint: .orange, isOn: $lowStockAlerts)
             }
-            .pfRows()
-
-            Section {
-                if spots.isEmpty {
-                    ContentUnavailableView("No saved spots", systemImage: "mappin.slash",
-                        description: Text("Save a spot to get bite alerts for it."))
-                } else {
-                    ForEach(spots) { spot in
-                        NavigationLink {
-                            SpotAlertsView(spot: spot)
-                        } label: {
-                            spotRow(spot)
-                        }
-                    }
-                }
-            } header: {
-                HStack {
-                    Text("Spots")
-                    if isLoadingScores {
-                        Spacer()
-                        ProgressView().controlSize(.small)
-                    }
-                }
-            }
-            .pfRows()
-
-            Section {
-                PFToggleRow(title: "Low tackle box stock", detail: "When an item drops to its reminder level",
-                            systemImage: "shippingbox.fill", color: .orange, isOn: $lowStockAlerts)
-            } header: {
-                Text("Kit")
-            } footer: {
-                Text("Licence reminders start a month before expiry.")
-            }
-            .pfRows()
-
             if svc.joined {
                 crewSection
             }
-
             if Self.showsDiagnostics {
                 diagnostics
             }
         }
-        .pfGroupedList()
-        .detailTint(nil)
-        .pfTrackScroll($titleShown)
-        .pfScrollTitle("Notifications", shown: titleShown)
         .task {
             permissionStatus = await NotificationManager.shared.checkPermissionStatus()
             spots = (try? appState.spotRepository.fetchAll()) ?? []
@@ -184,9 +96,9 @@ struct AlertSettingsView: View {
     /// Friend requests and trip invites arrive by push. When that has stopped
     /// working, one button sets it up again.
     private var crewSection: some View {
-        Section {
+        CardSection("Crew") {
             HStack(spacing: 14) {
-                PFIcon(systemImage: "person.2.fill", color: .blue)
+                TintIcon(systemImage: "person.2.fill", tint: .blue)
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Friend requests and invites")
                         .foregroundStyle(.dsText)
@@ -214,12 +126,87 @@ struct AlertSettingsView: View {
                     .disabled(busyPush || !allowed)
                 }
             }
+            .padding(.horizontal, DS.Space.s4)
+            .padding(.vertical, 10)
             .accessibilityElement(children: .contain)
-        } header: {
-            Text("Crew")
         }
-        .pfRows()
         .id(pushTick)
+    }
+
+    // MARK: - Sections
+
+    private var permissionNotice: some View {
+        PFNotice(systemImage: allowed ? "bell.badge.fill" : "bell.slash.fill",
+                 tint: allowed ? .dsScoreGood : .dsScoreLow,
+                 title: permissionTitle, message: permissionDetail) {
+            if permissionStatus == .notDetermined {
+                Button("Allow") {
+                    Task {
+                        let granted = await NotificationManager.shared.requestPermission()
+                        permissionStatus = granted ? .authorized : .denied
+                    }
+                }
+                .buttonStyle(TonalButtonStyle(fullWidth: false))
+            } else if let url = URL(string: UIApplication.openSettingsURLString) {
+                Link("Change", destination: url)
+                    .font(.subheadline.weight(.semibold))
+            }
+        }
+    }
+
+    /// The default score as a big number with its ring, then the slider.
+    private var thresholdSection: some View {
+        CardSection("Default score", note: "Each spot can set its own.") {
+            VStack(alignment: .leading, spacing: DS.Space.s3) {
+                HStack(spacing: 14) {
+                    ScoreRing(score: Int(alertThreshold), size: 44)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Alert at \(Int(alertThreshold)) or more")
+                            .font(.body.weight(.medium))
+                            .foregroundStyle(.dsText)
+                            .contentTransition(.numericText())
+                        Text("Lower means more alerts")
+                            .font(.subheadline)
+                            .foregroundStyle(.dsText2)
+                    }
+                }
+                Slider(value: $alertThreshold, in: 50...95, step: 5, onEditingChanged: { editing in
+                    if !editing { Task { await reschedule() } }
+                })
+                .accessibilityLabel("Alert threshold")
+                .accessibilityValue("\(Int(alertThreshold))")
+            }
+            .padding(DS.Space.s4)
+            .haptic(.selection, trigger: alertThreshold)
+        }
+    }
+
+    private var spotsSection: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            SectionTitle("Spots", detail: spots.isEmpty ? nil : "\(spots.count)")
+                .overlay(alignment: .trailing) {
+                    if isLoadingScores {
+                        ProgressView()
+                            .controlSize(.small)
+                            .padding(.trailing, DS.gutter)
+                            .padding(.bottom, DS.Space.s2)
+                    }
+                }
+            if spots.isEmpty {
+                InlineEmpty(systemImage: "mappin.slash", text: "Save a spot to get bite alerts for it.")
+            } else {
+                CardGroup(separatorInset: 74) {
+                    ForEach(spots) { spot in
+                        NavigationLink {
+                            SpotAlertsView(spot: spot)
+                        } label: {
+                            spotRow(spot)
+                        }
+                        .buttonStyle(.dsCardRow)
+                    }
+                }
+            }
+        }
     }
 
     // MARK: - Diagnostics
@@ -319,17 +306,16 @@ struct AlertSettingsView: View {
             }
             Spacer(minLength: 8)
             if let score = spotScores[spot.id] {
-                Text("\(score)")
-                    .font(.subheadline.weight(.semibold))
-                    .monospacedDigit()
-                    .foregroundStyle(DS.scoreInk(score))
+                ScoreRing(score: score, size: 36)
                     .accessibilityLabel("Score now \(score)")
-            } else if !isLoadingScores {
-                Text("No data")
-                    .font(.subheadline)
-                    .foregroundStyle(.dsText3)
             }
+            Image(systemName: "chevron.right")
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(.dsText3)
         }
+        .padding(.horizontal, DS.Space.s4)
+        .padding(.vertical, 10)
+        .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
     }
 
