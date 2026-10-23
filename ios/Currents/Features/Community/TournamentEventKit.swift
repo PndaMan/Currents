@@ -291,6 +291,138 @@ struct EventAvatarStack: View {
     }
 }
 
+// MARK: - Podium
+
+struct EventPodiumEntry: Identifiable {
+    let id: String
+    let name: String
+    let value: String
+    var unit: String? = nil
+    var images: [UIImage?] = []
+    var isMe = false
+}
+
+/// The top three on plinths (2nd, 1st, 3rd) with a crown over the leader.
+/// Entries are keyed by id, so when the order changes under an animation the
+/// anglers slide to their new places and the plinths resize.
+struct EventPodium<Destination: View>: View {
+    let entries: [EventPodiumEntry]
+    let destination: (EventPodiumEntry) -> Destination
+
+    @ScaledMetric(relativeTo: .title2) private var valueSize: CGFloat = 22
+
+    init(entries: [EventPodiumEntry], @ViewBuilder destination: @escaping (EventPodiumEntry) -> Destination) {
+        self.entries = entries
+        self.destination = destination
+    }
+
+    private var slots: [(entry: EventPodiumEntry, place: Int)] {
+        let top = Array(entries.prefix(3))
+        var out: [(entry: EventPodiumEntry, place: Int)] = []
+        if top.count > 1 { out.append((top[1], 2)) }
+        if !top.isEmpty { out.append((top[0], 1)) }
+        if top.count > 2 { out.append((top[2], 3)) }
+        return out
+    }
+
+    var body: some View {
+        HStack(alignment: .bottom, spacing: DS.Space.s2) {
+            ForEach(slots, id: \.entry.id) { slot in
+                NavigationLink {
+                    destination(slot.entry)
+                } label: {
+                    EventPodiumColumn(entry: slot.entry, place: slot.place, valueSize: valueSize)
+                }
+                .buttonStyle(.dim)
+                .accessibilityLabel("\(eventOrdinal(slot.place)), \(slot.entry.name), \(slot.entry.value) \(slot.entry.unit ?? "")")
+            }
+        }
+        .padding(.horizontal, DS.gutter)
+        .padding(.top, DS.Space.s3)
+    }
+}
+
+/// One podium place: crown (first only), ringed avatar, name, value and the
+/// numbered plinth in the medal colour.
+struct EventPodiumColumn: View {
+    let entry: EventPodiumEntry
+    let place: Int
+    var valueSize: CGFloat = 22
+
+    static func medal(_ place: Int) -> Color {
+        switch place {
+        case 1: return .dsScoreFair
+        case 2: return .dsText3 // ui-lint: allow, silver medal
+        default: return .dsScoreLow
+        }
+    }
+
+    private var plinthFill: Color {
+        switch place {
+        case 1: return Color.dsScoreFair.opacity(0.28)
+        case 2: return .dsFill2
+        default: return Color.dsScoreLow.opacity(0.26)
+        }
+    }
+
+    private var plinthHeight: CGFloat {
+        switch place {
+        case 1: return 112
+        case 2: return 80
+        default: return 56
+        }
+    }
+
+    var body: some View {
+        VStack(spacing: DS.Space.s1) {
+            Image(systemName: "crown.fill")
+                .font(.title3)
+                .foregroundStyle(Color.dsScoreFair)
+                .opacity(place == 1 ? 1 : 0)
+            EventAvatarStack(images: entry.images, size: place == 1 ? 76 : 62, ring: Self.medal(place))
+                .padding(.bottom, DS.Space.s1)
+            Text(entry.isMe ? "\(entry.name) (you)" : entry.name)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(Color.dsText)
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+                .minimumScaleFactor(0.8)
+            valueLine
+            plinth
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private var valueLine: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 3) {
+            Text(entry.value)
+                .font(.system(size: valueSize, weight: .bold, design: .rounded)) // ui-lint: allow, podium numeral scaled with @ScaledMetric
+                .monospacedDigit()
+                .contentTransition(.numericText())
+            if let unit = entry.unit {
+                Text(unit).font(.subheadline).foregroundStyle(Color.dsText2)
+            }
+        }
+        .foregroundStyle(Color.dsText)
+        // Three columns share the width; big numbers shrink, never wrap.
+        .lineLimit(1)
+        .minimumScaleFactor(0.5)
+    }
+
+    private var plinth: some View {
+        UnevenRoundedRectangle(topLeadingRadius: DS.Radius.button, topTrailingRadius: DS.Radius.button,
+                               style: .continuous)
+            .fill(plinthFill)
+            .frame(height: plinthHeight)
+            .overlay(alignment: .top) {
+                Text("\(place)")
+                    .font(.title2.bold())
+                    .foregroundStyle(Color.dsText)
+                    .padding(.top, DS.Space.s2)
+            }
+    }
+}
+
 // MARK: - Rank row
 
 /// A ranked row: number, avatar, name with a subtitle, value on the right.
