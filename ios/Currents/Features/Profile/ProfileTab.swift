@@ -68,6 +68,7 @@ struct SettingsView: View {
                     header
                     profileActions
                 }
+                GameCenterSection()
                 kitSection
                 settingsSection
                 CardSection {
