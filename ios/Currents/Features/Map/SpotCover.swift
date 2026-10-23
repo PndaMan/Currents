@@ -274,7 +274,7 @@ struct SpotPictureField: View {
         switch draft.cover {
         case .map: "Map"
         case .photo: "Your photo"
-        case .collage: "Catch collage"
+        case .collage: catchPhotos == 0 ? "Map" : "Catch collage"
         }
     }
 
@@ -282,7 +282,12 @@ struct SpotPictureField: View {
         switch draft.cover {
         case .map: "Where the spot is"
         case .photo: "From your library"
-        case .collage: catchPhotos == 1 ? "Your catch photo here" : "Your latest \(min(catchPhotos, 4)) catch photos here"
+        case .collage:
+            switch catchPhotos {
+            case 0: "Turns into a collage of your catch photos here"
+            case 1: "Your catch photo here"
+            default: "Your latest \(min(catchPhotos, 4)) catch photos here"
+            }
         }
     }
 

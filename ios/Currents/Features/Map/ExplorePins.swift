@@ -181,10 +181,12 @@ struct PinArt: View {
         switch feature {
         case .spot(let spot):
             card {
-                if let topSpecies {
-                    ThumbView(species: topSpecies, size: size)
-                } else {
-                    ThumbView(systemImage: spot.type.icon, tint: DS.accent, size: size)
+                SpotPinFace(cover: SpotCover(spot), size: size, cornerRadius: cardRadius) {
+                    if let topSpecies {
+                        ThumbView(species: topSpecies, size: size)
+                    } else {
+                        ThumbView(systemImage: spot.type.icon, tint: DS.accent, size: size)
+                    }
                 }
             }
         case .catchPin(let c):
@@ -208,6 +210,40 @@ struct PinArt: View {
                     .stroke(Color.white, lineWidth: 2.5)
             )
             .mapPinShadow()
+    }
+}
+
+/// A spot pin's face: the spot's picture (its catch collage by default, or
+/// the photo it was given), or the species art until there is one.
+private struct SpotPinFace<Fallback: View>: View {
+    let cover: SpotCover?
+    let size: CGFloat
+    let cornerRadius: CGFloat
+    @ViewBuilder let fallback: () -> Fallback
+    @Environment(\.displayScale) private var displayScale
+    @State private var loaded: UIImage?
+
+    private var image: UIImage? {
+        guard let cover else { return nil }
+        return loaded ?? SpotCovers.cached(cover, scale: displayScale)
+    }
+
+    var body: some View {
+        Group {
+            if let image {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: size, height: size)
+                    .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            } else {
+                fallback()
+            }
+        }
+        .task(id: cover?.id) {
+            guard let cover else { loaded = nil; return }
+            loaded = await SpotCovers.image(for: cover, scale: displayScale)
+        }
     }
 }
 

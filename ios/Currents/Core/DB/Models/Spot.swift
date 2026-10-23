@@ -67,14 +67,16 @@ struct Spot: Codable, Identifiable, Sendable {
         case map, photo, collage
     }
 
-    /// Typed accessor over the raw `coverStyle` column. A value this version
-    /// does not know, or a photo choice with no photo, reads as the map.
+    /// Typed accessor over the raw `coverStyle` column. A spot that never
+    /// chose, a value this version does not know, or a photo choice with no
+    /// photo reads as the collage of its catch photos, which itself shows the
+    /// map until there is a catch photo. The map is stored by name.
     var cover: Cover {
         get {
-            let style = coverStyle.flatMap(Cover.init(rawValue:)) ?? .map
-            return style == .photo && coverPhotoPath == nil ? .map : style
+            let style = coverStyle.flatMap(Cover.init(rawValue:)) ?? .collage
+            return style == .photo && coverPhotoPath == nil ? .collage : style
         }
-        set { coverStyle = newValue == .map ? nil : newValue.rawValue }
+        set { coverStyle = newValue.rawValue }
     }
 
     init(
