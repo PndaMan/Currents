@@ -1,10 +1,11 @@
 import SwiftUI
 import MapKit
 
-/// A catch's page: cover, title block, Share / Edit / Favourite, then grouped
-/// rows for the catch itself, the conditions at the time and the gear, the
-/// size and bag rules, notes, the map and spot, and links to its session and
-/// Fishdex entry. Tinted with the species' art colour.
+/// A catch's page, laid out like an activity in Strava: the photo edge to
+/// edge under the navigation bar, the species and when it was caught, the
+/// measurements as a stat grid, Share / Edit / Favourite, then where it was
+/// caught, the conditions at the time, the gear, notes, and links to its
+/// session and Fishdex entry. Tinted with the species' art colour.
 struct CatchDetailView: View {
     @Environment(AppState.self) private var appState
     @AppStorage("units") private var units = "metric"
@@ -20,6 +21,7 @@ struct CatchDetailView: View {
     @State private var carouselIndex = 0
     @State private var isFavorite = false
     @State private var photos: [UIImage] = []
+    @State private var photosLoaded = false
     @State private var speciesCatchCount = 0
     @State private var isPersonalBest = false
 
@@ -29,6 +31,8 @@ struct CatchDetailView: View {
 
     private var record: Catch { detail.catchRecord }
     private var speciesName: String { detail.species?.commonName ?? "Unknown species" }
+    private var hasPhotos: Bool { !record.allPhotoPaths.isEmpty }
+    private var tint: Color { detail.species?.artTint ?? DS.accent }
 
     var body: some View {
         ScrollView {
@@ -37,8 +41,7 @@ struct CatchDetailView: View {
                 .pageWidth()
         }
         .detailTint(detail.species?.artTint)
-        .navigationTitle(speciesName)
-        .navigationBarTitleDisplayMode(.inline)
+        .modifier(CatchHeroChrome(title: speciesName, heroFactor: CatchHero.factor(hasPhoto: hasPhotos)))
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) { moreMenu }
         }
@@ -74,32 +77,19 @@ struct CatchDetailView: View {
 
     private var content: some View {
         VStack(alignment: .leading, spacing: 0) {
-            cover
-                .padding(.horizontal, DS.gutter)
-                .padding(.top, DS.Space.s2)
-
-            DetailHeader(over: "\(LogbookFormat.longDay(record.caughtAt)), \(LogbookFormat.time(record.caughtAt))",
-                         title: speciesName,
-                         subtitle: detail.species?.scientificName)
+            hero
+            header
                 .padding(.top, DS.Space.s4)
-
-            if isPersonalBest {
-                Label("Personal best", systemImage: "trophy.fill")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.dsText)
-                    .padding(.horizontal, DS.gutter)
-                    .padding(.top, DS.Space.s2)
-            }
-
+            statsBlock
+                .padding(.top, DS.Space.s6)
             actions
-                .padding(.top, DS.Space.s5)
+                .padding(.top, DS.Space.s6)
 
-            catchSection
             regulationNote
+            whereSection
             conditionsSection
             gearSection
             notesSection
-            spotSection
             linksSection
             predictionsSection
 
@@ -109,6 +99,75 @@ struct CatchDetailView: View {
             .padding(.top, DS.Space.s8)
         }
     }
+
+    // MARK: - Hero and header
+
+    private var hero: some View {
+        CatchHero(photos: photos,
+                  index: $carouselIndex,
+                  species: detail.species,
+                  showsPhotos: hasPhotos,
+                  isLoading: hasPhotos && !photosLoaded,
+                  open: { showingPhotoViewer = true },
+                  addPhoto: { showingEdit = true })
+    }
+
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            DetailHeader(over: "\(LogbookFormat.longDay(record.caughtAt)), \(LogbookFormat.time(record.caughtAt))",
+                         title: speciesName,
+                         subtitle: detail.species?.scientificName)
+            CatchFactsLine(facts: facts)
+                .padding(.top, DS.Space.s3)
+        }
+    }
+
+    private var facts: [CatchFact] {
+        var list: [CatchFact] = []
+        if isPersonalBest {
+            list.append(CatchFact(systemImage: "trophy.fill", text: "Personal best", tint: DS.accent))
+        }
+        if record.released {
+            list.append(CatchFact(systemImage: "arrow.uturn.backward", text: "Released"))
+        } else {
+            list.append(CatchFact(systemImage: "basket", text: "Kept"))
+        }
+        return list
+    }
+
+    // MARK: - Stats
+
+    private var stats: [CatchStat] {
+        var list: [CatchStat] = []
+        if let kg = record.weightKg {
+            list.append(CatchStat("Weight", measured: Units.weight(kg: kg, imperial: imperial)))
+        }
+        if let cm = record.lengthCm {
+            list.append(CatchStat("Length", measured: Units.length(cm: cm, imperial: imperial)))
+        }
+        if let depth = record.depthM {
+            list.append(CatchStat("Depth", measured: Units.depth(m: depth, imperial: imperial)))
+        }
+        if let score = record.forecastScoreAtCapture {
+            list.append(CatchStat("Bite score", value: "\(score)", unit: "of 100"))
+        }
+        return list
+    }
+
+    @ViewBuilder
+    private var statsBlock: some View {
+        let measured = stats
+        if measured.isEmpty {
+            InlineEmpty(systemImage: "ruler", text: "No weight or length logged for this one.",
+                        actionTitle: "Add size") {
+                showingEdit = true
+            }
+        } else {
+            CatchStatGrid(stats: measured)
+        }
+    }
+
+    // MARK: - Actions
 
     private var actions: some View {
         ActionTriple {
@@ -205,6 +264,8 @@ struct CatchDetailView: View {
         }
         let paths = record.allPhotoPaths
         photos = await Task.detached { paths.compactMap { PhotoManager.load($0) } }.value
+        if carouselIndex >= photos.count { carouselIndex = 0 }
+        photosLoaded = true
     }
 
     private func toggleFavorite() {
@@ -234,80 +295,6 @@ struct CatchDetailView: View {
             }
             isGeneratingShareCard = false
         }
-    }
-
-    // MARK: - Cover
-
-    @ViewBuilder
-    private var cover: some View {
-        if photos.count > 1 {
-            TabView(selection: $carouselIndex) {
-                ForEach(Array(photos.enumerated()), id: \.offset) { index, image in
-                    coverPhoto(image)
-                        .tag(index)
-                }
-            }
-            .tabViewStyle(.page)
-            .frame(height: 340)
-            .clipShape(RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
-        } else if let image = photos.first {
-            coverPhoto(image)
-                .frame(height: 340)
-                .clipShape(RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
-        } else if let species = detail.species {
-            // No photo: the species art on its colour, so the catch still
-            // reads visually.
-            SpeciesArtworkView(species: species, caught: true, size: 200)
-                .frame(maxWidth: .infinity)
-                .frame(height: 240)
-                .background(species.artTint.opacity(0.18),
-                            in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
-        }
-    }
-
-    private func coverPhoto(_ image: UIImage) -> some View {
-        Color.clear
-            .overlay {
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFill()
-            }
-            .clipped()
-            .contentShape(Rectangle())
-            .onTapGesture { showingPhotoViewer = true }
-            .accessibilityElement()
-            .accessibilityLabel("Photo of the catch")
-            .accessibilityAddTraits(.isButton)
-            .accessibilityHint("Opens the photo full screen")
-    }
-
-    // MARK: - The catch
-
-    private var catchRows: [KeyValueList.Row] {
-        var rows: [KeyValueList.Row] = []
-        if let cm = record.lengthCm {
-            rows.append(.init(label: "Length", value: Units.length(cm: cm, imperial: imperial)))
-        }
-        if let kg = record.weightKg {
-            rows.append(.init(label: "Weight", value: Units.weight(kg: kg, imperial: imperial)))
-        }
-        rows.append(.init(label: "Caught", value: "\(LogbookFormat.shortDay(record.caughtAt)), \(LogbookFormat.time(record.caughtAt))"))
-        rows.append(.init(label: "Kept or released", value: record.released ? "Released" : "Kept"))
-        if let score = record.forecastScoreAtCapture {
-            rows.append(.init(label: "Bite score", value: "\(score) of 100"))
-        }
-        if let confidence = record.mlConfidence {
-            rows.append(.init(label: "Identified on your phone", value: "\(Int((confidence * 100).rounded()))%"))
-        }
-        return rows
-    }
-
-    private var catchSection: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            SectionTitle("The catch")
-            KeyValueList(rows: catchRows)
-        }
-        .padding(.top, DS.Space.s8)
     }
 
     // MARK: - Regulation
@@ -348,31 +335,14 @@ struct CatchDetailView: View {
                 return parts.joined(separator: " ")
             }()
             if !text.isEmpty {
-                HStack(alignment: .top, spacing: 10) {
-                    Image(systemName: warn ? "exclamationmark.triangle.fill" : "checkmark.seal.fill")
-                        .foregroundStyle(warn ? Color.dsScoreSlow : Color.dsScoreGood)
-                        .font(.body)
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(text)
-                            .font(.subheadline)
-                            .foregroundStyle(.dsText)
-                        Text("Check local rules before you keep a fish.")
-                            .font(.footnote)
-                            .foregroundStyle(.dsText2)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .padding(14)
-                .background((warn ? Color.dsScoreSlow.opacity(0.12) : Color.dsFill),
-                            in: RoundedRectangle(cornerRadius: DS.Radius.button, style: .continuous))
-                .padding(.horizontal, DS.gutter)
-                .padding(.top, DS.Space.s4)
-                .accessibilityElement(children: .combine)
+                RegulationNote(text: text, warn: warn)
+                    .padding(.horizontal, DS.gutter)
+                    .padding(.top, DS.Space.s5)
             }
         }
     }
 
-    // MARK: - Spot
+    // MARK: - Where
 
     private var hasCoordinate: Bool { record.latitude != 0 || record.longitude != 0 }
 
@@ -380,15 +350,25 @@ struct CatchDetailView: View {
         CLLocationCoordinate2D(latitude: record.latitude, longitude: record.longitude)
     }
 
+    /// Where the fish came from: the catch's own fix, else its spot's.
+    private var placeCoordinate: CLLocationCoordinate2D? {
+        if hasCoordinate { return catchCoordinate }
+        guard let spot = detail.spot else { return nil }
+        return CLLocationCoordinate2D(latitude: spot.latitude, longitude: spot.longitude)
+    }
+
     @ViewBuilder
-    private var spotSection: some View {
-        if hasCoordinate || detail.spot != nil {
+    private var whereSection: some View {
+        if let place = placeCoordinate {
             SectionTitle("Where")
                 .padding(.top, DS.Space.s8)
-            if hasCoordinate {
-                catchMap
-                    .padding(.horizontal, DS.gutter)
+            Button { openOnMap(place) } label: {
+                CatchMapRender(id: "catch-\(record.id)", coordinate: place, tint: tint)
             }
+            .buttonStyle(.dim)
+            .accessibilityLabel("Map of where it was caught")
+            .accessibilityHint("Opens it on the map")
+            .padding(.horizontal, DS.gutter)
             if let spot = detail.spot {
                 // The spot opens on the Explore map in its sheet.
                 Button { appState.pendingDeepLink = MapLink.spot(spot) } label: {
@@ -401,28 +381,19 @@ struct CatchDetailView: View {
                 .buttonStyle(.dsRow)
                 .padding(.top, DS.Space.s2)
             }
-            if hasCoordinate {
-                DirectionsButton(coordinate: catchCoordinate,
-                                 name: detail.spot?.name ?? speciesName)
-                    .padding(.horizontal, DS.gutter)
-                    .padding(.top, DS.Space.s3)
-            }
+            DirectionsButton(coordinate: place, name: detail.spot?.name ?? speciesName)
+                .padding(.horizontal, DS.gutter)
+                .padding(.top, DS.Space.s3)
         }
     }
 
-    private var catchMap: some View {
-        Map(initialPosition: .camera(.init(centerCoordinate: catchCoordinate, distance: 2000))) {
-            Annotation("", coordinate: catchCoordinate) {
-                Image(systemName: "fish.circle.fill")
-                    .font(.title)
-                    .foregroundStyle(.white, detail.species?.artTint ?? DS.accent)
-            }
+    /// The saved spot in its sheet when there is one, otherwise the point.
+    private func openOnMap(_ place: CLLocationCoordinate2D) {
+        if let spot = detail.spot {
+            appState.pendingDeepLink = MapLink.spot(spot)
+        } else {
+            appState.pendingDeepLink = MapLink.point(place, title: speciesName)
         }
-        .mapStyle(.hybrid)
-        .frame(height: 170)
-        .clipShape(RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
-        .allowsHitTesting(false)
-        .accessibilityLabel("Map of where it was caught")
     }
 
     // MARK: - Gear
@@ -473,7 +444,6 @@ struct CatchDetailView: View {
             if let leader = g.leaderLb { rows.append(("Leader", "\(Int(leader)) lb")) }
             if let technique = g.technique, !technique.isEmpty { rows.append(("Technique", technique)) }
         }
-        if let depth = record.depthM { rows.append(("Depth", Units.depth(m: depth, imperial: imperial))) }
         return rows
     }
 
@@ -484,41 +454,49 @@ struct CatchDetailView: View {
         return try? JSONDecoder().decode(WeatherSnapshot.self, from: data)
     }
 
-    private func degrees(_ celsius: Double) -> String {
-        "\(Int((imperial ? celsius * 9 / 5 + 32 : celsius).rounded()))°"
-    }
-
-    private var conditionRows: [KeyValueList.Row] {
+    /// The conditions saved with the catch, plus the tide and moon predicted
+    /// for its place and time. Only what is known; nothing is padded out.
+    private var conditionItems: [ConditionItem] {
         let wx = weather
-        var rows: [KeyValueList.Row] = []
+        var items: [ConditionItem] = []
         if let water = wx?.waterTempC {
-            let note = waterFootnote(water).map { ", \($0.lowercased())" } ?? ""
-            rows.append(.init(label: "Water", value: degrees(water) + note))
+            items.append(ConditionItem(label: "Water", systemImage: "drop.fill", iconTint: .exploreWater,
+                                       value: Units.temperature(water, imperial: imperial),
+                                       footnote: waterFootnote(water)))
         }
         if let air = wx?.temperatureC {
-            let sky = wx?.condition.map { ", \($0.lowercased())" } ?? ""
-            rows.append(.init(label: "Air", value: degrees(air) + sky))
+            let sky = wx?.condition.flatMap { $0.isEmpty ? nil : $0 }
+            items.append(ConditionItem(label: "Air",
+                                       systemImage: sky.map { WeatherIcon(condition: $0).systemName } ?? "thermometer.medium",
+                                       value: Units.temperature(air, imperial: imperial),
+                                       footnote: sky.map { Self.sentenceCase($0) }))
         }
         if let wind = wx?.windSpeedKmh {
-            let speed = "\(Int((imperial ? wind * 0.621371 : wind).rounded())) \(Units.speedSymbol)"
-            let from = wx?.windDirectionDeg.map { ", from the \(Self.compassName($0))" } ?? ""
-            rows.append(.init(label: "Wind", value: speed + from))
+            let speed = CatchStat("Wind", measured: Units.speed(kmh: wind, imperial: imperial))
+            items.append(ConditionItem(label: "Wind", systemImage: "wind",
+                                       value: speed.value, unit: speed.unit,
+                                       footnote: wx?.windDirectionDeg.map { "From the \(Self.compassName($0))" }))
         }
         if let pressure = wx?.pressureHpa {
-            let level = pressure < 1009 ? "low" : (pressure > 1022 ? "high" : "normal")
-            rows.append(.init(label: "Pressure", value: "\(Int(pressure.rounded())) hPa, \(level)"))
+            let level = pressure < 1009 ? "Low" : (pressure > 1022 ? "High" : "Normal")
+            items.append(ConditionItem(label: "Pressure", systemImage: "gauge.with.dots.needle.33percent",
+                                       value: "\(Int(pressure.rounded()))", unit: "hPa", footnote: level))
+        }
+        if let rising = tideRising {
+            items.append(ConditionItem(label: "Tide",
+                                       systemImage: rising ? "water.waves.and.arrow.up" : "water.waves.and.arrow.down",
+                                       iconTint: .exploreWater,
+                                       value: rising ? "Rising" : "Falling", footnote: "Predicted"))
+        }
+        if let solunar {
+            items.append(ConditionItem(label: "Moon", systemImage: solunar.moonPhase.symbolName,
+                                       value: "\(Int((solunar.moonIllumination * 100).rounded()))", unit: "% lit",
+                                       footnote: Self.sentenceCase(solunar.moonPhase.displayName)))
         }
         if let clarity = record.clarity {
-            rows.append(.init(label: "Water clarity", value: clarity.label))
+            items.append(ConditionItem(label: "Water clarity", systemImage: "eye", value: clarity.label))
         }
-        if let tide = tideState {
-            rows.append(.init(label: "Tide", value: tide))
-        }
-        if let solunar = solunar {
-            let lit = Int((solunar.moonIllumination * 100).rounded())
-            rows.append(.init(label: "Moon", value: "\(Self.sentenceCase(solunar.moonPhase.displayName)), \(lit)%"))
-        }
-        return rows
+        return items
     }
 
     private var solunar: SolunarEngine.SolunarDay? {
@@ -526,22 +504,22 @@ struct CatchDetailView: View {
     }
 
     /// Rising or falling at the catch time, predicted for coastal species only.
-    private var tideState: String? {
+    private var tideRising: Bool? {
         let coastal = detail.species?.habitat == .marine || detail.species?.habitat == .brackish
         guard hasCoordinate, coastal else { return nil }
         let tide = TideEngine.predict(date: record.caughtAt, coordinate: catchCoordinate)
         let at = record.caughtAt
         let point = tide.points.min { abs($0.time.timeIntervalSince(at)) < abs($1.time.timeIntervalSince(at)) }
-        return point.map { $0.isRising ? "Rising" : "Falling" }
+        return point?.isRising
     }
 
     @ViewBuilder
     private var conditionsSection: some View {
-        let rows = conditionRows
-        if !rows.isEmpty {
+        let items = conditionItems
+        if !items.isEmpty {
             SectionTitle("Conditions at the time")
                 .padding(.top, DS.Space.s8)
-            KeyValueList(rows: rows)
+            ConditionGrid(items: items)
             SectionFootnote("Saved when you logged it. Tide and moon are predicted for the spot.")
         }
     }
@@ -574,6 +552,7 @@ struct CatchDetailView: View {
             Text(notes)
                 .font(.body)
                 .foregroundStyle(.dsText)
+                .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, DS.gutter)
         } else {
@@ -613,36 +592,114 @@ struct CatchDetailView: View {
                         SpeciesDetailView(species: species)
                     } label: {
                         ArtRow(over: "Fishdex", title: species.commonName,
-                               subtitle: "\(speciesCatchCount) caught", chevron: true) {
+                               subtitle: speciesCatchCount == 1 ? "1 caught" : "\(speciesCatchCount) caught",
+                               chevron: true) {
                             ThumbView(species: species, size: 52)
                         }
                     }
                     .buttonStyle(.dsRow)
                 }
             }
-            .padding(.top, DS.Space.s6)
+            .padding(.top, DS.Space.s8)
         }
     }
 
     // MARK: - Species ID
 
+    private var predictions: [MLPrediction] {
+        guard let json = record.mlTop3, let data = json.data(using: .utf8),
+              let decoded = try? JSONDecoder().decode([MLPrediction].self, from: data) else { return [] }
+        return decoded
+    }
+
     @ViewBuilder
     private var predictionsSection: some View {
-        if let json = record.mlTop3,
-           let data = json.data(using: .utf8),
-           let predictions = try? JSONDecoder().decode([MLPrediction].self, from: data),
-           predictions.count > 1 {
+        let matches = predictions
+        if matches.count > 1 {
             SectionTitle("Species ID")
                 .padding(.top, DS.Space.s8)
-            VStack(spacing: 12) {
-                ForEach(Array(predictions.enumerated()), id: \.offset) { i, p in
+            VStack(spacing: DS.Space.s3) {
+                ForEach(Array(matches.enumerated()), id: \.offset) { i, p in
                     ConfidenceBar(label: p.label, confidence: p.confidence,
-                                  tint: i == 0 ? (detail.species?.artTint ?? DS.accent) : Color.dsText3)
+                                  tint: i == 0 ? tint : Color.dsText3)
                 }
             }
             .padding(.horizontal, DS.gutter)
             SectionFootnote("Identified on your phone when you logged it.")
+        } else if let confidence = record.mlConfidence {
+            SectionTitle("Species ID")
+                .padding(.top, DS.Space.s8)
+            KeyValueList(rows: [("Identified on your phone", "\(Int((confidence * 100).rounded()))%")])
         }
+    }
+}
+
+// MARK: - Conditions grid
+
+/// One condition tile's content.
+private struct ConditionItem: Identifiable {
+    let label: String
+    let systemImage: String
+    var iconTint: Color = .dsText2
+    let value: String
+    var unit: String? = nil
+    var footnote: String? = nil
+    var id: String { label }
+}
+
+/// The conditions as the app's condition tiles, two across (one at
+/// accessibility sizes), as on Today and the spot pages.
+private struct ConditionGrid: View {
+    let items: [ConditionItem]
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    private var columns: [GridItem] {
+        Array(repeating: GridItem(.flexible(), spacing: DS.Space.s3),
+              count: typeSize.isAccessibilitySize ? 1 : 2)
+    }
+
+    var body: some View {
+        LazyVGrid(columns: columns, spacing: DS.Space.s3) {
+            ForEach(items) { item in
+                ConditionTile(item.label, systemImage: item.systemImage, iconTint: item.iconTint,
+                              value: item.value, unit: item.unit, footnote: item.footnote)
+            }
+        }
+        .padding(.horizontal, DS.gutter)
+    }
+}
+
+// MARK: - Regulation note
+
+/// The size and bag rules for this fish, amber when it was outside them.
+private struct RegulationNote: View {
+    let text: String
+    let warn: Bool
+    @Environment(\.colorScheme) private var scheme
+
+    private var fill: Color {
+        warn ? Color.dsScoreSlow.opacity(scheme == .dark ? 0.18 : 0.12) : Color.dsFill
+    }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: DS.Space.s3) {
+            Image(systemName: warn ? "exclamationmark.triangle.fill" : "checkmark.seal.fill")
+                .font(.body)
+                .foregroundStyle(warn ? Color.dsScoreSlow : Color.dsScoreGood)
+            VStack(alignment: .leading, spacing: DS.Space.s1) {
+                Text(text)
+                    .font(.subheadline)
+                    .foregroundStyle(.dsText)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text("Check local rules before you keep a fish.")
+                    .font(.footnote)
+                    .foregroundStyle(.dsText2)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(DS.Space.s4)
+        .background(fill, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
+        .accessibilityElement(children: .combine)
     }
 }
 
