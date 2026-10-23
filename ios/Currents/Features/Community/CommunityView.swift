@@ -421,6 +421,15 @@ struct CommunityView: View {
             } else {
                 friendStrip
             }
+            Button { GameCenter.shared.openLeaderboards() } label: {
+                ArtRow(title: "Game Center leaderboards",
+                       subtitle: GameCenter.shared.isAuthenticated ? "Friends and global rankings"
+                           : "Sign in to Game Center to see rankings",
+                       chevron: true) {
+                    ThumbView(systemImage: "gamecontroller.fill", tint: CrewTint.people)
+                }
+            }
+            .buttonStyle(.dsRow)
         }
     }
 
