@@ -608,14 +608,14 @@ def cmd_pages(api: Client, args) -> int:
                 "POST", "/v1/appCustomProductPages",
                 {"data": {"type": "appCustomProductPages", "attributes": {"name": spec.name},
                           "relationships": {"app": {"data": {"type": "apps", "id": app["id"] if app else "(app)"}},
-                                            "appCustomProductPageVersions": {"data": [{"type": "appCustomProductPageVersions", "id": "${version}"}]},
-                                            # Apple also wants the inline localisation linked from the page itself.
-                                            "appCustomProductPageLocalizations": {"data": [{"type": "appCustomProductPageLocalizations", "id": "${localization}"}]}}},
+                                            "appCustomProductPageVersions": {"data": [{"type": "appCustomProductPageVersions", "id": "${version}"}]}}},
                  "included": [
                      {"type": "appCustomProductPageVersions", "id": "${version}",
                       "relationships": {"appCustomProductPageLocalizations": {"data": [{"type": "appCustomProductPageLocalizations", "id": "${localization}"}]}}},
                      {"type": "appCustomProductPageLocalizations", "id": "${localization}",
-                      "attributes": {"locale": LOCALE, "promotionalText": spec.promotional_text}},
+                      "attributes": {"locale": LOCALE, "promotionalText": spec.promotional_text},
+                      # Inline creates link both ways: version to localisation and back.
+                      "relationships": {"appCustomProductPageVersion": {"data": {"type": "appCustomProductPageVersions", "id": "${version}"}}}},
                  ]},
                 f"create the page with {LOCALE} promotional text {json.dumps(spec.promotional_text, ensure_ascii=False)}",
             )
