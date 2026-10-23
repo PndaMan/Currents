@@ -13,7 +13,7 @@ Keep every catch
 Log a catch in seconds with photos, length, weight, gear, depth and water clarity. Currents identifies the fish from a photo on the device, records the conditions at the time, and strips location data from photos before anything is shared. Track sessions with a route on the map, keep your personal bests, build your Fishdex and keep a fishing streak going.
 
 Fish with your crew
-Start a crew with your fishing friends. Share catches, react and comment, plan group trips and run tournaments with live standings and a podium. Earn achievements and wear the title you unlocked.
+Start a crew with your fishing friends. Share catches, react and comment, plan group trips and run tournaments with live standings and a podium. Earn achievements and wear the title you unlocked. Sign in to Game Center to collect your badges as achievements and compare catches on leaderboards.
 
 On your wrist and Home Screen
 Check the bite and log a catch from Apple Watch. Widgets show today's bite score and give you one-tap logging, and Live Activities keep a session or tournament clock on your Lock Screen.
