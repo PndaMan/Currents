@@ -167,7 +167,7 @@ private struct AchievementsPage: View {
             ContentUnavailableView {
                 Label("No badges yet", systemImage: "medal")
             } description: {
-                Text("Log a catch to earn your first badge. Tap any medal below to see what it takes.")
+                Text("Log a catch to earn your first badge.")
             }
             .padding(.vertical, DS.Space.s4)
         } else {
