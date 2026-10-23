@@ -130,6 +130,7 @@ final class TipJar {
         defaults.set(Array(counted.suffix(100)), forKey: Self.countedKey)
         tipCount += 1
         defaults.set(tipCount, forKey: Self.countKey)
+        BadgeDefinition.markSupporter()
         return true
     }
 

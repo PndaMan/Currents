@@ -7,14 +7,14 @@ enum AboutRoute: Hashable {
 }
 
 /// Leave a tip: one row per tip on sale, with the App Store's own name and
-/// price. Tips unlock nothing.
+/// price, then the Patron badge any tip earns.
 struct TipJarView: View {
     @Environment(\.purchase) private var purchase
 
     private var jar: TipJar { TipJar.shared }
 
     var body: some View {
-        TodayPage("Leave a tip", subtitle: "Tips unlock nothing. They keep Currents free.") {
+        TodayPage("Leave a tip", subtitle: "Tips help keep Currents free.") {
             if jar.products.isEmpty {
                 InlineEmpty(systemImage: "heart", text: "Tips are not available right now. Try again later.")
             } else {
@@ -28,10 +28,27 @@ struct TipJarView: View {
                     }
                 }
             }
+            if let patron = TitleFlair.resolve("Patron") {
+                VStack(alignment: .leading, spacing: 0) {
+                    SectionTitle(isPatron ? "Your badge" : "A small thank you")
+                    TitleBadge(flair: patron, subtitle: "Thank you so much")
+                    SectionFootnote(badgeNote)
+                }
+            }
         }
         .task {
             if jar.state != .loaded { await jar.load() }
         }
+    }
+
+    /// Reads the observed count so the page updates the moment a tip lands.
+    private var isPatron: Bool { jar.tipCount > 0 || BadgeDefinition.isSupporter }
+
+    /// Under the example badge: what earns it, or that it is already yours.
+    private var badgeNote: String {
+        isPatron
+            ? "It's on your profile. You can wear it as your title."
+            : "Any tip, whatever the size, adds this mythic badge to your profile."
     }
 
     /// The thank-you line, or why tips cannot go through right now.

@@ -358,6 +358,7 @@ struct TitleArt {
         "Master of All Waters": .init(symbol: "crown.fill", color: .yellow, accent: "water.waves", accentColor: .blue),
         "Eternal Flame": .init(symbol: "flame.fill", color: .orange, multicolor: true, accent: "infinity", accentColor: .pink),
         "Bass Daddy": .init(symbol: "fish.fill", color: .green, accent: "crown.fill", accentColor: .yellow),
+        "Patron": .init(symbol: "heart.fill", color: .pink, accent: "star.fill", accentColor: .yellow),
     ]
 }
 

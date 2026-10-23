@@ -121,6 +121,7 @@ struct TitleFlair: Identifiable {
         .init(achievement: "Master of All Waters", name: "Master of All Waters", rarity: .mythic, icon: "crown.fill"),
         .init(achievement: "Eternal Flame", name: "Eternal Flame", rarity: .mythic, icon: "flame.fill"),
         .init(achievement: "Bass Daddy", name: "Bass Daddy", rarity: .mythic, icon: "fish.fill"),
+        .init(achievement: "Patron", name: "Patron", rarity: .mythic, icon: "heart.fill"),
     ]
 }
 
@@ -133,11 +134,16 @@ enum BadgeMetric {
     case weekend, night, dawn
     /// Unlocked outside the logbook (the Bass Daddy code).
     case secret
+    /// Left a tip of any size.
+    case supporter
+
+    /// Kept out of locked lists and counts until earned.
+    var isHidden: Bool { self == .secret || self == .supporter }
 
     /// Earned or not, with no count in between.
     var isYesNo: Bool {
         switch self {
-        case .weekend, .night, .dawn, .secret: return true
+        case .weekend, .night, .dawn, .secret, .supporter: return true
         default: return false
         }
     }
@@ -154,7 +160,7 @@ enum BadgeMetric {
         case .photos:               return .photos
         case .weekend, .night, .dawn, .months: return .timing
         case .biteScore:            return .biteScore
-        case .secret:               return .secret
+        case .secret, .supporter:   return .secret
         }
     }
 }
@@ -237,6 +243,19 @@ struct BadgeDefinition: Identifiable {
         UserDefaults.standard.set(true, forKey: "bassDaddyUnlocked")
     }
 
+    /// When the first tip went through; tips counted before the date was
+    /// kept fall back to the count alone.
+    static var supporterSince: Date? {
+        UserDefaults.standard.object(forKey: "supporterSince") as? Date
+    }
+    static var isSupporter: Bool {
+        supporterSince != nil || UserDefaults.standard.integer(forKey: "tipJarCount") > 0
+    }
+    static func markSupporter() {
+        guard supporterSince == nil else { return }
+        UserDefaults.standard.set(Date.now, forKey: "supporterSince")
+    }
+
     /// The secret badge shows a quote instead of how it is earned.
     static let bassDaddyQuote = "My rod is my sword, the water my kingdom, and every bass bows before the throne."
     static let bassDaddyQuoteBy = "Bass Daddy"
@@ -298,6 +317,7 @@ struct BadgeDefinition: Identifiable {
         case "Master of All Waters": return "Catch 50 different species."
         case "Eternal Flame":   return "Keep a weekly fishing streak alive for 26 weeks, half a year."
         case "Bass Daddy":      return "“\(Self.bassDaddyQuote)” \(Self.bassDaddyQuoteBy)"
+        case "Patron":          return "You left a tip in Currents. Thank you so much."
         default:                return "Keep fishing to unlock this badge."
         }
     }
@@ -368,6 +388,7 @@ struct BadgeDefinition: Identifiable {
         .init(title: "Master of All Waters", icon: "crown.fill", rarity: .mythic, metric: .species, target: 50),
         .init(title: "Eternal Flame", icon: "flame.fill", rarity: .mythic, metric: .streakWeeks, target: 26),
         .init(title: "Bass Daddy", icon: "fish.fill", rarity: .mythic, metric: .secret, target: 1),
+        .init(title: "Patron", icon: "heart.fill", rarity: .mythic, metric: .supporter, target: 1),
     ]
 
     static let specsByTitle: [String: BadgeSpec] =
@@ -386,7 +407,7 @@ struct BadgeDefinition: Identifiable {
         specs.map { spec in
             let earned = metrics.isEarned(spec)
             return BadgeDefinition(icon: spec.icon, title: spec.title, rarity: spec.rarity,
-                                   earned: earned, hidden: spec.metric == .secret,
+                                   earned: earned, hidden: spec.metric.isHidden,
                                    earnedAt: earned ? metrics.earnedAt[spec.title] : nil)
         }
     }
@@ -484,7 +505,7 @@ struct BadgeMetrics {
         let calendar = Calendar.current
         var tally = Tally()
         var reached: [String: Date] = [:]
-        var locked = BadgeDefinition.specs.filter { $0.metric != .secret }
+        var locked = BadgeDefinition.specs.filter { !$0.metric.isHidden }
         let oldestFirst = catches.sorted { $0.catchRecord.caughtAt < $1.catchRecord.caughtAt }
         for detail in oldestFirst {
             tally.add(detail, calendar: calendar)
@@ -499,6 +520,9 @@ struct BadgeMetrics {
         if let unlocked = BadgeDefinition.bassDaddyUnlockedAt {
             reached["Bass Daddy"] = unlocked
         }
+        if let since = BadgeDefinition.supporterSince {
+            reached["Patron"] = since
+        }
         self.tally = tally
         self.currentStreak = streakWeeks
         self.earnedAt = reached
@@ -510,6 +534,7 @@ struct BadgeMetrics {
         switch metric {
         case .streakWeeks: return Double(max(tally.bestRun, currentStreak))
         case .secret: return BadgeDefinition.bassDaddyUnlocked ? 1 : 0
+        case .supporter: return BadgeDefinition.isSupporter ? 1 : 0
         default: return tally.value(metric)
         }
     }
@@ -594,7 +619,7 @@ struct BadgeMetrics {
             case .weekend:     return weekend ? 1 : 0
             case .night:       return night ? 1 : 0
             case .dawn:        return dawn ? 1 : 0
-            case .secret:      return 0
+            case .secret, .supporter: return 0
             }
         }
     }

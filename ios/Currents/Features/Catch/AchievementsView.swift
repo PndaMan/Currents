@@ -18,7 +18,7 @@ struct BadgeProgress {
 extension BadgeMetrics {
     /// Progress toward a badge, or nil for the secret one.
     func progress(for title: String) -> BadgeProgress? {
-        guard let spec = BadgeDefinition.specsByTitle[title], spec.metric != .secret else { return nil }
+        guard let spec = BadgeDefinition.specsByTitle[title], !spec.metric.isHidden else { return nil }
         let target = spec.target
         let goal = Int(target)
         func count(_ have: Double, _ unit: String) -> BadgeProgress {
@@ -43,7 +43,7 @@ extension BadgeMetrics {
         case .weekend: return needs("Needs a catch on a Saturday or Sunday")
         case .night: return needs("Needs a catch between 10 pm and 5 am")
         case .dawn: return needs("Needs a catch between 5 and 7 am")
-        case .secret: return nil
+        case .secret, .supporter: return nil
         }
     }
 
