@@ -175,19 +175,19 @@ struct LogCatchView: View {
                 VStack(alignment: .leading, spacing: 0) {
                     cover
                     titleBlock
-                        .padding(.top, 18)
+                        .padding(.top, DS.Space.s4)
                     actionRow
                         .padding(.top, DS.Space.s4)
                     sizeSection
-                        .padding(.top, 28)
+                        .padding(.top, DS.Space.s8)
                     spotSection
-                        .padding(.top, 28)
+                        .padding(.top, DS.Space.s8)
                     detailsSection
-                        .padding(.top, 28)
+                        .padding(.top, DS.Space.s8)
                     conditionsSection
-                        .padding(.top, 28)
+                        .padding(.top, DS.Space.s8)
                     notesSection
-                        .padding(.top, 28)
+                        .padding(.top, DS.Space.s8)
                     sharingSection
                 }
                 .padding(.bottom, DS.Space.s6)
@@ -378,38 +378,32 @@ struct LogCatchView: View {
     /// No photo yet but the species is known (picked, or preset from a
     /// species page): its art stands in as the cover until a photo is added.
     private func speciesCover(_ species: Species) -> some View {
-        ZStack {
-            species.artTint.opacity(0.32)
-            SpeciesArtworkView(species: species, caught: true, size: 220)
-                .padding(DS.Space.s6)
-        }
-        .frame(maxWidth: .infinity)
-        .frame(height: 240)
-        .clipShape(RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
-        .overlay(alignment: .bottomLeading) {
-            HStack(spacing: DS.Space.s2) {
-                Button { openCamera() } label: {
-                    Label("Add a photo", systemImage: "camera")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(Color.dsText)
-                        .padding(.horizontal, DS.Space.s3)
-                        .padding(.vertical, DS.Space.s2)
-                        .glassEffect(.regular.interactive(), in: Capsule())
-                }
-                .buttonStyle(.dim)
-                PhotosPicker(selection: $libraryItems, maxSelectionCount: 10, matching: .images) {
-                    Image(systemName: "photo.on.rectangle")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(Color.dsText)
-                        .frame(width: 36, height: 36)
-                        .glassEffect(.regular.interactive(), in: Circle())
-                }
-                .buttonStyle(.dim)
-                .accessibilityLabel("Choose photos")
+        VStack(alignment: .leading, spacing: DS.Space.s3) {
+            ZStack {
+                species.artTint.opacity(0.32)
+                SpeciesArtworkView(species: species, caught: true, size: 220)
+                    .padding(DS.Space.s6)
             }
-            .padding(DS.Space.s3)
+            .frame(maxWidth: .infinity)
+            .frame(height: 240)
+            .clipShape(RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
+            .accessibilityHidden(true)
+            photoButtons
         }
-        .accessibilityElement(children: .contain)
+    }
+
+    /// Camera and library, side by side under a cover with no photo yet.
+    private var photoButtons: some View {
+        HStack(spacing: DS.Space.s2) {
+            Button { openCamera() } label: {
+                Label("Camera", systemImage: "camera")
+            }
+            .buttonStyle(TonalButtonStyle(fullWidth: false))
+            PhotosPicker(selection: $libraryItems, maxSelectionCount: 10, matching: .images) {
+                Label("Library", systemImage: "photo.on.rectangle")
+            }
+            .buttonStyle(TonalButtonStyle(fullWidth: false))
+        }
     }
 
     private var photoPrompt: some View {
@@ -425,17 +419,8 @@ struct LogCatchView: View {
                 .foregroundStyle(Color.dsText2)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 240)
-            HStack(spacing: DS.Space.s2) {
-                Button { openCamera() } label: {
-                    Label("Camera", systemImage: "camera")
-                }
-                .buttonStyle(TonalButtonStyle(fullWidth: false))
-                PhotosPicker(selection: $libraryItems, maxSelectionCount: 10, matching: .images) {
-                    Label("Library", systemImage: "photo.on.rectangle")
-                }
-                .buttonStyle(TonalButtonStyle(fullWidth: false))
-            }
-            .padding(.top, DS.Space.s2)
+            photoButtons
+                .padding(.top, DS.Space.s2)
         }
         .padding(DS.Space.s6)
         // A minimum height, not an aspect ratio, so large text grows the box
@@ -468,7 +453,7 @@ struct LogCatchView: View {
                         .font(.footnote.weight(.bold))
                         .foregroundStyle(Color.dsText)
                         .frame(width: 30, height: 30)
-                        .glassEffect(.regular.interactive(), in: Circle())
+                        .background(Color.dsElevated, in: Circle())
                 }
                 .buttonStyle(.dim)
                 .padding(10)
@@ -1022,18 +1007,9 @@ struct LogCatchView: View {
         VStack(alignment: .leading, spacing: 0) {
             SectionTitle("Conditions")
             let c = conditions
-            HStack(spacing: DS.Space.s2) {
-                conditionTile(systemImage: "thermometer.medium", tint: .dsScoreLow,
-                              value: waterTempValue(c), label: waterTempLabel(c))
-                conditionTile(systemImage: "wind", tint: .cyan,
-                              value: windValue(c), label: windLabel(c))
-                conditionTile(systemImage: "gauge.medium", tint: .purple,
-                              value: pressureValue(c), label: pressureLabel(c))
-                conditionTile(systemImage: "fish", tint: .dsScoreGood,
-                              value: c?.score.map { "\($0)" } ?? "–", label: "Bite",
-                              valueTint: c?.score.map { DS.scoreInk($0) })
+            if c != nil {
+                KeyValueList(rows: conditionRows(c))
             }
-            .padding(.horizontal, DS.gutter)
 
             LogCatchFootnote(text: conditionsFootnote, systemImage: c == nil ? "info.circle" : "checkmark.circle")
                 .padding(.horizontal, DS.gutter)
@@ -1088,30 +1064,22 @@ struct LogCatchView: View {
         return "hPa, steady"
     }
 
-    private func conditionTile(systemImage: String, tint: Color, value: String, label: String,
-                               valueTint: Color? = nil) -> some View {
-        VStack(spacing: 2) {
-            Image(systemName: systemImage)
-                .font(.body)
-                .foregroundStyle(tint)
-                .padding(.bottom, 4)
-            Text(value)
-                .font(.headline.monospacedDigit())
-                .foregroundStyle(valueTint ?? Color.dsText)
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-                .contentTransition(.numericText())
-            Text(label)
-                .font(.caption)
-                .foregroundStyle(Color.dsText2)
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
+    /// Each row says what the number means for fishing, not just the number.
+    private func conditionRows(_ c: Conditions?) -> [KeyValueList.Row] {
+        var rows: [KeyValueList.Row] = []
+        if c?.waterC != nil {
+            rows.append(.init(label: waterTempLabel(c), value: waterTempValue(c)))
         }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, DS.Space.s3)
-        .padding(.horizontal, DS.Space.s1)
-        .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.button, style: .continuous))
-        .accessibilityElement(children: .combine)
+        if c?.windKmh != nil {
+            rows.append(.init(label: "Wind", value: "\(windValue(c)) \(windLabel(c))"))
+        }
+        if c?.pressureHpa != nil {
+            rows.append(.init(label: "Pressure", value: "\(pressureValue(c)) \(pressureLabel(c))"))
+        }
+        if let score = c?.score {
+            rows.append(.init(label: "Bite score", value: "\(score) of 100", emphasized: true))
+        }
+        return rows
     }
 
     private func compass(_ deg: Double) -> String {
@@ -1199,7 +1167,7 @@ struct LogCatchView: View {
                     .padding(.horizontal, DS.gutter)
                     .padding(.top, 10)
             }
-            .padding(.top, 28)
+            .padding(.top, DS.Space.s8)
         }
     }
 
@@ -1249,8 +1217,7 @@ struct LogCatchView: View {
         .padding(.bottom, DS.Space.s2)
         .frame(maxWidth: .infinity)
         .background {
-            Rectangle()
-                .fill(.bar)
+            Color.dsBackground
                 .ignoresSafeArea()
                 .overlay(alignment: .top) {
                     Rectangle().fill(Color.dsSeparator).frame(height: 0.5)
@@ -2275,8 +2242,7 @@ struct SpeciesPickerSheet: View {
                 .pageWidth()
             }
             .scrollDismissesKeyboard(.immediately)
-            .dsScreenBackground()
-            .detailScrollEdge()
+            .detailTint(nil)
             .navigationTitle("Species")
             .navigationBarTitleDisplayMode(.inline)
             .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always),

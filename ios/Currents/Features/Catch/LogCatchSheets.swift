@@ -6,7 +6,8 @@ import MapKit
 
 // MARK: - Shared chrome
 
-/// Title, close button and an optional Done button pinned to the bottom.
+/// Title, close button and an optional Done button pinned to the bottom, on
+/// the plain page background like every other list and form.
 struct LogCatchSheetChrome<Content: View>: View {
     let title: String
     var showsDone: Bool = true
@@ -16,7 +17,7 @@ struct LogCatchSheetChrome<Content: View>: View {
     var body: some View {
         NavigationStack {
             content()
-                .detailScrollEdge()
+                .detailTint(nil)
                 .navigationTitle(title)
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
@@ -356,7 +357,7 @@ struct LogCatchGearSheet: View {
 
     var body: some View {
         LogCatchSheetChrome(title: "Gear") {
-            Form {
+            List {
                 Section {
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: DS.Space.s2) {
@@ -375,11 +376,15 @@ struct LogCatchGearSheet: View {
                 } header: {
                     Text("Preset")
                 }
+                .pfRows()
 
                 Section {
                     field(.rod, selection: $rod, placeholder: "Rod")
                     field(.reel, selection: $reel, placeholder: "Reel")
+                } header: {
+                    Text("Rod and reel")
                 }
+                .pfRows()
 
                 Section {
                     if !lureCandidates.isEmpty {
@@ -393,13 +398,16 @@ struct LogCatchGearSheet: View {
                 } header: {
                     Text("Lure or bait")
                 }
+                .pfRows()
 
                 Section {
                     TechniquePicker(selection: $technique)
                 } footer: {
                     Text("Changes here only apply to this catch.")
                 }
+                .pfRows()
             }
+            .gearFormStyle()
         }
         .presentationDetents([.large])
     }
@@ -525,6 +533,7 @@ struct LogCatchSessionSheet: View {
                     } footer: {
                         Text("Catches made while it records join it.")
                     }
+                    .pfRows()
                 } else {
                     Section {
                         ForEach(recent) { trip in
@@ -532,6 +541,7 @@ struct LogCatchSessionSheet: View {
                         }
                         row(nil, title: "None", subtitle: "Keep it as a single catch")
                     }
+                    .pfRows()
                     if canStart {
                         Section {
                             Button {
@@ -543,9 +553,11 @@ struct LogCatchSessionSheet: View {
                             }
                             .tint(Color.dsScoreGood)
                         }
+                        .pfRows()
                     }
                 }
             }
+            .gearFormStyle()
         }
         .presentationDetents([.medium, .large])
     }

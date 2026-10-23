@@ -81,7 +81,8 @@ final class ToastCenter: ObservableObject {
     }
 }
 
-/// A glass capsule that drops in from the top: tinted symbol, then the message.
+/// A glass capsule that floats in from the top over the content, like the
+/// other floating controls: tinted symbol, then the message.
 private struct ToastView: View {
     let toast: Toast
     var body: some View {
@@ -98,7 +99,6 @@ private struct ToastView: View {
         .padding(.trailing, 18)
         .padding(.vertical, 11)
         .glassEffect(.regular, in: Capsule())
-        .shadow(color: .black.opacity(0.12), radius: 15, y: 8)
         .padding(.horizontal, DS.gutter)
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isStaticText)

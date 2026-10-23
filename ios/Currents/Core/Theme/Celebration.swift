@@ -39,7 +39,7 @@ enum CelebrationJudge {
         if priors.isEmpty {
             return Celebration(headline: "New species",
                                detail: "Your first one. It's in your Fishdex now.",
-                               icon: "sparkles",
+                               icon: "fish.fill",
                                title: name,
                                speciesId: speciesId,
                                primaryTitle: "View in Fishdex",
@@ -166,9 +166,9 @@ private struct CelebrationCard: View {
     private var tint: Color { species?.artTint ?? DS.accent }
 
     var body: some View {
-        VStack(spacing: 4) {
+        VStack(spacing: DS.Space.s1) {
             art
-                .padding(.bottom, 12)
+                .padding(.bottom, DS.Space.s3)
             if celebration.title != nil {
                 Text(celebration.headline)
                     .font(.subheadline.weight(.semibold))
@@ -183,7 +183,7 @@ private struct CelebrationCard: View {
                 .foregroundStyle(.dsText2)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
-                .padding(.bottom, 14)
+                .padding(.bottom, DS.Space.s4)
             if let primaryTitle = celebration.primaryTitle {
                 Button(primaryTitle, action: onPrimary)
                     .buttonStyle(PrimaryButtonStyle())
@@ -196,11 +196,10 @@ private struct CelebrationCard: View {
             }
             .buttonStyle(.dim)
         }
-        .padding(22)
-        .frame(maxWidth: 300)
-        .background(Color.dsElevated, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
-        .shadow(color: .black.opacity(0.25), radius: 30, y: 12)
-        .padding(.horizontal, 36)
+        .padding(DS.Space.s5)
+        .frame(maxWidth: 320)
+        .background(Color.dsElevated, in: RoundedRectangle(cornerRadius: DS.Radius.sheet, style: .continuous))
+        .padding(.horizontal, DS.Space.s8)
         .accessibilityElement(children: .contain)
         .accessibilityAddTraits(.isModal)
         .onAppear { if !reduceMotion { swim = true } }
@@ -212,7 +211,7 @@ private struct CelebrationCard: View {
             tint.opacity(0.3)
             if let species {
                 SpeciesArtworkView(species: species, caught: true, size: 120, fillWidth: true)
-                    .padding(.horizontal, 18)
+                    .padding(.horizontal, DS.Space.s4)
                     .offset(y: swim ? -6 : 0)
                     .rotationEffect(.degrees(swim ? -2 : 0))
                     .animation(swim ? .easeInOut(duration: 1.2).repeatForever(autoreverses: true) : nil,
@@ -220,7 +219,8 @@ private struct CelebrationCard: View {
                     .accessibilityHidden(true)
             } else {
                 Image(systemName: celebration.icon)
-                    .font(.system(size: 52, weight: .semibold))
+                    .font(.largeTitle.weight(.semibold))
+                    .imageScale(.large)
                     .foregroundStyle(tint)
                     .symbolEffect(.bounce, value: swim)
                     .accessibilityHidden(true)
