@@ -431,10 +431,23 @@ final class CommunityService: ObservableObject {
         }
         guard let data = scaled.jpegData(compressionQuality: 0.8) else { return }
         try? data.write(to: avatarURL, options: .atomic)
+        avatarMemo = nil
         bumpRevision()
     }
 
-    var myAvatar: UIImage? { UIImage(contentsOfFile: avatarURL.path) }
+    /// The avatar file read once and kept. The tab-title avatar and every
+    /// crew page read `myAvatar` in their bodies, and each read went to disk
+    /// and handed SwiftUI a new image to decode. Only `saveAvatar` writes
+    /// the file, and it clears this.
+    private var avatarMemo: UIImage??
+
+    var myAvatar: UIImage? {
+        if let avatarMemo { return avatarMemo }
+        let raw = UIImage(contentsOfFile: avatarURL.path)
+        let image = raw?.preparingForDisplay() ?? raw
+        avatarMemo = .some(image)
+        return image
+    }
 
     private func saveMyProfile(stats: MyStats?) async {
         let id = CKRecord.ID(recordName: "profile-\(friendCode)")
@@ -950,10 +963,17 @@ final class CommunityService: ObservableObject {
     // MARK: - Per-friend privacy
 
     /// The stored per-friend overrides (nil flags = follow global).
+    /// Friend rows show nicknames, and search filters on them per keystroke,
+    /// so each friend's decoded override is kept until its bytes change.
+    private var overrideMemo: [String: (raw: Data, value: FriendPrivacyOverride)] = [:]
+
     func override(for code: String) -> FriendPrivacyOverride {
-        if let data = UserDefaults.standard.data(forKey: "friendPrivacyV2-\(code)"),
-           let o = try? JSONDecoder().decode(FriendPrivacyOverride.self, from: data) {
-            return o
+        if let data = UserDefaults.standard.data(forKey: "friendPrivacyV2-\(code)") {
+            if let memo = overrideMemo[code], memo.raw == data { return memo.value }
+            if let o = try? JSONDecoder().decode(FriendPrivacyOverride.self, from: data) {
+                overrideMemo[code] = (data, o)
+                return o
+            }
         }
         // Back-compat: pull a nickname saved under the old key, if any.
         var o = FriendPrivacyOverride()
