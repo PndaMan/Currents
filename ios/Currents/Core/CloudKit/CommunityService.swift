@@ -2169,14 +2169,39 @@ final class CommunityService: ObservableObject {
         }
         // Drop invites whose group no longer exists (host left) or has already
         // ended, cleaning up the stale invite record so it never shows again.
+        // One batched fetch for every group instead of one round trip per
+        // invite, and one batched delete for the stale ones.
+        guard !raw.isEmpty else { return [] }
+        let groupIDs = Array(Set(raw.map { CKRecord.ID(recordName: "grouptrip-\($0.0.groupCode)") }))
+        guard let groups = try? await db.records(for: groupIDs, desiredKeys: ["endedAt"]) else {
+            // Offline: keep every invite rather than treat it as stale.
+            return raw.map { $0.0 }.sorted { $0.date > $1.date }
+        }
         var live: [TripInvite] = []
+        var stale: [CKRecord.ID] = []
         for (inv, recID) in raw {
-            let group = await groupTrip(code: inv.groupCode)
-            if let group, !group.isEnded {
+            let groupID = CKRecord.ID(recordName: "grouptrip-\(inv.groupCode)")
+            switch groups[groupID] {
+            case .success(let r)?:
+                if let endedAt = r["endedAt"] as? Date {
+                    markGroupEnded(code: inv.groupCode, at: endedAt)
+                    stale.append(recID)
+                } else {
+                    live.append(inv)
+                }
+            case .failure(let error)?:
+                if (error as? CKError)?.code == .unknownItem {
+                    stale.append(recID)
+                } else {
+                    live.append(inv)
+                }
+            case .none:
                 live.append(inv)
-            } else {
-                _ = try? await db.deleteRecord(withID: recID)
             }
+        }
+        if !stale.isEmpty {
+            _ = try? await db.modifyRecords(saving: [], deleting: stale,
+                                            savePolicy: .allKeys, atomically: false)
         }
         return live.sorted { $0.date > $1.date }
     }
