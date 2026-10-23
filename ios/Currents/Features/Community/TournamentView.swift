@@ -968,8 +968,8 @@ private struct TeamRankMark: View {
 
 // MARK: - New team
 
-/// Start a team: one name, then the team's live session starts. The same
-/// form as the crew sheets.
+/// Start a team: the name at title size, as on the start screen, then the
+/// team's live session starts from the button at the foot.
 private struct NewTeamSheet: View {
     let hasTeams: Bool
     let create: @MainActor (String) async -> Bool
@@ -977,47 +977,64 @@ private struct NewTeamSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var name = ""
     @State private var busy = false
+    @FocusState private var nameFocused: Bool
 
     private var trimmed: String { name.trimmingCharacters(in: .whitespaces) }
 
     var body: some View {
         NavigationStack {
-            ScrollView { form }
-                .scrollDismissesKeyboard(.interactively)
-                .dsScreenBackground()
+            form
+                .safeAreaInset(edge: .bottom, spacing: 0) { startBar }
                 .eventSheetTitle("New team", close: "Cancel")
+                .onAppear { nameFocused = true }
         }
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
     }
 
     private var form: some View {
-        VStack(alignment: .leading, spacing: DS.Space.s5) {
-            Text("Your team is a live session with GPS on. Every catch you log scores for it.")
-                .font(.body)
-                .foregroundStyle(.dsText2)
-                .fixedSize(horizontal: false, vertical: true)
-            CrewTextField(label: "Team name", placeholder: "Early risers", text: $name)
-                .submitLabel(.go)
-                .onSubmit(start)
-            VStack(alignment: .leading, spacing: DS.Space.s4) {
-                Button(action: start) {
-                    if busy { ProgressView() } else { Text("Start team") }
-                }
-                .buttonStyle(.dsPrimary)
-                .disabled(busy || trimmed.isEmpty)
+        List {
+            Section {
+                TextField("Team name", text: $name, prompt: Text("Team name"))
+                    .font(.title.bold())
+                    .foregroundStyle(.dsText)
+                    .submitLabel(.go)
+                    .onSubmit(start)
+                    .focused($nameFocused)
+                    .padding(.horizontal, DS.gutter)
+                    .padding(.top, DS.Space.s2)
+                    .pfBareRow()
+            }
+            Section {
+                LabeledContent("Session", value: "Starts now, GPS on")
+                LabeledContent("Scores", value: "Every catch you log")
+            } footer: {
                 Text(hasTeams
                      ? "To join a team that's already fishing, open it from the standings."
                      : "Crewmates join your team from the tournament page.")
-                    .font(.footnote)
-                    .foregroundStyle(.dsText2)
-                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .pfRows()
+        }
+        .pfGroupedList()
+        .textCase(nil)
+        .detailTint(nil)
+        .scrollDismissesKeyboard(.interactively)
+    }
+
+    private var startBar: some View {
+        Button(action: start) {
+            if busy {
+                ProgressView().tint(Color.dsOnPrimary)
+            } else {
+                Text("Start team")
             }
         }
+        .buttonStyle(.dsPrimary)
+        .disabled(busy || trimmed.isEmpty)
         .padding(.horizontal, DS.gutter)
         .padding(.top, DS.Space.s3)
-        .padding(.bottom, DS.Space.s6)
-        .pageWidth()
+        .padding(.bottom, DS.Space.s2)
+        .background(Color.dsBackground)
     }
 
     private func start() {
@@ -1034,7 +1051,8 @@ private struct NewTeamSheet: View {
 
 // MARK: - Scoring sheet
 
-/// "How points work", from the tournament's own rates, with a worked example.
+/// "How points work", from the tournament's own rates, with a worked
+/// example. Grouped rows, like the start screen that set them.
 private struct TournamentScoringSheet: View {
     let rates: TournamentPoints.Rates
 
@@ -1042,55 +1060,57 @@ private struct TournamentScoringSheet: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView { content }
-                .dsScreenBackground()
-                .eventSheetTitle("How points work")
+            List {
+                ratesSection
+                exampleSection
+            }
+            .pfGroupedList()
+            .textCase(nil)
+            .detailTint(nil)
+            .eventSheetTitle("How points work")
         }
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
     }
 
-    private var content: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            rateRow("fish.fill", title: "Every fish landed",
-                    subtitle: nil, value: pointsText(rates.perFish))
-            rateRow("scalemass.fill", title: "Each kilogram",
-                    subtitle: "Rounded, for every fish", value: "+\(rates.perKg)")
-            rateRow("star.fill", title: "New species",
-                    subtitle: "The team's first of its kind", value: "+\(rates.newSpeciesBonus)")
-            CrewSection(title: "A new species at 3 kg") {
-                KeyValueList(rows: exampleRows)
-                SectionFootnote(rates != TournamentPoints.standard
-                                ? "Custom scoring set by the host. An admin confirms the winner at the end."
-                                : "Points update as catches come in. An admin confirms the winner at the end.")
+    private var ratesSection: some View {
+        Section {
+            LabeledContent("Each fish", value: pointsText(rates.perFish))
+            LabeledContent("Each kilogram", value: "+\(rates.perKg)")
+            LabeledContent("New species", value: "+\(rates.newSpeciesBonus)")
+        } header: {
+            Text("Points")
+        } footer: {
+            Text("Weight is rounded to the nearest kilogram for every fish. The species bonus is for the team's first of its kind.")
+        }
+        .pfRows()
+    }
+
+    private var exampleSection: some View {
+        Section {
+            LabeledContent("The fish", value: pointsText(rates.perFish))
+            LabeledContent("3 kg", value: "+\(3 * rates.perKg)")
+            LabeledContent("New species", value: "+\(rates.newSpeciesBonus)")
+            LabeledContent {
+                Text(pointsText(exampleTotal)).fontWeight(.semibold)
+            } label: {
+                Text("Total").fontWeight(.semibold)
             }
+        } header: {
+            Text("A new species at 3 kg")
+        } footer: {
+            Text(rates != TournamentPoints.standard
+                 ? "Custom scoring set by the host. An admin confirms the winner at the end."
+                 : "Points update as catches come in. An admin confirms the winner at the end.")
         }
-        .padding(.top, DS.Space.s2)
-        .padding(.bottom, DS.Space.s6)
-        .pageWidth()
-    }
-
-    private var exampleRows: [KeyValueList.Row] {
-        [
-            .init(label: "The fish", value: pointsText(rates.perFish)),
-            .init(label: "3 kg", value: "+\(3 * rates.perKg)"),
-            .init(label: "New species", value: "+\(rates.newSpeciesBonus)"),
-            .init(label: "Total", value: pointsText(exampleTotal), emphasized: true),
-        ]
-    }
-
-    private func rateRow(_ icon: String, title: String, subtitle: String?, value: String) -> some View {
-        ArtRow(title: title, subtitle: subtitle) {
-            ThumbView(systemImage: icon, tint: DS.accent, size: 44)
-        } trailing: {
-            Text(value)
-        }
+        .pfRows()
     }
 }
 
 // MARK: - End tournament (admin)
 
-/// Admin end flow: pick a winner (top team preselected), confirm, done.
+/// Admin end flow: pick a winner from a checkmark list (top team
+/// preselected), then the red button at the foot, confirmed.
 private struct EndTournamentSheet: View {
     let tournament: CommunityService.Tournament
     let crew: CommunityService.Crew
@@ -1105,10 +1125,12 @@ private struct EndTournamentSheet: View {
     @State private var confirming = false
     @State private var busy = false
 
+    private var canEnd: Bool { selected != nil && !busy }
+
     var body: some View {
         NavigationStack {
-            ScrollView { content }
-                .dsScreenBackground()
+            list
+                .safeAreaInset(edge: .bottom, spacing: 0) { endBar }
                 .eventSheetTitle("End tournament", close: "Cancel")
                 .confirmationDialog("End the tournament?", isPresented: $confirming,
                                     titleVisibility: .visible) {
@@ -1124,44 +1146,37 @@ private struct EndTournamentSheet: View {
         .presentationDragIndicator(.visible)
     }
 
-    private var content: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text("Most points wins by default. Pick another team if the crew agreed one.")
-                .font(.body)
-                .foregroundStyle(.dsText2)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.horizontal, DS.gutter)
-                .padding(.top, DS.Space.s3)
-            CrewSection(title: "Winner") {
+    private var list: some View {
+        List {
+            Section {
                 if standings.isEmpty {
-                    InlineEmpty(text: "No team fished this tournament.", systemImage: "trophy")
+                    Label("No team fished this tournament.", systemImage: "trophy")
+                        .foregroundStyle(.dsText2)
                 }
                 ForEach(Array(standings.enumerated()), id: \.element.id) { i, s in
                     teamRow(s, rank: i + 1)
                 }
+            } header: {
+                Text("Winner")
+            } footer: {
+                Text("Most points wins by default. Pick another team if the crew agreed one.")
             }
-            endButton
-                .padding(.horizontal, DS.gutter)
-                .padding(.top, DS.Space.s6)
+            .pfRows()
         }
-        .padding(.bottom, DS.Space.s6)
-        .pageWidth()
+        .pfGroupedList()
+        .textCase(nil)
+        .detailTint(nil)
     }
 
-    private var endButton: some View {
-        VStack(alignment: .leading, spacing: DS.Space.s4) {
-            Button(role: .destructive) {
-                confirming = true
-            } label: {
-                if busy { ProgressView() } else { Text("Declare winner and end") }
-            }
-            .buttonStyle(.dsPrimary)
-            .disabled(selected == nil || busy)
-            Text("Points stop counting and team sessions still running end for everyone.")
-                .font(.footnote)
-                .foregroundStyle(.dsText2)
-                .fixedSize(horizontal: false, vertical: true)
+    private var endBar: some View {
+        DangerButton(title: busy ? "Ending" : "End tournament", systemImage: "flag.checkered") {
+            confirming = true
         }
+        .disabled(!canEnd)
+        .opacity(canEnd ? 1 : 0.4)
+        .padding(.top, DS.Space.s3)
+        .padding(.bottom, DS.Space.s2)
+        .background(Color.dsBackground)
     }
 
     private func teamRow(_ s: CommunityService.TeamStanding, rank: Int) -> some View {
@@ -1169,19 +1184,23 @@ private struct EndTournamentSheet: View {
         return Button {
             selected = s.teamName
         } label: {
-            ArtRow(over: "\(eventOrdinal(rank)) place",
-                   title: s.teamName,
-                   subtitle: rank == 1 ? "\(pointsText(s.points)), most points"
-                                       : "\(pointsText(s.points)), \(s.fishCount) fish") {
-                EventAvatarStack(images: images(s), size: 44)
-            } trailing: {
-                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                    .font(.title3)
-                    .foregroundStyle(isSelected ? AnyShapeStyle(.tint) : AnyShapeStyle(Color.dsText3))
-                    .contentTransition(.symbolEffect(.replace))
+            HStack(spacing: DS.Space.s3) {
+                EventAvatarStack(images: images(s), size: 40)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(s.teamName)
+                        .foregroundStyle(.dsText)
+                    Text("\(eventOrdinal(rank)), \(pointsText(s.points)) from \(s.fishCount) fish")
+                        .font(.subheadline)
+                        .foregroundStyle(.dsText2)
+                }
+                Spacer(minLength: DS.Space.s2)
+                Image(systemName: "checkmark")
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(.tint)
+                    .opacity(isSelected ? 1 : 0)
             }
+            .contentShape(Rectangle())
         }
-        .buttonStyle(.dim)
         .buttonHaptic(.selection)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
