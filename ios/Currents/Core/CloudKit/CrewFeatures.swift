@@ -898,7 +898,7 @@ extension CommunityService {
     /// deleted.
     func tournamentExists(code: String) async -> RecordProbe {
         if ScreenshotSupport.isActive { return .exists }
-        await probeRecord(name: "tournament-\(code)")
+        return await probeRecord(name: "tournament-\(code)")
     }
 
     /// Same probe for a group trip / team session.
