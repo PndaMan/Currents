@@ -18,6 +18,8 @@ struct AlertSettingsView: View {
     @State private var isLoadingScores = false
     @State private var busyPush = false
     @State private var pushTick = 0   // forces the diagnostics rows to re-read
+    /// TestFlight or Xcode: shows the alert preview, which App Store users never see.
+    @State private var isTestBuild = false
 
     private var svc: CommunityService { .shared }
 
@@ -80,6 +82,7 @@ struct AlertSettingsView: View {
             }
         }
         .task {
+            isTestBuild = await BuildChannel.isTesting()
             permissionStatus = await NotificationManager.shared.checkPermissionStatus()
             spots = (try? appState.spotRepository.fetchAll()) ?? []
             spotAlerts = (try? appState.spotRepository.alerts()) ?? [:]
@@ -220,13 +223,15 @@ struct AlertSettingsView: View {
             } label: {
                 PFRowLabel(title: "Send a test notification", systemImage: "paperplane.fill", color: .indigo)
             }
-            Button {
-                Haptics.tap()
-                Task { await NotificationManager.shared.sendEveryAlertPreview(spotName: spots.first?.name) }
-                ToastCenter.shared.show("Eight sample alerts over the next 40 seconds. Lock your phone to see them.",
-                                        style: .info, haptic: false)
-            } label: {
-                PFRowLabel(title: "Preview every alert", systemImage: "bell.badge.fill", color: .orange)
+            if isTestBuild {
+                Button {
+                    Haptics.tap()
+                    Task { await NotificationManager.shared.sendEveryAlertPreview(spotName: spots.first?.name) }
+                    ToastCenter.shared.show("Eight sample alerts over the next 40 seconds. Lock your phone to see them.",
+                                            style: .info, haptic: false)
+                } label: {
+                    PFRowLabel(title: "Preview every alert", systemImage: "bell.badge.fill", color: .orange)
+                }
             }
             if svc.joined {
                 LabeledContent("Push delivery") {
