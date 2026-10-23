@@ -133,9 +133,6 @@ struct LocationInspectorSheet: View {
             section {
                 SectionTitle("Conditions")
                 ExploreConditions(weather: weather)
-                if let reason = bite?.reasons.first {
-                    ExploreFootnote(ExploreFormat.sentence(reason))
-                }
             }
         }
 
@@ -208,9 +205,8 @@ struct LocationInspectorSheet: View {
 
     private func fishRow(_ fish: BitingFish) -> some View {
         Button { onShowSpecies(fish.species) } label: {
-            ArtRow(over: "\(fish.records) \(fish.records == 1 ? "record" : "records") nearby",
-                   title: fish.species.commonName,
-                   subtitle: fish.why) {
+            ArtRow(title: fish.species.commonName,
+                   subtitle: "\(fish.records) \(fish.records == 1 ? "record" : "records") nearby") {
                 ThumbView(species: fish.species, size: 56)
             } trailing: {
                 Text("\(fish.score)")
@@ -234,11 +230,7 @@ struct LocationInspectorSheet: View {
     }
 
     private var bitingNote: String {
-        var note = "Tap a fish to show the spots and waters where it is confirmed. Records are iNaturalist and GBIF observations within 10 km."
-        if unlistedFish > 0 {
-            note += " \(unlistedFish) more \(unlistedFish == 1 ? "is" : "are") not in the species guide yet."
-        }
-        return note
+        "Tap a fish to see where it is recorded."
     }
 
     // MARK: - Layout

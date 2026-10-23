@@ -16,22 +16,36 @@ struct ExploreConditions: View {
 
     var body: some View {
         if let w = weather {
+            // Today's tiles: a value and a small picture of where it sits,
+            // no sentence under each one.
             LazyVGrid(columns: columns, spacing: DS.Space.s3) {
                 if let water = w.waterTempC {
-                    ConditionTile("Water", systemImage: "drop.fill", iconTint: .exploreWater,
-                                  value: Units.temperature(water), footnote: Self.waterNote(water))
+                    ConditionTile("Water", systemImage: "drop.fill", iconTint: ForecastCondition.water.tint,
+                                  value: Units.temperature(water)) {
+                        visual { RangeBar(domain: 5...32, band: 16...25, value: water, tint: ForecastCondition.water.tint) }
+                    }
                 } else {
                     ConditionTile("Sky", systemImage: WeatherIcon(condition: w.condition).systemName,
-                                  value: "\(w.cloudCoverPct)", unit: "% cloud", footnote: Self.lightNote(w.cloudCoverPct))
+                                  iconTint: ForecastCondition.sky.tint, value: "\(w.cloudCoverPct)", unit: "% cloud") {
+                        visual { RangeBar(domain: 0...100, value: Double(w.cloudCoverPct), tint: ForecastCondition.sky.tint) }
+                    }
                 }
-                ConditionTile("Air", systemImage: "thermometer.medium",
-                              value: Units.temperature(w.temperatureC), footnote: Self.lightNote(w.cloudCoverPct))
-                ConditionTile("Wind", systemImage: "wind",
-                              value: Units.speed(kmh: w.windSpeedKmh),
-                              footnote: Self.windNote(speed: w.windSpeedKmh, from: w.windDirectionDeg))
+                ConditionTile("Air", systemImage: "thermometer.medium", iconTint: ForecastCondition.air.tint,
+                              value: Units.temperature(w.temperatureC)) {
+                    visual { RangeBar(domain: 0...40, value: w.temperatureC, tint: ForecastCondition.air.tint) }
+                }
+                ConditionTile("Wind", systemImage: "wind", iconTint: ForecastCondition.wind.tint,
+                              value: Units.speed(kmh: w.windSpeedKmh), unit: ExploreFormat.compass(w.windDirectionDeg)) {
+                    visual { CompassDial(degrees: w.windDirectionDeg, size: 36) }
+                }
                 ConditionTile("Pressure", systemImage: "gauge.with.dots.needle.33percent",
-                              value: "\(Int(w.pressureHpa.rounded()))", unit: "hPa",
-                              footnote: Self.pressureNote(w.pressureChange6h))
+                              iconTint: ForecastCondition.pressure.tint,
+                              value: "\(Int(w.pressureHpa.rounded()))", unit: "hPa") {
+                    visual {
+                        RangeBar(domain: 990...1045, band: ConditionText.pressureSweetSpot,
+                                 value: w.pressureHpa, tint: ForecastCondition.pressure.tint)
+                    }
+                }
             }
             .padding(.horizontal, DS.gutter)
         } else if isLoading {
@@ -47,6 +61,15 @@ struct ExploreConditions: View {
                 .foregroundStyle(.dsText2)
                 .padding(.horizontal, DS.gutter)
         }
+    }
+
+    /// The picture slot, the same height as Today's, sitting at the foot.
+    private func visual<V: View>(@ViewBuilder _ content: () -> V) -> some View {
+        content()
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(height: 36)
+            .padding(.top, DS.Space.s3)
+            .frame(maxHeight: .infinity, alignment: .bottom)
     }
 
     static func waterNote(_ c: Double) -> String {
