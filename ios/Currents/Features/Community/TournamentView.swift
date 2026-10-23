@@ -1696,11 +1696,36 @@ struct TeamTournamentDetailView: View {
 
     // MARK: Header
 
-    @ViewBuilder private var header: some View {
+    /// Today's hero: status over the team name, the haul, and the place on
+    /// a medal-coloured ring.
+    private var header: some View {
+        HStack(alignment: .center, spacing: DS.Space.s4) {
+            VStack(alignment: .leading, spacing: 4) {
+                statusLabel
+                    .font(.subheadline)
+                    .foregroundStyle(.dsText2)
+                    .lineLimit(1)
+                Text(standing.teamName)
+                    .font(.title.bold())
+                    .foregroundStyle(.dsText)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityAddTraits(.isHeader)
+                Text(summaryLine)
+                    .font(.callout)
+                    .foregroundStyle(.dsText2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+            PlaceRing(place: place)
+        }
+        .padding(.horizontal, DS.gutter)
+    }
+
+    @ViewBuilder private var statusLabel: some View {
         if ended {
-            DetailHeader(over: endedLine, title: standing.teamName, subtitle: summaryLine)
+            Text(endedLine)
         } else {
-            EventHeader(title: standing.teamName, subtitle: summaryLine) {
+            HStack(spacing: 6) {
                 EventLiveTag()
                 Text("\(eventOrdinal(place)) place")
             }
@@ -1784,7 +1809,27 @@ struct TeamTournamentDetailView: View {
 
     private var pointsSection: some View {
         CrewSection(title: "Points", detail: pointsText(standing.points)) {
-            KeyValueList(rows: pointRows)
+            VStack(alignment: .leading, spacing: DS.Space.s3) {
+                pointTiles
+                KeyValueList(rows: pointRows)
+            }
+        }
+    }
+
+    /// Where the points came from, as Today's stat tiles.
+    private var pointTiles: some View {
+        let rates = tournament.rates
+        let fishPts = standing.fishCount * rates.perFish
+        let speciesPts = standing.speciesCount * rates.newSpeciesBonus
+        let weightPts = standing.points - fishPts - speciesPts
+        let weighed = standing.totalWeightKg > 0 ? Units.weight(kg: standing.totalWeightKg) : "Not weighed"
+        return StatStrip {
+            StatTile("Fish", systemImage: "fish.fill", tint: CrewTint.fish,
+                     value: "\(fishPts)", unit: "pts", footnote: "\(standing.fishCount) caught", width: 132)
+            StatTile("Weight", systemImage: "scalemass.fill", tint: CrewTint.weight,
+                     value: "\(weightPts)", unit: "pts", footnote: weighed, width: 132)
+            StatTile("Species", systemImage: "leaf.fill", tint: CrewTint.species,
+                     value: "\(speciesPts)", unit: "pts", footnote: "\(standing.speciesCount) kinds", width: 132)
         }
     }
 
@@ -1793,16 +1838,12 @@ struct TeamTournamentDetailView: View {
         let fishPts = standing.fishCount * rates.perFish
         let speciesPts = standing.speciesCount * rates.newSpeciesBonus
         let weightPts = standing.points - fishPts - speciesPts
-        var rows: [KeyValueList.Row] = [
+        return [
             .init(label: "\(standing.fishCount) fish, \(rates.perFish) each", value: "\(fishPts)"),
             .init(label: "Weight, +\(rates.perKg) a kilogram", value: "\(weightPts)"),
             .init(label: "\(standing.speciesCount) species, +\(rates.newSpeciesBonus) each", value: "\(speciesPts)"),
             .init(label: "Total", value: "\(standing.points)", emphasized: true),
         ]
-        if standing.totalWeightKg > 0 {
-            rows.insert(.init(label: "Total weight", value: Units.weight(kg: standing.totalWeightKg)), at: 3)
-        }
-        return rows
     }
 
     // MARK: Anglers
@@ -1917,5 +1958,39 @@ struct TeamTournamentDetailView: View {
             id: c.id, anglerName: c.anglerName, friendCode: c.friendCode,
             species: c.species, weightKg: c.weightKg, lengthCm: c.lengthCm,
             catchCount: nil, region: "", date: c.date, hasRemotePhoto: true)
+    }
+}
+
+/// A team's place as a ring in its medal colour (gold, silver, bronze, then
+/// the accent) with the ordinal inside, like Today's score ring.
+private struct PlaceRing: View {
+    let place: Int
+    var size: CGFloat = 100
+
+    private var colour: Color {
+        place <= 3 ? EventPodiumColumn.medal(place) : DS.accent
+    }
+
+    var body: some View {
+        ZStack {
+            Circle().fill(colour.opacity(0.14))
+            Circle().strokeBorder(colour, lineWidth: size * 0.09)
+            VStack(spacing: 0) {
+                Text(eventOrdinal(place))
+                    .font(.title.bold())
+                    .monospacedDigit()
+                    .foregroundStyle(.dsText)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
+                    .contentTransition(.numericText())
+                Text("place")
+                    .font(.footnote)
+                    .foregroundStyle(.dsText2)
+            }
+            .padding(size * 0.14)
+        }
+        .frame(width: size, height: size)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(eventOrdinal(place)) place")
     }
 }
