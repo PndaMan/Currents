@@ -1082,110 +1082,88 @@ struct PrivacySettingsView: View {
     @AppStorage("shareSpotsWithFriends") private var shareSpots = false
     @AppStorage("shareSpotExactLocations") private var shareSpotExact = false
     @AppStorage("cloudSyncEnabled") private var cloudSyncEnabled = false
-    @State private var titleShown = false
 
     private var svc: CommunityService { .shared }
 
     var body: some View {
-        List {
-            Section {
-                DetailHeader(title: "Privacy",
-                             subtitle: "Your catches and spots stay on this phone unless you share them.")
-                    .padding(.bottom, DS.Space.s2)
-                    .pfBareRow()
-            }
-
-            Section {
-                PFToggleRow(title: "Share my catches", detail: "Species, size and photo", isOn: $shareCatches)
-                PFToggleRow(title: "Share my spots", detail: "Spots stay private until you turn this on", isOn: $shareSpots)
-                if shareSpots {
-                    PFToggleRow(title: "Exact spot locations", detail: "Off moves shared spots about 4 km", isOn: $shareSpotExact)
-                }
-                PFToggleRow(title: "Share catch locations", detail: "Off keeps where you caught it private", isOn: $shareCatchLocations)
-            } header: {
-                Text("Crew and friends")
-            } footer: {
-                Text("Your best catches always show on the friends leaderboard.")
-            }
-            .pfRows()
-            .onChange(of: shareCatches) { _, _ in reapplySharing() }
-            .onChange(of: shareSpots) { _, _ in reapplySharing() }
-            .onChange(of: shareSpotExact) { _, _ in reapplySharing() }
-
-            Section {
-                HStack(spacing: 14) {
-                    BlurRadiusPreview(radiusKm: privacyRadius, tint: .blue)
-                    VStack(alignment: .leading, spacing: DS.Space.s2) {
-                        HStack {
-                            Text("Move pins up to")
-                                .foregroundStyle(.dsText)
-                            Spacer(minLength: 4)
-                            Text(privacyRadius == 0 ? "Exact" : "\(Int(privacyRadius)) km")
-                                .font(.body.weight(.semibold))
-                                .monospacedDigit()
-                                .contentTransition(.numericText())
-                                .foregroundStyle(.dsText)
-                        }
-                        Slider(value: $privacyRadius, in: 0...20, step: 1)
-                            .accessibilityLabel("Honey-hole blur")
-                            .accessibilityValue(privacyRadius == 0 ? "Exact" : "\(Int(privacyRadius)) kilometres")
-                    }
-                }
-                .padding(.vertical, DS.Space.s1)
-                .disabled(!shareCatchLocations)
-                .opacity(shareCatchLocations ? 1 : 0.5)
-                .haptic(.selection, trigger: privacyRadius)
-            } header: {
-                Text("Honey-hole blur")
-            } footer: {
-                Text(shareCatchLocations
-                     ? "Friends see an area this wide, never the exact rock."
-                     : "Turn on Share catch locations to use this.")
-            }
-            .pfRows()
-
-            // Builds without the iCloud entitlement (the sideload build) cannot
-            // sync, so the toggle would do nothing there.
-            if CrewCloud.buildHasCloudKit {
-                Section {
-                    PFToggleRow(title: "Sync across my devices", detail: "Your own private iCloud",
-                                systemImage: "icloud.fill", color: .cyan, isOn: $cloudSyncEnabled)
-                } header: {
-                    Text("Sync")
-                } footer: {
-                    Text("Nobody else can see your iCloud data.")
-                }
-                .pfRows()
-                .onChange(of: cloudSyncEnabled) { _, on in
-                    CloudSyncEngine.shared.setEnabled(on)
-                    ToastCenter.shared.show(on ? "Syncing with your iCloud" : "Sync off. This phone only", style: .info)
-                }
-            } else {
-                Section {
-                    Text("iCloud sync isn't available in this build.")
-                        .font(.subheadline)
-                        .foregroundStyle(.dsText2)
-                } header: {
-                    Text("Sync")
-                }
-                .pfRows()
-            }
-
-            Section {
+        TodayPage("Privacy", subtitle: "Everything stays on this phone until you share it.") {
+            sharingSection
+            blurSection
+            syncSection
+            CardSection("Your data") {
                 NavigationLink(value: SettingsRoute.storage) {
-                    PFRowLabel(title: "Export or back up your data", systemImage: "square.and.arrow.up.fill", color: .green)
+                    CardRow("Export or back up", systemImage: "square.and.arrow.up.fill", tint: .green, chevron: true)
                 }
-            } header: {
-                Text("Your data")
-            } footer: {
-                Text("Joining Crew shares only your profile, leaderboard catches and the spots you choose.")
+                .buttonStyle(.dsCardRow)
             }
-            .pfRows()
         }
-        .pfGroupedList()
-        .detailTint(nil)
-        .pfTrackScroll($titleShown)
-        .pfScrollTitle("Privacy", shown: titleShown)
+    }
+
+    private var sharingSection: some View {
+        CardSection("Crew and friends", note: "Your best catches always show on the friends leaderboard.") {
+            CardToggleRow("Share my catches", subtitle: "Species, size and photo",
+                          systemImage: "fish.fill", tint: .blue, isOn: $shareCatches)
+            CardToggleRow("Share my spots", subtitle: "Private until you turn this on",
+                          systemImage: "mappin.circle.fill", tint: .red, isOn: $shareSpots)
+            if shareSpots {
+                CardToggleRow("Exact spot locations", subtitle: "Off moves shared spots about 4 km",
+                              systemImage: "scope", tint: .orange, isOn: $shareSpotExact)
+            }
+            CardToggleRow("Share catch locations", subtitle: "Off keeps where you caught it private",
+                          systemImage: "location.fill", tint: .green, isOn: $shareCatchLocations)
+        }
+        .onChange(of: shareCatches) { _, _ in reapplySharing() }
+        .onChange(of: shareSpots) { _, _ in reapplySharing() }
+        .onChange(of: shareSpotExact) { _, _ in reapplySharing() }
+    }
+
+    private var blurSection: some View {
+        CardSection("Honey-hole blur",
+                    note: shareCatchLocations ? "Friends see an area this wide, never the exact rock."
+                                              : "Turn on Share catch locations to use this.") {
+            HStack(spacing: 14) {
+                BlurRadiusPreview(radiusKm: privacyRadius, tint: .blue)
+                VStack(alignment: .leading, spacing: DS.Space.s2) {
+                    HStack {
+                        Text("Move pins up to")
+                            .foregroundStyle(.dsText)
+                        Spacer(minLength: 4)
+                        Text(privacyRadius == 0 ? "Exact" : "\(Int(privacyRadius)) km")
+                            .font(.body.weight(.semibold))
+                            .monospacedDigit()
+                            .contentTransition(.numericText())
+                            .foregroundStyle(.dsText)
+                    }
+                    Slider(value: $privacyRadius, in: 0...20, step: 1)
+                        .accessibilityLabel("Honey-hole blur")
+                        .accessibilityValue(privacyRadius == 0 ? "Exact" : "\(Int(privacyRadius)) kilometres")
+                }
+            }
+            .padding(DS.Space.s4)
+            .disabled(!shareCatchLocations)
+            .opacity(shareCatchLocations ? 1 : 0.5)
+            .haptic(.selection, trigger: privacyRadius)
+        }
+    }
+
+    /// Builds without the iCloud entitlement (the sideload build) cannot
+    /// sync, so the toggle would do nothing there.
+    @ViewBuilder
+    private var syncSection: some View {
+        if CrewCloud.buildHasCloudKit {
+            CardSection("Sync", note: "Nobody else can see your iCloud data.") {
+                CardToggleRow("Sync across my devices", subtitle: "Your own private iCloud",
+                              systemImage: "icloud.fill", tint: .cyan, isOn: $cloudSyncEnabled)
+            }
+            .onChange(of: cloudSyncEnabled) { _, on in
+                CloudSyncEngine.shared.setEnabled(on)
+                ToastCenter.shared.show(on ? "Syncing with your iCloud" : "Sync off. This phone only", style: .info)
+            }
+        } else {
+            CardSection("Sync") {
+                CardRow("Not available in this build", systemImage: "icloud.slash.fill", tint: .cyan)
+            }
+        }
     }
 
     /// Re-apply the global sharing preferences to CloudKit (grants + shared spots).
