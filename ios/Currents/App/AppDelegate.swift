@@ -37,12 +37,11 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         Task { @MainActor in
             // The willPresent filter below only runs in the FOREGROUND; while
             // backgrounded the system shows banners directly, including ones
-            // about your own actions (your own crew post echoing back). This
-            // content-available wake is our chance to pull those back down.
+            // about your own actions on another of your devices. Any wake is
+            // a chance to pull those back down.
             Self.removeDeliveredSelfNotifications()
-            // Crew/trip event pushes carry content-available, so this also runs
-            // in the background — pre-warm the crew feed the event landed in,
-            // so opening the app (or the notification) shows it instantly.
+            // Pre-warm the crew feed the event landed in, so opening the app
+            // (or the notification) shows it instantly.
             if let crewCode = Self.queryFields(userInfo)?["crewCode"] as? String {
                 _ = await CommunityService.shared.crewFeed(code: crewCode)
             }

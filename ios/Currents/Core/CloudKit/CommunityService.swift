@@ -2261,7 +2261,14 @@ final class CommunityService: ObservableObject {
         acSub.notificationInfo = acInfo
 
         do {
-            _ = try await db.modifySubscriptions(saving: [frSub, tiSub, acSub], deleting: [])
+            let result = try await db.modifySubscriptions(saving: [frSub, tiSub, acSub], deleting: [])
+            // The call succeeds as a whole even when single subscriptions are
+            // rejected (a record type or index missing from the production
+            // schema), so check each one before calling push set up.
+            if let failure = Self.firstFailure(result.saveResults) {
+                UserDefaults.standard.set(failure, forKey: "pushSubsError")
+                return false
+            }
             UserDefaults.standard.set(friendCode, forKey: "pushSubsForCode")
             UserDefaults.standard.removeObject(forKey: "pushSubsError")
             return true
@@ -2301,9 +2308,9 @@ final class CommunityService: ObservableObject {
             n.alertLocalizationArgs = args
             n.soundName = "default"
             n.shouldBadge = true
-            // Wake the app in the background as well as showing the alert, so
-            // the relevant feed is already fresh when the user opens it.
-            n.shouldSendContentAvailable = true
+            // No content-available: a background-wake flag on a visible alert
+            // is not delivered to an app the user has swiped away, and these
+            // must arrive the moment the record lands. Feeds refresh on open.
             // Included in the payload so the app can drop self-authored events
             // (CloudKit predicates can't express `authorCode != me`).
             n.desiredKeys = desiredKeys
@@ -2408,7 +2415,14 @@ final class CommunityService: ObservableObject {
             let existingSet = Set(existing)
             let saving = force ? desired : desired.filter { !existingSet.contains($0.subscriptionID) }
             if !saving.isEmpty || !stale.isEmpty {
-                _ = try await db.modifySubscriptions(saving: saving, deleting: stale)
+                let result = try await db.modifySubscriptions(saving: saving, deleting: stale)
+                // Leave the fingerprint unset on a partial failure so the next
+                // foreground tries again instead of reporting crew alerts on.
+                if let failure = Self.firstFailure(result.saveResults) {
+                    UserDefaults.standard.removeObject(forKey: "eventSubsFingerprint")
+                    UserDefaults.standard.set(failure, forKey: "eventSubsError")
+                    return
+                }
             }
             UserDefaults.standard.set(fingerprint, forKey: "eventSubsFingerprint")
             UserDefaults.standard.removeObject(forKey: "eventSubsError")
@@ -2417,6 +2431,14 @@ final class CommunityService: ObservableObject {
             // change or push re-enable.
             UserDefaults.standard.set(error.localizedDescription, forKey: "eventSubsError")
         }
+    }
+
+    /// The first subscription CloudKit refused, as "id: reason", or nil.
+    private static func firstFailure(_ results: [CKSubscription.ID: Result<CKSubscription, Error>]) -> String? {
+        for (id, result) in results.sorted(by: { $0.key < $1.key }) {
+            if case .failure(let error) = result { return "\(id): \(error.localizedDescription)" }
+        }
+        return nil
     }
 
     /// Fire-and-forget wrapper for the synchronous membership mutation points.
