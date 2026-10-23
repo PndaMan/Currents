@@ -14,6 +14,7 @@ struct AlertSettingsView: View {
 
     @State private var permissionStatus: UNAuthorizationStatus = .notDetermined
     @State private var spots: [Spot] = []
+    @State private var spotAlerts: [String: SpotAlert] = [:]
     @State private var spotScores: [String: Int] = [:]
     @State private var isLoadingScores = false
     @State private var busyPush = false
@@ -53,10 +54,6 @@ struct AlertSettingsView: View {
         }
     }
 
-    private var aboveThreshold: Int {
-        spotScores.values.filter { $0 >= Int(alertThreshold) }.count
-    }
-
     var body: some View {
         List {
             Section {
@@ -83,14 +80,12 @@ struct AlertSettingsView: View {
             }
 
             Section {
-                PFToggleRow(title: "Bite alerts", detail: "When a saved spot reaches your threshold",
+                PFToggleRow(title: "Bite window opens", detail: "When a window at a saved spot reaches your score",
                             systemImage: "fish.fill", color: .green, isOn: $alertsEnabled)
-                PFToggleRow(title: "Prime window heads-up", detail: "About 45 minutes before the best window",
+                    .onChange(of: alertsEnabled) { _, on in alertTypeChanged(on) }
+                PFToggleRow(title: "Heads-up", detail: "About 45 minutes before that window",
                             systemImage: "alarm.fill", color: .orange, isOn: $primeWindowAlerts)
-                    .disabled(!allowed)
-                    .onChange(of: primeWindowAlerts) { _, _ in
-                        Task { await reschedulePrimeWindows() }
-                    }
+                    .onChange(of: primeWindowAlerts) { _, on in alertTypeChanged(on) }
                 PFToggleRow(title: "Slow bite nudge", detail: "After 45 minutes with no catch in a session",
                             systemImage: "timer", color: .cyan, isOn: $coldStreakNudges)
             } header: {
@@ -111,24 +106,18 @@ struct AlertSettingsView: View {
                         Text("or more")
                             .foregroundStyle(.dsText)
                     }
-                    Slider(value: $alertThreshold, in: 50...95, step: 5)
-                        .accessibilityLabel("Alert threshold")
+                    Slider(value: $alertThreshold, in: 50...95, step: 5, onEditingChanged: { editing in
+                        if !editing { Task { await reschedule() } }
+                    })
+                    .accessibilityLabel("Alert threshold")
                         .accessibilityValue("\(Int(alertThreshold))")
                 }
                 .padding(.vertical, DS.Space.s1)
                 .haptic(.selection, trigger: alertThreshold)
             } header: {
-                Text("Alert threshold")
+                Text("Default score")
             } footer: {
-                if spotScores.isEmpty {
-                    Text("Lower values mean more alerts.")
-                } else if aboveThreshold == 0 {
-                    Text("None of your spots reach \(Int(alertThreshold)) right now. You will not be disturbed.")
-                } else {
-                    Text(aboveThreshold == 1
-                         ? "1 of your spots is at \(Int(alertThreshold)) or more right now."
-                         : "\(aboveThreshold) of your spots are at \(Int(alertThreshold)) or more right now.")
-                }
+                Text("A window has to reach this score to alert. Lower means more alerts. Each spot can have its own.")
             }
             .pfRows()
 
@@ -138,12 +127,16 @@ struct AlertSettingsView: View {
                         description: Text("Save a spot to get bite alerts for it."))
                 } else {
                     ForEach(spots) { spot in
-                        spotRow(spot)
+                        NavigationLink {
+                            SpotAlertsView(spot: spot)
+                        } label: {
+                            spotRow(spot)
+                        }
                     }
                 }
             } header: {
                 HStack {
-                    Text("Your spots")
+                    Text("Spots")
                     if isLoadingScores {
                         Spacer()
                         ProgressView().controlSize(.small)
@@ -177,8 +170,12 @@ struct AlertSettingsView: View {
         .task {
             permissionStatus = await NotificationManager.shared.checkPermissionStatus()
             spots = (try? appState.spotRepository.fetchAll()) ?? []
+            spotAlerts = (try? appState.spotRepository.alerts()) ?? [:]
             await loadScores()
-            await reschedulePrimeWindows()
+        }
+        .onAppear {
+            // Back from a spot's page with changed choices.
+            spotAlerts = (try? appState.spotRepository.alerts()) ?? [:]
         }
     }
 
@@ -288,41 +285,62 @@ struct AlertSettingsView: View {
         Text(text).foregroundStyle(ok ? Color.dsScoreGood : Color.dsScoreLow)
     }
 
-    private func reschedulePrimeWindows() async {
-        guard primeWindowAlerts, permissionStatus == .authorized else { return }
-        await NotificationManager.shared.schedulePrimeWindowAlerts(
-            spots: spots, using: WeatherService.shared
-        )
+    private func reschedule() async {
+        await BackgroundRefresh.rescheduleAlerts(appState: appState)
+    }
+
+    /// Turning an alert type on asks for permission the first time, then
+    /// plans the alerts. Turning one off clears what it had scheduled.
+    private func alertTypeChanged(_ on: Bool) {
+        Task {
+            if on, permissionStatus == .notDetermined {
+                let granted = await NotificationManager.shared.requestPermission()
+                permissionStatus = granted ? .authorized : .denied
+            }
+            await reschedule()
+        }
     }
 
     // MARK: - Spot row
 
     private func spotRow(_ spot: Spot) -> some View {
-        let score = spotScores[spot.id]
-        let below = (score ?? 0) < Int(alertThreshold)
+        let choice = spotAlerts[spot.id] ?? .defaults(for: spot.id)
+        let threshold = choice.threshold ?? Int(alertThreshold)
         return HStack(spacing: 14) {
             ThumbView(systemImage: "mappin", tint: DS.accent, size: 40)
-            Text(spot.name)
-                .foregroundStyle(.dsText)
-                .lineLimit(1)
-            Spacer()
-            if let score {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(spot.name)
+                    .foregroundStyle(.dsText)
+                    .lineLimit(1)
+                Text(Self.status(choice, threshold: threshold))
+                    .font(.subheadline)
+                    .foregroundStyle(.dsText2)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 8)
+            if let score = spotScores[spot.id] {
                 Text("\(score)")
                     .font(.subheadline.weight(.semibold))
                     .monospacedDigit()
                     .foregroundStyle(DS.scoreInk(score))
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 4)
-                    .background(DS.scoreColor(score).opacity(0.18), in: Capsule())
+                    .accessibilityLabel("Score now \(score)")
             } else if !isLoadingScores {
                 Text("No data")
                     .font(.subheadline)
                     .foregroundStyle(.dsText3)
             }
         }
-        .opacity(score != nil && below ? 0.55 : 1)
         .accessibilityElement(children: .combine)
-        .accessibilityValue(score.map { below ? "Score \($0), below your threshold" : "Score \($0)" } ?? "")
+    }
+
+    /// The second line of a spot row: what that spot will send.
+    private static func status(_ choice: SpotAlert, threshold: Int) -> String {
+        switch (choice.biteAlerts, choice.headsUp) {
+        case (false, false): return "Off"
+        case (false, true): return "Heads-up only, at \(threshold) or more"
+        case (true, false): return "Window opens only, at \(threshold) or more"
+        case (true, true): return "At \(threshold) or more"
+        }
     }
 
     // MARK: - Score Loading

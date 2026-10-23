@@ -46,124 +46,153 @@ final class NotificationManager: @unchecked Sendable {
             identifier: "test-\(UUID().uuidString)", content: content, trigger: trigger))
     }
 
-    // MARK: - Spot Alerts
+    // MARK: - Bite alerts
 
-    /// Evaluate each spot's current forecast and schedule a local notification
-    /// for any spot whose bite score meets or exceeds the stored threshold.
-    func scheduleSpotAlerts(spots: [Spot], using weatherService: WeatherService) async {
-        let threshold = UserDefaults.standard.integer(forKey: "alertThreshold")
-        let minScore = threshold > 0 ? threshold : 75
+    /// How many bite notifications may be pending at once. iOS keeps at most
+    /// 64 per app; the rest of the budget is left for licence, session and
+    /// stock reminders.
+    private static let biteAlertBudget = 40
+    private static let headsUpLead: TimeInterval = 45 * 60
+    private static let defaultThreshold = 75
 
-        for spot in spots {
-            let coordinate = CLLocationCoordinate2D(
-                latitude: spot.latitude,
-                longitude: spot.longitude
-            )
+    /// Plan the next three days of bite notifications for saved spots and
+    /// replace whatever was scheduled before. Windows come from the same hourly
+    /// scores Today shows (BiteWindows over the target species' forecast), so
+    /// an alert fires when Today says the window opens. Called on launch, on
+    /// leaving the app, after a spot or a setting changes, and from background
+    /// refresh, so the plan follows the latest weather.
+    func rescheduleBiteAlerts(spots: [Spot], alerts: [String: SpotAlert], species: Species?) async {
+        let pending = await center.pendingNotificationRequests()
+        let old = Set(pending.map(\.identifier).filter { Self.isBiteAlert($0) })
 
-            guard let weather = await weatherService.current(for: coordinate) else {
-                continue
+        let defaults = UserDefaults.standard
+        let biteOn = defaults.bool(forKey: "alertsEnabled")
+        let headsUpOn = defaults.bool(forKey: "primeWindowAlerts")
+        guard biteOn || headsUpOn, await isAuthorized() else {
+            center.removePendingNotificationRequests(withIdentifiers: Array(old))
+            return
+        }
+        let stored = defaults.integer(forKey: "alertThreshold")
+        let fallback = stored > 0 ? stored : Self.defaultThreshold
+
+        let wanted: [WantedSpot] = spots.compactMap { spot in
+            let choice = alerts[spot.id] ?? .defaults(for: spot.id)
+            let bite = biteOn && choice.biteAlerts
+            let headsUp = headsUpOn && choice.headsUp
+            guard bite || headsUp else { return nil }
+            return WantedSpot(spot: spot, bite: bite, headsUp: headsUp,
+                              threshold: choice.threshold ?? fallback)
+        }
+        let weather = await Self.weather(for: wanted.map(\.spot))
+
+        var planned: [(fire: Date, request: UNNotificationRequest)] = []
+        for item in wanted {
+            let spot = item.spot
+            let coordinate = CLLocationCoordinate2D(latitude: spot.latitude, longitude: spot.longitude)
+            let reading = weather[spot.id]
+            let windows = BiteWindows.upcoming(coordinate: coordinate, current: reading?.current,
+                                               outlook: reading?.outlook ?? [], species: species, days: 3)
+            for window in windows where window.peakScore >= item.threshold {
+                if item.headsUp, let request = headsUpRequest(spot: spot, window: window) {
+                    planned.append((window.start.addingTimeInterval(-Self.headsUpLead), request))
+                }
+                if item.bite, let request = windowOpenRequest(spot: spot, window: window) {
+                    planned.append((window.start, request))
+                }
             }
+        }
 
-            let result = ForecastEngine.forecast(
-                date: .now,
-                coordinate: coordinate,
-                currentPressureHpa: weather.pressureHpa,
-                pressureChange6h: weather.pressureChange6h,
-                waterTempC: weather.waterTempC,
-                windSpeedKmh: weather.windSpeedKmh,
-                windDirection: weather.windDirectionDeg,
-                species: nil,
-                isInSpawningZone: false
-            )
-
-            guard result.score >= minScore else { continue }
-
-            let content = UNMutableNotificationContent()
-            content.title = "Great bite at \(spot.name)!"
-            content.body = "Score: \(result.score)/100 \u{2014} Conditions are excellent right now"
-            content.sound = .default
-            content.userInfo = ["deepLink": "currents://map"]
-
-            // Fire 30 seconds from now (immediate alert after background check)
-            let trigger = UNTimeIntervalNotificationTrigger(
-                timeInterval: 30,
-                repeats: false
-            )
-
-            // Use spot.id as identifier to prevent duplicate notifications
-            let request = UNNotificationRequest(
-                identifier: spot.id,
-                content: content,
-                trigger: trigger
-            )
-
-            try? await center.add(request)
+        // Soonest first, so a full budget drops the furthest-off alerts. The
+        // old plan is only cleared once the new one is ready, and an add with
+        // a known identifier replaces it, so being suspended halfway never
+        // leaves the spots without alerts.
+        let chosen = planned.sorted { $0.fire < $1.fire }.prefix(Self.biteAlertBudget)
+        let keep = Set(chosen.map(\.request.identifier))
+        center.removePendingNotificationRequests(withIdentifiers: Array(old.subtracting(keep)))
+        for item in chosen {
+            try? await center.add(item.request)
         }
     }
 
-    // MARK: - Prime-window (look-ahead) alerts
+    private struct WantedSpot {
+        let spot: Spot
+        let bite: Bool
+        let headsUp: Bool
+        let threshold: Int
+    }
 
-    /// Schedule a heads-up notification before the best feeding window over the
-    /// next day at each saved spot, so anglers can plan. Opt-in via the
-    /// "primeWindowAlerts" setting. Unlike `scheduleSpotAlerts` (which fires
-    /// when conditions are good *now*), this looks ahead using the solunar +
-    /// forecast engine and fires ~45 min before the window.
-    func schedulePrimeWindowAlerts(spots: [Spot], using weatherService: WeatherService) async {
-        guard UserDefaults.standard.bool(forKey: "primeWindowAlerts") else { return }
-        // Clear previous look-ahead alerts so we don't stack duplicates.
-        let existing = await center.pendingNotificationRequests()
-        let staleIDs = existing.map(\.identifier).filter { $0.hasPrefix("prime_") }
-        center.removePendingNotificationRequests(withIdentifiers: staleIDs)
+    private struct SpotWeather: Sendable {
+        let current: WeatherService.WeatherData?
+        let outlook: [WeatherService.WeatherData]
+    }
 
-        let threshold = UserDefaults.standard.integer(forKey: "alertThreshold")
-        let minScore = threshold > 0 ? threshold : 70
-        let now = Date()
-
-        // Look at the best window across today (remaining) and tomorrow.
-        for spot in spots.prefix(10) {
-            let coordinate = CLLocationCoordinate2D(latitude: spot.latitude, longitude: spot.longitude)
-            let weather = await weatherService.current(for: coordinate)
-
-            var best: (window: SolunarEngine.FeedingWindow, score: Int)?
-            for dayOffset in 0...1 {
-                guard let date = Calendar.current.date(byAdding: .day, value: dayOffset, to: now) else { continue }
-                let result = ForecastEngine.forecast(
-                    date: date,
-                    coordinate: coordinate,
-                    currentPressureHpa: weather?.pressureHpa,
-                    pressureChange6h: weather?.pressureChange6h,
-                    waterTempC: weather?.waterTempC,
-                    windSpeedKmh: weather?.windSpeedKmh,
-                    windDirection: weather?.windDirectionDeg,
-                    species: nil,
-                    isInSpawningZone: false
-                )
-                for window in result.feedingWindows where window.start > now.addingTimeInterval(3600) {
-                    // Score at the window's peak hour.
-                    let peakHour = Calendar.current.component(.hour, from: window.peak)
-                    let score = result.hourlyScores.first(where: { $0.hour == peakHour })?.score ?? result.score
-                    if score >= minScore, best == nil || score > best!.score {
-                        best = (window, score)
-                    }
+    /// Weather for every spot at once. One spot after another would not fit
+    /// in the half minute a background refresh gets once there are many.
+    private static func weather(for spots: [Spot]) async -> [String: SpotWeather] {
+        await withTaskGroup(of: (String, SpotWeather).self) { group in
+            for spot in spots {
+                let coordinate = CLLocationCoordinate2D(latitude: spot.latitude, longitude: spot.longitude)
+                let id = spot.id
+                group.addTask {
+                    async let current = WeatherService.shared.current(for: coordinate)
+                    async let outlook = WeatherService.shared.forecastDays(for: coordinate)
+                    return (id, SpotWeather(current: await current, outlook: await outlook))
                 }
             }
-
-            guard let best else { continue }
-            let fireDate = best.window.start.addingTimeInterval(-45 * 60)
-            guard fireDate > now else { continue }
-
-            let content = UNMutableNotificationContent()
-            content.title = "Prime bite window at \(spot.name)"
-            let timeStr = best.window.start.formatted(date: .omitted, time: .shortened)
-            content.body = "\(best.window.kind.rawValue) — score \(best.score)/100 around \(timeStr). Get ready!"
-            content.sound = .default
-            content.userInfo = ["deepLink": "currents://map"]
-
-            let comps = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: fireDate)
-            let trigger = UNCalendarNotificationTrigger(dateMatching: comps, repeats: false)
-            let request = UNNotificationRequest(identifier: "prime_\(spot.id)", content: content, trigger: trigger)
-            try? await center.add(request)
+            var byId: [String: SpotWeather] = [:]
+            for await (id, reading) in group { byId[id] = reading }
+            return byId
         }
+    }
+
+    private static func isBiteAlert(_ identifier: String) -> Bool {
+        identifier.hasPrefix("bite_") || identifier.hasPrefix("prime_")
+    }
+
+    /// Whether notifications may be shown, without ever prompting. Background
+    /// work must not raise the permission dialog.
+    private func isAuthorized() async -> Bool {
+        switch await center.notificationSettings().authorizationStatus {
+        case .authorized, .provisional, .ephemeral: return true
+        default: return false
+        }
+    }
+
+    private func windowOpenRequest(spot: Spot, window: BiteWindows.Upcoming) -> UNNotificationRequest? {
+        guard window.start > .now else { return nil }
+        let content = biteContent(spot: spot, window: window)
+        content.title = "Bite window open at \(spot.name)"
+        return request(id: "bite_\(spot.id)_\(Self.stamp(window.start))", content: content, at: window.start)
+    }
+
+    private func headsUpRequest(spot: Spot, window: BiteWindows.Upcoming) -> UNNotificationRequest? {
+        let fire = window.start.addingTimeInterval(-Self.headsUpLead)
+        guard fire > .now else { return nil }
+        let content = biteContent(spot: spot, window: window)
+        content.title = "Bite window at \(spot.name) in 45 minutes"
+        return request(id: "prime_\(spot.id)_\(Self.stamp(window.start))", content: content, at: fire)
+    }
+
+    private func biteContent(spot: Spot, window: BiteWindows.Upcoming) -> UNMutableNotificationContent {
+        let content = UNMutableNotificationContent()
+        let from = window.start.formatted(date: .omitted, time: .shortened)
+        let to = window.end.formatted(date: .omitted, time: .shortened)
+        content.body = "Bite score up to \(window.peakScore) from \(from) to \(to)."
+        content.sound = .default
+        content.threadIdentifier = "spot-\(spot.id)"
+        content.relevanceScore = Double(window.peakScore) / 100
+        content.userInfo = ["deepLink": "currents://map/spot/\(spot.id)"]
+        return content
+    }
+
+    private func request(id: String, content: UNNotificationContent, at date: Date) -> UNNotificationRequest {
+        let comps = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: date)
+        let trigger = UNCalendarNotificationTrigger(dateMatching: comps, repeats: false)
+        return UNNotificationRequest(identifier: id, content: content, trigger: trigger)
+    }
+
+    private static func stamp(_ date: Date) -> String {
+        String(Int(date.timeIntervalSince1970 / 60))
     }
 
     // MARK: - Cleanup

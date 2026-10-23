@@ -407,6 +407,18 @@ final class AppDatabase: Sendable {
             }
         }
 
+        migrator.registerMigration("v23_spot_alerts") { db in
+            // Notification choices per spot. Only spots changed from the
+            // defaults get a row.
+            try db.create(table: "spotAlert") { t in
+                t.primaryKey("spotId", .text)
+                    .references("spot", onDelete: .cascade)
+                t.column("biteAlerts", .boolean).notNull().defaults(to: true)
+                t.column("headsUp", .boolean).notNull().defaults(to: true)
+                t.column("threshold", .integer)
+            }
+        }
+
         return migrator
     }
 }

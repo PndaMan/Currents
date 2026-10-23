@@ -29,6 +29,30 @@ final class SpotRepository: ObservableObject {
         }
     }
 
+    // MARK: - Notification choices
+
+    /// Every stored per-spot choice, keyed by spot id. Spots missing from the
+    /// result follow the defaults.
+    func alerts() throws -> [String: SpotAlert] {
+        let rows = try db.db.read { db in try SpotAlert.fetchAll(db) }
+        return Dictionary(rows.map { ($0.spotId, $0) }, uniquingKeysWith: { a, _ in a })
+    }
+
+    func alert(for spotId: String) throws -> SpotAlert {
+        try db.db.read { db in try SpotAlert.fetchOne(db, key: spotId) } ?? .defaults(for: spotId)
+    }
+
+    /// Stores the choice, or removes the row when it is back to the defaults.
+    func saveAlert(_ alert: SpotAlert) throws {
+        try db.db.write { db in
+            if alert.isDefault {
+                _ = try SpotAlert.deleteOne(db, key: alert.spotId)
+            } else {
+                try alert.save(db)
+            }
+        }
+    }
+
     func fetchNearby(latitude: Double, longitude: Double, radiusKm: Double = 50) throws -> [Spot] {
         // Use geohash prefix for coarse filter, then Haversine for precise
         let geohash = Geohash.encode(latitude: latitude, longitude: longitude, precision: 4)

@@ -38,19 +38,30 @@ struct CurrentsApp: App {
                     await CommunityService.shared.refreshFriendRequests()
                 }
             }
+            // Bite alerts follow the latest weather each time the app opens.
+            if phase == .active, !ScreenshotSupport.isActive {
+                Task { await BackgroundRefresh.rescheduleAlerts(appState: appState) }
+            }
             // Daily automatic backup, kicked off when the app is backgrounded.
             if phase == .background {
                 AutoBackup.runIfDue(db: appState.db)
-                // Refresh look-ahead prime-window alerts for saved spots.
-                if UserDefaults.standard.bool(forKey: "primeWindowAlerts") {
-                    let spots = (try? appState.spotRepository.fetchAll()) ?? []
-                    Task {
-                        await NotificationManager.shared.schedulePrimeWindowAlerts(
-                            spots: spots, using: WeatherService.shared
-                        )
-                    }
+                BackgroundRefresh.schedule()
+                // Re-plan the bite alerts on the way out. Asking for extra
+                // time keeps the app awake until the plan is saved.
+                let app = UIApplication.shared
+                var token = UIBackgroundTaskIdentifier.invalid
+                token = app.beginBackgroundTask(withName: "Bite alerts") { app.endBackgroundTask(token) }
+                let started = token
+                Task {
+                    await BackgroundRefresh.rescheduleAlerts(appState: appState)
+                    app.endBackgroundTask(started)
                 }
             }
+        }
+        // Background app refresh: fresh weather for the widget and the alerts
+        // while the app is closed.
+        .backgroundTask(.appRefresh(BackgroundRefresh.taskIdentifier)) {
+            await BackgroundRefresh.run()
         }
     }
 }
