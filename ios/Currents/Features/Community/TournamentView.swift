@@ -20,8 +20,10 @@ private func plainDetail(_ s: String) -> String {
 
 // MARK: - Tournament setup
 
-/// Start a crew tournament: a name, how long it runs, how it scores. Teams
-/// are live sessions crewmates create or join afterwards.
+/// Start a crew tournament, laid out like Luma's create-event sheet: the
+/// cover the page will open with, the name typed at title size, then grouped
+/// rows for when it runs, how it scores and who plays. Teams are live
+/// sessions crewmates create or join afterwards.
 struct TournamentSetupView: View {
     let crew: CommunityService.Crew
     var onCreated: (CommunityService.Tournament) -> Void = { _ in }
@@ -30,21 +32,24 @@ struct TournamentSetupView: View {
     private var svc: CommunityService { .shared }
 
     @State private var name = ""
-    /// Index into `durations`. 0 runs until an admin ends it.
-    @State private var durationIndex = 0
+    /// Hours it runs: 0 runs until an admin ends it, `customHours` is an end
+    /// picked by hand.
+    @State private var runHours = 0
     @State private var endsAt = Date().addingTimeInterval(6 * 3600)
-    /// The end the stepper last set, so a hand-picked time reads "Custom".
+    /// The end the last preset set, so a hand-picked time reads "Custom".
     @State private var presetEnd: Date?
     @State private var busy = false
     @State private var perFish = TournamentPoints.standard.perFish
     @State private var perKg = TournamentPoints.standard.perKg
     @State private var speciesBonus = TournamentPoints.standard.newSpeciesBonus
+    @FocusState private var nameFocused: Bool
 
-    /// "Runs for" steps, in hours.
-    private static let durations: [Int] = [0, 3, 6, 12, 24, 48, 72, 168]
+    /// "Runs for" presets, in hours.
+    private static let durations: [Int] = [3, 6, 12, 24, 48, 72, 168]
+    private static let customHours = -1
 
     private var canCreate: Bool { !busy && !name.trimmingCharacters(in: .whitespaces).isEmpty }
-    private var hasEnd: Bool { durationIndex > 0 }
+    private var hasEnd: Bool { runHours != 0 }
 
     private var rates: TournamentPoints.Rates {
         TournamentPoints.Rates(perFish: perFish, perKg: perKg, newSpeciesBonus: speciesBonus)
@@ -52,113 +57,144 @@ struct TournamentSetupView: View {
 
     private var isStandard: Bool { rates == TournamentPoints.standard }
 
-    private var durationLabel: String {
-        let hours = Self.durations[durationIndex]
-        if hours == 0 { return "No end" }
-        if endsAt != presetEnd { return "Custom" }
-        if hours == 168 { return "1 week" }
-        if hours >= 24 { return hours == 24 ? "1 day" : "\(hours / 24) days" }
-        return "\(hours) hours"
-    }
-
     var body: some View {
         NavigationStack {
-            ScrollView { form }
-                .scrollDismissesKeyboard(.interactively)
-                .dsScreenBackground()
+            form
+                .safeAreaInset(edge: .bottom, spacing: 0) { createBar }
                 .eventSheetTitle("New tournament", close: "Cancel")
+                .onChange(of: runHours) { _, hours in applyDuration(hours) }
+                .onChange(of: endsAt) { _, end in
+                    if runHours > 0, end != presetEnd { runHours = Self.customHours }
+                }
         }
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)
     }
 
     private var form: some View {
-        VStack(alignment: .leading, spacing: DS.Space.s5) {
-            Text("For \(crew.name). Teams are live sessions, and every catch logged during the tournament scores.")
-                .font(.body)
-                .foregroundStyle(.dsText2)
-                .fixedSize(horizontal: false, vertical: true)
-            CrewTextField(label: "Tournament name", placeholder: "Winter classic", text: $name)
-                .submitLabel(.done)
-            lengthField
-            scoringField
-            startButton
+        List {
+            titleSection
+            whenSection
+            scoringSection
+            teamsSection
         }
-        .padding(.horizontal, DS.gutter)
-        .padding(.top, DS.Space.s3)
-        .padding(.bottom, DS.Space.s6)
-        .animation(DS.Motion.softSpring, value: hasEnd)
-        .animation(DS.Motion.softSpring, value: isStandard)
-        .pageWidth()
+        .pfGroupedList()
+        .textCase(nil)
+        .detailTint(nil)
+        .scrollDismissesKeyboard(.interactively)
     }
 
-    private var lengthField: some View {
-        EventFormField("Length") {
-            EventFormRow("Runs for", showsDivider: hasEnd) {
-                EventStepper(label: "Runs for", value: durationLabel,
-                             canDecrement: durationIndex > 0,
-                             canIncrement: durationIndex < Self.durations.count - 1,
-                             decrement: { setDuration(durationIndex - 1) },
-                             increment: { setDuration(durationIndex + 1) })
+    // MARK: Cover and name
+
+    private var titleSection: some View {
+        Section {
+            VStack(alignment: .leading, spacing: DS.Space.s4) {
+                EventCover(species: nil, systemImage: "trophy.fill", tint: .dsScoreFair)
+                TextField("Tournament name", text: $name, prompt: Text("Tournament name"))
+                    .font(.title.bold())
+                    .foregroundStyle(.dsText)
+                    .submitLabel(.done)
+                    .focused($nameFocused)
+                    .padding(.horizontal, DS.gutter)
             }
+            .padding(.top, DS.Space.s2)
+            .pfBareRow()
+        }
+    }
+
+    // MARK: When
+
+    private var whenSection: some View {
+        Section {
+            LabeledContent("Starts", value: "Now")
+            Picker("Runs for", selection: $runHours) {
+                Text("No end").tag(0)
+                ForEach(Self.durations, id: \.self) { hours in
+                    Text(Self.durationText(hours)).tag(hours)
+                }
+                if runHours == Self.customHours {
+                    Text("Custom").tag(Self.customHours)
+                }
+            }
+            .pickerStyle(.menu)
             if hasEnd {
-                EventFormRow("Ends", showsDivider: false) {
-                    DatePicker("Ends", selection: $endsAt, in: Date()...,
-                               displayedComponents: [.date, .hourAndMinute])
-                        .labelsHidden()
-                }
-                .transition(.opacity)
+                DatePicker("Ends", selection: $endsAt, in: Date()...,
+                           displayedComponents: [.date, .hourAndMinute])
             }
+        } header: {
+            Text("When")
+        } footer: {
+            Text(hasEnd ? "Points stop counting at the end time."
+                        : "It runs until an admin ends it.")
         }
+        .pfRows()
     }
 
-    private var scoringField: some View {
-        VStack(alignment: .leading, spacing: DS.Space.s3) {
-            EventFormField("Scoring") {
-                EventFormRow("Each fish") {
-                    EventStepper(label: "Points for each fish", value: pointsText(perFish),
-                                 canDecrement: perFish > 0, canIncrement: perFish < 100,
-                                 decrement: { perFish -= 1 }, increment: { perFish += 1 })
-                }
-                EventFormRow("Each kilogram") {
-                    EventStepper(label: "Points for each kilogram", value: "+\(perKg)",
-                                 canDecrement: perKg > 0, canIncrement: perKg < 50,
-                                 decrement: { perKg -= 1 }, increment: { perKg += 1 })
-                }
-                EventFormRow("New species", showsDivider: false) {
-                    EventStepper(label: "Bonus for each new species", value: "+\(speciesBonus)",
-                                 canDecrement: speciesBonus > 0, canIncrement: speciesBonus < 100,
-                                 decrement: { speciesBonus -= 1 }, increment: { speciesBonus += 1 })
-                }
+    // MARK: Scoring
+
+    private var scoringSection: some View {
+        Section {
+            Stepper(value: $perFish, in: 0...100) {
+                LabeledContent("Each fish", value: pointsText(perFish))
+            }
+            Stepper(value: $perKg, in: 0...50) {
+                LabeledContent("Each kilogram", value: "+\(perKg)")
+            }
+            Stepper(value: $speciesBonus, in: 0...100) {
+                LabeledContent("New species", value: "+\(speciesBonus)")
             }
             if !isStandard {
                 Button("Use standard scoring", action: resetScoring)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(DS.accent)
-                    .buttonStyle(.dim)
-                    .transition(.opacity)
             }
+        } header: {
+            Text("Scoring")
+        } footer: {
+            Text("A 3 kg fish of a species new to the team scores \(pointsText(perFish + 3 * perKg + speciesBonus)).")
         }
+        .pfRows()
     }
 
-    private var startButton: some View {
-        VStack(alignment: .leading, spacing: DS.Space.s4) {
-            Button(action: create) {
-                if busy { ProgressView() } else { Text("Start tournament") }
-            }
-            .buttonStyle(.dsPrimary)
-            .disabled(!canCreate)
-            Text("Crewmates start or join teams from the tournament page once it's live.")
-                .font(.footnote)
-                .foregroundStyle(.dsText2)
-                .fixedSize(horizontal: false, vertical: true)
+    // MARK: Teams
+
+    private var teamsSection: some View {
+        Section {
+            LabeledContent("Crew", value: crew.name)
+            LabeledContent("Teams", value: "Started by crewmates")
+        } header: {
+            Text("Teams")
+        } footer: {
+            Text("Each team is a live session with GPS on. Crewmates start or join one from the tournament page, and every catch they log scores.")
         }
+        .pfRows()
     }
 
-    private func setDuration(_ index: Int) {
-        durationIndex = min(max(0, index), Self.durations.count - 1)
-        let hours = Self.durations[durationIndex]
-        guard hours > 0 else { presetEnd = nil; return }
+    // MARK: Create
+
+    private var createBar: some View {
+        Button(action: create) {
+            if busy {
+                ProgressView().tint(Color.dsOnPrimary)
+            } else {
+                Text("Start tournament")
+            }
+        }
+        .buttonStyle(.dsPrimary)
+        .disabled(!canCreate)
+        .padding(.horizontal, DS.gutter)
+        .padding(.top, DS.Space.s3)
+        .padding(.bottom, DS.Space.s2)
+        .background(Color.dsBackground)
+    }
+
+    private static func durationText(_ hours: Int) -> String {
+        if hours == 168 { return "1 week" }
+        if hours >= 24 { return hours == 24 ? "1 day" : "\(hours / 24) days" }
+        return "\(hours) hours"
+    }
+
+    private func applyDuration(_ hours: Int) {
+        if hours == 0 { presetEnd = nil }
+        guard hours > 0 else { return }
         let end = Date().addingTimeInterval(TimeInterval(hours) * 3600)
         presetEnd = end
         endsAt = end
@@ -172,6 +208,7 @@ struct TournamentSetupView: View {
 
     private func create() {
         busy = true
+        nameFocused = false
         let trimmed = name.trimmingCharacters(in: .whitespaces)
         let rates = self.rates
         Task {
