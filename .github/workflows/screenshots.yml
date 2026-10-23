@@ -1,13 +1,15 @@
 name: App Store Screenshots
 
-# Captures clean, full-resolution App Store screenshots in the iOS Simulator —
-# no physical device needed. The app is relaunched once per tab in "screenshot
-# mode" (SCREENSHOT_MODE=1), which seeds rights-clean demo data (using the
-# app's OWN bundled fish artwork) and opens straight to the requested tab, so
-# each capture is deterministic. Download the "app-store-screenshots" artifact
-# from the run summary.
+# Captures App Store screenshots in the iOS Simulator, with no physical device.
+# The app is relaunched once per shot in screenshot mode (SCREENSHOT_MODE=1),
+# which seeds fictional demo data and opens the screen named by
+# SCREENSHOT_SCREEN, so every capture is deterministic. The demo photos in
+# ios/AppStore/demo-photos are copied into the simulator's app container only;
+# they never ship in the app. Each capture is then framed with a headline by
+# scripts/frame_screenshots.py. Download "app-store-screenshots" from the run:
+# 6.9/ holds the raw captures, 6.9-framed/ the framed ones, watch/ the watch.
 #
-# iPhone 16 Pro Max = 6.9" display (1320×2868), which Apple accepts for the
+# iPhone 16 Pro Max = 6.9" display (1320x2868), which Apple accepts for the
 # required iPhone screenshot slot. The app is iPhone-only, so no iPad set.
 
 on:
@@ -16,13 +18,22 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: screenshots-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   screenshots:
     name: Capture Screenshots
     runs-on: macos-15
+    timeout-minutes: 40
+    env:
+      BUNDLE_ID: com.aidanmcconnon.currents
+      WATCH_BUNDLE_ID: com.aidanmcconnon.currents.watchkitapp
     defaults:
       run:
         working-directory: ios
+        shell: bash --noprofile --norc -euo pipefail {0}
 
     steps:
       - uses: actions/checkout@v4
@@ -62,14 +73,14 @@ jobs:
           runtimes = [r for r in data['runtimes'] if 'iOS' in r.get('name','') and '26' in r.get('name','') and r.get('isAvailable', False)]
           if runtimes: print(runtimes[-1]['identifier'])
           ")
+          if [ -z "$RUNTIME" ]; then echo "No iOS 26 runtime"; exit 1; fi
           echo "Runtime: $RUNTIME"
           UDID=$(xcrun simctl create "Screenshot-6.9" "com.apple.CoreSimulator.SimDeviceType.iPhone-16-Pro-Max" "$RUNTIME")
-          echo "UDID=$UDID" >> $GITHUB_ENV
+          echo "UDID=$UDID" >> "$GITHUB_ENV"
 
       - name: Build for Simulator
         run: |
-          set -o pipefail
-          xcodebuild build \
+          if ! xcodebuild build \
             -project Currents.xcodeproj \
             -scheme Currents \
             -destination "generic/platform=iOS Simulator" \
@@ -77,19 +88,22 @@ jobs:
             -clonedSourcePackagesDirPath .spm-cache \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_ALLOWED=NO \
-            2>&1 | tail -5
+            CODE_SIGNING_ALLOWED=NO > build.log 2>&1; then
+            grep -E "error:" build.log | head -40 || true
+            tail -60 build.log
+            exit 1
+          fi
+          tail -5 build.log
 
-      - name: Boot & prepare simulator
+      - name: Boot and prepare simulator
         run: |
-          BUNDLE_ID=com.aidanmcconnon.currents
           xcrun simctl boot "$UDID"
-          sleep 5
+          xcrun simctl bootstatus "$UDID"
 
-          # Dark appearance for a moody, on-brand look.
+          # Dark appearance, as the app is designed dark first.
           xcrun simctl ui "$UDID" appearance dark
 
-          # Clean "hero" status bar (9:41, full battery/signal).
+          # Clean status bar (9:41, full battery and signal).
           xcrun simctl status_bar "$UDID" override \
             --time "9:41" \
             --batteryState charged --batteryLevel 100 \
@@ -97,48 +111,72 @@ jobs:
             --wifiMode active --wifiBars 3 \
             --dataNetwork wifi || true
 
-          # A scenic coastal location so the forecast looks inviting
-          # (Kogel Bay, South Africa — matches the seeded demo spots).
+          # Kogel Bay, South Africa, matching the seeded demo spots.
           xcrun simctl location "$UDID" set -34.235,18.848 || true
 
           # Pre-grant location so no permission dialog covers a screenshot.
           xcrun simctl privacy "$UDID" grant location "$BUNDLE_ID" || true
 
-          APP_PATH=$(find DerivedData -name "Currents.app" -path "*/Debug-iphonesimulator/*" -type d | head -1)
+          APP_PATH=$(find DerivedData -name "Currents.app" -path "*/Debug-iphonesimulator/*" -type d -print -quit)
+          if [ -z "$APP_PATH" ]; then echo "Currents.app not found"; exit 1; fi
           echo "App: $APP_PATH"
           xcrun simctl install "$UDID" "$APP_PATH"
 
-      - name: Capture each tab
+      # The demo photos go into the app's data container on the simulator
+      # only. ScreenshotSupport reads Documents/ScreenshotPhotos and falls
+      # back to the app's fish artwork if the folder is missing.
+      - name: Copy demo photos into the simulator
         run: |
-          BUNDLE_ID=com.aidanmcconnon.currents
+          DATA=$(xcrun simctl get_app_container "$UDID" "$BUNDLE_ID" data)
+          mkdir -p "$DATA/Documents/ScreenshotPhotos"
+          cp AppStore/demo-photos/*.jpg "$DATA/Documents/ScreenshotPhotos/"
+          echo "Copied $(ls "$DATA/Documents/ScreenshotPhotos" | wc -l | tr -d ' ') photos"
+
+      - name: Capture each screen
+        run: |
           OUT=screenshots/6.9
           mkdir -p "$OUT"
 
-          # First launch seeds the demo data; later launches reuse it.
-          i=1
-          for TAB in today map catches fish community; do
+          launch() {
             xcrun simctl terminate "$UDID" "$BUNDLE_ID" 2>/dev/null || true
             sleep 1
             SIMCTL_CHILD_SCREENSHOT_MODE=1 \
-            SIMCTL_CHILD_SCREENSHOT_TAB="$TAB" \
+            SIMCTL_CHILD_SCREENSHOT_SCREEN="$1" \
               xcrun simctl launch "$UDID" "$BUNDLE_ID"
-            # Give SwiftUI + MapKit tiles time to settle.
-            sleep 9
-            printf -v N "%02d" "$i"
-            xcrun simctl io "$UDID" screenshot "$OUT/${N}_${TAB}.png"
-            echo "Captured $OUT/${N}_${TAB}.png"
-            i=$((i+1))
+          }
+
+          # Warm-up launch: seeds the demo data and lets the forecast cache
+          # fill, so every later launch opens on settled content.
+          launch today
+          sleep 20
+
+          # name|SCREENSHOT_SCREEN|seconds to settle
+          SHOTS=(
+            "01_today|today|12"
+            "02_explore|explore-near|16"
+            "03_catch|catch|9"
+            "04_logbook|logbook|9"
+            "05_lures|lures|10"
+            "06_crew|crew|9"
+            "07_leaderboard|leaderboard|10"
+            "08_profile|profile|9"
+          )
+          for SHOT in "${SHOTS[@]}"; do
+            IFS='|' read -r NAME SCREEN SETTLE <<< "$SHOT"
+            launch "$SCREEN"
+            sleep "$SETTLE"
+            xcrun simctl io "$UDID" screenshot "$OUT/$NAME.png"
+            echo "Captured $OUT/$NAME.png"
           done
 
           ls -la "$OUT"
 
       - name: Capture Apple Watch screenshot
         run: |
-          WATCH_BUNDLE_ID=com.aidanmcconnon.currents.watchkitapp
           OUT=screenshots/watch
           mkdir -p "$OUT"
 
-          # Latest available watchOS runtime + an Ultra 2 (49mm = 410x502,
+          # Latest available watchOS runtime and an Ultra 2 (49mm = 410x502,
           # accepted for every App Store watch screenshot slot).
           WRUNTIME=$(xcrun simctl list runtimes --json | python3 -c "
           import json, sys
@@ -146,14 +184,15 @@ jobs:
           rts = [r for r in data['runtimes'] if 'watchOS' in r.get('name','') and r.get('isAvailable', False)]
           if rts: print(rts[-1]['identifier'])
           ")
+          if [ -z "$WRUNTIME" ]; then echo "No watchOS runtime"; exit 1; fi
           echo "watchOS runtime: $WRUNTIME"
           WUDID=$(xcrun simctl create "Screenshot-Watch" "com.apple.CoreSimulator.SimDeviceType.Apple-Watch-Ultra-2-49mm" "$WRUNTIME")
           xcrun simctl boot "$WUDID"
-          sleep 5
+          xcrun simctl bootstatus "$WUDID"
 
           xcrun simctl status_bar "$WUDID" override --time "9:41" || true
 
-          xcodebuild build \
+          if ! xcodebuild build \
             -project Currents.xcodeproj \
             -scheme CurrentsWatch \
             -destination "generic/platform=watchOS Simulator" \
@@ -161,34 +200,52 @@ jobs:
             -clonedSourcePackagesDirPath .spm-cache \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_ALLOWED=NO \
-            2>&1 | tail -3
+            CODE_SIGNING_ALLOWED=NO > watch-build.log 2>&1; then
+            grep -E "error:" watch-build.log | head -40 || true
+            tail -60 watch-build.log
+            exit 1
+          fi
 
-          WATCH_APP=$(find DerivedData -name "CurrentsWatch.app" -path "*watchsimulator*" -type d | head -1)
+          WATCH_APP=$(find DerivedData -name "CurrentsWatch.app" -path "*watchsimulator*" -type d -print -quit)
+          if [ -z "$WATCH_APP" ]; then echo "CurrentsWatch.app not found"; exit 1; fi
           echo "Watch app: $WATCH_APP"
           xcrun simctl install "$WUDID" "$WATCH_APP"
 
           SIMCTL_CHILD_SCREENSHOT_MODE=1 \
             xcrun simctl launch "$WUDID" "$WATCH_BUNDLE_ID"
           sleep 8
-          xcrun simctl io "$WUDID" screenshot "$OUT/06_watch.png"
-          echo "Captured $OUT/06_watch.png"
+          xcrun simctl io "$WUDID" screenshot "$OUT/watch.png"
+          echo "Captured $OUT/watch.png"
           ls -la "$OUT"
 
-      - name: Collect diagnostics (crash logs + app oslog)
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Frame screenshots with headlines
+        run: |
+          uv run ../scripts/frame_screenshots.py \
+            --input screenshots/6.9 \
+            --output screenshots/6.9-framed \
+            --captions AppStore/captions.json
+          ls -la screenshots/6.9-framed
+
+      - name: Collect diagnostics (crash logs and app log)
         if: always()
         run: |
           mkdir -p screenshots/diagnostics
           # Simulator app crashes land in the host's DiagnosticReports.
           cp ~/Library/Logs/DiagnosticReports/Currents* screenshots/diagnostics/ 2>/dev/null || true
           # The app's own log output for the capture window.
-          xcrun simctl spawn "$UDID" log show --last 15m \
-            --predicate 'processImagePath CONTAINS "Currents"' \
-            --style compact > screenshots/diagnostics/oslog.txt 2>/dev/null || true
+          if [ -n "${UDID:-}" ]; then
+            xcrun simctl spawn "$UDID" log show --last 15m \
+              --predicate 'processImagePath CONTAINS "Currents"' \
+              --style compact > screenshots/diagnostics/oslog.txt 2>/dev/null || true
+          fi
           echo "--- diagnostics ---"; ls -la screenshots/diagnostics || true
           tail -40 screenshots/diagnostics/oslog.txt 2>/dev/null || true
 
       - name: Upload Screenshots (artifact)
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: app-store-screenshots
@@ -196,15 +253,17 @@ jobs:
           retention-days: 90
 
       # Also publish the PNGs to a dedicated branch (force-pushed each run) so
-      # they can be pulled and previewed directly without downloading the
-      # artifact. History is a single commit — no binary buildup on master.
+      # they can be previewed without downloading the artifact. History is a
+      # single commit, so no binaries build up on master.
       - name: Publish screenshots to branch
         working-directory: ${{ github.workspace }}
         run: |
           TMP=$(mktemp -d)
-          cp ios/screenshots/6.9/*.png "$TMP"/ 2>/dev/null || true
-          cp ios/screenshots/watch/*.png "$TMP"/ 2>/dev/null || true
-          if ! ls "$TMP"/*.png >/dev/null 2>&1; then
+          mkdir -p "$TMP/raw" "$TMP/framed"
+          cp ios/screenshots/6.9/*.png "$TMP/raw/" 2>/dev/null || true
+          cp ios/screenshots/6.9-framed/*.png "$TMP/framed/" 2>/dev/null || true
+          cp ios/screenshots/watch/*.png "$TMP/" 2>/dev/null || true
+          if ! ls "$TMP"/raw/*.png >/dev/null 2>&1; then
             echo "No screenshots to publish"; exit 0
           fi
           cd "$TMP"
@@ -212,8 +271,8 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git checkout -q -b app-store-screenshots
-          git add ./*.png
+          git add -A
           git commit -q -m "App Store screenshots (automated, ${GITHUB_SHA})"
           git remote add origin "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git"
           git push -f origin app-store-screenshots
-          echo "Pushed $(ls *.png | wc -l) screenshots to branch app-store-screenshots"
+          echo "Pushed $(find . -name '*.png' | wc -l | tr -d ' ') screenshots to branch app-store-screenshots"
