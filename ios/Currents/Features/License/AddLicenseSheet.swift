@@ -25,12 +25,15 @@ struct AddLicenseSheet: View {
     @State private var fileKind: String?
 
     @State private var photoItem: PhotosPickerItem?
+    @State private var showingPhotos = false
     @State private var showingFileImporter = false
     @State private var showingCamera = false
     @State private var isScanning = false
+    @State private var saved = false
+    @State private var didLoad = false
 
-    /// The common kinds as one-tap chips. A different type saved earlier
-    /// shows as its own chip, so editing never loses it.
+    /// The common kinds. A different type saved earlier stays in the list,
+    /// so editing never loses it.
     private static let types = ["Freshwater", "Marine", "Permit"]
 
     private var typeOptions: [String] {
@@ -38,43 +41,21 @@ struct AddLicenseSheet: View {
         return current.isEmpty || Self.types.contains(current) ? Self.types : Self.types + [current]
     }
 
-    /// The form as a licence, for the live card at the top.
-    private var draft: FishingLicense {
-        FishingLicense(id: id, title: title,
-                       licenseType: licenseType.isEmpty ? nil : licenseType,
-                       holderName: holderName.isEmpty ? nil : holderName,
-                       licenseNumber: licenseNumber.isEmpty ? nil : licenseNumber,
-                       region: region.isEmpty ? nil : region,
-                       issueDate: issueDate, expiryDate: expiryDate,
-                       fileName: fileName, fileKind: fileKind)
+    private var navigationTitle: String {
+        if editing != nil { return "Edit licence" }
+        return renewing != nil ? "Add renewal" : "Add licence"
     }
 
     var body: some View {
         NavigationStack {
             Form {
-                Section {
-                    LicenseCard(license: draft)
-                        .licenseFormBareRow()
-                }
                 documentSection
-                Section {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 6) {
-                            ForEach(typeOptions, id: \.self) { type in
-                                Chip(type, isSelected: licenseType == type) {
-                                    licenseType = licenseType == type ? "" : type
-                                }
-                            }
-                        }
-                        .padding(.vertical, DS.Space.s1)
-                    }
-                    .scrollBounceBehavior(.basedOnSize, axes: [.horizontal])
-                    .licenseFormBareRow()
-                } header: {
-                    Text("Type")
-                }
                 Section("Details") {
                     TextField("Title", text: $title, prompt: Text("Western Cape freshwater licence"))
+                    Picker("Type", selection: $licenseType.haptic()) {
+                        Text("None").tag("")
+                        ForEach(typeOptions, id: \.self) { Text($0).tag($0) }
+                    }
                     field("Holder", text: $holderName, prompt: "Your name")
                     field("Number", text: $licenseNumber, prompt: "As printed")
                     field("Region", text: $region, prompt: "Where it is valid")
@@ -100,7 +81,7 @@ struct AddLicenseSheet: View {
             .scrollContentBackground(.hidden)
             .dsScreenBackground()
             .detailScrollEdge()
-            .navigationTitle(editing != nil ? "Edit licence" : (renewing != nil ? "Add renewal" : "Add licence"))
+            .navigationTitle(navigationTitle)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
@@ -109,9 +90,15 @@ struct AddLicenseSheet: View {
                 }
             }
             .onAppear(perform: loadIfEditing)
+            // The camera cover also fires onDisappear; only a real close
+            // drops an unsaved pick.
+            .onDisappear {
+                if !saved && !showingCamera { discardUnsavedFile() }
+            }
             .fileImporter(isPresented: $showingFileImporter, allowedContentTypes: [.pdf, .image]) { result in
                 if case .success(let url) = result { importFile(url) }
             }
+            .photosPicker(isPresented: $showingPhotos, selection: $photoItem, matching: .images)
             .fullScreenCover(isPresented: $showingCamera) {
                 CameraPicker { image in importImage(image) }.ignoresSafeArea()
             }
@@ -122,6 +109,7 @@ struct AddLicenseSheet: View {
                        let img = UIImage(data: data) {
                         importImage(img)
                     }
+                    photoItem = nil
                 }
             }
         }
@@ -129,62 +117,55 @@ struct AddLicenseSheet: View {
 
     // MARK: - Document section
 
-    @ViewBuilder private var documentSection: some View {
+    /// The attached document as itself, with ways to replace or remove it;
+    /// before one is attached, the three ways to add it.
+    private var documentSection: some View {
         Section {
-            HStack(spacing: DS.Space.s2) {
-                if UIImagePickerController.isSourceTypeAvailable(.camera) {
-                    Button { showingCamera = true } label: {
-                        Label("Scan", systemImage: "camera.viewfinder")
+            if let fileName {
+                FilePreview(url: LicenseFileStore.url(for: fileName), systemImage: "doc.text.image",
+                            renderSize: 400, contentMode: .fit, cornerRadius: DS.Radius.thumb,
+                            placeholderAspect: FishingLicense.cardAspect)
+                    .frame(maxWidth: .infinity, maxHeight: 220)
+                    .padding(.vertical, DS.Space.s2)
+                    .accessibilityLabel(fileKind == "pdf" ? "Attached PDF" : "Attached photo")
+                if isScanning {
+                    Label {
+                        Text("Reading the licence")
+                    } icon: {
+                        ProgressView()
                     }
-                    .buttonStyle(ActionTileStyle(fileName == nil ? .primary : .tonal))
-                    .accessibilityLabel("Scan the licence with the camera")
+                    .foregroundStyle(.dsText2)
                 }
-                PhotosPicker(selection: $photoItem, matching: .images) {
-                    ActionTileLabel("Photo", systemImage: "photo")
+                Menu {
+                    sourceButtons
+                } label: {
+                    Label("Replace document", systemImage: "arrow.triangle.2.circlepath")
                 }
-                .buttonStyle(.dim)
-                .accessibilityLabel("Choose a photo of the licence")
-                Button { showingFileImporter = true } label: {
-                    Label("File", systemImage: "doc")
+                Button(role: .destructive) { removeDocument() } label: {
+                    Label("Remove document", systemImage: "trash")
                 }
-                .buttonStyle(ActionTileStyle())
-                .accessibilityLabel("Choose a PDF or file")
+            } else {
+                sourceButtons
             }
-            .licenseFormBareRow()
         } header: {
             Text("Document")
+        } footer: {
+            Text("Dates, number and holder are read from the document. Check them before you save.")
         }
+        .pfRows()
+    }
 
-        if let fileName, let fileKind {
-            Section {
-                HStack(spacing: 12) {
-                    LicenseDocumentView(license: FishingLicense(title: title, fileName: fileName, fileKind: fileKind))
-                        .allowsHitTesting(false)
-                        .frame(width: 56, height: 56)
-                        .background(Color.dsFill2)
-                        .clipShape(RoundedRectangle(cornerRadius: DS.Radius.thumb, style: .continuous))
-                        .accessibilityHidden(true)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(fileKind == "pdf" ? "PDF attached" : "Photo attached")
-                            .foregroundStyle(.dsText)
-                        if isScanning {
-                            Text("Reading the licence")
-                                .font(.footnote)
-                                .foregroundStyle(.dsText2)
-                        }
-                    }
-                    Spacer(minLength: 0)
-                    if isScanning {
-                        ProgressView()
-                    } else {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundStyle(.green)
-                            .accessibilityHidden(true)
-                    }
-                }
-                .accessibilityElement(children: .combine)
+    @ViewBuilder private var sourceButtons: some View {
+        if UIImagePickerController.isSourceTypeAvailable(.camera) {
+            Button { showingCamera = true } label: {
+                Label("Scan with camera", systemImage: "camera")
             }
-            .pfRows()
+        }
+        Button { showingPhotos = true } label: {
+            Label("Choose photo", systemImage: "photo")
+        }
+        Button { showingFileImporter = true } label: {
+            Label("Choose file", systemImage: "doc")
         }
     }
 
@@ -227,19 +208,40 @@ struct AddLicenseSheet: View {
         guard let data = try? Data(contentsOf: url) else { return }
         let isPDF = url.pathExtension.lowercased() == "pdf"
         let ext = isPDF ? "pdf" : (url.pathExtension.isEmpty ? "jpg" : url.pathExtension.lowercased())
-        guard let stored = LicenseFileStore.store(data: data, ext: ext, id: id) else { return }
-        fileName = stored
-        fileKind = isPDF ? "pdf" : "image"
+        guard let stored = adopt(data: data, ext: ext, kind: isPDF ? "pdf" : "image") else { return }
         if isPDF { runOCR(pdf: LicenseFileStore.url(for: stored)) }
         else if let img = UIImage(data: data) { runOCR(image: img) }
     }
 
     private func importImage(_ image: UIImage) {
         guard let data = image.jpegData(compressionQuality: 0.9),
-              let stored = LicenseFileStore.store(data: data, ext: "jpg", id: id) else { return }
-        fileName = stored
-        fileKind = "image"
+              adopt(data: data, ext: "jpg", kind: "image") != nil else { return }
         runOCR(image: image)
+    }
+
+    /// Stores a newly chosen document under a name of its own, so the saved
+    /// one stays untouched until Save, and drops the previous unsaved pick.
+    private func adopt(data: Data, ext: String, kind: String) -> String? {
+        let name = "\(id)-\(UUID().uuidString.prefix(8))"
+        guard let stored = LicenseFileStore.store(data: data, ext: ext, id: name) else { return nil }
+        discardUnsavedFile()
+        fileName = stored
+        fileKind = kind
+        return stored
+    }
+
+    private func removeDocument() {
+        discardUnsavedFile()
+        fileName = nil
+        fileKind = nil
+    }
+
+    /// Deletes the attached file unless it is the one already saved with the
+    /// licence being edited.
+    private func discardUnsavedFile() {
+        if let fileName, fileName != editing?.fileName {
+            LicenseFileStore.delete(fileName)
+        }
     }
 
     private func runOCR(image: UIImage) {
@@ -267,7 +269,10 @@ struct AddLicenseSheet: View {
 
     // MARK: - Load / save
 
+    /// Runs once: onAppear fires again when the camera cover closes.
     private func loadIfEditing() {
+        guard !didLoad else { return }
+        didLoad = true
         if editing == nil, let r = renewing {
             title = r.title
             licenseType = r.licenseType ?? ""; holderName = r.holderName ?? ""
@@ -297,20 +302,20 @@ struct AddLicenseSheet: View {
             notes: notes.isEmpty ? nil : notes,
             createdAt: editing?.createdAt ?? .now
         )
-        try? appState.licenseRepository.save(&license)
+        do {
+            try appState.licenseRepository.save(&license)
+        } catch {
+            ToastCenter.shared.show("Couldn't save the licence", style: .error)
+            return
+        }
+        saved = true
+        // The document was replaced or removed: the old file goes too.
+        if let old = editing?.fileName, old != fileName {
+            LicenseFileStore.delete(old)
+        }
         let all = (try? appState.licenseRepository.fetchAll()) ?? []
         Task { await NotificationManager.shared.scheduleLicenseExpiryAlerts(licenses: all) }
         ToastCenter.shared.show(editing != nil ? "Licence updated" : (renewing != nil ? "Renewal added" : "Licence added"))
         dismiss()
-    }
-}
-
-private extension View {
-    /// A clear, full-width form row for content that brings its own
-    /// background (the card, the document tiles, the type chips).
-    func licenseFormBareRow() -> some View {
-        listRowInsets(EdgeInsets())
-            .listRowBackground(Color.clear)
-            .listRowSeparator(.hidden)
     }
 }
