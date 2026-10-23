@@ -12,6 +12,12 @@ struct Spot: Codable, Identifiable, Sendable {
     var isPrivate: Bool
     var createdAt: Date
     var spotType: String?
+    /// The spot's picture: nil for the map render, "photo" or "collage".
+    /// Optional, so rows and synced copies from before it existed still
+    /// decode.
+    var coverStyle: String?
+    /// The chosen photo, a filename in PhotoManager's store.
+    var coverPhotoPath: String?
 
     /// Where the spot is — broad water-body types that work for any angler
     /// (fresh, salt, shore or boat), not technique-specific micro-features.
@@ -54,6 +60,23 @@ struct Spot: Codable, Identifiable, Sendable {
     var type: SpotType {
         get { spotType.flatMap(SpotType.init(rawValue:)) ?? .general }
         set { spotType = newValue == .general ? nil : newValue.rawValue }
+    }
+
+    /// What a spot shows as its picture.
+    enum Cover: String, Sendable {
+        case map, photo, collage
+    }
+
+    /// Typed accessor over the raw `coverStyle` column. A spot that never
+    /// chose, a value this version does not know, or a photo choice with no
+    /// photo reads as the collage of its catch photos, which itself shows the
+    /// map until there is a catch photo. The map is stored by name.
+    var cover: Cover {
+        get {
+            let style = coverStyle.flatMap(Cover.init(rawValue:)) ?? .collage
+            return style == .photo && coverPhotoPath == nil ? .collage : style
+        }
+        set { coverStyle = newValue.rawValue }
     }
 
     init(

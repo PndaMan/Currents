@@ -4,6 +4,50 @@ import CoreLocation
 import UIKit
 import UserNotifications
 
+/// Whether this build may touch CloudKit at all. Creating a CKContainer in an
+/// app without the iCloud entitlement raises an Objective-C exception Swift
+/// can't catch, so every container in the app comes from `container()`.
+enum CloudCapability {
+    static let containerID = "iCloud.com.aidanmcconnon.currents"
+
+    /// App Store and TestFlight builds embed no provisioning profile and always
+    /// carry the entitlement. Development and re-signed builds embed one, and
+    /// its entitlements say whether CloudKit is allowed. The CI sideload IPA
+    /// never has it: its Info.plist sets CurrentsSideload, which CI adds after
+    /// the build. The simulator has no profile, so it goes by whether an
+    /// iCloud account is visible to the app.
+    static let isAvailable: Bool = {
+        if Bundle.main.object(forInfoDictionaryKey: "CurrentsSideload") as? Bool == true { return false }
+        #if targetEnvironment(simulator)
+        return FileManager.default.ubiquityIdentityToken != nil
+        #else
+        guard let url = Bundle.main.url(forResource: "embedded", withExtension: "mobileprovision") else { return true }
+        return profileAllowsCloudKit(at: url)
+        #endif
+    }()
+
+    /// The app's container, or nil when this build can't use CloudKit.
+    static func container() -> CKContainer? {
+        guard isAvailable else { return nil }
+        return CKContainer(identifier: containerID)
+    }
+
+    /// The profile is a signed blob with the plist inside as plain XML.
+    private static func profileAllowsCloudKit(at url: URL) -> Bool {
+        guard let data = try? Data(contentsOf: url),
+              let start = data.range(of: Data("<?xml".utf8)),
+              let end = data.range(of: Data("</plist>".utf8), in: start.upperBound..<data.endIndex),
+              let plist = try? PropertyListSerialization.propertyList(
+                  from: data.subdata(in: start.lowerBound..<end.upperBound), format: nil) as? [String: Any],
+              let entitlements = plist["Entitlements"] as? [String: Any] else { return false }
+        switch entitlements["com.apple.developer.icloud-services"] {
+        case let list as [String]: return list.contains("CloudKit") || list.contains("*")
+        case let single as String: return single == "CloudKit" || single == "*"
+        default: return false
+        }
+    }
+}
+
 /// Serverless multiplayer via CloudKit's PUBLIC database — no backend to run.
 ///
 /// Privacy model (spot-protective by default):
@@ -21,11 +65,18 @@ final class CommunityService: ObservableObject {
     static let shared = CommunityService()
 
     // Lazy so merely constructing the service (e.g. reading `joined`) doesn't
-    // reach CloudKit. In the unsigned simulator TEST build there's no iCloud
-    // entitlement, and touching CloudKit at launch crashes the app before the
-    // test harness connects.
-    private lazy var container = CKContainer(identifier: "iCloud.com.aidanmcconnon.currents")
-    var db: CKDatabase { container.publicCloudDatabase }
+    // reach CloudKit, and nil on a build without the iCloud entitlement.
+    private lazy var container: CKContainer? = CloudCapability.container()
+
+    /// Every CloudKit call goes through here. Without the entitlement, or in
+    /// screenshot mode, it throws instead of creating a container, so each
+    /// caller's existing `try` / `try?` handles it like any offline failure.
+    var db: CKDatabase {
+        get throws {
+            guard !ScreenshotSupport.isActive, let container else { throw CKError(.notAuthenticated) }
+            return container.publicCloudDatabase
+        }
+    }
 
     private let profileType = "AnglerProfile"
     let catchType = "LeaderCatch"
@@ -38,14 +89,25 @@ final class CommunityService: ObservableObject {
     /// simulator build has no iCloud entitlement — any real CloudKit
     /// operation is an uncatchable CKException, so every network entry point
     /// guards on this instead of `joined` alone.
-    var cloudAllowed: Bool { joined && !ScreenshotSupport.isActive }
+    var cloudAllowed: Bool { joined && !ScreenshotSupport.isActive && CloudCapability.isAvailable }
 
     /// Bumped whenever the local profile (name/bio/avatar) or friend list
     /// changes, so SwiftUI views observing this service refresh immediately —
     /// the underlying values live in UserDefaults/files and aren't observable
     /// on their own.
     @Published private(set) var revision = 0
-    func bumpRevision() { revision &+= 1 }
+    func bumpRevision() {
+        revision &+= 1
+        feedEpoch &+= 1
+    }
+
+    /// First-page crew feed loads in flight. Every open crew screen reloads
+    /// the feed on the same revision bump; they share one round of queries.
+    var feedLoads: [String: Task<[CrewPost], Never>] = [:]
+    /// Part of the `feedLoads` key, bumped after every write that changes a
+    /// feed, so a reload after a write never joins a load started before it.
+    private(set) var feedEpoch = 0
+    func noteFeedWrite() { feedEpoch &+= 1 }
 
     // MARK: - Identity
 
@@ -206,7 +268,7 @@ final class CommunityService: ObservableObject {
 
     func friendInviteMessage() -> String {
         """
-        Add me on Currents 🎣
+        Add me on Currents
         \(friendLink().absoluteString)
         …or enter my angler code \(friendCode) in Community › Friends.
         """
@@ -290,6 +352,8 @@ final class CommunityService: ObservableObject {
     // MARK: - Join / leave
 
     func join(name: String, region: String) async {
+        // Crew can't work without iCloud; the UI shows why instead of Join.
+        guard CloudCapability.isAvailable else { return }
         // Settle on a unique friend code before anything is saved or shared.
         await claimFriendCode()
         let clean = name.trimmingCharacters(in: .whitespaces)
@@ -378,10 +442,23 @@ final class CommunityService: ObservableObject {
         }
         guard let data = scaled.jpegData(compressionQuality: 0.8) else { return }
         try? data.write(to: avatarURL, options: .atomic)
+        avatarMemo = nil
         bumpRevision()
     }
 
-    var myAvatar: UIImage? { UIImage(contentsOfFile: avatarURL.path) }
+    /// The avatar file read once and kept. The tab-title avatar and every
+    /// crew page read `myAvatar` in their bodies, and each read went to disk
+    /// and handed SwiftUI a new image to decode. Only `saveAvatar` writes
+    /// the file, and it clears this.
+    private var avatarMemo: UIImage??
+
+    var myAvatar: UIImage? {
+        if let avatarMemo { return avatarMemo }
+        let raw = UIImage(contentsOfFile: avatarURL.path)
+        let image = raw?.preparingForDisplay() ?? raw
+        avatarMemo = .some(image)
+        return image
+    }
 
     private func saveMyProfile(stats: MyStats?) async {
         let id = CKRecord.ID(recordName: "profile-\(friendCode)")
@@ -416,9 +493,25 @@ final class CommunityService: ObservableObject {
         if code.uppercased() == Self.demoCode { return demoProfile }
         let id = CKRecord.ID(recordName: "profile-\(code)")
         guard let r = try? await db.record(for: id) else { return nil }
-        let p = profile(from: r)
-        cache(profile: p, code: code)
+        // The avatar is read and decoded off the main thread.
+        let avatar = await Self.loadAvatar(from: (r["avatar"] as? CKAsset)?.fileURL)
+        let p = profile(from: r, avatar: avatar.image)
+        cache(profile: p, code: code, avatarData: avatar.data)
         return p
+    }
+
+    /// Reads a profile's avatar asset and decodes it at avatar size on a
+    /// background thread. Also returns the bytes for the profile cache: the
+    /// asset as it is when already small, else a small re-encode (older
+    /// avatars were full camera photos).
+    private static func loadAvatar(from url: URL?) async -> (image: UIImage?, data: Data?) {
+        guard let url else { return (nil, nil) }
+        return await Task.detached(priority: .userInitiated) { () -> (image: UIImage?, data: Data?) in
+            guard let data = try? Data(contentsOf: url),
+                  let image = CommunityDiskCache.downsample(data: data, maxPixel: 512) else { return (nil, nil) }
+            if data.count <= 200_000 { return (image, data) }
+            return (image, image.jpegData(compressionQuality: 0.8))
+        }.value
     }
 
     // MARK: - Local profile cache (instant friend rendering)
@@ -426,7 +519,7 @@ final class CommunityService: ObservableObject {
     /// A Codable snapshot of a friend's profile so the Friends list can render
     /// immediately on launch instead of blocking on a CloudKit round-trip. The
     /// (small) avatar is stored inline as JPEG data.
-    private struct ProfileDTO: Codable {
+    private struct ProfileDTO: Codable, Equatable {
         var id, name, bio, region, homeWater: String
         var memberSince: Date
         var totalCatches, speciesCount: Int
@@ -435,14 +528,16 @@ final class CommunityService: ObservableObject {
         var title: String?
         var avatarData: Data?
 
-        init(_ p: Profile) {
+        /// `avatarData` is the avatar's stored bytes, passed in rather than
+        /// re-encoded from the image on the main thread.
+        init(_ p: Profile, avatarData: Data?) {
             id = p.id; name = p.name; bio = p.bio; region = p.region
             homeWater = p.homeWater; memberSince = p.memberSince
             totalCatches = p.totalCatches; speciesCount = p.speciesCount
             bestWeightKg = p.bestWeightKg; bestLengthCm = p.bestLengthCm
             favoriteSpecies = p.favoriteSpecies
             title = p.title
-            avatarData = p.avatar?.jpegData(compressionQuality: 0.6)
+            self.avatarData = avatarData
         }
 
         var profile: Profile {
@@ -456,33 +551,71 @@ final class CommunityService: ObservableObject {
 
     private static let profileCacheKey = "cachedFriendProfiles"
 
+    /// The profile cache, decoded once and kept in memory. Rows call
+    /// `cachedProfiles(for: [code])` from their bodies, and decoding the
+    /// whole JSON blob (avatars included) on every call stalled scrolling.
+    private var profileStore: [String: ProfileDTO]?
+    /// Profiles already built from the cache, so every read hands back the
+    /// same avatar image instead of decoding a new one each render.
+    private var profileMemo: [String: Profile] = [:]
+    private var profileWritePending = false
+
     private var profileCache: [String: ProfileDTO] {
-        get {
-            guard let data = UserDefaults.standard.data(forKey: Self.profileCacheKey) else { return [:] }
-            return (try? JSONDecoder().decode([String: ProfileDTO].self, from: data)) ?? [:]
+        if let profileStore { return profileStore }
+        var loaded: [String: ProfileDTO] = [:]
+        if let data = UserDefaults.standard.data(forKey: Self.profileCacheKey) {
+            loaded = (try? JSONDecoder().decode([String: ProfileDTO].self, from: data)) ?? [:]
         }
-        set { UserDefaults.standard.set(try? JSONEncoder().encode(newValue), forKey: Self.profileCacheKey) }
+        profileStore = loaded
+        return loaded
     }
 
-    private func cache(profile p: Profile, code: String) {
-        var c = profileCache
-        c[code.uppercased()] = ProfileDTO(p)
-        profileCache = c
+    /// Screenshot mode only: stores a demo crewmate's profile and avatar the
+    /// way a fetched one is cached, so every screen shows it offline.
+    func seedScreenshotProfile(_ p: Profile, avatarData: Data?) {
+        guard ScreenshotSupport.isActive else { return }
+        cache(profile: p, code: p.id, avatarData: avatarData)
+    }
+
+    private func cache(profile p: Profile, code: String, avatarData: Data?) {
+        let key = code.uppercased()
+        let dto = ProfileDTO(p, avatarData: avatarData)
+        var store = profileCache
+        guard store[key] != dto else { return }
+        store[key] = dto
+        profileStore = store
+        profileMemo[key] = p
+        scheduleProfileWrite()
+    }
+
+    /// One write for a burst of fetches (a friends list loads every profile
+    /// at once) instead of re-encoding the whole cache once per profile.
+    private func scheduleProfileWrite() {
+        guard !profileWritePending else { return }
+        profileWritePending = true
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            self.profileWritePending = false
+            guard let store = self.profileStore else { return }
+            UserDefaults.standard.set(try? JSONEncoder().encode(store), forKey: Self.profileCacheKey)
+        }
     }
 
     /// Last-known profiles for these friend codes, in the same order, for
     /// instant display while the network refresh runs.
     func cachedProfiles(for codes: [String]) -> [Profile] {
-        let c = profileCache
-        return codes.compactMap { c[$0.uppercased()]?.profile }
+        let store = profileCache
+        return codes.compactMap { code in
+            let key = code.uppercased()
+            if let p = profileMemo[key] { return p }
+            guard let p = store[key]?.profile else { return nil }
+            profileMemo[key] = p
+            return p
+        }
     }
 
-    private func profile(from r: CKRecord) -> Profile {
-        var avatar: UIImage?
-        if let asset = r["avatar"] as? CKAsset, let url = asset.fileURL, let data = try? Data(contentsOf: url) {
-            avatar = UIImage(data: data)
-        }
-        return Profile(
+    private func profile(from r: CKRecord, avatar: UIImage?) -> Profile {
+        Profile(
             id: r["friendCode"] as? String ?? r.recordID.recordName,
             name: r["displayName"] as? String ?? "Angler",
             bio: r["bio"] as? String ?? "",
@@ -502,7 +635,8 @@ final class CommunityService: ObservableObject {
     // MARK: - Leaderboard
 
     func publish(catchRecord: Catch, speciesName: String, region: String, groupCode: String? = nil) async {
-        guard joined || groupCode != nil else { return }
+        guard CloudCapability.isAvailable, !ScreenshotSupport.isActive,
+              joined || groupCode != nil else { return }
         let id = CKRecord.ID(recordName: "catch-\(friendCode)-\(catchRecord.id)")
         let record = CKRecord(recordType: catchType, recordID: id)
         record["anglerName"] = myName as CKRecordValue
@@ -512,7 +646,7 @@ final class CommunityService: ObservableObject {
         if let l = catchRecord.lengthCm { record["lengthCm"] = l as CKRecordValue }
         record["region"] = region as CKRecordValue
         record["caughtAt"] = catchRecord.caughtAt as CKRecordValue
-        attachPhoto(catchRecord.photoPath, to: record)
+        await attachPhoto(catchRecord.photoPath, to: record)
         attachLocation(lat: catchRecord.latitude, lon: catchRecord.longitude,
                        seed: catchRecord.id, to: record)
         // Tag the catch to a shared trip so the whole group sees it in real time.
@@ -546,19 +680,26 @@ final class CommunityService: ObservableObject {
 
     /// Attach a catch photo as a CKAsset (and a `hasPhoto` flag so leaderboard
     /// queries can tell there's a photo without downloading the asset).
-    private func attachPhoto(_ photoPath: String?, to record: CKRecord) {
-        guard let photoPath, let image = PhotoManager.load(photoPath),
-              let data = image.jpegData(compressionQuality: 0.7) else {
-            record["hasPhoto"] = 0 as CKRecordValue
-            return
-        }
-        let tmp = FileManager.default.temporaryDirectory
-            .appendingPathComponent("ck-\(UUID().uuidString).jpg")
-        do {
-            try data.write(to: tmp, options: .atomic)
-            record["photo"] = CKAsset(fileURL: tmp)
+    /// The photo is loaded and JPEG-encoded on a background thread: done on
+    /// the main thread, a first sync of a long catch history froze the Crew
+    /// tab for seconds (one full-resolution encode per catch).
+    private func attachPhoto(_ photoPath: String?, to record: CKRecord) async {
+        let file: URL? = await Task.detached(priority: .utility) { () -> URL? in
+            guard let photoPath, let image = PhotoManager.load(photoPath),
+                  let data = image.jpegData(compressionQuality: 0.7) else { return nil }
+            let tmp = FileManager.default.temporaryDirectory
+                .appendingPathComponent("ck-\(UUID().uuidString).jpg")
+            do {
+                try data.write(to: tmp, options: .atomic)
+                return tmp
+            } catch {
+                return nil
+            }
+        }.value
+        if let file {
+            record["photo"] = CKAsset(fileURL: file)
             record["hasPhoto"] = 1 as CKRecordValue
-        } catch {
+        } else {
             record["hasPhoto"] = 0 as CKRecordValue
         }
     }
@@ -727,24 +868,46 @@ final class CommunityService: ObservableObject {
         return rows
     }
 
-    /// Download a single published catch's photo asset by its record id. Cached
-    /// in memory so re-opening a catch (or scrolling a friend's list) is instant.
-    private let photoCache = NSCache<NSString, UIImage>()
-    func catchPhoto(recordName: String) async -> UIImage? {
-        if let cached = photoCache.object(forKey: recordName as NSString) { return cached }
-        // Disk second: survives relaunch, so a friend's catch photo downloads
-        // once ever instead of once per session.
-        if let disk = CommunityDiskCache.loadImage(key: "catchphoto-\(recordName)") {
-            photoCache.setObject(disk, forKey: recordName as NSString)
-            return disk
+    /// Download a single published catch's photo asset by its record id.
+    /// Memory first, then disk (survives relaunch, so a friend's catch photo
+    /// downloads once ever), then the network. Decoded off the main thread
+    /// at up to `maxPixel`; thumbnails should pass their size.
+    func catchPhoto(recordName: String,
+                    maxPixel: CGFloat = CommunityDiskCache.fullPixel) async -> UIImage? {
+        let key = "catchphoto-\(recordName)"
+        if let cached = await CommunityDiskCache.image(key: key, maxPixel: maxPixel) { return cached }
+        return await downloadPhoto(recordName: recordName, cacheKey: key, maxPixel: maxPixel)
+    }
+
+    /// Photo downloads in flight by cache key, so a row that scrolls back
+    /// into view mid-download, or the same post on two pages, shares one.
+    private var photoDownloads: [String: Task<Bool, Never>] = [:]
+
+    /// Fetch a record's `photo` asset into the disk cache as it is (no
+    /// decode and re-encode on the main thread), then decode it at
+    /// `maxPixel` off the main thread.
+    func downloadPhoto(recordName: String, cacheKey: String, maxPixel: CGFloat) async -> UIImage? {
+        let task: Task<Bool, Never>
+        if let running = photoDownloads[cacheKey] {
+            task = running
+        } else {
+            task = Task { await self.fetchPhotoAsset(recordName: recordName, cacheKey: cacheKey) }
+            photoDownloads[cacheKey] = task
         }
-        let id = CKRecord.ID(recordName: recordName)
-        guard let r = try? await db.record(for: id),
-              let asset = r["photo"] as? CKAsset, let url = asset.fileURL,
-              let data = try? Data(contentsOf: url), let image = UIImage(data: data) else { return nil }
-        photoCache.setObject(image, forKey: recordName as NSString)
-        CommunityDiskCache.saveImage(image, key: "catchphoto-\(recordName)")
-        return image
+        let stored = await task.value
+        if photoDownloads[cacheKey] == task { photoDownloads[cacheKey] = nil }
+        guard stored else { return nil }
+        return await CommunityDiskCache.image(key: cacheKey, maxPixel: maxPixel)
+    }
+
+    private func fetchPhotoAsset(recordName: String, cacheKey: String) async -> Bool {
+        guard let r = try? await db.record(for: CKRecord.ID(recordName: recordName)),
+              let url = (r["photo"] as? CKAsset)?.fileURL else { return false }
+        let stored = await Task.detached(priority: .userInitiated) {
+            CommunityDiskCache.storeImageFile(at: url, key: cacheKey)
+        }.value
+        withExtendedLifetime(r) {}
+        return stored
     }
 
     /// Publish every past catch so the leaderboards reflect the full history,
@@ -774,19 +937,22 @@ final class CommunityService: ObservableObject {
         UserDefaults.standard.set(shareCatchLocations, forKey: "lastCatchSyncLocPref")
 
         let region = myRegion
-        let records: [CKRecord] = toPublish.map { d in
-            let id = CKRecord.ID(recordName: "catch-\(friendCode)-\(d.id)")
+        let name = myName, code = friendCode
+        var records: [CKRecord] = []
+        records.reserveCapacity(toPublish.count)
+        for d in toPublish {
+            let id = CKRecord.ID(recordName: "catch-\(code)-\(d.id)")
             let record = CKRecord(recordType: catchType, recordID: id)
-            record["anglerName"] = myName as CKRecordValue
-            record["friendCode"] = friendCode as CKRecordValue
+            record["anglerName"] = name as CKRecordValue
+            record["friendCode"] = code as CKRecordValue
             record["species"] = d.species as CKRecordValue
             if let w = d.weightKg { record["weightKg"] = w as CKRecordValue }
             if let l = d.lengthCm { record["lengthCm"] = l as CKRecordValue }
             record["region"] = region as CKRecordValue
             record["caughtAt"] = d.caughtAt as CKRecordValue
-            attachPhoto(d.photoPath, to: record)
+            await attachPhoto(d.photoPath, to: record)
             attachLocation(lat: d.latitude, lon: d.longitude, seed: d.id, to: record)
-            return record
+            records.append(record)
         }
         // Batch (CloudKit caps ~400/op); force-overwrite so re-runs are safe.
         for chunk in stride(from: 0, to: records.count, by: 300).map({ Array(records[$0..<min($0 + 300, records.count)]) }) {
@@ -847,10 +1013,17 @@ final class CommunityService: ObservableObject {
     // MARK: - Per-friend privacy
 
     /// The stored per-friend overrides (nil flags = follow global).
+    /// Friend rows show nicknames, and search filters on them per keystroke,
+    /// so each friend's decoded override is kept until its bytes change.
+    private var overrideMemo: [String: (raw: Data, value: FriendPrivacyOverride)] = [:]
+
     func override(for code: String) -> FriendPrivacyOverride {
-        if let data = UserDefaults.standard.data(forKey: "friendPrivacyV2-\(code)"),
-           let o = try? JSONDecoder().decode(FriendPrivacyOverride.self, from: data) {
-            return o
+        if let data = UserDefaults.standard.data(forKey: "friendPrivacyV2-\(code)") {
+            if let memo = overrideMemo[code], memo.raw == data { return memo.value }
+            if let o = try? JSONDecoder().decode(FriendPrivacyOverride.self, from: data) {
+                overrideMemo[code] = (data, o)
+                return o
+            }
         }
         // Back-compat: pull a nickname saved under the old key, if any.
         var o = FriendPrivacyOverride()
@@ -923,7 +1096,7 @@ final class CommunityService: ObservableObject {
     /// Whether a given angler has shared their catches with me. The result is
     /// remembered so screens can render the last-known answer instantly.
     func hasCatchAccess(to code: String) async -> Bool {
-        if code == Self.demoCode { return true }
+        if code == Self.demoCode || ScreenshotSupport.isActive { return true }
         let id = CKRecord.ID(recordName: "catchgrant-\(code)-\(friendCode)")
         let granted = (try? await db.record(for: id)) != nil
         UserDefaults.standard.set(granted, forKey: "catchaccess-\(code.uppercased())")
@@ -932,12 +1105,14 @@ final class CommunityService: ObservableObject {
 
     /// Last-known grant answer, for instant rendering while the check refreshes.
     func cachedCatchAccess(_ code: String) -> Bool {
-        code == Self.demoCode || UserDefaults.standard.bool(forKey: "catchaccess-\(code.uppercased())")
+        code == Self.demoCode || ScreenshotSupport.isActive
+            || UserDefaults.standard.bool(forKey: "catchaccess-\(code.uppercased())")
     }
 
     /// Grant checks for MANY anglers in one round trip (grant record ids are
     /// deterministic, so a single batched fetch replaces N sequential ones).
     func catchAccess(for codes: [String]) async -> [String: Bool] {
+        if ScreenshotSupport.isActive { return Dictionary(uniqueKeysWithValues: Set(codes).map { ($0, true) }) }
         var out: [String: Bool] = [:]
         var ids: [CKRecord.ID] = []
         for code in Set(codes) {
@@ -1098,7 +1273,7 @@ final class CommunityService: ObservableObject {
         Profile(
             id: Self.demoCode,
             name: "Sasha Rivers",
-            bio: "Kayak & shore angler chasing PBs across the Cape. Mostly catch-and-release. Topwater at first light is my religion 🌅",
+            bio: "Kayak & shore angler chasing PBs across the Cape. Mostly catch-and-release. Topwater at first light is my religion.",
             region: myRegion,
             homeWater: "Theewaterskloof Dam",
             avatar: Self.demoAvatar,
@@ -1176,13 +1351,8 @@ final class CommunityService: ObservableObject {
         let size = CGSize(width: 240, height: 240)
         return UIGraphicsImageRenderer(size: size).image { ctx in
             let cg = ctx.cgContext
-            let colors = [UIColor(red: 0.13, green: 0.55, blue: 0.95, alpha: 1).cgColor,
-                          UIColor(red: 0.04, green: 0.30, blue: 0.55, alpha: 1).cgColor]
-            if let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(),
-                                         colors: colors as CFArray, locations: [0, 1]) {
-                cg.drawLinearGradient(gradient, start: .zero,
-                                      end: CGPoint(x: size.width, y: size.height), options: [])
-            }
+            cg.setFillColor(UIColor.systemBlue.cgColor)
+            cg.fill(CGRect(origin: .zero, size: size))
             let initials = "SR" as NSString
             let attrs: [NSAttributedString.Key: Any] = [
                 .font: UIFont.systemFont(ofSize: 110, weight: .bold),
@@ -1202,7 +1372,7 @@ final class CommunityService: ObservableObject {
     let crewReactionType = "CrewReaction"
 
     /// Emoji offered as one-tap reactions in a crew feed.
-    static let crewReactionEmojis = ["🔥", "🎣", "👏", "😮", "🐟"]
+    static let crewReactionEmojis = ["🔥", "🎣", "👏", "😮", "🐟"] // ui-lint: allow, reactions are user content stored as emoji
 
     struct Crew: Codable, Identifiable, Equatable {
         let code: String
@@ -1252,11 +1422,18 @@ final class CommunityService: ObservableObject {
 
     /// Crews I'm in — persisted locally so the list is instant + offline, and so
     /// each crew's auto-post preference lives on-device.
+    ///
+    /// Read many times per frame (every crew row, every feed row's crew name,
+    /// the live sections), so the decoded, sorted list is kept until the
+    /// stored bytes change instead of JSON-decoding on every read.
     var myCrews: [Crew] {
         get {
-            guard let data = UserDefaults.standard.data(forKey: "myCrews"),
-                  let list = try? JSONDecoder().decode([Crew].self, from: data) else { return [] }
-            return list.sorted { $0.joinedAt > $1.joinedAt }
+            guard let data = UserDefaults.standard.data(forKey: "myCrews") else { return [] }
+            if let memo = crewsMemo, memo.raw == data { return memo.list }
+            guard let list = try? JSONDecoder().decode([Crew].self, from: data) else { return [] }
+            let sorted = list.sorted { $0.joinedAt > $1.joinedAt }
+            crewsMemo = (data, sorted)
+            return sorted
         }
         set {
             if let data = try? JSONEncoder().encode(newValue) {
@@ -1267,6 +1444,11 @@ final class CommunityService: ObservableObject {
     }
 
     func crew(withCode code: String) -> Crew? { myCrews.first { $0.code == code } }
+
+    /// Last decoded `myCrews` / `myGroups`, keyed by the raw stored bytes so a
+    /// write from anywhere (including screenshot seeding) is picked up.
+    private var crewsMemo: (raw: Data, list: [Crew])?
+    private var groupsMemo: (raw: Data, list: [GroupRef])?
 
     private func rememberCrew(_ crew: Crew) {
         var list = myCrews
@@ -1351,13 +1533,14 @@ final class CommunityService: ObservableObject {
     }
 
     func fetchCrew(code: String) async -> Crew? {
+        if ScreenshotSupport.isActive { return crew(withCode: code) }
         let id = CKRecord.ID(recordName: "crew-\(code)")
         guard let r = try? await db.record(for: id) else { return nil }
         let existing = crew(withCode: code)
         return Crew(
             code: r["code"] as? String ?? code,
             name: r["name"] as? String ?? "Crew",
-            emoji: r["emoji"] as? String ?? "🎣",
+            emoji: r["emoji"] as? String ?? "🎣", // ui-lint: allow, fallback for stored crew icon data
             createdByCode: r["createdByCode"] as? String ?? "",
             createdByName: r["createdByName"] as? String ?? "Angler",
             joinedAt: existing?.joinedAt ?? Date(),
@@ -1380,6 +1563,7 @@ final class CommunityService: ObservableObject {
     }
 
     func crewMembers(code: String) async -> [GroupMember] {
+        if ScreenshotSupport.isActive { return ScreenshotSupport.demoCrewMembers(code: code) }
         let query = CKQuery(recordType: crewMemberType,
                             predicate: NSPredicate(format: "crewCode == %@", code))
         guard let results = try? await db.records(matching: query, resultsLimit: 300) else {
@@ -1427,7 +1611,7 @@ final class CommunityService: ObservableObject {
                         CrewReaction(id: r.recordID.recordName,
                                      reactorCode: r["reactorCode"] as? String ?? "",
                                      reactorName: r["reactorName"] as? String ?? "",
-                                     emoji: r["emoji"] as? String ?? "🔥"))
+                                     emoji: r["emoji"] as? String ?? "🔥")) // ui-lint: allow, fallback for stored reaction data
             }
             let byPost = Dictionary(grouping: all, by: { $0.0 })
             posts = posts.map { post in
@@ -1445,12 +1629,10 @@ final class CommunityService: ObservableObject {
         return posts
     }
 
+    /// A crew post's photo, through the same cached, off-main path as
+    /// `crewPostImage`.
     func crewPostPhoto(recordName: String) async -> UIImage? {
-        let id = CKRecord.ID(recordName: recordName)
-        guard let r = try? await db.record(for: id),
-              let asset = r["photo"] as? CKAsset, let url = asset.fileURL,
-              let data = try? Data(contentsOf: url) else { return nil }
-        return UIImage(data: data)
+        await crewPostImage(recordName: recordName)
     }
 
     /// Auto-post a freshly-logged catch into every crew that has auto-post on.
@@ -1466,6 +1648,7 @@ final class CommunityService: ObservableObject {
 
     /// Create/update a crew post for a catch (used by auto-post and manual share).
     func postCatch(_ c: Catch, speciesName: String, toCrew code: String, caption: String, tripName: String = "") async {
+        defer { noteFeedWrite() }
         guard cloudAllowed else { return }
         let id = CKRecord.ID(recordName: "crewpost-\(code)-\(c.id)")
         let record = (try? await db.record(for: id)) ?? CKRecord(recordType: crewPostType, recordID: id)
@@ -1478,12 +1661,13 @@ final class CommunityService: ObservableObject {
         record["caughtAt"] = c.caughtAt as CKRecordValue
         record["caption"] = caption as CKRecordValue
         if !tripName.isEmpty { record["tripName"] = tripName as CKRecordValue }
-        attachPhoto(c.photoPath, to: record)
+        await attachPhoto(c.photoPath, to: record)
         _ = try? await db.save(record)
     }
 
     /// Set/clear the one-line caption on a post I authored.
     func setCrewCaption(_ caption: String, postId: String) async {
+        defer { noteFeedWrite() }
         let id = CKRecord.ID(recordName: postId)
         guard let r = try? await db.record(for: id) else { return }
         r["caption"] = caption as CKRecordValue
@@ -1494,6 +1678,7 @@ final class CommunityService: ObservableObject {
     /// replaces it (one reaction per member per post).
     func toggleCrewReaction(emoji: String, postId: String, crewCode: String,
                             postAuthorCode: String) async {
+        defer { noteFeedWrite() }
         let id = CKRecord.ID(recordName: "crewreact-\(postId)-\(friendCode)")
         if let existing = try? await db.record(for: id) {
             if (existing["emoji"] as? String) == emoji {
@@ -1538,7 +1723,7 @@ final class CommunityService: ObservableObject {
 
     func crewInviteMessage(code: String, name: String) -> String {
         """
-        Join my crew “\(name)” on Currents 🎣 — we share our catches here.
+        Join my crew “\(name)” on Currents — we share our catches here.
         \(crewInviteLink(code: code, name: name).absoluteString)
         …or open Currents › Community › New Crew › Join and enter code \(code).
         """
@@ -1613,11 +1798,15 @@ final class CommunityService: ObservableObject {
     }
 
     /// All group trips I host or have joined, newest first.
+    /// Memoized like `myCrews`: crew pages and rows read it in their bodies.
     var myGroups: [GroupRef] {
         get {
-            guard let data = UserDefaults.standard.data(forKey: "myGroupTrips"),
-                  let refs = try? JSONDecoder().decode([GroupRef].self, from: data) else { return [] }
-            return refs.sorted { $0.joinedAt > $1.joinedAt }
+            guard let data = UserDefaults.standard.data(forKey: "myGroupTrips") else { return [] }
+            if let memo = groupsMemo, memo.raw == data { return memo.list }
+            guard let refs = try? JSONDecoder().decode([GroupRef].self, from: data) else { return [] }
+            let sorted = refs.sorted { $0.joinedAt > $1.joinedAt }
+            groupsMemo = (data, sorted)
+            return sorted
         }
         set {
             if let data = try? JSONEncoder().encode(newValue) {
@@ -1687,7 +1876,7 @@ final class CommunityService: ObservableObject {
 
     func inviteMessage(forGroup code: String, tripName: String) -> String {
         """
-        Join my fishing trip “\(tripName)” on Currents 🎣
+        Join my fishing trip “\(tripName)” on Currents
         \(inviteLink(forGroup: code, tripName: tripName).absoluteString)
         …or open Currents › Community › Group Trips › Start or join a trip and enter code \(code).
         """
@@ -1856,6 +2045,7 @@ final class CommunityService: ObservableObject {
     /// knows trips this device joined, so crewmates who hadn't joined yet never
     /// saw the "live" banner — the whole join-mid-trip flow was invisible.
     func liveCrewTrip(crewCode: String) async -> GroupTrip? {
+        if ScreenshotSupport.isActive { return ScreenshotSupport.demoLiveTrips(crewCode: crewCode).first }
         let q = CKQuery(recordType: groupTripType,
                         predicate: NSPredicate(format: "crewCode == %@", crewCode))
         guard let res = try? await db.records(matching: q, resultsLimit: 25) else { return nil }
@@ -1991,14 +2181,39 @@ final class CommunityService: ObservableObject {
         }
         // Drop invites whose group no longer exists (host left) or has already
         // ended, cleaning up the stale invite record so it never shows again.
+        // One batched fetch for every group instead of one round trip per
+        // invite, and one batched delete for the stale ones.
+        guard !raw.isEmpty else { return [] }
+        let groupIDs = Array(Set(raw.map { CKRecord.ID(recordName: "grouptrip-\($0.0.groupCode)") }))
+        guard let groups = try? await db.records(for: groupIDs, desiredKeys: ["endedAt"]) else {
+            // Offline: keep every invite rather than treat it as stale.
+            return raw.map { $0.0 }.sorted { $0.date > $1.date }
+        }
         var live: [TripInvite] = []
+        var stale: [CKRecord.ID] = []
         for (inv, recID) in raw {
-            let group = await groupTrip(code: inv.groupCode)
-            if let group, !group.isEnded {
+            let groupID = CKRecord.ID(recordName: "grouptrip-\(inv.groupCode)")
+            switch groups[groupID] {
+            case .success(let r)?:
+                if let endedAt = r["endedAt"] as? Date {
+                    markGroupEnded(code: inv.groupCode, at: endedAt)
+                    stale.append(recID)
+                } else {
+                    live.append(inv)
+                }
+            case .failure(let error)?:
+                if (error as? CKError)?.code == .unknownItem {
+                    stale.append(recID)
+                } else {
+                    live.append(inv)
+                }
+            case .none:
                 live.append(inv)
-            } else {
-                _ = try? await db.deleteRecord(withID: recID)
             }
+        }
+        if !stale.isEmpty {
+            _ = try? await db.modifyRecords(saving: [], deleting: stale,
+                                            savePolicy: .allKeys, atomically: false)
         }
         return live.sorted { $0.date > $1.date }
     }
@@ -2185,7 +2400,7 @@ final class CommunityService: ObservableObject {
             subscriptionID: "friendreq-in-\(friendCode)",
             options: [.firesOnRecordCreation])
         frSub.notificationInfo = info("New friend request",
-                                      key: "%1$@ wants to be friends on Currents 🎣",
+                                      key: "%1$@ wants to be friends on Currents",
                                       args: ["fromName"])
 
         // Incoming trip invites.
@@ -2206,13 +2421,20 @@ final class CommunityService: ObservableObject {
             options: [.firesOnRecordCreation, .firesOnRecordUpdate])
         let acInfo = CKSubscription.NotificationInfo()
         acInfo.title = "Friend request accepted"
-        acInfo.alertBody = "You've got a new fishing friend on Currents 🎣"
+        acInfo.alertBody = "You've got a new fishing friend on Currents"
         acInfo.soundName = "default"
         acInfo.shouldBadge = true
         acSub.notificationInfo = acInfo
 
         do {
-            _ = try await db.modifySubscriptions(saving: [frSub, tiSub, acSub], deleting: [])
+            let result = try await db.modifySubscriptions(saving: [frSub, tiSub, acSub], deleting: [])
+            // The call succeeds as a whole even when single subscriptions are
+            // rejected (a record type or index missing from the production
+            // schema), so check each one before calling push set up.
+            if let failure = Self.firstFailure(result.saveResults) {
+                UserDefaults.standard.set(failure, forKey: "pushSubsError")
+                return false
+            }
             UserDefaults.standard.set(friendCode, forKey: "pushSubsForCode")
             UserDefaults.standard.removeObject(forKey: "pushSubsError")
             return true
@@ -2252,9 +2474,9 @@ final class CommunityService: ObservableObject {
             n.alertLocalizationArgs = args
             n.soundName = "default"
             n.shouldBadge = true
-            // Wake the app in the background as well as showing the alert, so
-            // the relevant feed is already fresh when the user opens it.
-            n.shouldSendContentAvailable = true
+            // No content-available: a background-wake flag on a visible alert
+            // is not delivered to an app the user has swiped away, and these
+            // must arrive the moment the record lands. Feeds refresh on open.
             // Included in the payload so the app can drop self-authored events
             // (CloudKit predicates can't express `authorCode != me`).
             n.desiredKeys = desiredKeys
@@ -2300,7 +2522,7 @@ final class CommunityService: ObservableObject {
                 options: [.firesOnRecordCreation])
             posts.notificationInfo = info(
                 title: "\(crew.emoji) \(crew.name)",
-                key: "%1$@ landed a %2$@ 🎣",
+                key: "%1$@ landed a %2$@",
                 args: ["authorName", "species"],
                 desiredKeys: ["authorCode", "crewCode"])
             subs.append(posts)
@@ -2359,7 +2581,14 @@ final class CommunityService: ObservableObject {
             let existingSet = Set(existing)
             let saving = force ? desired : desired.filter { !existingSet.contains($0.subscriptionID) }
             if !saving.isEmpty || !stale.isEmpty {
-                _ = try await db.modifySubscriptions(saving: saving, deleting: stale)
+                let result = try await db.modifySubscriptions(saving: saving, deleting: stale)
+                // Leave the fingerprint unset on a partial failure so the next
+                // foreground tries again instead of reporting crew alerts on.
+                if let failure = Self.firstFailure(result.saveResults) {
+                    UserDefaults.standard.removeObject(forKey: "eventSubsFingerprint")
+                    UserDefaults.standard.set(failure, forKey: "eventSubsError")
+                    return
+                }
             }
             UserDefaults.standard.set(fingerprint, forKey: "eventSubsFingerprint")
             UserDefaults.standard.removeObject(forKey: "eventSubsError")
@@ -2368,6 +2597,14 @@ final class CommunityService: ObservableObject {
             // change or push re-enable.
             UserDefaults.standard.set(error.localizedDescription, forKey: "eventSubsError")
         }
+    }
+
+    /// The first subscription CloudKit refused, as "id: reason", or nil.
+    private static func firstFailure(_ results: [CKSubscription.ID: Result<CKSubscription, Error>]) -> String? {
+        for (id, result) in results.sorted(by: { $0.key < $1.key }) {
+            if case .failure(let error) = result { return "\(id): \(error.localizedDescription)" }
+        }
+        return nil
     }
 
     /// Fire-and-forget wrapper for the synchronous membership mutation points.

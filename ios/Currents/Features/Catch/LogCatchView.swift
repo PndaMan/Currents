@@ -3,30 +3,86 @@ import PhotosUI
 import MapKit
 import ImageIO
 
+/// One photo in the composer: a fresh image, or one already saved with the
+/// catch being edited.
+struct LogCatchPhoto: Identifiable {
+    let id = UUID()
+    var image: UIImage
+    var savedPath: String? = nil
+}
+
+/// The log catch composer: one full-screen form. The camera opens first, the
+/// photo shrinks into the cover while species ID runs, and the identified
+/// species becomes the title. Editing an existing catch reuses it.
 struct LogCatchView: View {
     /// When set, the saved catch publishes into this group trip's live feed —
     /// used by the group screen so members who joined mid-trip (no linked GPS
-    /// session) still put fish on the board. Replaces the old "re-read the
-    /// latest catch and guess" hack.
-    var groupCodeOverride: String? = nil
+    /// session) still put fish on the board.
+    let groupCodeOverride: String?
+    private let presetSpecies: Species?
+    private let editing: CatchDetail?
+    private let onEditSave: ((Catch) -> Void)?
+
     @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage("units") private var units = "metric"
+    /// Shared with Today's target species (0 means any species).
+    @AppStorage("targetSpeciesId") private var targetSpeciesId: Int = 0
     /// Length/weight fields hold values in the user's chosen unit; converted to
     /// metric (the stored canonical) at save.
     private var imperial: Bool { units == "imperial" }
+    @ScaledMetric(relativeTo: .largeTitle) private var numeralSize: CGFloat = 40
 
-    // Photos (multi-photo)
-    @State private var selectedPhotos: [PhotosPickerItem] = []
-    @State private var capturedImages: [UIImage] = []
-    @State private var showingCamera = false
+    /// New catch. `presetSpecies` opens the composer with that species chosen
+    /// and skips the camera (used from a species page). From a place page,
+    /// `presetSpot` files the catch under that saved spot and
+    /// `presetCoordinate` pins it to an unsaved place such as a water.
+    init(groupCodeOverride: String? = nil, presetSpecies: Species? = nil,
+         presetSpot: Spot? = nil, presetCoordinate: CLLocationCoordinate2D? = nil) {
+        self.groupCodeOverride = groupCodeOverride
+        self.presetSpecies = presetSpecies
+        self.editing = nil
+        self.onEditSave = nil
+        _showingCamera = State(initialValue: presetSpecies == nil)
+        if let presetSpot {
+            _selectedSpotId = State(initialValue: presetSpot.id)
+            _locationMode = State(initialValue: .spot)
+        } else if let presetCoordinate {
+            _pinCoordinate = State(initialValue: presetCoordinate)
+            _locationMode = State(initialValue: .pin)
+        }
+    }
+
+    /// Edit an existing catch. `onSave` receives the updated record to persist
+    /// and re-publish, as EditCatchSheet did.
+    init(editing detail: CatchDetail, onSave: @escaping (Catch) -> Void) {
+        self.groupCodeOverride = nil
+        self.presetSpecies = nil
+        self.editing = detail
+        self.onEditSave = onSave
+        _showingCamera = State(initialValue: false)
+    }
+
+    private var isEditing: Bool { editing != nil }
+
+    // Photos (up to 10)
+    @State private var photos: [LogCatchPhoto] = []
+    @State private var unloadablePaths: [String] = []
+    @State private var libraryItems: [PhotosPickerItem] = []
+    @State private var showingCamera: Bool
+    @State private var cameraAdding = false
+    @State private var frozenFrame: UIImage?
+    @State private var photoDate: Date?
     @State private var showingARMeasure = false
+    @State private var measured = false
+    @Namespace private var coverSpace
 
     // ML — BioCLIP only; no guessing fallbacks.
     @State private var speciesMatches: [SpeciesMatch] = []
     @State private var isClassifying = false
     @State private var autoSelectedFromML = false
-    @State private var modelReady = false
+    @State private var modelReady = true
     @State private var hasScanned = false
     /// The top match was weak or too close to the runner-up — don't auto-fill;
     /// ask the angler to confirm.
@@ -42,20 +98,35 @@ struct LogCatchView: View {
     @State private var waterClarity: WaterClarity?
     @State private var depthText: String = ""
     @State private var released = true
+    @State private var isFavorite = false
     @State private var selectedGearId: String?
     @State private var notes: String = ""
     @State private var caughtAt = Date.now
     @State private var isSaving = false   // guards against double-tap → duplicate catches
 
+    // Gear fields
+    @State private var gearRod = ""
+    @State private var gearReel = ""
+    @State private var gearLure = ""
+    @State private var gearLureColor = ""
+    @State private var gearTechnique = ""
+
     // Location
     @State private var locationMode: LocationMode = .current
     @State private var pinCoordinate: CLLocationCoordinate2D?
-    @State private var showingLocationPicker = false
-    @State private var showingNewSpot = false
     @State private var newSpotName = ""
 
-    // Sheets
-    @State private var showingSpeciesPicker = false
+    // Sharing (new catches only)
+    @State private var crews: [CommunityService.Crew] = []
+    @State private var crewShare: [String: Bool] = [:]
+    @State private var shareToINat = true
+
+    // Presentation
+    @State private var activeSheet: ComposerSheet?
+    @State private var showingDiscard = false
+    @State private var baseline: String?
+    @State private var didLoad = false
+    @FocusState private var focusedField: Field?
 
     // Data
     @State private var allSpecies: [Species] = []
@@ -63,570 +134,1261 @@ struct LogCatchView: View {
     @State private var allGear: [GearLoadout] = []
     @State private var allTrips: [Trip] = []
     @State private var ownedGear: [OwnedGear] = []
+    @State private var caughtIds: Set<Int64> = []
+    /// The reading behind the Conditions tiles, reused at save so saving
+    /// never waits on the network.
+    @State private var lastWeather: WeatherService.WeatherData?
+    @State private var lastWeatherKey = ""
+    @State private var priors: [Catch] = []
+    @State private var conditions: Conditions?
 
     enum LocationMode: String, CaseIterable {
-        case current = "Current Location"
-        case spot = "Saved Spot"
-        case pin = "Drop Pin"
+        case current = "Here"
+        case spot = "Saved spot"
+        case pin = "Drop pin"
+    }
+
+    private enum ComposerSheet: String, Identifiable {
+        case species, time, gear, water, session, spot
+        var id: String { rawValue }
+    }
+
+    private enum Field: Hashable { case length, weight, notes }
+
+    private struct Conditions {
+        var waterC: Double?
+        var windKmh: Double?
+        var windDeg: Double?
+        var pressureHpa: Double?
+        var pressureTrend: Double?
+        var score: Int?
+    }
+
+    private var selectedSpecies: Species? {
+        guard let id = selectedSpeciesId else { return nil }
+        return allSpecies.first { $0.id == id }
     }
 
     var body: some View {
         NavigationStack {
-            Form {
-                photoSection
-                mlSection
-                speciesSection
-                measurementsSection
-                locationSection
-                if FeatureFlags.liveTrips {
-                    tripSection
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    cover
+                    titleBlock
+                        .padding(.top, DS.Space.s4)
+                    actionRow
+                        .padding(.top, DS.Space.s4)
+                    sizeSection
+                        .padding(.top, DS.Space.s8)
+                    spotSection
+                        .padding(.top, DS.Space.s8)
+                    detailsSection
+                        .padding(.top, DS.Space.s8)
+                    conditionsSection
+                        .padding(.top, DS.Space.s8)
+                    notesSection
+                        .padding(.top, DS.Space.s8)
+                    sharingSection
                 }
-                gearSection
-                notesSection
-                timeSection
+                .padding(.bottom, DS.Space.s6)
+                .pageWidth()
             }
-            .navigationTitle("Log Catch")
+            .scrollDismissesKeyboard(.interactively)
+            .detailTint(pageTint)
+            .navigationTitle(isEditing ? "Edit catch" : "New catch")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
+                ToolbarItem(placement: .topBarLeading) {
+                    Button { close() } label: { Image(systemName: "xmark") }
+                        .accessibilityLabel("Close")
                 }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") { Task { await saveCatch() } }
-                        .bold()
-                        .disabled(isSaving)
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { openCamera() } label: { Image(systemName: "camera") }
+                        .accessibilityLabel("Add a photo")
                 }
-            }
-            .task {
-                allSpecies = (try? appState.speciesRepository.fetchAll()) ?? []
-                allSpots = (try? appState.spotRepository.fetchAll()) ?? []
-                allGear = (try? appState.gearRepository.fetchPresets()) ?? []
-                allTrips = (try? appState.tripRepository.fetchAll()) ?? []
-                ownedGear = (try? appState.ownedGearRepository.fetchAll()) ?? []
-
-                // Auto-select active trip so catches link automatically
-                if selectedTripId == nil {
-                    selectedTripId = allTrips.first(where: { $0.endDate == nil })?.id
-                }
-
-                if let loc = appState.locationManager.currentLocation {
-                    pinCoordinate = loc.coordinate
-                }
-            }
-            .onChange(of: selectedPhotos) { _, items in
-                loadPhotos(items)
-            }
-            .sheet(isPresented: $showingSpeciesPicker) {
-                SpeciesPickerSheet(
-                    species: allSpecies,
-                    selectedId: $selectedSpeciesId,
-                    selectedName: $selectedSpeciesName
-                )
-            }
-            .sheet(isPresented: $showingLocationPicker) {
-                LocationPickerSheet(coordinate: $pinCoordinate)
-            }
-            .fullScreenCover(isPresented: $showingCamera) {
-                CameraPicker { image in
-                    capturedImages.append(image)
-                    if speciesMatches.isEmpty { classifyImage(image) }
-                }
-                .ignoresSafeArea()
-            }
-            .fullScreenCover(isPresented: $showingARMeasure) {
-                ARMeasureView { cm in
-                    lengthCm = String(format: "%.1f", imperial ? cm / 2.54 : cm)
-                }
-            }
-            .alert("New Spot", isPresented: $showingNewSpot) {
-                TextField("Spot name", text: $newSpotName)
-                Button("Save") { saveNewSpot() }
-                Button("Cancel", role: .cancel) { newSpotName = "" }
-            } message: {
-                Text("Save this pin as a new fishing spot")
-            }
-            // Declarative feedback for the discrete toggle + segmented control.
-            .sensoryFeedback(.selection, trigger: released)
-            .sensoryFeedback(.selection, trigger: locationMode)
-        }
-    }
-
-    // MARK: - Photo Section (Multi-Photo)
-
-    @ViewBuilder
-    private var photoSection: some View {
-        Section("Photos") {
-            if !capturedImages.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(capturedImages.indices, id: \.self) { index in
-                            Image(uiImage: capturedImages[index])
-                                .resizable()
-                                .scaledToFill()
-                                .frame(width: 120, height: 120)
-                                .clipShape(RoundedRectangle(cornerRadius: 12))
-                                .overlay(alignment: .topTrailing) {
-                                    Button {
-                                        capturedImages.remove(at: index)
-                                        if capturedImages.isEmpty {
-                                            speciesMatches = []
-                                            hasScanned = false
-                                            lowConfidence = false
-                                        }
-                                    } label: {
-                                        Image(systemName: "xmark.circle.fill")
-                                            .font(.title3)
-                                            .symbolRenderingMode(.palette)
-                                            .foregroundStyle(.white, .black.opacity(0.5))
-                                    }
-                                    .padding(4)
-                                }
-                        }
-
-                        // Add more — camera
-                        if UIImagePickerController.isSourceTypeAvailable(.camera) {
-                            Button { showingCamera = true } label: {
-                                addTile(icon: "camera", label: "Camera")
-                            }
-                            .buttonStyle(.plain)
-                        }
-                        // Add more — library
-                        PhotosPicker(selection: $selectedPhotos, maxSelectionCount: 10, matching: .images) {
-                            addTile(icon: "photo.on.rectangle", label: "Library")
-                        }
-                    }
-                    .padding(.vertical, 4)
-                }
-
-                if isClassifying {
-                    HStack {
-                        ProgressView()
-                        Text("Identifying fish...")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-            } else {
-                // Camera-first: lead with Take Photo, keep Choose Photos.
-                if UIImagePickerController.isSourceTypeAvailable(.camera) {
-                    Button { showingCamera = true } label: {
-                        Label("Take Photo", systemImage: "camera.fill")
-                    }
-                }
-                PhotosPicker(selection: $selectedPhotos, maxSelectionCount: 10, matching: .images) {
-                    Label("Choose Photos", systemImage: "photo.on.rectangle")
-                }
-            }
-        }
-    }
-
-    private func addTile(icon: String, label: String) -> some View {
-        VStack {
-            Image(systemName: icon).font(.title2)
-            Text(label).font(.caption)
-        }
-        .foregroundStyle(.secondary)
-        .frame(width: 120, height: 120)
-        .background(.ultraThinMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 12))
-    }
-
-    // MARK: - ML Section
-
-    @ViewBuilder
-    private var mlSection: some View {
-        if isClassifying {
-            Section("AI Fish ID") {
-                HStack(spacing: 10) {
-                    ProgressView()
-                    Text("Identifying species…")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-            }
-        } else if !speciesMatches.isEmpty {
-            Section {
-                // Top match — presented as the auto-selected result.
-                if let top = speciesMatches.first {
-                    let isSelected = selectedSpeciesId == top.species.id
-                    HStack(spacing: 12) {
-                        SpeciesArtworkView(species: top.species, caught: true, size: 40)
-                            .frame(width: 40, height: 40)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(top.species.commonName)
-                                .font(.subheadline.bold())
-                            Text(top.species.scientificName)
-                                .font(.caption2).italic()
-                                .foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                        VStack(alignment: .trailing, spacing: 2) {
-                            Text("\(Int(top.confidence * 100))%")
-                                .font(.subheadline.bold())
-                                .foregroundStyle(CurrentsTheme.accent)
-                            Text(confidenceLabel(top.confidence))
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                        }
-                        Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                            .foregroundStyle(isSelected ? CurrentsTheme.accent : .secondary)
-                    }
-                    .contentShape(Rectangle())
-                    .onTapGesture { selectSpecies(top.species) }
-                }
-
-                // Alternative matches
-                if speciesMatches.count > 1 {
-                    DisclosureGroup("Other possibilities") {
-                        ForEach(speciesMatches.dropFirst(), id: \.species.id) { m in
-                            Button {
-                                selectSpecies(m.species)
-                            } label: {
-                                HStack {
-                                    Text(m.species.commonName)
-                                        .foregroundStyle(.primary)
-                                    Spacer()
-                                    Text("\(Int(m.confidence * 100))%")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                    if selectedSpeciesId == m.species.id {
-                                        Image(systemName: "checkmark")
-                                            .foregroundStyle(CurrentsTheme.accent)
-                                    }
-                                }
-                            }
-                            .tint(.primary)
-                        }
-                    }
-                }
-            } header: {
-                HStack {
-                    Label("AI Fish ID", systemImage: "sparkles")
+                ToolbarItemGroup(placement: .keyboard) {
                     Spacer()
-                    Button("Re-scan") {
-                        if let first = capturedImages.first { classifyImage(first) }
-                    }
-                    .font(.caption)
-                }
-            } footer: {
-                if lowConfidence {
-                    Label("Not fully sure on this one — tap the closest match to confirm, or pick a species manually below.",
-                          systemImage: "questionmark.circle")
-                        .font(.caption)
-                        .foregroundStyle(.orange)
-                } else if autoSelectedFromML {
-                    Text("Auto-selected the top match. Tap to change, or pick manually below.")
+                    Button("Done") { focusedField = nil }
                 }
             }
-        } else if hasScanned && !capturedImages.isEmpty {
-            Section {
-                if modelReady {
-                    Text("No confident match — pick the species manually below.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                } else {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("The AI model is still downloading (~90 MB, needs internet once).")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Button("Try again") {
-                            if let first = capturedImages.first { classifyImage(first) }
-                        }
-                        .font(.caption.bold())
-                    }
-                }
-            } header: {
-                Label("AI Fish ID", systemImage: "sparkles")
+            .safeAreaInset(edge: .bottom) { saveBar }
+        }
+        .overlay {
+            if showingCamera {
+                cameraLayer
+                    .transition(reduceMotion ? .opacity : .move(edge: .bottom))
             }
         }
-    }
-
-    private func confidenceLabel(_ c: Float) -> String {
-        switch c {
-        case 0.85...: "Very confident"
-        case 0.6..<0.85: "Likely"
-        case 0.4..<0.6: "Best guess"
-        default: "Uncertain"
+        .interactiveDismissDisabled(isDirty)
+        .confirmationDialog(isEditing ? "Discard your changes?" : "Discard this catch?",
+                            isPresented: $showingDiscard, titleVisibility: .visible) {
+            Button(isEditing ? "Discard changes" : "Discard catch", role: .destructive) {
+                Haptics.warning()
+                dismiss()
+            }
+            Button("Keep editing", role: .cancel) {}
+        } message: {
+            Text(isEditing ? "The catch stays as it was." : "Nothing has been saved yet.")
         }
-    }
-
-    private func selectSpecies(_ species: Species) {
-        selectedSpeciesId = species.id
-        selectedSpeciesName = species.commonName
-    }
-
-    // MARK: - Species Section
-
-    private var speciesSection: some View {
-        Section("Species") {
-            Button {
-                showingSpeciesPicker = true
-            } label: {
-                HStack {
-                    Image(systemName: "fish.fill")
-                        .foregroundStyle(CurrentsTheme.accent)
-                        .frame(width: 28)
-                    if selectedSpeciesId != nil {
-                        Text(selectedSpeciesName)
-                            .foregroundStyle(.primary)
-                    } else {
-                        Text("Select Species")
-                            .foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    Image(systemName: "chevron.right")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
+        .sheet(item: $activeSheet) { sheet in
+            sheetContent(sheet)
+        }
+        .fullScreenCover(isPresented: $showingARMeasure) {
+            ARMeasureView { cm in
+                lengthCm = formatNumber(imperial ? cm / 2.54 : cm)
+                measured = true
+                ToastCenter.shared.show("Length set to \(Units.length(cm: cm, imperial: imperial))", icon: "ruler")
             }
         }
+        .task { await load() }
+        .task(id: conditionsKey) { await refreshConditions() }
+        .onChange(of: libraryItems) { _, items in loadPhotos(items) }
+        .onChange(of: selectedSpeciesId) { _, _ in loadPriors() }
     }
 
-    // MARK: - Measurements
+    // MARK: - Camera
 
-    // Two sections now (measurements + water), so this needs the builder.
-    @ViewBuilder
-    private var measurementsSection: some View {
-        Section("Measurements") {
-            HStack {
-                TextField("Length", text: $lengthCm)
-                    .keyboardType(.decimalPad)
-                Text(imperial ? "in" : "cm")
-                    .foregroundStyle(.secondary)
-                if ARMeasureView.isSupported {
-                    Button {
-                        showingARMeasure = true
-                    } label: {
-                        Image(systemName: "arkit")
-                            .foregroundStyle(CurrentsTheme.accent)
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            HStack {
-                TextField("Weight", text: $weightKg)
-                    .keyboardType(.decimalPad)
-                Text(imperial ? "lb" : "kg")
-                    .foregroundStyle(.secondary)
-            }
-            // Length-based weight estimate — offered when a length is entered
-            // but no weight yet (uses the selected species' body shape). Field
-            // values are in the display unit, so convert length → cm for the
-            // estimator and the result kg → display unit.
-            if let lenTyped = lengthCm.measurementValue, lenTyped > 0, weightKg.measurementValue == nil,
-               let estKg = WeightEstimator.estimateKg(
-                   lengthCm: imperial ? lenTyped * 2.54 : lenTyped,
-                   species: allSpecies.first { $0.id == selectedSpeciesId }
-               ) {
-                let estDisplay = imperial ? estKg * 2.2046226 : estKg
-                Button {
-                    weightKg = String(format: "%.2f", estDisplay)
-                } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: "scalemass")
-                        Text("Estimated ~\(String(format: "%.1f", estDisplay)) \(imperial ? "lb" : "kg")")
-                        Spacer()
-                        Text("Use").fontWeight(.semibold)
-                    }
-                    .font(.caption)
-                    .foregroundStyle(CurrentsTheme.accent)
-                }
-                .buttonStyle(.plain)
-            }
-            Toggle("Released", isOn: $released)
-        }
-
-        // Water conditions. Both optional — but clarity is what teaches
-        // "What to Throw" which colours actually work for you.
-        Section {
-            // Tap-again-to-clear, because "not recorded" is a real answer here
-            // and shouldn't need a separate row to express.
-            ClarityPicker(selection: $waterClarity, allowsDeselect: true)
-                .padding(.vertical, 4)
-            HStack {
-                TextField("Depth", text: $depthText)
-                    .keyboardType(.decimalPad)
-                Text(imperial ? "ft" : "m").foregroundStyle(.secondary)
-            }
-        } header: {
-            Text("Water")
-        } footer: {
-            Text("Optional. Recording clarity sharpens your lure and colour suggestions.")
-        }
-    }
-
-    // MARK: - Location Section
-
-    private var locationSection: some View {
-        Section("Location") {
-            Picker("Location", selection: $locationMode) {
-                ForEach(LocationMode.allCases, id: \.self) { mode in
-                    Text(mode.rawValue).tag(mode)
-                }
-            }
-            .pickerStyle(.segmented)
-
-            switch locationMode {
-            case .current:
-                if let loc = appState.locationManager.currentLocation {
-                    HStack {
-                        Image(systemName: "location.fill")
-                            .foregroundStyle(CurrentsTheme.accent)
-                        VStack(alignment: .leading) {
-                            Text("Using current location")
-                                .font(.subheadline)
-                            Text(String(format: "%.4f, %.4f", loc.coordinate.latitude, loc.coordinate.longitude))
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                } else {
-                    Label("Waiting for location...", systemImage: "location.slash")
-                        .foregroundStyle(.secondary)
-                }
-
-            case .spot:
-                if allSpots.isEmpty {
-                    Text("No saved spots yet")
-                        .foregroundStyle(.secondary)
-                } else {
-                    Picker("Spot", selection: $selectedSpotId) {
-                        Text("Select a spot").tag(nil as String?)
-                        ForEach(allSpots) { spot in
-                            HStack {
-                                Text(spot.name)
-                                Text(String(format: "(%.2f, %.2f)", spot.latitude, spot.longitude))
-                                    .font(.caption)
-                            }
-                            .tag(spot.id as String?)
+    private var cameraLayer: some View {
+        ZStack {
+            LogCatchCameraView(
+                adding: cameraAdding,
+                photoCount: photos.count,
+                libraryItems: $libraryItems,
+                librarySlots: 10 - photos.count,
+                onCapture: handleCapture,
+                onClose: {
+                    if cameraAdding { hideCamera() } else { close() }
+                },
+                onSkip: {
+                    hideCamera()
+                    if !cameraAdding && selectedSpeciesId == nil {
+                        Task { @MainActor in
+                            try? await Task.sleep(for: .milliseconds(350))
+                            activeSheet = .species
                         }
                     }
                 }
-
-            case .pin:
-                if let coord = pinCoordinate {
-                    HStack {
-                        Image(systemName: "mappin.circle.fill")
-                            .foregroundStyle(CurrentsTheme.accent)
-                        VStack(alignment: .leading) {
-                            Text("Pin dropped")
-                                .font(.subheadline)
-                            Text(String(format: "%.4f, %.4f", coord.latitude, coord.longitude))
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                        Button("Move") {
-                            showingLocationPicker = true
-                        }
-                        .font(.caption)
-                    }
-                } else {
-                    Button {
-                        showingLocationPicker = true
-                    } label: {
-                        Label("Choose location on map", systemImage: "map")
-                    }
-                }
-
-                Button {
-                    showingNewSpot = true
-                } label: {
-                    Label("Save as new spot", systemImage: "mappin.and.ellipse")
-                }
-                .disabled(pinCoordinate == nil)
+            )
+            if let frozenFrame {
+                Image(uiImage: frozenFrame)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .clipped()
+                    .matchedGeometryEffect(id: "cover", in: coverSpace)
+                    .ignoresSafeArea()
             }
         }
     }
 
-    // MARK: - Trip
-
-    private var tripSection: some View {
-        Section("Trip") {
-            Picker("Trip", selection: $selectedTripId) {
-                Text("None").tag(nil as String?)
-                ForEach(allTrips) { trip in
-                    Text(trip.name).tag(trip.id as String?)
-                }
-            }
+    private func openCamera() {
+        guard photos.count < 10 else {
+            ToastCenter.shared.show("Up to 10 photos per catch", style: .info, icon: "photo.on.rectangle")
+            return
         }
+        focusedField = nil
+        cameraAdding = !photos.isEmpty
+        frozenFrame = nil
+        withAnimation(DS.Motion.softSpring) { showingCamera = true }
     }
 
-    // MARK: - Gear (Individual items from owned gear + loadout presets)
-
-    @State private var gearRod = ""
-    @State private var gearReel = ""
-    @State private var gearLure = ""
-    @State private var gearLureColor = ""
-    @State private var gearTechnique = ""
-    @State private var showGearDetails = false
-
-    private var gearSection: some View {
-        Section("Gear") {
-            // Individual gear picks from owned items
-            DisclosureGroup("Pick Gear", isExpanded: $showGearDetails) {
-                gearPicker(category: .rod, selection: $gearRod, placeholder: "Rod")
-                gearPicker(category: .reel, selection: $gearReel, placeholder: "Reel")
-                gearPicker(category: .lure, selection: $gearLure, placeholder: "Lure / Bait")
-
-                if !gearLure.isEmpty {
-                    TextField("Lure Color", text: $gearLureColor)
-                }
-
-                // Technique — preset list plus a free-text custom option.
-                TechniquePicker(selection: $gearTechnique)
-            }
-
-            // Quick loadout preset
-            Picker("Loadout Preset", selection: $selectedGearId) {
-                Text("Custom / None").tag(nil as String?)
-                ForEach(allGear) { loadout in
-                    Text(loadout.name).tag(loadout.id as String?)
-                }
-            }
-            .onChange(of: selectedGearId) { _, newId in
-                if let loadout = allGear.first(where: { $0.id == newId }) {
-                    gearRod = loadout.rod ?? ""
-                    gearReel = loadout.reel ?? ""
-                    gearLure = loadout.lure ?? ""
-                    gearLureColor = loadout.lureColor ?? ""
-                    gearTechnique = loadout.technique ?? ""
-                    showGearDetails = true
-                }
-            }
-        }
+    private func hideCamera() {
+        withAnimation(.easeOut(duration: DS.Motion.med)) { showingCamera = false }
     }
 
-    @ViewBuilder
-    private func gearPicker(category: OwnedGear.Category, selection: Binding<String>, placeholder: String) -> some View {
-        let items = ownedGear.filter { $0.category == category }
-        if items.isEmpty {
-            TextField(placeholder, text: selection)
+    /// A shutter press. The first photo freezes in the viewfinder, then
+    /// shrinks into the cover while species ID runs.
+    private func handleCapture(_ image: UIImage) {
+        guard photos.count < 10 else {
+            ToastCenter.shared.show("Up to 10 photos per catch", style: .info, icon: "photo.on.rectangle")
+            return
+        }
+        let photo = LogCatchPhoto(image: image)
+        if cameraAdding || !photos.isEmpty {
+            photos.append(photo)
+            hideCamera()
+            ToastCenter.shared.show("Photo added, \(photos.count) of 10", icon: "photo")
+            return
+        }
+        if reduceMotion {
+            photos.append(photo)
+            hideCamera()
         } else {
-            GearFieldPicker(placeholder: placeholder, items: items, selection: selection)
+            frozenFrame = image
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(60))
+                withAnimation(.timingCurve(0.22, 1, 0.36, 1, duration: 0.44)) {
+                    photos.append(photo)
+                    showingCamera = false
+                    frozenFrame = nil
+                }
+            }
+        }
+        classifyImage(image)
+    }
+
+    // MARK: - Cover
+
+    @ViewBuilder
+    private var cover: some View {
+        if photos.isEmpty {
+            emptyCover
+                .padding(.horizontal, DS.gutter)
+        } else {
+            ScrollView(.horizontal, showsIndicators: false) {
+                LazyHStack(spacing: 10) {
+                    ForEach(photos) { photo in
+                        photoCard(photo)
+                            .containerRelativeFrame(.horizontal) { width, _ in width - DS.gutter * 2 }
+                    }
+                }
+                .scrollTargetLayout()
+            }
+            .contentMargins(.horizontal, DS.gutter, for: .scrollContent)
+            .scrollTargetBehavior(.viewAligned)
+
+            HStack {
+                Text(photos.count == 1 ? "1 photo" : "\(photos.count) photos, swipe to see them all")
+                    .font(.footnote)
+                    .foregroundStyle(Color.dsText2)
+                Spacer()
+                if photos.count < 10 {
+                    Button { openCamera() } label: {
+                        Label("Add photo", systemImage: "plus")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(DS.accent)
+                    }
+                    .buttonStyle(.dim)
+                }
+            }
+            .padding(.horizontal, DS.gutter)
+            .padding(.top, DS.Space.s2)
+        }
+    }
+
+    @ViewBuilder
+    private var emptyCover: some View {
+        if let species = selectedSpecies {
+            speciesCover(species)
+        } else {
+            photoPrompt
+        }
+    }
+
+    /// No photo yet but the species is known (picked, or preset from a
+    /// species page): its art stands in as the cover until a photo is added.
+    private func speciesCover(_ species: Species) -> some View {
+        VStack(alignment: .leading, spacing: DS.Space.s3) {
+            ZStack {
+                species.artTint.opacity(0.32)
+                SpeciesArtworkView(species: species, caught: true, size: 220)
+                    .padding(DS.Space.s6)
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 240)
+            .clipShape(RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
+            .accessibilityHidden(true)
+            photoButtons
+        }
+    }
+
+    /// Camera and library, side by side under a cover with no photo yet.
+    private var photoButtons: some View {
+        HStack(spacing: DS.Space.s2) {
+            Button { openCamera() } label: {
+                Label("Camera", systemImage: "camera")
+            }
+            .buttonStyle(TonalButtonStyle(fullWidth: false))
+            PhotosPicker(selection: $libraryItems, maxSelectionCount: 10, matching: .images) {
+                Label("Library", systemImage: "photo.on.rectangle")
+            }
+            .buttonStyle(TonalButtonStyle(fullWidth: false))
+        }
+    }
+
+    private var photoPrompt: some View {
+        VStack(spacing: DS.Space.s2) {
+            Image(systemName: "camera")
+                .font(.title2)
+                .foregroundStyle(Color.dsText2)
+            Text("Add a photo")
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(Color.dsText)
+            Text("Currents names the fish for you, on your phone.")
+                .font(.subheadline)
+                .foregroundStyle(Color.dsText2)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 240)
+            photoButtons
+                .padding(.top, DS.Space.s2)
+        }
+        .padding(DS.Space.s6)
+        // A minimum height, not an aspect ratio, so large text grows the box
+        // instead of spilling out of it.
+        .frame(maxWidth: .infinity, minHeight: 280)
+        .overlay(
+            RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous)
+                .strokeBorder(Color.dsText3, style: StrokeStyle(lineWidth: 1.5, dash: [6, 5]))
+        )
+    }
+
+    private func photoCard(_ photo: LogCatchPhoto) -> some View {
+        let index = photos.firstIndex { $0.id == photo.id } ?? 0
+        return Color.dsFill
+            .aspectRatio(1 / 0.86, contentMode: .fit)
+            .overlay {
+                Image(uiImage: photo.image)
+                    .resizable()
+                    .scaledToFill()
+            }
+            .clipShape(RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
+            .overlay(alignment: .top) {
+                if index == 0 && isClassifying && !reduceMotion {
+                    LogCatchScanLine()
+                }
+            }
+            .overlay(alignment: .topTrailing) {
+                Button { removePhoto(photo) } label: {
+                    Image(systemName: "xmark")
+                        .font(.footnote.weight(.bold))
+                        .foregroundStyle(Color.dsText)
+                        .frame(width: 30, height: 30)
+                        .background(Color.dsElevated, in: Circle())
+                }
+                .buttonStyle(.dim)
+                .padding(10)
+                .accessibilityLabel("Remove photo \(index + 1)")
+            }
+            .matchedGeometryEffect(id: index == 0 ? "cover" : photo.id.uuidString, in: coverSpace)
+            .accessibilityLabel("Photo \(index + 1)")
+    }
+
+    private func removePhoto(_ photo: LogCatchPhoto) {
+        withAnimation(DS.Motion.softSpring) {
+            photos.removeAll { $0.id == photo.id }
+            if photos.isEmpty {
+                speciesMatches = []
+                hasScanned = false
+                lowConfidence = false
+                if autoSelectedFromML {
+                    selectedSpeciesId = nil
+                    selectedSpeciesName = ""
+                    autoSelectedFromML = false
+                }
+            }
+        }
+        ToastCenter.shared.show("Photo removed", style: .info, icon: "trash")
+    }
+
+    // MARK: - Title block
+
+    private enum OverLine {
+        case plain(String)
+        case progress(String)
+        case icon(String, String)
+        case confidence(String, Color)
+    }
+
+    private var isDownloadingModel: Bool {
+        hasScanned && !modelReady && speciesMatches.isEmpty && !photos.isEmpty
+    }
+
+    private var noConfidentMatch: Bool {
+        hasScanned && !photos.isEmpty && modelReady && (lowConfidence || speciesMatches.isEmpty)
+    }
+
+    private var overLine: OverLine {
+        if isClassifying { return .progress("Identifying on your phone") }
+        if let id = selectedSpeciesId {
+            if let match = speciesMatches.first(where: { $0.species.id == id }) {
+                let pct = Int(match.confidence * 100)
+                return .confidence("\(confidenceLabel(match.confidence)), \(pct)%", DS.scoreInk(pct))
+            }
+            if let editing, editing.catchRecord.speciesId == id { return .plain(loggedLine(editing.catchRecord.caughtAt)) }
+            return .plain("Picked by you")
+        }
+        if isDownloadingModel { return .icon("icloud.and.arrow.down", "Species ID is still downloading") }
+        if noConfidentMatch { return .icon("questionmark.circle", "No confident match") }
+        return .plain("Species")
+    }
+
+    private func loggedLine(_ date: Date) -> String {
+        if Calendar.current.isDateInToday(date) { return "Logged today" }
+        if Calendar.current.isDateInYesterday(date) { return "Logged yesterday" }
+        return "Logged on \(date.formatted(.dateTime.day().month(.wide)))"
+    }
+
+    /// The angler's target, offered first while no species is chosen.
+    private var targetSpecies: Species? {
+        targetSpeciesId == 0 ? nil : allSpecies.first { $0.id == Int64(targetSpeciesId) }
+    }
+
+    private var titleBlock: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            overLineView
+                .font(.subheadline)
+                .frame(minHeight: 20)
+
+            Button { activeSheet = .species } label: {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text(selectedSpecies?.commonName ?? (selectedSpeciesName.isEmpty ? "Choose species" : selectedSpeciesName))
+                        .font(.largeTitle.bold())
+                        .foregroundStyle(selectedSpeciesId == nil ? Color.dsText2 : Color.dsText)
+                        .multilineTextAlignment(.leading)
+                        .id(selectedSpeciesId)
+                        .transition(.opacity.combined(with: .offset(y: 10)))
+                    Image(systemName: "chevron.down")
+                        .font(.title3.weight(.bold))
+                        .foregroundStyle(Color.dsText3)
+                }
+            }
+            .buttonStyle(.dim)
+            .accessibilityHint("Opens the species list")
+
+            if let species = selectedSpecies {
+                Text(species.scientificName)
+                    .font(.callout)
+                    .italic()
+                    .foregroundStyle(Color.dsText2)
+            } else if noConfidentMatch {
+                Text("Pick the closest match from the list.")
+                    .font(.callout)
+                    .foregroundStyle(Color.dsText2)
+            }
+
+            if selectedSpeciesId == nil, !isClassifying, let target = targetSpecies {
+                Button { selectSpecies(target) } label: {
+                    Label("Use your target, \(target.commonName)", systemImage: "scope")
+                        .font(.subheadline.weight(.semibold))
+                }
+                .buttonStyle(.dim)
+                .buttonHaptic(.selection)
+                .foregroundStyle(DS.accent)
+                .padding(.top, DS.Space.s2)
+            }
+
+            if isDownloadingModel {
+                HStack(alignment: .top, spacing: DS.Space.s3) {
+                    Image(systemName: "icloud.and.arrow.down")
+                        .foregroundStyle(Color.dsText2)
+                    Text("The ID model is about 90 MB and needs internet once. Pick the species yourself for now.")
+                        .font(.subheadline)
+                        .foregroundStyle(Color.dsText2)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 0)
+                    Button("Try again") { retryDownload() }
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(DS.accent)
+                        .buttonStyle(.dim)
+                }
+                .padding(14)
+                .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
+                .padding(.top, DS.Space.s3)
+            }
+
+            if showsNewTag || bestLength != nil {
+                // Stacked, not side by side, so a long tag at large text
+                // sizes wraps instead of widening the page.
+                VStack(alignment: .leading, spacing: DS.Space.s2) {
+                    if showsNewTag {
+                        tag("New to your Fishdex", systemImage: "book", color: .dsScoreGood)
+                    }
+                    if let best = bestLength {
+                        tag("Longer than your best, \(Units.length(cm: best, imperial: imperial))",
+                            systemImage: "trophy", color: .dsScoreFair)
+                    }
+                }
+                .padding(.top, DS.Space.s2)
+                .transition(.opacity)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, DS.gutter)
+        .animation(reduceMotion ? nil : DS.Motion.easeOut, value: selectedSpeciesId)
+        .animation(reduceMotion ? nil : DS.Motion.easeOut, value: isClassifying)
+    }
+
+    @ViewBuilder
+    private var overLineView: some View {
+        switch overLine {
+        case .plain(let text):
+            Text(text).foregroundStyle(Color.dsText2)
+        case .progress(let text):
+            HStack(spacing: 6) {
+                ProgressView().controlSize(.small)
+                Text(text).foregroundStyle(Color.dsText2)
+            }
+        case .icon(let symbol, let text):
+            Label(text, systemImage: symbol).foregroundStyle(Color.dsText2)
+        case .confidence(let text, let color):
+            Text(text).fontWeight(.semibold).foregroundStyle(color)
+        }
+    }
+
+    private func tag(_ text: String, systemImage: String, color: Color) -> some View {
+        Label(text, systemImage: systemImage)
+            .font(.footnote.weight(.semibold))
+            .foregroundStyle(color)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(color.opacity(0.16), in: Capsule())
+    }
+
+    private var showsNewTag: Bool {
+        !isEditing && selectedSpeciesId != nil && !caughtIds.contains(selectedSpeciesId ?? -1) && priors.isEmpty
+    }
+
+    /// The previous best length when this fish beats it.
+    private var bestLength: Double? {
+        guard selectedSpeciesId != nil, let len = lengthInCm, len > 0,
+              let best = priors.compactMap(\.lengthCm).max(), best > 0, len > best else { return nil }
+        return best
+    }
+
+    // MARK: - Actions
+
+    private var actionRow: some View {
+        ActionTriple {
+            Button {
+                if ARMeasureView.isSupported { showingARMeasure = true } else { focusedField = .length }
+            } label: {
+                Label(measured ? "Measured" : "Measure", systemImage: "ruler")
+            }
+            .buttonStyle(ActionTileStyle(measured ? .primary : .tonal))
+
+            Button {
+                withAnimation(DS.Motion.easeOut) { released.toggle() }
+            } label: {
+                Label(released ? "Released" : "Kept", systemImage: released ? "water.waves" : "frying.pan")
+                    .contentTransition(.symbolEffect(.replace))
+            }
+            .buttonStyle(ActionTileStyle(.tonal))
+            .buttonHaptic(.toggle)
+            .accessibilityHint("Switches between released and kept")
+
+            Button {
+                isFavorite.toggle()
+            } label: {
+                Label("Favourite", systemImage: isFavorite ? "star.fill" : "star")
+                    .symbolEffect(.bounce, value: isFavorite)
+            }
+            .buttonStyle(ActionTileStyle(.tonal))
+            .buttonHaptic(.toggle)
+            .accessibilityAddTraits(isFavorite ? .isSelected : [])
+        }
+    }
+
+    // MARK: - Size
+
+    private var lengthInCm: Double? {
+        lengthCm.measurementValue.map { imperial ? $0 * 2.54 : $0 }
+    }
+
+    /// Length-based weight estimate in the display unit, offered when there is
+    /// a length but no weight yet (uses the selected species' body shape).
+    private var estimateDisplay: Double? {
+        guard let len = lengthInCm, len > 0, weightKg.measurementValue == nil,
+              let kg = WeightEstimator.estimateKg(lengthCm: len, species: selectedSpecies) else { return nil }
+        return imperial ? kg * 2.2046226 : kg
+    }
+
+    private var sizeSection: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            SectionTitle("Size")
+            HStack(spacing: 10) {
+                sizeTile(label: "Length", text: $lengthCm, placeholder: "0", unit: imperial ? "in" : "cm",
+                         field: .length, minusLabel: "Shorter", plusLabel: "Longer") { stepLength($0) }
+                sizeTile(label: weightKg.isEmpty && estimateDisplay != nil ? "Weight, estimated" : "Weight",
+                         text: $weightKg,
+                         placeholder: estimateDisplay.map { String(format: "%.1f", $0) } ?? "0.0",
+                         unit: imperial ? "lb" : "kg",
+                         field: .weight, minusLabel: "Lighter", plusLabel: "Heavier") { stepWeight($0) }
+            }
+            .padding(.horizontal, DS.gutter)
+
+            VStack(alignment: .leading, spacing: 10) {
+                if let est = estimateDisplay {
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Image(systemName: "scalemass")
+                            .font(.footnote)
+                            .foregroundStyle(Color.dsText2)
+                        Text("Worked out from the length.")
+                            .font(.footnote)
+                            .foregroundStyle(Color.dsText2)
+                        Spacer(minLength: DS.Space.s2)
+                        Button("Use \(String(format: "%.1f", est)) \(imperial ? "lb" : "kg")") {
+                            withAnimation(DS.Motion.easeOut) { weightKg = String(format: "%.2f", est) }
+                        }
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(DS.accent)
+                        .buttonStyle(.dim)
+                    }
+                }
+                if let note = regulationNote {
+                    LogCatchFootnote(text: note.text, systemImage: note.icon, tint: note.warn ? .dsScoreSlow : .dsText2)
+                }
+            }
+            .padding(.horizontal, DS.gutter)
+            .padding(.top, 10)
+        }
+    }
+
+    private func sizeTile(label: String, text: Binding<String>, placeholder: String, unit: String,
+                          field: Field, minusLabel: String, plusLabel: String,
+                          step: @escaping (Double) -> Void) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label)
+                .font(.footnote)
+                .foregroundStyle(Color.dsText2)
+                .lineLimit(1)
+            // The field is as wide as its digits so the unit sits right after
+            // the number, but never wider than the tile: a long entry scrolls
+            // inside the field instead of pushing the page sideways.
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                TextField(placeholder, text: text)
+                    .keyboardType(.decimalPad)
+                    .focused($focusedField, equals: field)
+                    .font(.system(size: numeralSize, weight: .bold, design: .rounded)) // ui-lint: allow, big numeral scaled with @ScaledMetric
+                    .monospacedDigit()
+                    .lineLimit(1)
+                    .frame(minWidth: 0, maxWidth: numeralWidth(text.wrappedValue, placeholder: placeholder),
+                           alignment: .leading)
+                Text(unit)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(Color.dsText2)
+                    .fixedSize()
+                    .layoutPriority(1)
+                Spacer(minLength: 0)
+            }
+            HStack(spacing: DS.Space.s2) {
+                stepButton(systemImage: "minus", label: minusLabel) { step(-1) }
+                stepButton(systemImage: "plus", label: plusLabel) { step(1) }
+            }
+            .padding(.top, 6)
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
+        .contentShape(Rectangle())
+        .onTapGesture { focusedField = field }
+    }
+
+    private func stepButton(systemImage: String, label: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.body.weight(.semibold))
+                .foregroundStyle(Color.dsText)
+                .frame(maxWidth: .infinity, minHeight: 36)
+                .background(Color.dsFill2, in: RoundedRectangle(cornerRadius: DS.Radius.thumb, style: .continuous))
+        }
+        .buttonStyle(.dim)
+        .buttonHaptic(.selection)
+        .accessibilityLabel(label)
+    }
+
+    private func stepLength(_ direction: Double) {
+        let step = imperial ? 0.5 : 1.0
+        let start = lengthCm.measurementValue ?? (imperial ? 12 : 30) - direction * step
+        lengthCm = formatNumber(max(step, start + direction * step))
+    }
+
+    private func stepWeight(_ direction: Double) {
+        let start = weightKg.measurementValue ?? estimateDisplay ?? 1.0
+        let next = max(0.1, ((start + direction * 0.1) * 10).rounded() / 10)
+        weightKg = String(format: "%.1f", next)
+    }
+
+    /// Width that fits the typed digits (or the placeholder) at the numeral size.
+    private func numeralWidth(_ text: String, placeholder: String) -> CGFloat {
+        let chars = CGFloat(max(text.count, placeholder.count, 1))
+        return chars * numeralSize * 0.64 + 6
+    }
+
+    private func formatNumber(_ v: Double) -> String {
+        v == v.rounded() ? String(format: "%.0f", v) : String(format: "%.1f", v)
+    }
+
+    private var regulationNote: (text: String, icon: String, warn: Bool)? {
+        guard let species = selectedSpecies else { return nil }
+        let result = RegulationsService.shared.verdict(species: species, lengthCm: lengthInCm)
+        guard let reg = result.reg else {
+            return ("No size or bag limit on file for \(species.commonName.lowercased()). Check local rules.",
+                    "checkmark.circle", false)
+        }
+        let bag = reg.bagLimit.map { " Bag limit \($0) a day." } ?? ""
+        switch result.verdict {
+        case .legal:
+            return ("Legal size to keep in \(reg.region).\(bag) Check local rules.", "checkmark.seal", false)
+        case .tooSmall(let mn):
+            let min = Units.length(cm: mn, imperial: imperial)
+            return released
+                ? ("Under the \(min) minimum in \(reg.region), so releasing it is right.", "checkmark.seal", false)
+                : ("Undersized. The minimum in \(reg.region) is \(min).", "exclamationmark.triangle", true)
+        case .tooBig(let mx):
+            let max = Units.length(cm: mx, imperial: imperial)
+            return released
+                ? ("Over the \(max) slot in \(reg.region), so releasing it is right.", "checkmark.seal", false)
+                : ("Over the slot. The maximum in \(reg.region) is \(max).", "exclamationmark.triangle", true)
+        case .unknownSize:
+            return ("Add a length to check the \(reg.region) limit.\(bag)", "ruler", false)
+        case .noRegulation:
+            return nil
+        }
+    }
+
+    // MARK: - Spot
+
+    /// The closest saved spot within 2 km of the angler, named the way Today
+    /// names the place.
+    private var nearbySpot: (spot: Spot, metres: Double)? {
+        guard let loc = appState.locationManager.currentLocation else { return nil }
+        var best: (spot: Spot, metres: Double)?
+        for spot in allSpots {
+            let d = CLLocation(latitude: spot.latitude, longitude: spot.longitude).distance(from: loc)
+            if d < 2_000, d < (best?.metres ?? .infinity) { best = (spot, d) }
+        }
+        return best
+    }
+
+    private var spotTitle: String {
+        switch locationMode {
+        case .current:
+            if let near = nearbySpot { return "Near \(near.spot.name)" }
+            return "Current location"
+        case .spot: return allSpots.first { $0.id == selectedSpotId }?.name ?? "Choose a saved spot"
+        case .pin: return "Dropped pin"
+        }
+    }
+
+    private var spotSubtitle: String {
+        switch locationMode {
+        case .current:
+            if let loc = appState.locationManager.currentLocation {
+                return "Your location, accurate to \(max(1, Int(loc.horizontalAccuracy))) m"
+            }
+            return "Waiting for your location"
+        case .spot:
+            return "Saved spot"
+        case .pin:
+            if let c = pinCoordinate { return String(format: "%.4f, %.4f", c.latitude, c.longitude) }
+            return "Choose a place on the map"
+        }
+    }
+
+    private var spotCoordinate: CLLocationCoordinate2D? {
+        let (lat, lon) = resolveLocation()
+        guard lat != 0 || lon != 0 else { return nil }
+        return CLLocationCoordinate2D(latitude: lat, longitude: lon)
+    }
+
+    private var spotSection: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            SectionTitle("Spot")
+            Button { activeSheet = .spot } label: {
+                HStack(alignment: .center) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(spotTitle)
+                            .font(.body.weight(.medium))
+                            .foregroundStyle(Color.dsText)
+                        Text(spotSubtitle)
+                            .font(.subheadline)
+                            .foregroundStyle(Color.dsText2)
+                    }
+                    Spacer()
+                    Text("Change")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(DS.accent)
+                }
+                .padding(.horizontal, DS.gutter)
+                .padding(.bottom, 10)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.dim)
+
+            Button { activeSheet = .spot } label: {
+                LogCatchMapPreview(coordinate: spotCoordinate, isPin: locationMode == .pin)
+            }
+            .buttonStyle(.dim)
+            .padding(.horizontal, DS.gutter)
+            .accessibilityLabel("Change the spot")
+
+            // Standing at a saved spot: one tap files the catch under it.
+            if locationMode == .current, let near = nearbySpot, near.metres < 300 {
+                Button {
+                    withAnimation(DS.Motion.easeOut) {
+                        selectedSpotId = near.spot.id
+                        locationMode = .spot
+                    }
+                } label: {
+                    Label("Log it at \(near.spot.name)", systemImage: "bookmark")
+                        .lineLimit(1)
+                }
+                .buttonStyle(.dsTonal)
+                .padding(.horizontal, DS.gutter)
+                .padding(.top, 10)
+                .transition(.opacity)
+            }
+        }
+    }
+
+    // MARK: - Details
+
+    private var caughtValue: String {
+        let time = caughtAt.formatted(date: .omitted, time: .shortened)
+        if Calendar.current.isDateInToday(caughtAt) { return "Today, \(time)" }
+        if Calendar.current.isDateInYesterday(caughtAt) { return "Yesterday, \(time)" }
+        return "\(caughtAt.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated))), \(time)"
+    }
+
+    private var gearValue: String {
+        if let id = selectedGearId, let preset = allGear.first(where: { $0.id == id }) { return preset.name }
+        for value in [gearLure, gearRod, gearReel, gearTechnique] where !value.isEmpty { return value }
+        return "None"
+    }
+
+    private var waterValue: String {
+        let clarity = waterClarity?.label
+        let depth = depthText.measurementValue.map { "\(formatNumber($0)) \(imperial ? "ft" : "m")" }
+        switch (clarity, depth) {
+        case let (c?, d?): return "\(c), \(d)"
+        case let (c?, nil): return c
+        case let (nil, d?): return d
+        default: return "Not set"
+        }
+    }
+
+    private var sessionValue: String {
+        if !isEditing, appState.tripTracker.activeTrip != nil { return "Current session" }
+        if let id = selectedTripId, let trip = allTrips.first(where: { $0.id == id }) { return trip.name }
+        return "None"
+    }
+
+    private var detailsSection: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            SectionTitle("Details")
+            VStack(spacing: 0) {
+                detailRow("Caught", systemImage: "clock", tint: .dsScoreLow, value: caughtValue, sheet: .time)
+                Divider().padding(.leading, 52)
+                detailRow("Gear", systemImage: "shippingbox", tint: .purple, value: gearValue, sheet: .gear,
+                          lureArt: gearLure)
+                Divider().padding(.leading, 52)
+                detailRow("Water", systemImage: "drop", tint: DS.accent, value: waterValue, sheet: .water)
+                if FeatureFlags.liveTrips {
+                    Divider().padding(.leading, 52)
+                    detailRow("Session", systemImage: "figure.fishing", tint: .dsScoreGood, value: sessionValue, sheet: .session)
+                }
+            }
+            .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
+            .padding(.horizontal, DS.gutter)
+        }
+    }
+
+    private func detailRow(_ title: String, systemImage: String, tint: Color, value: String,
+                           sheet: ComposerSheet, lureArt: String? = nil) -> some View {
+        Button {
+            focusedField = nil
+            activeSheet = sheet
+        } label: {
+            LogCatchListRow(title: title, systemImage: systemImage, tint: tint, value: value, chevron: true,
+                            lureArt: lureArt)
+        }
+        .buttonStyle(.dim)
+    }
+
+    // MARK: - Conditions
+
+    private var conditionsKey: String {
+        guard !isEditing, let c = spotCoordinate else { return "none" }
+        let hour = Int(caughtAt.timeIntervalSince1970 / 3600)
+        return String(format: "%.2f,%.2f,", c.latitude, c.longitude) + "\(hour),\(selectedSpeciesId ?? 0)"
+    }
+
+    private var conditionsSection: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            SectionTitle("Conditions")
+            let c = conditions
+            if c != nil {
+                KeyValueList(rows: conditionRows(c))
+            }
+
+            LogCatchFootnote(text: conditionsFootnote, systemImage: c == nil ? "info.circle" : "checkmark.circle")
+                .padding(.horizontal, DS.gutter)
+                .padding(.top, 10)
+        }
+    }
+
+    private var conditionsFootnote: String {
+        if isEditing {
+            return conditions == nil ? "No weather was saved with this catch." : "Recorded when the catch was logged."
+        }
+        if conditions == nil { return "Filled in from the forecast once your location is known." }
+        return "Filled in from the forecast for \(caughtAt.formatted(date: .omitted, time: .shortened)). Saved with the catch."
+    }
+
+    // Each tile says what the number means for fishing, not just the number:
+    // water against the species' comfort band, the pressure trend, the
+    // wind direction, and the bite score in its score colour.
+
+    private func waterTempValue(_ c: Conditions?) -> String {
+        c?.waterC.map { Units.temperature($0, imperial: imperial) } ?? "–"
+    }
+
+    private func waterTempLabel(_ c: Conditions?) -> String {
+        guard let t = c?.waterC, let lo = selectedSpecies?.minTempC, let hi = selectedSpecies?.maxTempC,
+              hi > lo else { return "Water" }
+        if t < lo { return "Water, cold" }
+        if t > hi { return "Water, warm" }
+        return "Water, in range"
+    }
+
+    private func windValue(_ c: Conditions?) -> String {
+        guard let kmh = c?.windKmh else { return "–" }
+        let speed: Double = imperial ? kmh * 0.62137119 : kmh
+        return formatNumber(speed.rounded())
+    }
+
+    private func windLabel(_ c: Conditions?) -> String {
+        guard let deg = c?.windDeg else { return Units.speedSymbol }
+        return "\(Units.speedSymbol) \(compass(deg))"
+    }
+
+    private func pressureValue(_ c: Conditions?) -> String {
+        guard let hpa = c?.pressureHpa else { return "–" }
+        return "\(Int(hpa.rounded()))"
+    }
+
+    private func pressureLabel(_ c: Conditions?) -> String {
+        guard let trend = c?.pressureTrend else { return "hPa" }
+        if trend <= -1 { return "hPa, falling" }
+        if trend >= 1 { return "hPa, rising" }
+        return "hPa, steady"
+    }
+
+    /// Each row says what the number means for fishing, not just the number.
+    private func conditionRows(_ c: Conditions?) -> [KeyValueList.Row] {
+        var rows: [KeyValueList.Row] = []
+        if c?.waterC != nil {
+            rows.append(.init(label: waterTempLabel(c), value: waterTempValue(c)))
+        }
+        if c?.windKmh != nil {
+            rows.append(.init(label: "Wind", value: "\(windValue(c)) \(windLabel(c))"))
+        }
+        if c?.pressureHpa != nil {
+            rows.append(.init(label: "Pressure", value: "\(pressureValue(c)) \(pressureLabel(c))"))
+        }
+        if let score = c?.score {
+            rows.append(.init(label: "Bite score", value: "\(score) of 100", emphasized: true))
+        }
+        return rows
+    }
+
+    private func compass(_ deg: Double) -> String {
+        let names = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
+        let i = Int(((deg.truncatingRemainder(dividingBy: 360) + 360).truncatingRemainder(dividingBy: 360) + 22.5) / 45) % 8
+        return names[i]
+    }
+
+    private func refreshConditions() async {
+        guard !isEditing else { return }
+        guard let coord = spotCoordinate else {
+            conditions = nil
+            return
+        }
+        let key = conditionsKey
+        let wx = await WeatherService.shared.current(for: coord)
+        guard !Task.isCancelled else { return }
+        guard let wx else {
+            conditions = nil
+            lastWeather = nil
+            return
+        }
+        lastWeather = wx
+        lastWeatherKey = key
+        let forecast = ForecastEngine.forecast(
+            date: caughtAt,
+            coordinate: coord,
+            currentPressureHpa: wx.pressureHpa,
+            pressureChange6h: wx.pressureChange6h,
+            waterTempC: wx.waterTempC,
+            windSpeedKmh: wx.windSpeedKmh,
+            windDirection: wx.windDirectionDeg,
+            species: selectedSpecies,
+            isInSpawningZone: false
+        )
+        withAnimation(DS.Motion.easeOut) {
+            conditions = Conditions(waterC: wx.waterTempC, windKmh: wx.windSpeedKmh,
+                                    windDeg: wx.windDirectionDeg, pressureHpa: wx.pressureHpa,
+                                    pressureTrend: wx.pressureChange6h, score: forecast.score)
         }
     }
 
     // MARK: - Notes
 
     private var notesSection: some View {
-        Section("Notes") {
-            TextField("Any notes...", text: $notes, axis: .vertical)
-                .lineLimit(3...6)
+        VStack(alignment: .leading, spacing: 0) {
+            SectionTitle("Notes")
+            TextField("What worked, what the water looked like", text: $notes, axis: .vertical)
+                .lineLimit(2...6)
+                .focused($focusedField, equals: .notes)
+                .padding(14)
+                .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
+                .padding(.horizontal, DS.gutter)
         }
     }
 
-    // MARK: - Time
+    // MARK: - Sharing
 
-    private var timeSection: some View {
-        Section("When") {
-            DatePicker("Caught at", selection: $caughtAt)
+    private var iNatAvailable: Bool {
+        appState.inaturalist.isConnected && appState.inaturalist.isConfigured
+    }
+
+    @ViewBuilder
+    private var sharingSection: some View {
+        if !isEditing && (!crews.isEmpty || iNatAvailable) {
+            VStack(alignment: .leading, spacing: 0) {
+                SectionTitle("Sharing")
+                VStack(spacing: 0) {
+                    ForEach(Array(crews.enumerated()), id: \.element.code) { index, crew in
+                        if index > 0 { Divider().padding(.leading, 52) }
+                        shareRow("Post to \(crew.name)", systemImage: "person.3", tint: .dsScoreGood,
+                                 isOn: Binding(get: { crewShare[crew.code] ?? false },
+                                               set: { crewShare[crew.code] = $0 }))
+                    }
+                    if iNatAvailable {
+                        if !crews.isEmpty { Divider().padding(.leading, 52) }
+                        shareRow("Add to iNaturalist", systemImage: "leaf", tint: .green, isOn: $shareToINat)
+                    }
+                }
+                .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
+                .padding(.horizontal, DS.gutter)
+
+                LogCatchFootnote(text: "Crew posts and the leaderboard show the area, never the exact spot. Photos lose their location before they leave your phone.",
+                                 systemImage: "lock.shield")
+                    .padding(.horizontal, DS.gutter)
+                    .padding(.top, 10)
+            }
+            .padding(.top, DS.Space.s8)
         }
     }
 
-    // MARK: - Actions
+    private func shareRow(_ title: String, systemImage: String, tint: Color, isOn: Binding<Bool>) -> some View {
+        Toggle(isOn: isOn) {
+            HStack(spacing: DS.Space.s3) {
+                Image(systemName: systemImage)
+                    .font(.body.weight(.medium))
+                    .foregroundStyle(tint)
+                    .frame(width: 26)
+                Text(title)
+                    .foregroundStyle(Color.dsText)
+                    .lineLimit(1)
+            }
+        }
+        .tint(Color.dsScoreGood)
+        .padding(.horizontal, 14)
+        .frame(minHeight: 48)
+    }
+
+    // MARK: - Save bar
+
+    private var saveBar: some View {
+        VStack(spacing: 6) {
+            Button {
+                Task { await save() }
+            } label: {
+                if isSaving {
+                    HStack(spacing: DS.Space.s2) {
+                        ProgressView()
+                        Text("Saving")
+                    }
+                } else {
+                    Label(isEditing ? "Save changes" : "Save catch", systemImage: "checkmark")
+                }
+            }
+            .buttonStyle(.dsPrimary)
+            .disabled(selectedSpeciesId == nil || isSaving)
+            if selectedSpeciesId == nil {
+                Text(isClassifying ? "Waiting for the species" : "Choose the species to save")
+                    .font(.footnote)
+                    .foregroundStyle(Color.dsText2)
+            }
+        }
+        .padding(.horizontal, DS.gutter)
+        .padding(.top, DS.Space.s3)
+        .padding(.bottom, DS.Space.s2)
+        .frame(maxWidth: .infinity)
+        .background {
+            Color.dsBackground
+                .ignoresSafeArea()
+                .overlay(alignment: .top) {
+                    Rectangle().fill(Color.dsSeparator).frame(height: 0.5)
+                }
+        }
+    }
+
+    // MARK: - Sheets
+
+    @ViewBuilder
+    private func sheetContent(_ sheet: ComposerSheet) -> some View {
+        switch sheet {
+        case .species:
+            SpeciesPickerSheet(
+                species: allSpecies,
+                selectedId: $selectedSpeciesId,
+                selectedName: $selectedSpeciesName,
+                matches: photos.isEmpty ? [] : speciesMatches,
+                matchesAreUncertain: lowConfidence,
+                caughtIds: caughtIds,
+                targetId: targetSpecies?.id,
+                modelDownloading: isDownloadingModel,
+                onRescan: photos.isEmpty ? nil : { rescan() },
+                onRetryDownload: { retryDownload() }
+            )
+        case .time:
+            LogCatchTimeSheet(caughtAt: $caughtAt, photoDate: photoDate)
+        case .gear:
+            LogCatchGearSheet(presets: allGear, ownedGear: ownedGear, selectedGearId: $selectedGearId,
+                              rod: $gearRod, reel: $gearReel, lure: $gearLure,
+                              lureColor: $gearLureColor, technique: $gearTechnique)
+        case .water:
+            LogCatchWaterSheet(clarity: $waterClarity, depthText: $depthText, imperial: imperial)
+        case .session:
+            LogCatchSessionSheet(trips: allTrips,
+                                 activeTrip: isEditing ? nil : appState.tripTracker.activeTrip,
+                                 selectedTripId: $selectedTripId,
+                                 canStart: !isEditing) {
+                let trip = appState.tripTracker.start(name: SessionFormat.defaultName(), spotId: selectedSpotId)
+                selectedTripId = trip.id
+                if !allTrips.contains(where: { $0.id == trip.id }) { allTrips.insert(trip, at: 0) }
+                ToastCenter.shared.show("Session started", icon: "play.fill")
+            }
+        case .spot:
+            LogCatchSpotSheet(mode: $locationMode, spots: allSpots, selectedSpotId: $selectedSpotId,
+                              pinCoordinate: $pinCoordinate,
+                              currentLocation: appState.locationManager.currentLocation,
+                              newSpotName: $newSpotName,
+                              onSaveSpot: saveNewSpot)
+        }
+    }
+
+    // MARK: - Dirty state
+
+    private var signature: String {
+        let species: String = selectedSpeciesId.map { String($0) } ?? ""
+        let minute: String = String(Int(caughtAt.timeIntervalSince1970 / 60))
+        let clarity: String = waterClarity?.rawValue ?? ""
+        let photoIds: String = photos.map { $0.id.uuidString }.joined(separator: ",")
+        let pin: String = pinCoordinate.map { "\($0.latitude),\($0.longitude)" } ?? ""
+        var parts: [String] = [species, lengthCm, weightKg, String(released), String(isFavorite), notes]
+        parts += [minute, clarity, depthText, photoIds]
+        parts += [locationMode.rawValue, selectedSpotId ?? "", pin, selectedTripId ?? "", selectedGearId ?? ""]
+        parts += [gearRod, gearReel, gearLure, gearLureColor, gearTechnique]
+        return parts.joined(separator: "|")
+    }
+
+    private var isDirty: Bool {
+        guard let baseline else { return false }
+        return signature != baseline
+    }
+
+    private func close() {
+        focusedField = nil
+        if isDirty { showingDiscard = true } else { dismiss() }
+    }
+
+    // MARK: - Loading
+
+    private func load() async {
+        guard !didLoad else { return }
+        didLoad = true
+        RegulationsService.shared.load()
+        allSpecies = (try? appState.speciesRepository.fetchAll()) ?? []
+        allSpots = (try? appState.spotRepository.fetchAll()) ?? []
+        allGear = (try? appState.gearRepository.fetchPresets()) ?? []
+        allTrips = (try? appState.tripRepository.fetchAll()) ?? []
+        ownedGear = (try? appState.ownedGearRepository.fetchAll()) ?? []
+        caughtIds = Set(((try? appState.catchRepository.speciesCounts()) ?? []).map { $0.speciesId })
+
+        if let editing {
+            loadEditing(editing)
+        } else {
+            // Auto-select active trip so catches link automatically
+            if selectedTripId == nil {
+                selectedTripId = allTrips.first(where: { $0.endDate == nil })?.id
+            }
+            // A place page's pin stays where it was put.
+            if pinCoordinate == nil, let loc = appState.locationManager.currentLocation {
+                pinCoordinate = loc.coordinate
+            }
+            if let presetSpecies {
+                selectSpecies(presetSpecies)
+            }
+            if CommunityService.shared.cloudAllowed {
+                crews = CommunityService.shared.myCrews
+                crewShare = Dictionary(uniqueKeysWithValues: crews.map { ($0.code, $0.autoPost) })
+            }
+        }
+        loadPriors()
+        baseline = signature
+    }
+
+    private func loadEditing(_ detail: CatchDetail) {
+        let c = detail.catchRecord
+        var loaded: [LogCatchPhoto] = []
+        var missing: [String] = []
+        for path in c.allPhotoPaths {
+            if let image = PhotoManager.load(path) {
+                loaded.append(LogCatchPhoto(image: image, savedPath: path))
+            } else {
+                missing.append(path)
+            }
+        }
+        photos = loaded
+        unloadablePaths = missing
+        weightKg = c.weightKg.map { String(format: "%.2f", imperial ? $0 * 2.2046226 : $0) } ?? ""
+        lengthCm = c.lengthCm.map { String(format: "%.1f", imperial ? $0 / 2.54 : $0) } ?? ""
+        notes = c.notes ?? ""
+        released = c.released
+        isFavorite = c.isFavorite
+        caughtAt = c.caughtAt
+        waterClarity = c.clarity
+        depthText = c.depthM.map { formatNumber(((imperial ? $0 * 3.2808399 : $0) * 10).rounded() / 10) } ?? ""
+        selectedSpeciesId = c.speciesId
+        selectedSpeciesName = detail.species?.commonName ?? ""
+        selectedSpotId = c.spotId
+        selectedTripId = c.tripId
+        selectedGearId = c.gearLoadoutId
+        pinCoordinate = CLLocationCoordinate2D(latitude: c.latitude, longitude: c.longitude)
+        locationMode = c.spotId != nil ? .spot : .pin
+        if let loadout = detail.gearLoadout {
+            gearRod = loadout.rod ?? ""
+            gearReel = loadout.reel ?? ""
+            gearLure = loadout.lure ?? ""
+            gearLureColor = loadout.lureColor ?? ""
+            gearTechnique = loadout.technique ?? ""
+        }
+        if let json = c.weatherSnapshot, let data = json.data(using: .utf8),
+           let snap = try? JSONDecoder().decode(WxSnap.self, from: data) {
+            conditions = Conditions(waterC: snap.waterTempC, windKmh: snap.windSpeedKmh,
+                                    windDeg: snap.windDirectionDeg, pressureHpa: snap.pressureHpa,
+                                    pressureTrend: snap.pressureChange6h, score: c.forecastScoreAtCapture)
+        } else if let score = c.forecastScoreAtCapture {
+            conditions = Conditions(score: score)
+        }
+    }
+
+    private func loadPriors() {
+        guard let id = selectedSpeciesId else {
+            priors = []
+            return
+        }
+        let excluding = editing?.catchRecord.id
+        priors = ((try? appState.catchRepository.fetchForSpecies(id)) ?? [])
+            .map(\.catchRecord)
+            .filter { $0.id != excluding }
+    }
 
     private func loadPhotos(_ items: [PhotosPickerItem]) {
+        guard !items.isEmpty else { return }
         Task {
             var newImages: [UIImage] = []
             var extractedDate: Date?
@@ -640,11 +1402,26 @@ struct LogCatchView: View {
                     }
                 }
             }
-            capturedImages = newImages
-            if let date = extractedDate {
-                caughtAt = date
+            libraryItems = []
+            let room = max(0, 10 - photos.count)
+            if newImages.count > room {
+                ToastCenter.shared.show("Up to 10 photos per catch", style: .info, icon: "photo.on.rectangle")
             }
-            if let first = newImages.first {
+            let added = Array(newImages.prefix(room))
+            guard !added.isEmpty else { return }
+            let wasEmpty = photos.isEmpty
+            withAnimation(DS.Motion.softSpring) {
+                photos.append(contentsOf: added.map { LogCatchPhoto(image: $0) })
+                showingCamera = false
+            }
+            if let date = extractedDate {
+                photoDate = date
+                if !isEditing { caughtAt = min(date, .now) }
+            }
+            if !wasEmpty || isEditing {
+                ToastCenter.shared.show(added.count == 1 ? "Photo added" : "\(added.count) photos added", icon: "photo")
+            }
+            if wasEmpty, let first = added.first {
                 classifyImage(first)
             }
         }
@@ -664,52 +1441,113 @@ struct LogCatchView: View {
         return formatter.date(from: dateString)
     }
 
+    // MARK: - Species ID
+
+    private func confidenceLabel(_ c: Float) -> String {
+        switch c {
+        case 0.85...: "Very confident"
+        case 0.6..<0.85: "Likely"
+        case 0.4..<0.6: "Best guess"
+        default: "Uncertain"
+        }
+    }
+
+    private func selectSpecies(_ species: Species) {
+        selectedSpeciesId = species.id
+        selectedSpeciesName = species.commonName
+    }
+
+    private func rescan() {
+        guard let first = photos.first else { return }
+        if autoSelectedFromML {
+            selectedSpeciesId = nil
+            selectedSpeciesName = ""
+        }
+        classifyImage(first.image)
+    }
+
+    private func retryDownload() {
+        ToastCenter.shared.show("Downloading the species model, about 90 MB", style: .info, icon: "icloud.and.arrow.down")
+        if let first = photos.first { classifyImage(first.image) }
+    }
+
     private func classifyImage(_ image: UIImage) {
         isClassifying = true
         autoSelectedFromML = false
         lowConfidence = false
         Task {
             // BioCLIP is the only identifier — the old artwork-similarity and
-            // Vision fallbacks produced junk guesses and were removed. Nudge
-            // the model download in case the launch attempt had no network.
-            await appState.fishModelDownloader.ensureModelDownloaded()
+            // Vision fallbacks produced junk guesses and were removed. When the
+            // model isn't on the phone yet, fetch it in the background instead
+            // of holding the composer on "Identifying" for a 90 MB download;
+            // the photo is scanned again once it lands.
+            if !(await appState.fishModelDownloader.isModelAvailable) {
+                Task {
+                    await appState.fishModelDownloader.ensureModelDownloaded()
+                    if await appState.fishModelDownloader.isModelAvailable,
+                       selectedSpeciesId == nil, let first = photos.first {
+                        classifyImage(first.image)
+                    }
+                }
+            }
 
             let byId = Dictionary(uniqueKeysWithValues: allSpecies.map { ($0.id, $0) })
 
             // Region/season prior: nudge scores toward species whose thermal
             // band brackets the local water temperature. Best-effort — no
-            // location or offline just means no nudge.
+            // location, offline or a weak signal just means no nudge.
             let (lat, lon) = resolveLocation()
-            var waterTemp: Double?
-            if lat != 0 || lon != 0 {
-                waterTemp = await WeatherService.shared.current(
-                    for: CLLocationCoordinate2D(latitude: lat, longitude: lon))?.waterTempC
+            var waterTemp: Double? = lastWeather?.waterTempC
+            if waterTemp == nil, lat != 0 || lon != 0 {
+                waterTemp = await Self.quickWeather(
+                    for: CLLocationCoordinate2D(latitude: lat, longitude: lon), seconds: 2)?.waterTempC
             }
             let prior = thermalPrior(waterTempC: waterTemp)
 
             let ranked = await appState.embeddingIdentifier.identify(image: image, prior: prior)
-            speciesMatches = ranked.compactMap { r in
+            let matches = ranked.compactMap { r in
                 byId[r.speciesId].map { SpeciesMatch(species: $0, confidence: r.confidence) }
             }
 
             // "Not sure" guardrail: skip auto-selecting when the top match is
             // weak, or barely ahead of the runner-up — a confident wrong guess
             // is worse than asking.
-            if let top = speciesMatches.first {
-                let second = speciesMatches.dropFirst().first?.confidence ?? 0
-                lowConfidence = top.confidence < 0.30 || (top.confidence - second) < 0.08
-            } else {
-                lowConfidence = false
+            var unsure = false
+            if let top = matches.first {
+                let second = matches.dropFirst().first?.confidence ?? 0
+                unsure = top.confidence < 0.30 || (top.confidence - second) < 0.08
             }
 
-            modelReady = await appState.fishModelDownloader.isModelAvailable
-            hasScanned = true
-            isClassifying = false
-
-            if let top = speciesMatches.first, selectedSpeciesId == nil, !lowConfidence {
-                selectSpecies(top.species)
-                autoSelectedFromML = true
+            let ready = await appState.fishModelDownloader.isModelAvailable
+            withAnimation(reduceMotion ? nil : DS.Motion.easeOut) {
+                speciesMatches = matches
+                lowConfidence = unsure
+                modelReady = ready
+                hasScanned = true
+                isClassifying = false
+                if let top = matches.first, selectedSpeciesId == nil, !unsure {
+                    selectSpecies(top.species)
+                    autoSelectedFromML = true
+                    Haptics.success()
+                }
             }
+        }
+    }
+
+    /// Weather for the catch without ever holding things up on a weak
+    /// signal: gives up after `seconds` and returns nothing. The cached
+    /// reading comes back at once, and airplane mode fails immediately.
+    private static func quickWeather(for coordinate: CLLocationCoordinate2D,
+                                     seconds: Double) async -> WeatherService.WeatherData? {
+        await withTaskGroup(of: WeatherService.WeatherData?.self) { group in
+            group.addTask { await WeatherService.shared.current(for: coordinate) }
+            group.addTask {
+                try? await Task.sleep(for: .seconds(seconds))
+                return nil
+            }
+            let first: WeatherService.WeatherData?? = await group.next()
+            group.cancelAll()
+            return first ?? nil
         }
     }
 
@@ -732,10 +1570,13 @@ struct LogCatchView: View {
         return out
     }
 
+    // MARK: - Save
+
     private func saveNewSpot() {
-        guard let coord = pinCoordinate, !newSpotName.isEmpty else { return }
+        let name = newSpotName.trimmingCharacters(in: .whitespaces)
+        guard let coord = pinCoordinate, !name.isEmpty else { return }
         var spot = Spot(
-            name: newSpotName,
+            name: name,
             latitude: coord.latitude,
             longitude: coord.longitude,
             isPrivate: true
@@ -745,7 +1586,7 @@ struct LogCatchView: View {
         selectedSpotId = spot.id
         locationMode = .spot
         newSpotName = ""
-        ToastCenter.shared.show("Spot saved")
+        ToastCenter.shared.show("\(name) saved to your spots", icon: "bookmark.fill")
     }
 
     /// Codable matching CatchDetailView's WeatherSnapshot keys so the stored
@@ -757,6 +1598,111 @@ struct LogCatchView: View {
         var windDirectionDeg: Double?
         var pressureHpa: Double?
         var condition: String?
+        var pressureChange6h: Double? = nil
+    }
+
+    /// The gear the catch is saved with. Starting from any chosen preset, the
+    /// user can still fill fields the preset didn't cover (or tweak ones it
+    /// did). If the effective gear differs from the preset, snapshot it onto a
+    /// HIDDEN loadout so the catch keeps exactly what was used — the named
+    /// preset stays untouched, and the Presets tab isn't polluted.
+    private func resolveGearId() -> String? {
+        let hasIndividualGear = !gearRod.isEmpty || !gearReel.isEmpty || !gearLure.isEmpty || !gearTechnique.isEmpty
+        if let selected = selectedGearId,
+           let preset = allGear.first(where: { $0.id == selected }) {
+            let matchesPreset =
+                gearRod == (preset.rod ?? "") &&
+                gearReel == (preset.reel ?? "") &&
+                gearLure == (preset.lure ?? "") &&
+                gearLureColor == (preset.lureColor ?? "") &&
+                gearTechnique == (preset.technique ?? "")
+            if matchesPreset { return selected }
+            var hidden = GearLoadout(
+                name: preset.name,
+                rod: gearRod.isEmpty ? nil : gearRod,
+                reel: gearReel.isEmpty ? nil : gearReel,
+                lineLb: preset.lineLb,
+                leaderLb: preset.leaderLb,
+                lure: gearLure.isEmpty ? nil : gearLure,
+                lureColor: gearLureColor.isEmpty ? nil : gearLureColor,
+                lureWeightG: preset.lureWeightG,
+                technique: gearTechnique.isEmpty ? nil : gearTechnique,
+                isAutoCreated: true
+            )
+            try? appState.gearRepository.save(&hidden)
+            return hidden.id
+        }
+        if hasIndividualGear {
+            var hidden = GearLoadout(
+                name: "Catch gear",
+                rod: gearRod.isEmpty ? nil : gearRod,
+                reel: gearReel.isEmpty ? nil : gearReel,
+                lure: gearLure.isEmpty ? nil : gearLure,
+                lureColor: gearLureColor.isEmpty ? nil : gearLureColor,
+                technique: gearTechnique.isEmpty ? nil : gearTechnique,
+                isAutoCreated: true
+            )
+            try? appState.gearRepository.save(&hidden)
+            return hidden.id
+        }
+        return nil
+    }
+
+    private func save() async {
+        if let editing {
+            saveEdits(editing)
+        } else {
+            await saveCatch()
+        }
+    }
+
+    /// Same contract as the old EditCatchSheet: the caller persists and
+    /// re-publishes the updated record.
+    private func saveEdits(_ detail: CatchDetail) {
+        guard !isSaving else { return }
+        isSaving = true
+        var updated = detail.catchRecord
+
+        // Photos: delete removed originals, persist newly-added images, then
+        // combine in the order shown. New files get unique names so they
+        // never overwrite an existing photo of this catch.
+        let kept = Set(photos.compactMap(\.savedPath) + unloadablePaths)
+        for path in detail.catchRecord.allPhotoPaths where !kept.contains(path) { PhotoManager.delete(path) }
+        var allPhotos: [String] = []
+        for photo in photos {
+            if let path = photo.savedPath {
+                allPhotos.append(path)
+            } else if let path = try? PhotoManager.save(photo.image,
+                                                         id: "\(updated.id)_\(UUID().uuidString.prefix(8))") {
+                allPhotos.append(path)
+            }
+        }
+        allPhotos.append(contentsOf: unloadablePaths)
+        updated.photoPath = allPhotos.first
+        updated.photoPaths = Catch.encodePhotoPaths(allPhotos)
+
+        updated.weightKg = weightKg.measurementValue.map { imperial ? $0 / 2.2046226 : $0 }
+        updated.lengthCm = lengthCm.measurementValue.map { imperial ? $0 * 2.54 : $0 }
+        updated.notes = notes.isEmpty ? nil : notes
+        updated.released = released
+        updated.isFavorite = isFavorite
+        updated.caughtAt = caughtAt
+        updated.speciesId = selectedSpeciesId
+        updated.spotId = locationMode == .spot ? selectedSpotId : nil
+        updated.tripId = selectedTripId
+        updated.clarity = waterClarity
+        updated.depthM = depthText.measurementValue.map { imperial ? $0 * 0.3048 : $0 }
+        let (lat, lon) = resolveLocation()
+        if lat != 0 || lon != 0 {
+            updated.latitude = lat
+            updated.longitude = lon
+            updated.geohash = Geohash.encode(latitude: lat, longitude: lon, precision: 7)
+        }
+        updated.gearLoadoutId = resolveGearId()
+
+        onEditSave?(updated)
+        ToastCenter.shared.show("Catch updated")
+        dismiss()
     }
 
     private func saveCatch() async {
@@ -771,12 +1717,17 @@ struct LogCatchView: View {
 
         // Save multiple photos
         var photoPaths: [String] = []
-        if !capturedImages.isEmpty {
-            photoPaths = (try? PhotoManager.saveMultiple(capturedImages, catchId: catchId)) ?? []
+        if !photos.isEmpty {
+            photoPaths = (try? PhotoManager.saveMultiple(photos.map(\.image), catchId: catchId)) ?? []
         }
 
-        // Capture the actual conditions at the catch (weather + real bite score).
-        let wx = await WeatherService.shared.current(for: coord)
+        // Capture the actual conditions at the catch (weather + real bite
+        // score). Reuse the reading behind the Conditions tiles; otherwise a
+        // short, capped fetch, so a weak signal never holds up the save.
+        var wx: WeatherService.WeatherData? = lastWeatherKey == conditionsKey ? lastWeather : nil
+        if wx == nil, lat != 0 || lon != 0 {
+            wx = await Self.quickWeather(for: coord, seconds: 3)
+        }
         let species = allSpecies.first(where: { $0.id == selectedSpeciesId })
         let forecast = ForecastEngine.forecast(
             date: caughtAt,
@@ -792,57 +1743,13 @@ struct LogCatchView: View {
         let weatherJSON: String? = wx.flatMap {
             let snap = WxSnap(temperatureC: $0.temperatureC, waterTempC: $0.waterTempC,
                               windSpeedKmh: $0.windSpeedKmh, windDirectionDeg: $0.windDirectionDeg,
-                              pressureHpa: $0.pressureHpa, condition: $0.condition)
+                              pressureHpa: $0.pressureHpa, condition: $0.condition,
+                              pressureChange6h: $0.pressureChange6h)
             return (try? JSONEncoder().encode(snap)).flatMap { String(data: $0, encoding: .utf8) }
         }
         // Any fish logged while a session is recording belongs to that session.
         let tripId = appState.tripTracker.activeTrip?.id ?? selectedTripId
-
-        // Gear the catch is saved with. Starting from any chosen preset, the
-        // user can still fill fields the preset didn't cover (or tweak ones it
-        // did). If the effective gear differs from the preset, snapshot it onto
-        // a HIDDEN loadout so the catch keeps exactly what was used — the named
-        // preset stays untouched, and the Presets tab isn't polluted.
-        var gearId = selectedGearId
-        let hasIndividualGear = !gearRod.isEmpty || !gearReel.isEmpty || !gearLure.isEmpty || !gearTechnique.isEmpty
-
-        if let selected = selectedGearId,
-           let preset = allGear.first(where: { $0.id == selected }) {
-            let matchesPreset =
-                gearRod == (preset.rod ?? "") &&
-                gearReel == (preset.reel ?? "") &&
-                gearLure == (preset.lure ?? "") &&
-                gearLureColor == (preset.lureColor ?? "") &&
-                gearTechnique == (preset.technique ?? "")
-            if !matchesPreset {
-                var hidden = GearLoadout(
-                    name: preset.name,
-                    rod: gearRod.isEmpty ? nil : gearRod,
-                    reel: gearReel.isEmpty ? nil : gearReel,
-                    lineLb: preset.lineLb,
-                    leaderLb: preset.leaderLb,
-                    lure: gearLure.isEmpty ? nil : gearLure,
-                    lureColor: gearLureColor.isEmpty ? nil : gearLureColor,
-                    lureWeightG: preset.lureWeightG,
-                    technique: gearTechnique.isEmpty ? nil : gearTechnique,
-                    isAutoCreated: true
-                )
-                try? appState.gearRepository.save(&hidden)
-                gearId = hidden.id
-            }
-        } else if gearId == nil && hasIndividualGear {
-            var hidden = GearLoadout(
-                name: "Catch gear",
-                rod: gearRod.isEmpty ? nil : gearRod,
-                reel: gearReel.isEmpty ? nil : gearReel,
-                lure: gearLure.isEmpty ? nil : gearLure,
-                lureColor: gearLureColor.isEmpty ? nil : gearLureColor,
-                technique: gearTechnique.isEmpty ? nil : gearTechnique,
-                isAutoCreated: true
-            )
-            try? appState.gearRepository.save(&hidden)
-            gearId = hidden.id
-        }
+        let gearId = resolveGearId()
 
         var catchRecord = Catch(
             id: catchId,
@@ -862,6 +1769,7 @@ struct LogCatchView: View {
             gearLoadoutId: gearId,
             tripId: tripId,
             notes: notes.isEmpty ? nil : notes,
+            isFavorite: isFavorite,
             waterClarity: waterClarity,
             // Stored in metres regardless of the angler's display units.
             depthM: depthText.measurementValue.map { imperial ? $0 * 0.3048 : $0 }
@@ -870,36 +1778,50 @@ struct LogCatchView: View {
         // Judge first-species / personal-best BEFORE the save, against what's
         // in the log right now — so a deleted-and-relogged species celebrates
         // again (it genuinely is the only one in the log).
-        let priors = (try? appState.catchRepository.fetchForSpecies(selectedSpeciesId ?? -1))?
+        let priorCatches = (try? appState.catchRepository.fetchForSpecies(selectedSpeciesId ?? -1))?
             .map(\.catchRecord) ?? []
         let celebration = CelebrationJudge.judge(
             speciesName: species?.commonName, speciesId: selectedSpeciesId,
             weightKg: catchRecord.weightKg, lengthCm: catchRecord.lengthCm,
-            excludingCatchId: catchId, existing: priors)
+            excludingCatchId: catchId, existing: priorCatches)
 
-        try? appState.catchRepository.save(&catchRecord)
+        do {
+            try appState.catchRepository.save(&catchRecord)
+        } catch {
+            // Nothing was written: keep the composer open with everything the
+            // angler entered, and drop the photo files saved for it.
+            for path in photoPaths { PhotoManager.delete(path) }
+            isSaving = false
+            ToastCenter.shared.show("The catch couldn't be saved. Try again.", style: .error)
+            return
+        }
 
         // Reset the cold-streak nudge — you just caught something.
         if tripId != nil, appState.tripTracker.isTracking {
-            await NotificationManager.shared.scheduleColdStreakNudge()
+            Task { await NotificationManager.shared.scheduleColdStreakNudge() }
         }
 
-        // Auto-share to iNaturalist when the user has connected their account.
-        // No-op otherwise, so nothing leaves the device by default.
-        appState.inaturalist.uploadIfConnected(
-            catchRecord,
-            species: allSpecies.first(where: { $0.id == selectedSpeciesId }),
-            catchRepository: appState.catchRepository
-        )
+        // Share to iNaturalist when the user has connected their account and
+        // left the toggle on. No-op otherwise, so nothing leaves the device by default.
+        if shareToINat {
+            appState.inaturalist.uploadIfConnected(
+                catchRecord,
+                species: species,
+                catchRepository: appState.catchRepository
+            )
+        }
 
         // Publish a measured catch to the community leaderboard / group feed in
         // the BACKGROUND — never block the save + dismiss on a CloudKit round
-        // trip (that's what made saving a catch feel slow). No-op unless joined.
-        // Group-tagged catches publish even unmeasured, so a quick "fish on"
-        // still lands in the trip feed.
+        // trip. No-op unless joined. Group-tagged catches publish even
+        // unmeasured, so a quick "fish on" still lands in the trip feed.
+        // Builds without iCloud (sideloaded, screenshot mode) never reach
+        // CloudKit from here: that is an uncatchable crash, not an error.
         let resolvedGroup = tripId.flatMap { CommunityService.shared.groupCode(forTripId: $0) }
             ?? groupCodeOverride
-        if catchRecord.weightKg != nil || catchRecord.lengthCm != nil || resolvedGroup != nil {
+        let cloudOK = CommunityService.shared.cloudAllowed
+            || (resolvedGroup != nil && !ScreenshotSupport.isActive)
+        if cloudOK, catchRecord.weightKg != nil || catchRecord.lengthCm != nil || resolvedGroup != nil {
             let name = species?.commonName ?? "Fish"
             let region = CommunityService.shared.myRegion
             let groupCode = resolvedGroup
@@ -908,25 +1830,49 @@ struct LogCatchView: View {
                 catchRecord: rec, speciesName: name, region: region, groupCode: groupCode) }
         }
 
-        // Post to any crews with auto-post on — this is how friends keep up with
-        // each other's catches. No-op unless you're in a crew. Runs for every
-        // catch (measured or not), always in the background.
+        // Post to the crews left on in Sharing (each crew's auto-post setting is
+        // the default). Always in the background; no-op unless joined.
         let crewName = species?.commonName ?? "Fish"
         let crewCatch = catchRecord
-        Task { await CommunityService.shared.autoPostCatch(crewCatch, speciesName: crewName) }
+        var shareCrews: [CommunityService.Crew] = []
+        if CommunityService.shared.cloudAllowed {
+            shareCrews = crews.filter { crewShare[$0.code] ?? false }
+        }
+        if !shareCrews.isEmpty {
+            let codes = shareCrews.map(\.code)
+            Task {
+                for code in codes {
+                    // Tag the post with the crew's live trip, if one is running.
+                    let trip = CommunityService.shared.activeTrip(forCrew: code)?.name ?? ""
+                    await CommunityService.shared.postCatch(crewCatch, speciesName: crewName,
+                                                            toCrew: code, caption: "", tripName: trip)
+                }
+            }
+        }
 
         if let celebration {
-            // Confetti replaces the plain toast — it plays over the screen
-            // underneath once the sheet closes.
+            // The celebration plays over the screen underneath once the
+            // composer closes.
             CelebrationCenter.shared.show(celebration)
         } else {
-            ToastCenter.shared.show("Catch logged 🎣")
+            ToastCenter.shared.show(savedMessage(name: crewName, lengthCm: catchRecord.lengthCm, crews: shareCrews),
+                                    icon: "checkmark.circle.fill")
         }
-        // Nudge for a review at a positive milestone (rate-limited by Apple).
+        // Rate or support prompt: after the first catch ever, once any
+        // celebration is dismissed, then not again for 30 days.
         let logged = UserDefaults.standard.integer(forKey: "totalCatchesLogged") + 1
         UserDefaults.standard.set(logged, forKey: "totalCatchesLogged")
         ReviewPrompt.maybeAsk(afterCatchCount: logged)
         dismiss()
+    }
+
+    /// "Largemouth Bass saved, 38 cm. Posted to Dawn Patrol."
+    private func savedMessage(name: String, lengthCm: Double?, crews: [CommunityService.Crew]) -> String {
+        let size = lengthCm.map { ", \(Units.length(cm: $0, imperial: imperial))" } ?? ""
+        let saved = "\(name) saved\(size)."
+        if crews.count == 1, let crew = crews.first { return "\(saved) Posted to \(crew.name)." }
+        if crews.count > 1 { return "\(saved) Posted to \(crews.count) crews." }
+        return saved
     }
 
     private func resolveLocation() -> (Double, Double) {
@@ -938,6 +1884,9 @@ struct LogCatchView: View {
             if let spot = allSpots.first(where: { $0.id == selectedSpotId }) {
                 return (spot.latitude, spot.longitude)
             }
+            if let editing {
+                return (editing.catchRecord.latitude, editing.catchRecord.longitude)
+            }
             let loc = appState.locationManager.currentLocation
             return (loc?.coordinate.latitude ?? 0, loc?.coordinate.longitude ?? 0)
         case .pin:
@@ -947,6 +1896,29 @@ struct LogCatchView: View {
             let loc = appState.locationManager.currentLocation
             return (loc?.coordinate.latitude ?? 0, loc?.coordinate.longitude ?? 0)
         }
+    }
+
+    private var pageTint: Color? {
+        selectedSpecies?.artTint
+    }
+}
+
+/// The scan line that sweeps the cover photo while species ID runs.
+private struct LogCatchScanLine: View {
+    @State private var down = false
+
+    var body: some View {
+        GeometryReader { geo in
+            Rectangle()
+                .fill(DS.accent)
+                .frame(height: 3)
+                .offset(y: down ? geo.size.height - 3 : 0)
+                .onAppear {
+                    withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) { down = true }
+                }
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 }
 
@@ -966,7 +1938,7 @@ struct LocationPickerSheet: View {
     @State private var isSearching = false
     @FocusState private var searchFocused: Bool
 
-    init(coordinate: Binding<CLLocationCoordinate2D?>, pinLabel: String = "Catch Location") {
+    init(coordinate: Binding<CLLocationCoordinate2D?>, pinLabel: String = "Catch location") {
         _coordinate = coordinate
         self.pinLabel = pinLabel
         // Open centred on the existing pin when there is one (e.g. editing a
@@ -1000,132 +1972,32 @@ struct LocationPickerSheet: View {
 
     var body: some View {
         NavigationStack {
-            ZStack {
-                Map(position: $cameraPosition) {
-                    UserAnnotation()
-                    if let pin = pinPosition {
-                        Annotation(pinLabel, coordinate: pin) {
-                            Image(systemName: "mappin.circle.fill")
-                                .font(.title)
-                                .foregroundStyle(CurrentsTheme.accent)
-                        }
-                    }
-                }
-                .mapStyle(.hybrid(elevation: .realistic))
-                .mapControls {
-                    MapUserLocationButton()
-                    MapCompass()
-                }
-
-                // Center crosshair
-                VStack {
-                    Spacer()
-                    Image(systemName: "plus.circle.fill")
-                        .font(.system(size: 32))
-                        .foregroundStyle(CurrentsTheme.accent)
-                        .shadow(radius: 3)
-                    Spacer()
-                }
-
-                // Search bar + type-ahead results overlay (same behaviour as
-                // the main map: results show while the keyboard is up, and
-                // there's an explicit keyboard-dismiss button).
-                VStack(spacing: 4) {
-                    HStack {
-                        Image(systemName: "magnifyingglass")
-                            .foregroundStyle(.secondary)
-                        TextField("Search location...", text: $searchText)
-                            .textFieldStyle(.plain)
-                            .focused($searchFocused)
-                            .submitLabel(.search)
-                            .autocorrectionDisabled()
-                            .onSubmit {
-                                if let first = searchModel.completions.first {
-                                    select(first)
-                                }
-                                searchFocused = false
-                            }
-                            .onChange(of: searchText) { _, newValue in
-                                searchModel.update(
-                                    query: newValue,
-                                    near: pinPosition ?? appState.locationManager.currentLocation?.coordinate
-                                )
-                            }
-                        if isSearching {
-                            ProgressView()
-                                .controlSize(.small)
-                        }
-                        if !searchText.isEmpty {
-                            Button {
-                                searchText = ""
-                                searchModel.clear()
-                            } label: {
-                                Image(systemName: "xmark.circle.fill")
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                        if searchFocused {
-                            Button {
-                                searchFocused = false
-                            } label: {
-                                Image(systemName: "keyboard.chevron.compact.down")
-                                    .foregroundStyle(CurrentsTheme.accent)
-                            }
-                        }
-                    }
-                    .padding(10)
-                    .background(.ultraThinMaterial)
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
-                    .padding(.horizontal)
-                    .padding(.top, 8)
-
-                    if !searchModel.completions.isEmpty && !searchText.isEmpty {
-                        VStack(spacing: 0) {
-                            ForEach(Array(searchModel.completions.prefix(6).enumerated()), id: \.offset) { index, completion in
-                                Button {
-                                    select(completion)
-                                } label: {
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(completion.title)
-                                            .font(.subheadline)
-                                            .foregroundStyle(.primary)
-                                            .lineLimit(1)
-                                        if !completion.subtitle.isEmpty {
-                                            Text(completion.subtitle)
-                                                .font(.caption)
-                                                .foregroundStyle(.secondary)
-                                                .lineLimit(1)
-                                        }
-                                    }
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .padding(.horizontal, 12)
-                                    .padding(.vertical, 9)
-                                }
-                                if index < min(searchModel.completions.count, 6) - 1 {
-                                    Divider()
-                                }
-                            }
-                        }
-                        .background(.ultraThinMaterial)
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
-                        .padding(.horizontal)
-                    }
-
-                    Spacer()
-                }
+            Map(position: $cameraPosition) {
+                UserAnnotation()
             }
-            .navigationTitle("Drop Pin")
+            .mapStyle(.hybrid(elevation: .realistic))
+            .mapControls {
+                MapUserLocationButton()
+                MapCompass()
+            }
+            // One pin fixed at the centre: move the map under it. The pin's
+            // tip sits on the exact centre point that gets saved.
+            .overlay {
+                Image(systemName: "mappin")
+                    .font(.largeTitle.weight(.semibold))
+                    .foregroundStyle(Color.dsScoreSlow)
+                    .alignmentGuide(VerticalAlignment.center) { $0[.bottom] }
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
+            .safeAreaInset(edge: .top, spacing: 0) { searchPanel }
+            .safeAreaInset(edge: .bottom, spacing: 0) { confirmPanel }
+            .navigationTitle("Drop pin")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Confirm") {
-                        coordinate = pinPosition
-                        dismiss()
-                    }
-                    .bold()
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { dismiss() } label: { Image(systemName: "xmark") }
+                        .accessibilityLabel("Close")
                 }
             }
             // Track the centre continuously so the pin always reflects the
@@ -1135,6 +2007,112 @@ struct LocationPickerSheet: View {
                 pinPosition = context.camera.centerCoordinate
             }
         }
+    }
+
+    /// Search bar plus type-ahead results, floating over the map (same
+    /// behaviour as the main map: results show while the keyboard is up).
+    private var searchPanel: some View {
+        VStack(spacing: DS.Space.s1) {
+            HStack(spacing: DS.Space.s2) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(Color.dsText2)
+                TextField("Search for a place", text: $searchText)
+                    .textFieldStyle(.plain)
+                    .focused($searchFocused)
+                    .submitLabel(.search)
+                    .autocorrectionDisabled()
+                    .onSubmit {
+                        if let first = searchModel.completions.first {
+                            select(first)
+                        }
+                        searchFocused = false
+                    }
+                    .onChange(of: searchText) { _, newValue in
+                        searchModel.update(
+                            query: newValue,
+                            near: pinPosition ?? appState.locationManager.currentLocation?.coordinate
+                        )
+                    }
+                if isSearching {
+                    ProgressView()
+                        .controlSize(.small)
+                }
+                if !searchText.isEmpty {
+                    Button {
+                        searchText = ""
+                        searchModel.clear()
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(Color.dsText3)
+                    }
+                    .accessibilityLabel("Clear search")
+                }
+            }
+            .padding(.horizontal, 14)
+            .frame(minHeight: 44)
+            .glassEffect(.regular, in: RoundedRectangle(cornerRadius: DS.Radius.button, style: .continuous))
+
+            if !searchModel.completions.isEmpty && !searchText.isEmpty {
+                VStack(spacing: 0) {
+                    ForEach(Array(searchModel.completions.prefix(6).enumerated()), id: \.offset) { index, completion in
+                        Button {
+                            select(completion)
+                        } label: {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(completion.title)
+                                    .font(.subheadline.weight(.medium))
+                                    .foregroundStyle(Color.dsText)
+                                    .lineLimit(1)
+                                if !completion.subtitle.isEmpty {
+                                    Text(completion.subtitle)
+                                        .font(.footnote)
+                                        .foregroundStyle(Color.dsText2)
+                                        .lineLimit(1)
+                                }
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 10)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.dim)
+                        if index < min(searchModel.completions.count, 6) - 1 {
+                            Divider().padding(.leading, 14)
+                        }
+                    }
+                }
+                .glassEffect(.regular, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
+            }
+        }
+        .padding(.horizontal, DS.Space.s4)
+        .padding(.top, DS.Space.s2)
+    }
+
+    /// What the pin is for, where it is, and the one button that keeps it.
+    private var confirmPanel: some View {
+        VStack(alignment: .leading, spacing: DS.Space.s3) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(pinLabel)
+                    .font(.headline)
+                    .foregroundStyle(Color.dsText)
+                Text(pinPosition.map { String(format: "%.4f, %.4f", $0.latitude, $0.longitude) }
+                     ?? "Move the map to place the pin")
+                    .font(.subheadline.monospacedDigit())
+                    .foregroundStyle(Color.dsText2)
+            }
+            Button {
+                coordinate = pinPosition
+                dismiss()
+            } label: {
+                Label("Use this place", systemImage: "checkmark")
+            }
+            .buttonStyle(.dsPrimary)
+            .disabled(pinPosition == nil)
+        }
+        .padding(DS.Space.s4)
+        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: DS.Radius.sheet, style: .continuous))
+        .padding(.horizontal, DS.Space.s3)
+        .padding(.bottom, DS.Space.s2)
     }
 
     /// Resolve a tapped suggestion to coordinates, move the camera and pin.
@@ -1155,20 +2133,49 @@ struct LocationPickerSheet: View {
     }
 }
 
+
 // MARK: - Species Picker Sheet
 
+/// The species list: on-device matches first (with a re-scan), then every
+/// species, filtered by habitat and searchable, caught ones first. The old
+/// three-argument init still works; the extras default to a plain list.
 struct SpeciesPickerSheet: View {
     let species: [Species]
     @Binding var selectedId: Int64?
     @Binding var selectedName: String
+    var matches: [SpeciesMatch] = []
+    var matchesAreUncertain: Bool = false
+    var caughtIds: Set<Int64> = []
+    /// The angler's target species, listed first.
+    var targetId: Int64? = nil
+    var modelDownloading: Bool = false
+    var onRescan: (() -> Void)? = nil
+    var onRetryDownload: (() -> Void)? = nil
+
     @Environment(\.dismiss) private var dismiss
     @State private var searchText = ""
-    @State private var selectedHabitat: Species.Habitat?
+    @State private var habitat: HabitatFilter = .all
 
-    var filtered: [Species] {
+    enum HabitatFilter: String, CaseIterable, Hashable {
+        case all = "All"
+        case freshwater = "Freshwater"
+        case marine = "Saltwater"
+        case brackish = "Brackish"
+
+        var habitat: Species.Habitat? {
+            switch self {
+            case .all: return nil
+            case .freshwater: return .freshwater
+            case .marine: return .marine
+            case .brackish: return .brackish
+            }
+        }
+    }
+
+    private var filtered: [Species] {
         var result = species
-        if let habitat = selectedHabitat {
-            result = result.filter { $0.habitat == habitat }
+        if let h = habitat.habitat {
+            result = result.filter { $0.habitat == h }
         }
         if !searchText.isEmpty {
             result = result.filter {
@@ -1180,100 +2187,195 @@ struct SpeciesPickerSheet: View {
         return result
     }
 
+    private var showsMatches: Bool { !matches.isEmpty && searchText.isEmpty && habitat == .all }
+
+    /// The target, above the chips until a search or filter starts.
+    private var target: Species? {
+        guard let targetId, searchText.isEmpty, habitat == .all else { return nil }
+        return species.first { $0.id == targetId }
+    }
+
     var body: some View {
         NavigationStack {
-            VStack(spacing: 0) {
-                // Habitat filter
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        FilterChip(title: "All", isSelected: selectedHabitat == nil) {
-                            selectedHabitat = nil
-                        }
-                        FilterChip(title: "Freshwater", isSelected: selectedHabitat == .freshwater) {
-                            selectedHabitat = .freshwater
-                        }
-                        FilterChip(title: "Marine", isSelected: selectedHabitat == .marine) {
-                            selectedHabitat = .marine
-                        }
-                        FilterChip(title: "Brackish", isSelected: selectedHabitat == .brackish) {
-                            selectedHabitat = .brackish
-                        }
+            // A plain scroll of rows, not a List: no pinned headers to draw
+            // over the rows, and the habitat chips scroll with the content.
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    if showsMatches {
+                        matchesSection
+                    } else if modelDownloading && searchText.isEmpty {
+                        downloadNotice
                     }
-                    .padding(.horizontal)
-                }
-                .padding(.vertical, 8)
 
-                List {
-                    // Species list
-                    Section("\(filtered.count) Species") {
-                        ForEach(filtered) { sp in
-                            Button {
-                                selectedId = sp.id
-                                selectedName = sp.commonName
-                                dismiss()
-                            } label: {
-                                HStack(spacing: 12) {
-                                    SpeciesArtworkView(species: sp, caught: true, size: 44)
-                                        .frame(width: 44, height: 44)
+                    if let target {
+                        header("Your target")
+                        row(target)
+                    }
 
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(sp.commonName)
-                                            .font(.body.bold())
-                                            .foregroundStyle(.primary)
-                                        Text(sp.scientificName)
-                                            .font(.caption)
-                                            .italic()
-                                            .foregroundStyle(.secondary)
-                                        if let family = sp.family {
-                                            Text(family)
-                                                .font(.caption2)
-                                                .foregroundStyle(.tertiary)
-                                        }
-                                    }
+                    FilterChips(HabitatFilter.allCases, selection: $habitat, title: { $0.rawValue })
+                        .padding(.vertical, DS.Space.s3)
 
-                                    Spacer()
-
-                                    if let opt = sp.optimalTempC {
-                                        VStack(spacing: 2) {
-                                            Text("\(Int(opt))°C")
-                                                .font(.caption.bold())
-                                                .foregroundStyle(CurrentsTheme.accent)
-                                            Text("optimal")
-                                                .font(.caption2)
-                                                .foregroundStyle(.secondary)
-                                        }
-                                    }
-
-                                    if selectedId == sp.id {
-                                        Image(systemName: "checkmark.circle.fill")
-                                            .foregroundStyle(CurrentsTheme.accent)
-                                    }
-                                }
-                            }
-                            .tint(.primary)
+                    if filtered.isEmpty {
+                        ContentUnavailableView {
+                            Label("No species found", systemImage: "magnifyingglass")
+                        } description: {
+                            Text("Try the common or scientific name.")
+                        }
+                        .padding(.top, DS.Space.s6)
+                    } else if caughtIds.isEmpty {
+                        header(filtered.count == 1 ? "1 species" : "\(filtered.count) species")
+                        ForEach(filtered) { row($0) }
+                    } else {
+                        let caught = filtered.filter { caughtIds.contains($0.id) }
+                        let notYet = filtered.filter { !caughtIds.contains($0.id) }
+                        if !caught.isEmpty {
+                            header("In your Fishdex")
+                            ForEach(caught) { row($0) }
+                        }
+                        if !notYet.isEmpty {
+                            header("Not caught yet")
+                            ForEach(notYet) { row($0) }
                         }
                     }
                 }
-                .listStyle(.plain)
+                .padding(.bottom, DS.Space.s6)
+                .pageWidth()
             }
-            .navigationTitle("Select Species")
+            .scrollDismissesKeyboard(.immediately)
+            .detailTint(nil)
+            .navigationTitle("Species")
             .navigationBarTitleDisplayMode(.inline)
-            .searchable(text: $searchText, prompt: "Search by name, family...")
+            .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always),
+                        prompt: "Search \(species.count.formatted()) species")
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Clear") {
-                        selectedId = nil
-                        selectedName = ""
-                        dismiss()
+                if selectedId != nil {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button("Clear") {
+                            selectedId = nil
+                            selectedName = ""
+                            dismiss()
+                        }
                     }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { dismiss() } label: { Image(systemName: "xmark") }
+                        .accessibilityLabel("Close")
                 }
             }
         }
+        .presentationDragIndicator(.visible)
     }
 
+    @ViewBuilder
+    private var matchesSection: some View {
+        header(matchesAreUncertain ? "Closest matches, none are certain" : "Matched on your phone")
+        ForEach(Array(matches.prefix(4).enumerated()), id: \.element.species.id) { _, match in
+            row(match.species, confidence: match.confidence)
+        }
+        if let onRescan {
+            Button {
+                onRescan()
+                dismiss()
+            } label: {
+                Label("Scan again", systemImage: "arrow.counterclockwise")
+            }
+            .buttonStyle(TonalButtonStyle(fullWidth: false))
+            .padding(.horizontal, DS.gutter)
+            .padding(.top, DS.Space.s2)
+        }
+    }
+
+    private var downloadNotice: some View {
+        HStack(alignment: .top, spacing: DS.Space.s3) {
+            Image(systemName: "icloud.and.arrow.down")
+                .foregroundStyle(Color.dsText2)
+            VStack(alignment: .leading, spacing: DS.Space.s2) {
+                Text("Species ID is still downloading. It needs internet once, then works anywhere.")
+                    .font(.subheadline)
+                    .foregroundStyle(Color.dsText2)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let onRetryDownload {
+                    Button("Try again") {
+                        onRetryDownload()
+                        dismiss()
+                    }
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(DS.accent)
+                    .buttonStyle(.dim)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(14)
+        .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
+        .padding(.horizontal, DS.gutter)
+        .padding(.top, DS.Space.s2)
+    }
+
+    private func header(_ text: String) -> some View {
+        Text(text)
+            .font(.subheadline)
+            .foregroundStyle(Color.dsText2)
+            .padding(.horizontal, DS.gutter)
+            .padding(.top, DS.Space.s4)
+            .padding(.bottom, DS.Space.s1)
+            .accessibilityAddTraits(.isHeader)
+    }
+
+    private func confidenceLabel(_ c: Float) -> String {
+        switch c {
+        case 0.85...: "Very confident"
+        case 0.6..<0.85: "Likely"
+        case 0.4..<0.6: "Best guess"
+        default: "Uncertain"
+        }
+    }
+
+    private func habitatLine(_ sp: Species) -> String {
+        let place: String
+        switch sp.habitat {
+        case .freshwater: place = "Freshwater"
+        case .marine: place = "Saltwater"
+        case .brackish: place = "Brackish"
+        default: place = sp.family ?? "Fish"
+        }
+        if let lo = sp.minTempC, let hi = sp.maxTempC, hi > lo {
+            return "\(place), best in \(Units.temperature(lo)) to \(Units.temperature(hi))"
+        }
+        return place
+    }
+
+    /// "Very confident, 94%" for a match, adding "new to your Fishdex" when
+    /// the angler has never logged it.
+    private func matchLine(_ sp: Species, confidence: Float) -> String {
+        let line = "\(confidenceLabel(confidence)), \(Int(confidence * 100))%"
+        guard !caughtIds.isEmpty, !caughtIds.contains(sp.id) else { return line }
+        return "\(line), new to your Fishdex"
+    }
+
+    private func row(_ sp: Species, confidence: Float? = nil) -> some View {
+        Button {
+            selectedId = sp.id
+            selectedName = sp.commonName
+            dismiss()
+        } label: {
+            ArtRow(title: sp.commonName,
+                   subtitle: confidence.map { matchLine(sp, confidence: $0) } ?? habitatLine(sp)) {
+                ThumbView(tint: sp.artTint) {
+                    SpeciesArtworkView(species: sp, caught: true, size: 52)
+                }
+            } trailing: {
+                if selectedId == sp.id {
+                    Image(systemName: "checkmark")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(DS.accent)
+                        .accessibilityLabel("Selected")
+                }
+            }
+        }
+        .buttonStyle(.dsRow)
+        .buttonHaptic(.selection)
+    }
 }
 
 // MARK: - Camera Picker

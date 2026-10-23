@@ -7,56 +7,109 @@ struct IdentifiableCoordinate: Identifiable {
     var id: String { "\(coord.latitude),\(coord.longitude)" }
 }
 
+/// A spot or a water shown over the map as a sheet.
+enum ExplorePlace: Identifiable {
+    case spot(Spot)
+    case water(Waterbody)
+
+    var id: String {
+        switch self {
+        case .spot(let s): "spot:\(s.id)"
+        case .water(let w): "water:\(w.id ?? 0):\(w.name)"
+        }
+    }
+
+    var coordinate: CLLocationCoordinate2D {
+        switch self {
+        case .spot(let s): CLLocationCoordinate2D(latitude: s.latitude, longitude: s.longitude)
+        case .water(let w): CLLocationCoordinate2D(latitude: w.latitude, longitude: w.longitude)
+        }
+    }
+}
+
+/// Explore: the full-bleed map. Search and shortcuts sit at the top, map
+/// controls down the right, the bite near you at the bottom. A spot or a
+/// water opens its page as a sheet over the map, at half height first and
+/// swiped up for full screen. Catches open a peek; lists and the species
+/// guide push onto this tab's stack.
 struct MapTab: View {
     @Environment(AppState.self) private var appState
-    // Observed so map pins re-render the moment the theme changes,
-    // instead of waiting for the next zoom-triggered rebuild.
-    @AppStorage("selectedTheme") private var selectedThemeRaw = ThemeOption.ocean.rawValue
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorScheme) private var colorScheme
     @Namespace private var mapScope
     @State private var position: MapCameraPosition = ScreenshotSupport.isActive
         ? .camera(MapCamera(centerCoordinate: ScreenshotSupport.demoCoordinate, distance: 42000))
         : .userLocation(fallback: .automatic)
     @State private var spots: [Spot] = []
     @State private var catches: [CatchDetail] = []
-    @State private var catchCounts: [String: Int] = [:]
-    @State private var showingAddSpot = false
-    @State private var selectedSpot: Spot?
+    @State private var topSpecies: [String: Species] = [:]
     @State private var showingLiveTrip = false
     @State private var showingNewTrip = false
     // The standard Apple map is the default view; persisted so a style choice
     // (incl. the offline cached-tile map) sticks across launches.
     @AppStorage("mapStyleOption") private var mapStyleRaw = MapStyleOption.standard.rawValue
-    @AppStorage("showCatchPins") private var showCatchPins = false
+    /// The style the map was on before a layer that only the offline map can
+    /// draw switched it over; it goes back when the last such layer is off.
+    @AppStorage("mapStyleBeforeLayers") private var styleBeforeLayers = ""
+    // On by default: anglers want to see their catches on the map.
+    @AppStorage("showCatchPins") private var showCatchPins = true
+    @AppStorage("mapLayer_spots") private var showSpots = true
+    @AppStorage("mapLayer_water") private var showWaterbodies = true
     @State private var flyToCoordinate: CLLocationCoordinate2D?
-    @State private var showingSpeciesBrowser = false
-    @State private var showingForecast = false
-    @State private var showingWeather = false
     @State private var weather: WeatherService.WeatherData?
-    @State private var inspectorCoordinate: CLLocationCoordinate2D?
+    @State private var nearBite: BiteSnapshot?
+    @State private var inspector: InspectTarget?
     @State private var spotScores: [String: Int] = [:]
-    @State private var searchText = ""
-    @State private var searchModel = MapSearchCompleter()
-    @State private var isSearching = false
-    @FocusState private var searchFocused: Bool
-    @State private var needsRefresh = false
-    @State private var showWaterbodies = true
     @State private var waterbodies: [Waterbody] = []
     @State private var waterbodyScores: [Int64: Int] = [:] // keyed by id ?? 0
-    @State private var selectedWaterbody: Waterbody?
     @State private var isLoadingWaterbodies = false
     @State private var waterbodyDebounceTask: Task<Void, Never>?
     @State private var currentLatSpan: Double = 1.0
     @State private var lastMapCenter: CLLocationCoordinate2D?
-    // Optional overlay layers — off by default, toggled from the layers button.
+    @State private var lastRegion: MKCoordinateRegion?
+    // Optional overlay layers, off by default, toggled from the layers sheet.
     @AppStorage("mapLayer_nautical") private var layerNautical = false
     @AppStorage("mapLayer_radar") private var layerRadar = false
     @AppStorage("mapLayer_wind") private var layerWind = false
     @AppStorage("mapLayer_current") private var layerCurrent = false
     @State private var radarOverlay: MKTileOverlay?
-    // Public boat ramps + fishing access points (OpenStreetMap), toggleable.
-    @AppStorage("mapLayer_ramps") private var layerRamps = false
+    // Public fishing access points and boat ramps (OpenStreetMap, bundled for
+    // South Africa). On by default: they are the public fishing spots.
+    @AppStorage("mapLayer_ramps") private var layerRamps = true
     @StateObject private var rampService = BoatRampService.shared
+
+    // Sheets and pushes
+    @State private var peek: PinPeek?
+    @State private var catchStack: CatchStackSelection?
+    /// The catch picked from a stack list, opened once the list has gone.
+    @State private var pendingCatch: CatchDetail?
     @State private var selectedRamp: BoatRamp?
+    @State private var showingLayers = false
+    // Offline download of the area in view, opened from the layers sheet
+    // once that sheet has gone.
+    @State private var downloadRegion: MKCoordinateRegion?
+    @State private var showingDownload = false
+    @State private var pendingDownload = false
+    @State private var addSpotAt: AddSpotTarget?
+    @State private var isDropping = false
+    @State private var pendingRoute: ExploreRoute?
+
+    // The place sheet. `shownPlace` is kept after closing so the sheet does
+    // not go blank while it slides away; a new tap swaps it in place.
+    @State private var shownPlace: ExplorePlace?
+    @State private var isPlaceOpen = false
+    @State private var placeDetent: PresentationDetent = .medium
+    /// Counts links opened into the place sheet, so a link to the place
+    /// already showing starts its page again instead of leaving a page
+    /// pushed inside the sheet on top.
+    @State private var placeVisit = 0
+
+    @State private var isSearchOpen = false
+    /// A fish tapped under "Biting near you": only the places where it is
+    /// confirmed stay on the map until the filter is cleared.
+    @State private var speciesFilter: SpeciesMapFilter?
+    /// Where the record lookup for the filtered fish stands.
+    @State private var waterLookup: WaterLookup = .idle
 
     enum MapStyleOption: String, CaseIterable {
         case offline = "Offline"
@@ -64,6 +117,32 @@ struct MapTab: View {
         case imagery = "Satellite"
         case hybrid = "Hybrid"
         case fishing = "Fishing"
+
+        /// Sentence-case name for the layers sheet. The raw value is what is stored.
+        var title: String {
+            switch self {
+            case .offline: "Offline"
+            case .standard: "Standard"
+            case .imagery: "Satellite"
+            case .hybrid: "Hybrid"
+            case .fishing: "Fishing"
+            }
+        }
+    }
+
+    /// A tapped or inspected point. The user's own location gets its own lead line.
+    struct InspectTarget: Identifiable {
+        let coord: CLLocationCoordinate2D
+        var isUserLocation = false
+        /// A name from the list that opened it, such as a session stop.
+        var title: String? = nil
+        var id: String { "\(coord.latitude),\(coord.longitude),\(isUserLocation)" }
+    }
+
+    /// Where a new spot goes; nil coordinate means "where I am now".
+    struct AddSpotTarget: Identifiable {
+        let id = UUID()
+        let coord: CLLocationCoordinate2D?
     }
 
     private var mapStyle: MapStyleOption {
@@ -71,17 +150,20 @@ struct MapTab: View {
         nonmutating set { mapStyleRaw = newValue.rawValue }
     }
 
-    /// Theme accent, re-read whenever the stored theme changes so annotations
-    /// re-render immediately.
-    private var accent: Color {
-        (ThemeOption(rawValue: selectedThemeRaw) ?? .ocean).primary
+    private var accent: Color { DS.accent }
+
+    private var userCoordinate: CLLocationCoordinate2D? {
+        appState.locationManager.currentLocation?.coordinate
     }
 
-    /// Catches without an assigned spot — but hide any that sit on top of a
-    /// saved spot's marker so they don't render over the spot pin.
+    private var overlaysOn: Bool { layerNautical || layerRadar || layerWind || layerCurrent }
+
+    /// Catches without an assigned spot, minus any that sit on top of a saved
+    /// spot so they don't render over the spot pin.
     private var unassignedCatches: [CatchDetail] {
         catches.filter { detail in
             guard detail.catchRecord.spotId == nil else { return false }
+            if let speciesFilter, !speciesFilter.catchIds.contains(detail.catchRecord.id) { return false }
             let loc = CLLocation(
                 latitude: detail.catchRecord.latitude,
                 longitude: detail.catchRecord.longitude
@@ -93,35 +175,303 @@ struct MapTab: View {
         }
     }
 
+    /// Spots on the map: those a species filter keeps, else every spot
+    /// while the layer is on.
+    private var shownSpots: [Spot] {
+        if let speciesFilter { return spots.filter { speciesFilter.spotIds.contains($0.id) } }
+        return showSpots ? spots : []
+    }
+
+    /// Water in view, outlines included. A species filter shows the waters
+    /// that hold it wherever they are.
+    private var waterInView: [Waterbody] {
+        if let speciesFilter { return speciesFilter.waters }
+        return showWaterbodies && currentLatSpan < 3 ? waterbodies : []
+    }
+
+    /// Water that gets its own pin. A saved water is a spot, so while spots
+    /// are on the map its spot pin stands for it and the water pin is left
+    /// out; it comes back when the spot is removed.
+    private var visibleWaterbodies: [Waterbody] {
+        guard showSpots, speciesFilter == nil else { return waterInView }
+        let saved = Set(spots.compactMap(\.waterbodyId))
+        guard !saved.isEmpty else { return waterInView }
+        return waterInView.filter { wb in
+            guard let id = wb.id else { return true }
+            return !saved.contains(id)
+        }
+    }
+
+    private var visibleRamps: [BoatRamp] {
+        guard layerRamps && currentLatSpan < 2.5 && speciesFilter == nil else {
+            // A ramp opened from a list or search keeps its pin while its
+            // sheet is up, even with the layer off.
+            return selectedRamp.map { [$0] } ?? []
+        }
+        return rampService.ramps
+    }
+
+    private var clusters: [PinCluster] {
+        var features: [ExploreFeature] = []
+        features += shownSpots.map(ExploreFeature.spot)
+        features += visibleWaterbodies.map(ExploreFeature.water)
+        if showCatchPins { features += unassignedCatches.map(ExploreFeature.catchPin) }
+        features += visibleRamps.map(ExploreFeature.ramp)
+        return PinClustering.cluster(features, latSpan: currentLatSpan)
+    }
+
     var body: some View {
-        NavigationStack {
-            ZStack(alignment: .topTrailing) {
-                if mapStyle == .offline {
-                    // Cached satellite tiles as the main map — works offline
-                    // for everywhere the auto-cache has covered.
-                    OfflineMapView(
-                        overlay: appState.mapManager.offlineOverlay,
-                        spots: spots,
-                        catches: showCatchPins ? unassignedCatches : [],
-                        waterbodies: showWaterbodies && currentLatSpan < 3 ? waterbodies : [],
-                        spotScores: spotScores,
-                        waterbodyScores: waterbodyScores,
-                        accent: accent,
-                        showNautical: layerNautical,
-                        radarOverlay: layerRadar ? radarOverlay : nil,
-                        showWind: layerWind,
-                        showCurrent: layerCurrent,
-                        windSpeedKmh: weather?.windSpeedKmh,
-                        windFromDeg: weather?.windDirectionDeg ?? 0,
-                        flyTo: $flyToCoordinate,
-                        onSelectSpot: { selectedSpot = $0 },
-                        onSelectWaterbody: { selectedWaterbody = $0 },
-                        onTap: { inspectorCoordinate = $0 },
-                        onRegionChange: { handleRegionChange($0) }
-                    )
-                    .ignoresSafeArea()
-                } else {
-                MapReader { proxy in
+        ZStack {
+            mapLayer
+                .ignoresSafeArea()
+
+            if isDropping {
+                dropPin
+            }
+
+            if !isSearchOpen {
+                VStack(spacing: 0) {
+                    if isDropping {
+                        dropHeader
+                    } else {
+                        topChrome
+                    }
+                    Spacer(minLength: 0)
+                    if isDropping {
+                        dropBar
+                    } else {
+                        nearYouCapsule
+                    }
+                }
+                .transition(.opacity)
+            }
+
+            if isSearchOpen {
+                ExploreSearchPane(
+                    spots: spots,
+                    topSpecies: topSpecies,
+                    origin: userCoordinate ?? lastMapCenter,
+                    onClose: closeSearch,
+                    onPick: handlePick
+                )
+                .transition(.opacity)
+            }
+        }
+        // Keeps the clock legible over bright tiles and the top controls clear of it.
+        .statusBarScrim()
+        .mapScope(mapScope)
+        .animation(reduceMotion ? nil : DS.Motion.easeOut, value: isSearchOpen)
+        .animation(reduceMotion ? nil : DS.Motion.easeOut, value: isDropping)
+        .toolbar(.hidden, for: .navigationBar)
+        .navigationDestination(for: ExploreRoute.self) { ExploreDestination(route: $0) }
+        .navigationDestination(item: $pendingRoute) { ExploreDestination(route: $0) }
+        .sheet(isPresented: $isPlaceOpen, onDismiss: { Task { await loadData() } }) {
+            placeSheet
+        }
+        .sheet(item: $peek, onDismiss: { Task { await loadData() } }) { p in
+            PinPeekSheet(peek: p) { route in openRoute(route) }
+        }
+        .sheet(item: $catchStack, onDismiss: {
+            // The list closes itself; the catch opens once it has gone.
+            if let c = pendingCatch {
+                pendingCatch = nil
+                peek = PinPeek(target: .catchItem(c))
+            }
+        }) { stack in
+            CatchStackSheet(catches: stack.catches) { pendingCatch = $0 }
+        }
+        .sheet(item: $selectedRamp) { ramp in
+            RampDetailSheet(ramp: ramp)
+        }
+        .sheet(item: $inspector, onDismiss: { Task { await loadData() } }) { target in
+            LocationInspectorSheet(coordinate: target.coord, isUserLocation: target.isUserLocation,
+                                   title: target.title,
+                                   onOpen: { route in openRoute(route) },
+                                   onShowSpecies: { species in showSpecies(species, near: target.coord) })
+        }
+        .sheet(item: $addSpotAt, onDismiss: { Task { await loadData() } }) { target in
+            AddSpotSheet(prefillCoordinate: target.coord)
+                .presentationDetents([.large])
+        }
+        .sheet(isPresented: $showingLayers, onDismiss: {
+            if pendingDownload {
+                pendingDownload = false
+                showingDownload = true
+            }
+        }) {
+            MapLayersSheet(
+                style: Binding(get: { mapStyle }, set: { mapStyle = $0; styleBeforeLayers = "" }),
+                showSpots: $showSpots,
+                showCatches: $showCatchPins,
+                showWater: $showWaterbodies,
+                showRamps: $layerRamps,
+                nautical: $layerNautical,
+                radar: $layerRadar,
+                wind: $layerWind,
+                current: $layerCurrent,
+                onDownloadArea: {
+                    downloadRegion = lastRegion
+                    pendingDownload = true
+                }
+            )
+        }
+        .sheet(isPresented: $showingDownload, onDismiss: { appState.mapManager.refreshDownloadedRegions() }) {
+            OfflineDownloadSheet(region: downloadRegion)
+        }
+        .sheet(isPresented: $showingNewTrip, onDismiss: {
+            if appState.tripTracker.isTracking { showingLiveTrip = true }
+        }) {
+            NewSessionSheet()
+                .presentationDetents([.medium])
+                .presentationDragIndicator(.visible)
+        }
+        .sheet(isPresented: $showingLiveTrip) {
+            NavigationStack {
+                ActiveSessionView()
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Minimise") { showingLiveTrip = false }
+                        }
+                    }
+            }
+            // Pull the sheet down to minimise it (the session keeps
+            // recording in the background); ending is a separate action.
+            .presentationDetents([.large, .medium])
+            .presentationDragIndicator(.visible)
+        }
+        .task(id: layerRadar) {
+            // Fetch the latest radar frame when the layer is turned on;
+            // clear it when off.
+            if layerRadar {
+                radarOverlay = await RadarTiles.latest()
+            } else {
+                radarOverlay = nil
+            }
+        }
+        // Overlays only render on the offline (MKMapView) map, so switch to
+        // it automatically when a layer is enabled.
+        .onChange(of: layerNautical) { _, on in layerToggled(on) }
+        .onChange(of: layerRadar) { _, on in layerToggled(on) }
+        .onChange(of: layerWind) { _, on in layerToggled(on) }
+        .onChange(of: layerCurrent) { _, on in layerToggled(on) }
+        // Fetch ramps as soon as the layer is switched on for wherever the
+        // camera already sits.
+        .onChange(of: layerRamps) { _, on in
+            guard on else { return }
+            let center = lastMapCenter ?? userCoordinate
+            let span = currentLatSpan
+            if let center { Task { await rampService.load(around: center, latSpan: span) } }
+        }
+        .onChange(of: appState.openLiveSession) { _, open in
+            // A Live Activity / notification tap asked to open the live
+            // session so a catch can be logged straight away.
+            if open { openLiveSession() }
+        }
+        .task {
+            // Cold-launch case: the flag may already be set before onChange
+            // starts observing.
+            if appState.openLiveSession { openLiveSession() }
+        }
+        .task {
+            appState.mapManager.refreshDownloadedRegions()
+            await loadData()
+            if let loc = appState.locationManager.currentLocation {
+                appState.mapManager.maintainOfflineCache(around: loc.coordinate)
+                downloadFishArea(around: loc.coordinate)
+            }
+            // Screenshot mode: frame the demo coast AND the seeded dam/lake
+            // bubbles after first layout. A runtime .camera applies
+            // reliably (an initial @State camera and .region do not);
+            // ~90 km out zooms far enough to show the dam cluster.
+            if ScreenshotSupport.isActive {
+                position = .camera(.init(
+                    centerCoordinate: CLLocationCoordinate2D(latitude: -34.275, longitude: 18.865),
+                    distance: 90000
+                ))
+                if ScreenshotSupport.screen == .exploreNear {
+                    try? await Task.sleep(for: .seconds(2))
+                    inspector = InspectTarget(coord: ScreenshotSupport.demoCoordinate, isUserLocation: true)
+                }
+            }
+        }
+        // Another tab asked to show a spot or a water here.
+        .onChange(of: ExploreFocus.shared.target) { _, target in
+            if target != nil { openFocus() }
+        }
+        .task { openFocus() }
+        // Cache follows the PERSON: whenever their position updates, the
+        // manager re-anchors the offline cache if they've moved far
+        // (pruning tiles around the old area, prefetching the new one).
+        .onChange(of: appState.locationManager.currentLocation) { _, loc in
+            if let loc {
+                appState.mapManager.maintainOfflineCache(around: loc.coordinate)
+                downloadFishArea(around: loc.coordinate)
+            }
+        }
+    }
+
+    /// Which fish are on record at the waters around the user, fetched once
+    /// a month per area so filtering by a fish works offline there. An open
+    /// filter picks up what arrives.
+    private func downloadFishArea(around origin: CLLocationCoordinate2D) {
+        guard !ScreenshotSupport.isActive else { return }
+        Task {
+            let added = await WaterSpeciesService.shared.downloadArea(
+                around: origin, waters: appState.waterbodyRepository, database: appState.db)
+            guard let added, added > 0, let current = speciesFilter else { return }
+            speciesFilter = SpeciesMapFilter.load(current.species, near: current.origin, appState: appState)
+        }
+    }
+
+    /// Nautical, radar, wind and current draw only on the offline map, so
+    /// turning one on switches to it, and turning the last one off returns
+    /// to the style from before. Picking a style by hand forgets that.
+    private func layerToggled(_ on: Bool) {
+        if on {
+            if mapStyle != .offline {
+                styleBeforeLayers = mapStyle.rawValue
+                mapStyle = .offline
+            }
+            return
+        }
+        guard !(layerNautical || layerRadar || layerWind || layerCurrent),
+              mapStyle == .offline,
+              let previous = MapStyleOption(rawValue: styleBeforeLayers) else { return }
+        styleBeforeLayers = ""
+        mapStyle = previous
+    }
+
+    // MARK: - Map
+
+    @ViewBuilder
+    private var mapLayer: some View {
+        if mapStyle == .offline {
+            // Cached satellite tiles as the main map, which works offline
+            // for everywhere the auto-cache has covered.
+            OfflineMapView(
+                overlay: appState.mapManager.offlineOverlay,
+                pins: clusters,
+                pinFace: { cluster in
+                    AnyView(pinFace(cluster).environment(appState).tint(accent).environment(\.colorScheme, colorScheme))
+                },
+                onSelectPin: { tapPin($0) },
+                waterOutlines: currentLatSpan < 1.0 ? waterInView : [],
+                userMarker: AnyView(UserLocationMarker(heading: appState.locationManager.heading, accent: accent)),
+                region: position.region,
+                showNautical: layerNautical,
+                radarOverlay: layerRadar ? radarOverlay : nil,
+                showWind: layerWind,
+                showCurrent: layerCurrent,
+                windSpeedKmh: weather?.windSpeedKmh,
+                windFromDeg: weather?.windDirectionDeg ?? 0,
+                flyTo: $flyToCoordinate,
+                onTap: { coord in mapTapped(at: coord) },
+                onRegionChange: { handleRegionChange($0) },
+                onLongPress: { coord in Haptics.press(); dropSpot(at: coord) },
+                compassTopInset: 164
+            )
+        } else {
+            MapReader { proxy in
                 Map(position: $position, scope: mapScope) {
                     UserAnnotation(anchor: .center) { _ in
                         UserLocationMarker(
@@ -130,587 +480,332 @@ struct MapTab: View {
                         )
                     }
 
-                    // Spot pins (empty annotation title — the pin renders its own label)
-                    ForEach(spots) { spot in
-                        Annotation("", coordinate: CLLocationCoordinate2D(
-                            latitude: spot.latitude,
-                            longitude: spot.longitude
-                        )) {
-                            SpotPin(
-                                spot: spot,
-                                catchCount: catchCounts[spot.id] ?? 0,
-                                isSelected: selectedSpot?.id == spot.id,
-                                biteScore: spotScores[spot.id],
-                                accent: accent
+                    // Water body outlines, only when zoomed in enough to see them.
+                    if currentLatSpan < 1.0 {
+                        ForEach(waterInView) { wb in
+                            MapCircle(
+                                center: CLLocationCoordinate2D(latitude: wb.latitude, longitude: wb.longitude),
+                                radius: CLLocationDistance(min(wb.approximateRadiusM, 50000))
                             )
-                            .onTapGesture {
-                                selectedSpot = spot
-                            }
+                            .foregroundStyle(Color.exploreWater.opacity(0.16))
+                            .stroke(Color.exploreWater.opacity(0.55), lineWidth: 1.5)
                         }
                     }
 
-                    // Catch location pins (individual catches without spots)
-                    if showCatchPins {
-                        ForEach(unassignedCatches, id: \.catchRecord.id) { detail in
-                            Annotation(
-                                "",
-                                coordinate: CLLocationCoordinate2D(
-                                    latitude: detail.catchRecord.latitude,
-                                    longitude: detail.catchRecord.longitude
-                                )
-                            ) {
-                                CatchPin(detail: detail, accent: accent)
-                            }
-                        }
-                    }
-
-                    // Public boat ramps / fishing access points
-                    if layerRamps && currentLatSpan < 2.5 {
-                        ForEach(rampService.ramps) { ramp in
-                            Annotation("", coordinate: ramp.coordinate) {
-                                RampPin(ramp: ramp, accent: accent)
-                                    .onTapGesture {
-                                        Haptics.tap()
-                                        selectedRamp = ramp
-                                    }
-                            }
-                        }
-                    }
-
-                    // Water body overlays
-                    if showWaterbodies {
-                        ForEach(waterbodies) { wb in
-                            // Only render circles when zoomed in enough to see them
-                            if currentLatSpan < 1.0 {
-                                MapCircle(
-                                    center: CLLocationCoordinate2D(latitude: wb.latitude, longitude: wb.longitude),
-                                    radius: CLLocationDistance(min(wb.approximateRadiusM, 50000))
-                                )
-                                .foregroundStyle(accent.opacity(0.2))
-                                .stroke(accent.opacity(0.6), lineWidth: 2)
-                            }
-
-                            Annotation("", coordinate: CLLocationCoordinate2D(
-                                latitude: wb.latitude, longitude: wb.longitude
-                            )) {
-                                WaterbodyPin(
-                                    waterbody: wb,
-                                    biteScore: waterbodyScores[wb.id ?? 0],
-                                    accent: accent
-                                )
-                                .onTapGesture {
-                                    selectedWaterbody = wb
-                                }
-                            }
+                    ForEach(clusters) { cluster in
+                        Annotation("", coordinate: cluster.coordinate) {
+                            pinView(cluster)
                         }
                     }
                 }
                 .mapStyle(activeMapStyle)
-                // Suppress the built-in controls (the default compass sits
-                // top-right when rotated, clipping under our recentre button).
-                // The rotation compass is provided separately, pinned top-left.
+                // Built-in controls off; the compass sits under the top chrome.
                 .mapControls { }
                 .onMapCameraChange(frequency: .onEnd) { context in
                     handleRegionChange(context.region)
                 }
                 .onTapGesture(coordinateSpace: .local) { screenPoint in
                     if let coord = proxy.convert(screenPoint, from: .local) {
-                        inspectorCoordinate = coord
+                        mapTapped(at: coord)
                     }
                 }
-                } // MapReader
-                } // style switch
-
-                // Compass (shows when the map is rotated) — placed top-LEADING
-                // with a custom scope so the right-hand button column and the
-                // search bar can never sit on top of it. The offline MKMapView
-                // draws its own compass.
-                if mapStyle != .offline {
-                    MapCompass(scope: mapScope)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                        .padding(.top, 8)
-                        .padding(.leading, 12)
-                }
-
-                // Right side control buttons — out of the way while searching.
-                if !searchActive {
-                VStack(spacing: 10) {
-                    // Recentre on user
-                    Button {
-                        if mapStyle == .offline {
-                            flyToCoordinate = appState.locationManager.currentLocation?.coordinate
-                        } else {
-                            position = .userLocation(fallback: .automatic)
+                .simultaneousGesture(
+                    LongPressGesture(minimumDuration: 0.5)
+                        .sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: .local))
+                        .onEnded { value in
+                            guard case .second(true, let drag?) = value,
+                                  let coord = proxy.convert(drag.location, from: .local) else { return }
+                            Haptics.press()
+                            dropSpot(at: coord)
                         }
-                    } label: {
-                        mapButton(icon: "location.fill")
-                    }
-
-                    // Map style + overlay layers picker
-                    Menu {
-                        Picker("Map Style", selection: Binding(
-                            get: { mapStyle },
-                            set: { mapStyle = $0 }
-                        )) {
-                            ForEach(MapStyleOption.allCases, id: \.self) { style in
-                                Label(style.rawValue, systemImage: mapStyleIcon(style)).tag(style)
-                            }
-                        }
-
-                        Section("Show on map") {
-                            Toggle(isOn: $showWaterbodies) {
-                                Label("Water Bodies", systemImage: "water.waves")
-                            }
-                            Toggle(isOn: $showCatchPins) {
-                                Label("My Catches", systemImage: "fish.fill")
-                            }
-                            Toggle(isOn: $layerRamps) {
-                                Label("Boat Ramps & Access", systemImage: "sailboat.fill")
-                            }
-                        }
-
-                        Section("Overlays (offline map)") {
-                            Toggle(isOn: $layerNautical) {
-                                Label("Nautical / Depth", systemImage: "water.waves")
-                            }
-                            Toggle(isOn: $layerRadar) {
-                                Label("Weather Radar", systemImage: "cloud.rain")
-                            }
-                            Toggle(isOn: $layerWind) {
-                                Label("Wind (animated)", systemImage: "wind")
-                            }
-                            Toggle(isOn: $layerCurrent) {
-                                Label("Current (animated)", systemImage: "arrow.left.arrow.right")
-                            }
-                        }
-                    } label: {
-                        mapButton(icon: "map.fill")
-                            .overlay(alignment: .topTrailing) {
-                                if layerNautical || layerRadar || layerWind || layerCurrent {
-                                    Circle().fill(CurrentsTheme.accent)
-                                        .frame(width: 8, height: 8)
-                                        .offset(x: 2, y: -2)
-                                }
-                            }
-                    }
-
-                    // Spots — adding one and browsing them are the same job,
-                    // so they share a button instead of taking two.
-                    Menu {
-                        Button {
-                            showingAddSpot = true
-                        } label: {
-                            Label("Add Spot Here", systemImage: "mappin.and.ellipse")
-                        }
-                        NavigationLink { SpotsListView() } label: {
-                            Label("My Spots", systemImage: "list.bullet")
-                        }
-                    } label: {
-                        mapButton(icon: "mappin.and.ellipse")
-                    }
-
-                    // (Pin visibility moved into the Layers menu above, and the
-                    // species browser now has its own Fish tab — this column is
-                    // down from seven buttons to three plus the session.)
-
-                    // Start / resume a fishing session
-                    if FeatureFlags.liveTrips {
-                        Button {
-                            if appState.tripTracker.isTracking {
-                                showingLiveTrip = true
-                            } else {
-                                showingNewTrip = true
-                            }
-                        } label: {
-                            mapButton(icon: appState.tripTracker.isTracking ? "figure.fishing" : "play.fill")
-                                .overlay(alignment: .topTrailing) {
-                                    if appState.tripTracker.isTracking {
-                                        Circle()
-                                            .fill(.red)
-                                            .frame(width: 8, height: 8)
-                                            .offset(x: 2, y: -2)
-                                    }
-                                }
-                        }
-                    }
-                }
-                // The rotation compass now sits top-LEFT on every style, so the
-                // right-hand button column can start at the normal inset.
-                .padding(.top, 8)
-                .padding(.trailing, 12)
-                }
-
-                // Bottom bar
-                if !searchActive {
-                VStack {
-                    Spacer()
-
-                    HStack(spacing: 6) {
-                        Image(systemName: "hand.tap.fill")
-                            .font(.caption2)
-                        Text("Tap anywhere to analyse the bite")
-                            .font(.caption2)
-                    }
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 4)
-                    .background(.ultraThinMaterial, in: Capsule())
-                    .padding(.bottom, 4)
-
-                    HStack(spacing: 12) {
-                        // Weather quick view
-                        if let weather {
-                            HStack(spacing: 6) {
-                                WeatherIcon(condition: weather.condition)
-                                Text("\(Int(weather.temperatureC))°")
-                                    .font(.subheadline.bold())
-                                    .monospacedDigit()
-                                Text("\(Int(weather.windSpeedKmh))km/h")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-
-                        Spacer()
-
-                        if showWaterbodies && !waterbodies.isEmpty {
-                            HStack(spacing: 4) {
-                                Image(systemName: "water.waves")
-                                    .foregroundStyle(CurrentsTheme.accent)
-                                    .font(.caption)
-                                Text("\(waterbodies.count)")
-                                    .font(.caption.bold())
-                                if isLoadingWaterbodies {
-                                    ProgressView()
-                                        .controlSize(.mini)
-                                }
-                            }
-                        }
-
-                        if !spots.isEmpty {
-                            HStack(spacing: 8) {
-                                Image(systemName: "mappin.circle.fill")
-                                    .foregroundStyle(CurrentsTheme.accent)
-                                Text("\(spots.count) spots")
-                                    .font(.subheadline.bold())
-                                let totalCatches = catchCounts.values.reduce(0, +)
-                                Text("\(totalCatches) catches")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
-                    .background(.ultraThinMaterial)
-                    .clipShape(RoundedRectangle(cornerRadius: 16))
-                    .padding(.horizontal)
-                    .padding(.bottom, 8)
-                }
-                }
-            }
-            .mapScope(mapScope)
-            // The whole surface pans, so the swipe strips are extra narrow —
-            // a sliver on each edge, everything else belongs to the map.
-            .smartSwipe(.map, edgeWidth: 10)
-            // Discrete map-style / overlay / pin toggles get a light selection
-            // tick. Bound to the stored values so only real changes fire (never
-            // pan/zoom). Camera + search changes are deliberately excluded.
-            .sensoryFeedback(.selection, trigger: mapStyleRaw)
-            .sensoryFeedback(.selection, trigger: layerNautical)
-            .sensoryFeedback(.selection, trigger: layerRadar)
-            .sensoryFeedback(.selection, trigger: layerWind)
-            .sensoryFeedback(.selection, trigger: layerCurrent)
-            .sensoryFeedback(.selection, trigger: showWaterbodies)
-            .sensoryFeedback(.selection, trigger: showCatchPins)
-            .sensoryFeedback(.selection, trigger: layerRamps)
-            // No navigation bar on the map — its invisible bar was reserving a
-            // big empty band above the search field.
-            .toolbar(.hidden, for: .navigationBar)
-            .safeAreaInset(edge: .top, spacing: 0) {
-                // Search field + its results stacked together, so the results
-                // list appears BELOW the bar instead of covering it.
-                VStack(spacing: 0) {
-                    searchBar
-                    searchResultsList
-                }
-            }
-            .sheet(item: $selectedSpot, onDismiss: {
-                Task { await loadData() }
-            }) { spot in
-                SpotDetailSheet(spot: spot)
-                    .presentationDetents([.medium, .large])
-                    .presentationBackground(.ultraThinMaterial)
-                    .presentationDragIndicator(.visible)
-                    // Dragging anywhere on the sheet resizes it between half
-                    // and full screen instead of scrolling the content.
-                    .presentationContentInteraction(.resizes)
-            }
-            .sheet(isPresented: $showingAddSpot, onDismiss: {
-                Task { await loadData() }
-            }) {
-                AddSpotSheet()
-                    .presentationDetents([.medium])
-                    .presentationBackground(.ultraThinMaterial)
-            }
-            .task(id: layerRadar) {
-                // Fetch the latest radar frame when the layer is turned on;
-                // clear it when off.
-                if layerRadar {
-                    radarOverlay = await RadarTiles.latest()
-                } else {
-                    radarOverlay = nil
-                }
-            }
-            // Overlays only render on the offline (MKMapView) map, so switch to
-            // it automatically when a layer is enabled.
-            .onChange(of: layerNautical) { _, on in if on { mapStyle = .offline } }
-            .onChange(of: layerRadar) { _, on in if on { mapStyle = .offline } }
-            .onChange(of: layerWind) { _, on in if on { mapStyle = .offline } }
-            .onChange(of: layerCurrent) { _, on in if on { mapStyle = .offline } }
-            // Ramps render on the SwiftUI map — fetch as soon as the layer is
-            // switched on for wherever the camera already sits.
-            .onChange(of: layerRamps) { _, on in
-                guard on else { return }
-                let center = lastMapCenter ?? appState.locationManager.currentLocation?.coordinate
-                let span = currentLatSpan
-                if let center { Task { await rampService.load(around: center, latSpan: span) } }
-            }
-            .sheet(item: $selectedRamp) { ramp in
-                RampDetailSheet(ramp: ramp)
-                    .presentationDetents([.height(230)])
-                    .presentationBackground(.ultraThinMaterial)
-            }
-            .sheet(isPresented: $showingSpeciesBrowser) {
-                NavigationStack {
-                    SpeciesBrowserView()
-                        .toolbar {
-                            ToolbarItem(placement: .cancellationAction) {
-                                Button("Done") { showingSpeciesBrowser = false }
-                            }
-                        }
-                }
-            }
-            .sheet(isPresented: $showingForecast) {
-                ForecastTab(presentedAsSheet: true)
-            }
-            .sheet(item: Binding(
-                get: { inspectorCoordinate.map { IdentifiableCoordinate(coord: $0) } },
-                set: { inspectorCoordinate = $0?.coord }
-            ), onDismiss: {
-                Task { await loadData() }
-            }) { wrapper in
-                LocationInspectorSheet(coordinate: wrapper.coord)
-                    .presentationDetents([.medium, .large])
-                    .presentationBackground(.ultraThinMaterial)
-            }
-            .sheet(item: $selectedWaterbody) { wb in
-                WaterbodyDetailSheet(waterbody: wb)
-                    .presentationDetents([.medium, .large])
-                    .presentationBackground(.ultraThinMaterial)
-            }
-            .sheet(isPresented: $showingNewTrip, onDismiss: {
-                if appState.tripTracker.isTracking { showingLiveTrip = true }
-            }) {
-                NewSessionSheet()
-                    .presentationDetents([.medium])
-                    .presentationBackground(.ultraThinMaterial)
-            }
-            .sheet(isPresented: $showingLiveTrip) {
-                NavigationStack {
-                    ActiveSessionView()
-                        .toolbar {
-                            ToolbarItem(placement: .cancellationAction) {
-                                Button("Minimise") { showingLiveTrip = false }
-                            }
-                        }
-                }
-                // Pull the sheet down to minimise it (the session keeps
-                // recording in the background); ending is a separate action.
-                .presentationDetents([.large, .medium])
-                .presentationDragIndicator(.visible)
-            }
-            .onChange(of: appState.openLiveSession) { _, open in
-                // A Live Activity / notification tap asked to open the live
-                // session so a catch can be logged straight away.
-                guard open else { return }
-                appState.openLiveSession = false
-                if appState.tripTracker.isTracking { showingLiveTrip = true }
-            }
-            .task {
-                // Cold-launch case: the flag may already be set before onChange
-                // starts observing.
-                if appState.openLiveSession {
-                    appState.openLiveSession = false
-                    if appState.tripTracker.isTracking { showingLiveTrip = true }
-                }
-            }
-            .task {
-                await loadData()
-                if let loc = appState.locationManager.currentLocation {
-                    appState.mapManager.maintainOfflineCache(around: loc.coordinate)
-                }
-                // Screenshot mode: frame the demo coast AND the seeded dam/lake
-                // bubbles after first layout. A runtime .camera applies
-                // reliably (an initial @State camera and .region do not);
-                // ~90 km out zooms far enough to show the dam cluster.
-                if ScreenshotSupport.isActive {
-                    position = .camera(.init(
-                        centerCoordinate: CLLocationCoordinate2D(latitude: -34.275, longitude: 18.865),
-                        distance: 90000
-                    ))
-                }
-            }
-            // Cache follows the PERSON: whenever their position updates, the
-            // manager re-anchors the offline cache if they've moved far
-            // (pruning tiles around the old area, prefetching the new one).
-            .onChange(of: appState.locationManager.currentLocation) { _, loc in
-                if let loc {
-                    appState.mapManager.maintainOfflineCache(around: loc.coordinate)
-                }
+                )
             }
         }
     }
 
-    /// True while the user is actively searching — the map buttons and bottom
-    /// bar get out of the way.
-    private var searchActive: Bool {
-        searchFocused || (!searchText.isEmpty && !searchModel.completions.isEmpty)
+    private func pinView(_ cluster: PinCluster) -> some View {
+        pinFace(cluster)
+            .onTapGesture { tapPin(cluster) }
     }
 
-    /// Just the search FIELD, pinned right under the status bar via
-    /// `.safeAreaInset(edge: .top)` (the invisible navigation bar is hidden).
-    private var searchBar: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "magnifyingglass")
-                .foregroundStyle(.secondary)
-            TextField("Search dams, rivers, places...", text: $searchText)
-                .textFieldStyle(.plain)
-                .foregroundStyle(.primary)
-                .tint(accent)
-                .focused($searchFocused)
-                .submitLabel(.search)
-                .autocorrectionDisabled()
-                .onSubmit {
-                    if let first = searchModel.completions.first {
-                        select(first)
-                    }
-                    searchFocused = false
-                }
-                .onChange(of: searchText) { _, newValue in
-                    searchModel.update(
-                        query: newValue,
-                        near: appState.locationManager.currentLocation?.coordinate ?? lastMapCenter
-                    )
-                }
-            if isSearching {
-                ProgressView()
-                    .controlSize(.small)
-            }
-            if !searchText.isEmpty {
-                Button {
-                    searchText = ""
-                    searchModel.clear()
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(.secondary)
-                }
-            }
-            if searchFocused {
-                // Explicit way to put the keyboard away.
-                Button {
-                    searchFocused = false
-                } label: {
-                    Image(systemName: "keyboard.chevron.compact.down")
-                        .foregroundStyle(accent)
-                }
-            }
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        // Opaque enough that bright satellite tiles behind it can't wash the
-        // field out and hide the text being typed.
-        .background(.regularMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: CurrentsTheme.cornerRadius))
-        .shadow(color: .black.opacity(0.15), radius: 8, y: 2)
-        .padding(.horizontal, 12)
-        .padding(.top, 4)
-        .padding(.bottom, 6)
-    }
-
-    /// Type-ahead results rendered as a plain overlay directly under the
-    /// search bar — NOT inside the safe-area inset and NOT a ScrollView, so
-    /// the list is visible immediately while the keyboard is still up.
+    /// A pin's look, shared by every map style. The offline map hosts it in
+    /// its own annotation views and routes taps to `tapPin`.
     @ViewBuilder
-    private var searchResultsList: some View {
-        if !searchModel.completions.isEmpty && !searchText.isEmpty {
-            VStack(spacing: 0) {
-                ForEach(Array(searchModel.completions.prefix(7).enumerated()), id: \.offset) { index, completion in
-                    Button {
-                        select(completion)
-                    } label: {
-                        HStack(spacing: 8) {
-                            Image(systemName: "mappin.circle.fill")
-                                .foregroundStyle(accent)
-                                .font(.caption)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(completion.title)
-                                    .font(.subheadline)
-                                    .foregroundStyle(.primary)
-                                    .lineLimit(1)
-                                if !completion.subtitle.isEmpty {
-                                    Text(completion.subtitle)
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                        .lineLimit(1)
-                                }
-                            }
-                            Spacer()
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 9)
-                    }
-                    if index < min(searchModel.completions.count, 7) - 1 {
-                        Divider()
-                    }
-                }
-            }
-            .background(.ultraThinMaterial)
-            .clipShape(RoundedRectangle(cornerRadius: CurrentsTheme.cornerRadius))
-            .shadow(color: .black.opacity(0.15), radius: 8, y: 2)
-            .padding(.horizontal, 12)
+    private func pinFace(_ cluster: PinCluster) -> some View {
+        if cluster.members.count == 1 {
+            let feature = cluster.lead
+            ExplorePin(
+                feature: feature,
+                score: score(for: feature),
+                topSpecies: spotSpecies(feature),
+                showsLabel: showsLabel(feature)
+            )
+        } else {
+            ClusterPin(cluster: cluster, topSpecies: { topSpecies[$0.id] })
         }
     }
 
-    /// Resolve a tapped suggestion to coordinates and fly the map there.
-    private func select(_ completion: MKLocalSearchCompletion) {
-        searchFocused = false
-        isSearching = true
-        searchText = completion.title
+    private func tapPin(_ cluster: PinCluster) {
+        guard cluster.members.count > 1 else {
+            select(cluster.lead)
+            return
+        }
+        // Catches logged on the same few metres never split: list them
+        // instead of zooming.
+        if let list = PinClustering.inseparableCatches(cluster) {
+            openStack(list)
+            return
+        }
+        Haptics.tap()
+        let region = PinClustering.region(for: cluster, currentSpan: currentLatSpan)
+        withAnimation(reduceMotion ? nil : DS.Motion.softSpring) {
+            position = .region(region)
+        }
+    }
+
+    private func score(for feature: ExploreFeature) -> Int? {
+        switch feature {
+        case .spot(let s): spotScores[s.id]
+        case .water(let w): waterbodyScores[w.id ?? 0]
+        case .catchPin, .ramp: nil
+        }
+    }
+
+    private func spotSpecies(_ feature: ExploreFeature) -> Species? {
+        if case .spot(let s) = feature { return topSpecies[s.id] }
+        return nil
+    }
+
+    private func showsLabel(_ feature: ExploreFeature) -> Bool {
+        switch feature {
+        case .spot: true
+        case .water: currentLatSpan < 0.6
+        case .ramp: currentLatSpan < 0.08
+        case .catchPin: false
+        }
+    }
+
+    private func select(_ feature: ExploreFeature) {
+        Haptics.tap()
+        switch feature {
+        case .spot(let s):
+            showPlace(.spot(s))
+            revealAboveSheet(feature.coordinate)
+        case .water(let w):
+            showPlace(.water(w))
+            revealAboveSheet(feature.coordinate)
+        case .catchPin(let c):
+            afterClosingPlace { peek = PinPeek(target: .catchItem(c)) }
+        case .ramp(let r):
+            afterClosingPlace { selectedRamp = r }
+        }
+    }
+
+    private func openStack(_ catches: [CatchDetail]) {
+        Haptics.tap()
+        afterClosingPlace { catchStack = CatchStackSelection(catches: catches) }
+    }
+
+    /// A tap on open map closes the place sheet first, like Apple Maps;
+    /// otherwise it inspects that point.
+    private func mapTapped(at coord: CLLocationCoordinate2D) {
+        guard !isDropping else { return }
+        if isPlaceOpen {
+            isPlaceOpen = false
+            return
+        }
+        inspector = InspectTarget(coord: coord)
+    }
+
+    // MARK: - Place sheet
+
+    @ViewBuilder
+    private var placeSheet: some View {
+        if let place = shownPlace {
+            NavigationStack {
+                switch place {
+                case .spot(let s):
+                    ExplorePlacePage(spot: s, style: .sheet, onSavedChange: reloadSpots)
+                case .water(let w):
+                    ExplorePlacePage(waterbody: w, style: .sheet, onSavedChange: reloadSpots)
+                }
+            }
+            .id("\(place.id)#\(placeVisit)")
+            // Only a drag ticks; showPlace resetting the detent stays quiet.
+            .presentationDetents([.medium, .large], selection: $placeDetent.haptic())
+            .presentationDragIndicator(.visible)
+            .presentationBackgroundInteraction(.enabled(upThrough: .medium))
+            .presentationContentInteraction(.resizes)
+        }
+    }
+
+    /// Opens a place at half height, or swaps it in if the sheet is up.
+    private func showPlace(_ place: ExplorePlace) {
+        shownPlace = place
+        placeDetent = .medium
+        isPlaceOpen = true
+    }
+
+    /// Runs `action` once the place sheet has gone, so a second sheet never
+    /// tries to present over it.
+    private func afterClosingPlace(_ action: @escaping () -> Void) {
+        guard isPlaceOpen else {
+            action()
+            return
+        }
+        isPlaceOpen = false
         Task {
-            let search = MKLocalSearch(request: MKLocalSearch.Request(completion: completion))
-            let response = try? await search.start()
-            if let coord = response?.mapItems.first?.placemark.location?.coordinate {
-                if mapStyle == .offline {
-                    flyToCoordinate = coord
-                } else {
-                    position = .camera(.init(centerCoordinate: coord, distance: 2000))
-                }
-            }
-            searchModel.clear()
-            isSearching = false
+            try? await Task.sleep(for: .milliseconds(350))
+            action()
         }
     }
 
-    @ViewBuilder
-    private func mapButton(icon: String) -> some View {
-        Image(systemName: icon)
-            .font(.title3)
-            .foregroundStyle(accent)
-            .frame(width: 44, height: 44)
-            .background(.ultraThinMaterial)
-            .clipShape(Circle())
+    /// Pans the map so a tapped place sits in the open part above the
+    /// half-height sheet, at the same zoom. The offline map can only fly to a
+    /// fixed zoom, so there the map stays put.
+    private func revealAboveSheet(_ coord: CLLocationCoordinate2D) {
+        guard mapStyle != .offline, let region = lastRegion else { return }
+        let span = region.span.latitudeDelta
+        // Already in the top half: nothing hides it.
+        guard coord.latitude < region.center.latitude + span * 0.05 else { return }
+        let center = CLLocationCoordinate2D(latitude: coord.latitude - span * 0.25, longitude: coord.longitude)
+        withAnimation(reduceMotion ? nil : DS.Motion.softSpring) {
+            position = .region(MKCoordinateRegion(center: center, span: region.span))
+        }
+    }
+
+    /// Flies to a place picked in search or a list, framed above the sheet.
+    private func frameAboveSheet(_ place: ExplorePlace) {
+        var span = 0.02
+        if case .water(let w) = place {
+            span = min(max(w.approximateRadiusM * 3 / 111_000, 0.02), 1.0)
+        }
+        frameAboveSheet(at: place.coordinate, span: span)
+    }
+
+    /// `span` is in degrees of latitude; the default is about 2 km, a spot
+    /// and its shore.
+    private func frameAboveSheet(at coord: CLLocationCoordinate2D, span: Double = 0.02) {
+        if mapStyle == .offline {
+            // The offline map flies to a 2 km square around the point.
+            flyToCoordinate = CLLocationCoordinate2D(latitude: coord.latitude - 0.25 * 2000 / 111_000,
+                                                     longitude: coord.longitude)
+            return
+        }
+        let center = CLLocationCoordinate2D(latitude: coord.latitude - span * 0.25, longitude: coord.longitude)
+        withAnimation(reduceMotion ? nil : DS.Motion.softSpring) {
+            position = .region(MKCoordinateRegion(
+                center: center,
+                span: MKCoordinateSpan(latitudeDelta: span, longitudeDelta: span * 0.4)
+            ))
+        }
+    }
+
+    /// Opens the place a `currents://map/...` link named, centred above its
+    /// half-height sheet: a spot or water as the place sheet, a ramp as its
+    /// own sheet, any other point as the dropped-pin sheet.
+    private func openFocus() {
+        guard let target = ExploreFocus.shared.target else { return }
+        ExploreFocus.shared.target = nil
+        // A page pushed from a sheet sits outside the stack's path, which
+        // the link has already emptied, so it is popped here.
+        pendingRoute = nil
+        isSearchOpen = false
+        peek = nil
+        inspector = nil
+        selectedRamp = nil
+        catchStack = nil
+        showingLayers = false
+        // A filter that would hide the linked place goes.
+        if let speciesFilter, !speciesFilter.keeps(target) { self.speciesFilter = nil }
+        // A link from a page inside the live session sheet; the session
+        // keeps recording, as when it is minimised.
+        showingLiveTrip = false
+        // The place sheet swaps to another spot or water where it is; a ramp
+        // or point needs it gone.
+        switch target {
+        case .spot, .water: break
+        case .ramp, .point: isPlaceOpen = false
+        }
+        // The link usually comes from a list on another tab or a page pushed
+        // over the map, so the sheet waits for the switch or pop back and for
+        // any sheet closing above: a sheet cannot present before then.
+        Task {
+            try? await Task.sleep(for: .milliseconds(400))
+            await showFocus(target)
+        }
+    }
+
+    private func showFocus(_ target: ExploreFocus.Target) async {
+        switch target {
+        case .spot(let id):
+            let saved = (try? appState.spotRepository.fetchAll()) ?? []
+            guard let spot = saved.first(where: { $0.id == id }) else { return }
+            frameAboveSheet(.spot(spot))
+            placeVisit += 1
+            showPlace(.spot(spot))
+        case .water(let id):
+            guard let place = focusedWater(id) else { return }
+            frameAboveSheet(place)
+            placeVisit += 1
+            showPlace(place)
+        case .ramp(let id, let lat, let lon):
+            var near: CLLocationCoordinate2D?
+            if let lat, let lon { near = CLLocationCoordinate2D(latitude: lat, longitude: lon) }
+            if let ramp = await focusedRamp(id, near: near) {
+                frameAboveSheet(at: ramp.coordinate)
+                selectedRamp = ramp
+            } else if let near {
+                frameAboveSheet(at: near)
+                inspector = InspectTarget(coord: near)
+            }
+        case .point(let lat, let lon, let title):
+            let coord = CLLocationCoordinate2D(latitude: lat, longitude: lon)
+            frameAboveSheet(at: coord)
+            inspector = InspectTarget(coord: coord, title: title)
+        }
+    }
+
+    /// A saved water opens as its spot.
+    private func focusedWater(_ id: Int64) -> ExplorePlace? {
+        let saved = (try? appState.spotRepository.fetchAll()) ?? []
+        if let spot = saved.first(where: { $0.waterbodyId == id }) { return .spot(spot) }
+        guard let wb = try? appState.waterbodyRepository.fetch(id: id) else { return nil }
+        return .water(wb)
+    }
+
+    /// A ramp from those already loaded, or loaded around where the link
+    /// says it is.
+    private func focusedRamp(_ id: String, near: CLLocationCoordinate2D?) async -> BoatRamp? {
+        if let hit = rampService.ramps.first(where: { $0.id == id }) { return hit }
+        guard let near else { return nil }
+        await rampService.load(around: near, latSpan: 0.1)
+        return rampService.ramps.first { $0.id == id }
+    }
+
+    /// Shows the live session sheet a `currents://session` link asked for.
+    /// Anything else over the map closes first, and the sheet waits for the
+    /// tab switch and any closing sheet (the link can come from a sheet on
+    /// another tab), since a sheet cannot present while another is up.
+    private func openLiveSession() {
+        appState.openLiveSession = false
+        guard appState.tripTracker.isTracking, !showingLiveTrip else { return }
+        isPlaceOpen = false
+        peek = nil
+        inspector = nil
+        selectedRamp = nil
+        catchStack = nil
+        showingLayers = false
+        Task {
+            try? await Task.sleep(for: .milliseconds(450))
+            if appState.tripTracker.isTracking { showingLiveTrip = true }
+        }
+    }
+
+    /// Saving or removing on the place sheet swaps the water and spot pins
+    /// straight away, while the sheet is still up.
+    private func reloadSpots() {
+        spots = (try? appState.spotRepository.fetchAll()) ?? []
     }
 
     private var activeMapStyle: MapStyle {
@@ -723,28 +818,516 @@ struct MapTab: View {
         }
     }
 
-    private func mapStyleIcon(_ style: MapStyleOption) -> String {
-        switch style {
-        case .offline: "wifi.slash"
-        case .standard: "map"
-        case .imagery: "globe.americas.fill"
-        case .hybrid: "square.split.2x2"
-        case .fishing: "fish.fill"
+    // MARK: - Top chrome
+
+    private var topChrome: some View {
+        VStack(alignment: .leading, spacing: DS.Space.s3) {
+            HStack(spacing: DS.Space.s3) {
+                ProfileAvatarButton()
+                    .simultaneousGesture(TapGesture().onEnded { isPlaceOpen = false })
+                Button {
+                    openSearch()
+                } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: "magnifyingglass")
+                            .font(.body.weight(.semibold))
+                            .foregroundStyle(.dsText2)
+                        Text("Spots, water, ramps, species")
+                            .font(.body)
+                            .foregroundStyle(.dsText2)
+                            .lineLimit(1)
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, 16)
+                    .frame(height: 46)
+                    .contentShape(Capsule())
+                    .glassEffect(.regular.interactive(), in: Capsule())
+                }
+                .buttonStyle(.dim)
+                .accessibilityLabel("Search spots, water, ramps and species")
+            }
+            .padding(.horizontal, DS.Space.s4)
+
+            if let speciesFilter {
+                filterChip(speciesFilter)
+                    .padding(.horizontal, DS.Space.s4)
+                    .padding(.vertical, 2)
+            } else {
+                shortcutChips
+            }
+
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: DS.Space.s3) {
+                    offlineBadge
+                    if isLoadingWaterbodies {
+                        Label {
+                            Text("Finding water")
+                        } icon: {
+                            ProgressView().controlSize(.mini)
+                        }
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(.dsText2)
+                        .padding(.horizontal, 12)
+                        .frame(height: 32)
+                        .glassEffect(.regular, in: Capsule())
+                        .transition(.opacity)
+                    }
+                    if mapStyle != .offline {
+                        MapCompass(scope: mapScope)
+                    }
+                }
+                Spacer(minLength: 0)
+                sideButtons
+            }
+            .padding(.horizontal, DS.Space.s4)
+        }
+        // A little air under the status bar so the clock and the search
+        // field never read as one row.
+        .padding(.top, DS.Space.s3)
+        .animation(reduceMotion ? nil : DS.Motion.easeOut, value: isLoadingWaterbodies)
+    }
+
+    private var shortcutChips: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: DS.Space.s2) {
+                chip("Your spots", systemImage: "mappin", route: .spots)
+                chip("Species", systemImage: "fish", route: .speciesGuide)
+                chip("Water", systemImage: "water.waves", route: .waters)
+                chip("Ramps and access", systemImage: "figure.fishing", route: .ramps)
+            }
+            .padding(.horizontal, DS.Space.s4)
+            .padding(.vertical, 2)
+        }
+        .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
+    }
+
+    /// The species the map is narrowed to and how many places it is
+    /// confirmed at, or that it is confirmed nowhere yet. The cross clears it.
+    private func filterChip(_ filter: SpeciesMapFilter) -> some View {
+        HStack(spacing: DS.Space.s2) {
+            if filter.placeCount == 0, waterLookup == .searching {
+                ProgressView()
+                    .frame(width: 28, height: 28)
+            } else {
+                ThumbView(species: filter.species, size: 28)
+            }
+            Text(filterTitle(filter))
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.dsText)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+            Button { speciesFilter = nil } label: {
+                Image(systemName: "xmark")
+                    .font(.footnote.weight(.bold))
+                    .foregroundStyle(.dsText2)
+                    .frame(width: 32, height: 32)
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.dim)
+            .accessibilityLabel("Clear \(filter.species.commonName) filter")
+        }
+        .padding(.leading, 4)
+        .padding(.trailing, 2)
+        .frame(minHeight: 36)
+        .glassEffect(.regular, in: Capsule())
+    }
+
+    private func filterTitle(_ filter: SpeciesMapFilter) -> String {
+        let name = filter.species.commonName
+        let n = filter.placeCount
+        if n == 0 {
+            switch waterLookup {
+            case .searching: return "Finding waters with \(name)"
+            case .offline: return "\(name) records load when you have signal"
+            case .idle: return "No \(name) on record nearby"
+            }
+        }
+        return "\(name) in \(n) \(n == 1 ? "place" : "places")"
+    }
+
+    private func chip(_ title: String, systemImage: String, route: ExploreRoute) -> some View {
+        NavigationLink(value: route) {
+            Label(title, systemImage: systemImage)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.dsText)
+                .padding(.horizontal, 14)
+                .frame(height: 36)
+                .glassEffect(.regular.interactive(), in: Capsule())
+        }
+        .buttonStyle(.dim)
+        // The page pushes under the place sheet, so the sheet goes.
+        .simultaneousGesture(TapGesture().onEnded { isPlaceOpen = false })
+    }
+
+    /// Which offline region the map covers, or when scores were last worked
+    /// out if the weather is old. Opens Offline maps.
+    private var offlineBadge: some View {
+        let regions = appState.mapManager.downloadedRegions
+        let stale = weather.map { Date.now.timeIntervalSince($0.fetchedAt) > 3 * 3600 } ?? false
+        let text: String
+        let icon: String
+        if stale, let w = weather {
+            text = "Offline. Scores from \(w.fetchedAt.formatted(date: .omitted, time: .shortened))"
+            icon = "icloud.slash"
+        } else if regions.count == 1, let region = regions.first {
+            text = "\(region.name) offline"
+            icon = "arrow.down.circle"
+        } else if regions.count > 1 {
+            text = "\(regions.count) maps offline"
+            icon = "arrow.down.circle"
+        } else {
+            text = "Offline maps"
+            icon = "arrow.down.circle"
+        }
+        return NavigationLink(value: ExploreRoute.offlineMaps) {
+            Label(text, systemImage: icon)
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(stale ? Color.dsScoreFair : Color.dsText)
+                .lineLimit(1)
+                .padding(.horizontal, 12)
+                .frame(height: 32)
+                .glassEffect(.regular.interactive(), in: Capsule())
+        }
+        .buttonStyle(.dim)
+        .simultaneousGesture(TapGesture().onEnded { isPlaceOpen = false })
+    }
+
+    private var sideButtons: some View {
+        VStack(spacing: 10) {
+            Button { afterClosingPlace { showingLayers = true } } label: {
+                glassCircle("square.3.layers.3d", dot: overlaysOn || mapStyle != .standard ? DS.accent : nil)
+            }
+            .buttonStyle(.dim)
+            .accessibilityLabel("Map layers")
+
+            Button { locateMe() } label: {
+                glassCircle("location")
+            }
+            .buttonStyle(.dim)
+            .accessibilityLabel("Show my location")
+
+            Button {
+                isPlaceOpen = false
+                isDropping = true
+            } label: {
+                glassCircle("mappin.and.ellipse")
+            }
+            .buttonStyle(.dim)
+            .buttonHaptic(.press)
+            .accessibilityLabel("Add spot")
+
+            // Start or resume a fishing session.
+            if FeatureFlags.liveTrips {
+                Button {
+                    afterClosingPlace {
+                        if appState.tripTracker.isTracking {
+                            showingLiveTrip = true
+                        } else {
+                            showingNewTrip = true
+                        }
+                    }
+                } label: {
+                    glassCircle(appState.tripTracker.isTracking ? "figure.fishing" : "play.fill",
+                                dot: appState.tripTracker.isTracking ? Color.dsScoreSlow : nil)
+                }
+                .buttonStyle(.dim)
+                .accessibilityLabel(appState.tripTracker.isTracking ? "Open live session" : "Start a session")
+            }
         }
     }
+
+    private func glassCircle(_ systemImage: String, dot: Color? = nil) -> some View {
+        Image(systemName: systemImage)
+            .font(.title3.weight(.medium))
+            .foregroundStyle(.dsText)
+            .frame(width: 46, height: 46)
+            .contentShape(Circle())
+            .glassEffect(.regular.interactive(), in: Circle())
+            .overlay(alignment: .topTrailing) {
+                if let dot {
+                    Circle()
+                        .fill(dot)
+                        .frame(width: 9, height: 9)
+                        .overlay(Circle().stroke(Color.dsBackground, lineWidth: 1.5))
+                        .offset(x: -3, y: 3)
+                }
+            }
+    }
+
+    // MARK: - Biting near you
+
+    private var nearYouCapsule: some View {
+        Button {
+            afterClosingPlace {
+                if let coord = userCoordinate {
+                    inspector = InspectTarget(coord: coord, isUserLocation: true)
+                } else if let coord = lastMapCenter {
+                    inspector = InspectTarget(coord: coord)
+                }
+            }
+        } label: {
+            HStack(spacing: DS.Space.s3) {
+                if let nearBite {
+                    ScoreDisc(score: nearBite.now, size: 44)
+                } else {
+                    Circle().fill(Color.dsFill).frame(width: 44, height: 44)
+                        .overlay(ProgressView().controlSize(.small))
+                }
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(userCoordinate == nil ? "Biting here" : "Biting near you")
+                        .font(.headline)
+                        .foregroundStyle(.dsText)
+                    Text(nearSubtitle)
+                        .font(.subheadline)
+                        .foregroundStyle(.dsText2)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.up")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.dsText3)
+            }
+            .padding(.leading, 10)
+            .padding(.trailing, 18)
+            .padding(.vertical, 10)
+            .contentShape(RoundedRectangle(cornerRadius: DS.Radius.sheet, style: .continuous))
+            .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: DS.Radius.sheet, style: .continuous))
+        }
+        .buttonStyle(.dim)
+        .padding(.horizontal, DS.Space.s4)
+        .padding(.bottom, DS.Space.s3)
+        .accessibilityHint("Shows the bite, conditions and water near you")
+    }
+
+    private var nearSubtitle: String {
+        guard let nearBite else { return "Working out the bite" }
+        let use24 = UserDefaults.standard.object(forKey: "use24HourTime") as? Bool ?? true
+        if let best = spots.filter({ spotScores[$0.id] != nil })
+            .max(by: { (spotScores[$0.id] ?? 0) < (spotScores[$1.id] ?? 0) }) {
+            return "Best spot now \(best.name)"
+        }
+        if let window = nearBite.best {
+            return "\(ExploreFormat.verdict(nearBite.now)), best \(ExploreFormat.window(window, use24Hour: use24))"
+        }
+        return ExploreFormat.verdict(nearBite.now)
+    }
+
+    // MARK: - Species filter
+
+    /// Narrows the map to where a fish tapped in the inspector is confirmed
+    /// and frames those places.
+    private func showSpecies(_ species: Species, near origin: CLLocationCoordinate2D) {
+        inspector = nil
+        let filter = SpeciesMapFilter.load(species, near: origin, appState: appState)
+        speciesFilter = filter
+        frameFilter(filter)
+        lookUpWaters(for: species, near: origin)
+    }
+
+    enum WaterLookup { case idle, searching, offline }
+
+    /// Asks GBIF which waters around here have the fish on record, then
+    /// redraws the filter with any new ones and frames them if the map had
+    /// nothing to show before.
+    private func lookUpWaters(for species: Species, near origin: CLLocationCoordinate2D) {
+        guard !ScreenshotSupport.isActive else { return }
+        waterLookup = .searching
+        Task {
+            let found = await WaterSpeciesService.shared.findWaters(
+                for: species, near: origin,
+                waters: appState.waterbodyRepository, database: appState.db)
+            guard speciesFilter?.species.id == species.id else { return }
+            waterLookup = found == nil ? .offline : .idle
+            guard let found, found > 0 else { return }
+            let wasEmpty = speciesFilter?.placeCount == 0
+            let filter = SpeciesMapFilter.load(species, near: origin, appState: appState)
+            speciesFilter = filter
+            if wasEmpty { frameFilter(filter) }
+        }
+    }
+
+    private func filterCoordinates(_ filter: SpeciesMapFilter) -> [CLLocationCoordinate2D] {
+        let spotCoords = spots.filter { filter.spotIds.contains($0.id) }
+            .map { CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude) }
+        let waterCoords = filter.waters.map { CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude) }
+        return spotCoords + waterCoords
+    }
+
+    /// Fits the filtered places within 400 km of where it was asked for, or
+    /// the nearest one when all are further. The offline map can only fly to
+    /// a fixed zoom, so there it goes to the nearest.
+    private func frameFilter(_ filter: SpeciesMapFilter) {
+        let here = CLLocation(latitude: filter.origin.latitude, longitude: filter.origin.longitude)
+        func distance(_ c: CLLocationCoordinate2D) -> CLLocationDistance {
+            here.distance(from: CLLocation(latitude: c.latitude, longitude: c.longitude))
+        }
+        let sorted = filterCoordinates(filter).sorted { distance($0) < distance($1) }
+        guard let nearest = sorted.first else { return }
+        if mapStyle == .offline {
+            flyToCoordinate = nearest
+            return
+        }
+        let near = sorted.filter { distance($0) < 400_000 }
+        let framed = near.isEmpty ? [nearest] : near
+        let lats = framed.map(\.latitude)
+        let lons = framed.map(\.longitude)
+        guard let minLat = lats.min(), let maxLat = lats.max(),
+              let minLon = lons.min(), let maxLon = lons.max() else { return }
+        let center = CLLocationCoordinate2D(latitude: (minLat + maxLat) / 2, longitude: (minLon + maxLon) / 2)
+        let span = MKCoordinateSpan(latitudeDelta: max((maxLat - minLat) * 1.4, 0.05),
+                                    longitudeDelta: max((maxLon - minLon) * 1.4, 0.05))
+        withAnimation(reduceMotion ? nil : DS.Motion.softSpring) {
+            position = .region(MKCoordinateRegion(center: center, span: span))
+        }
+    }
+
+    // MARK: - Drop mode
+
+    /// The pin fixed at the map's centre while placing a spot.
+    private var dropPin: some View {
+        Image(systemName: "mappin")
+            .font(.largeTitle.weight(.semibold))
+            .imageScale(.large)
+            .foregroundStyle(Color.dsScoreSlow)
+            .mapPinShadow()
+            .offset(y: -20)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .ignoresSafeArea()
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+    }
+
+    private var dropHeader: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text("Place your spot")
+                .font(.headline)
+                .foregroundStyle(.dsText)
+            Text("Move the map under the pin, or long press anywhere")
+                .font(.subheadline)
+                .foregroundStyle(.dsText2)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 18)
+        .padding(.vertical, 12)
+        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: DS.Radius.sheet, style: .continuous))
+        .padding(.horizontal, DS.Space.s4)
+        .padding(.top, DS.Space.s2)
+    }
+
+    private var dropBar: some View {
+        HStack(spacing: DS.Space.s3) {
+            Button("Cancel") { isDropping = false }
+                .buttonStyle(TonalButtonStyle())
+            Button("Use this spot") {
+                dropSpot(at: lastMapCenter ?? userCoordinate)
+            }
+            .buttonStyle(.dsPrimary)
+        }
+        .padding(DS.Space.s3)
+        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: DS.Radius.sheet, style: .continuous))
+        .padding(.horizontal, DS.Space.s4)
+        .padding(.bottom, DS.Space.s3)
+    }
+
+    private func dropSpot(at coord: CLLocationCoordinate2D?) {
+        isDropping = false
+        addSpotAt = AddSpotTarget(coord: coord)
+    }
+
+    private func locateMe() {
+        if mapStyle == .offline {
+            flyToCoordinate = userCoordinate
+        } else {
+            withAnimation(reduceMotion ? nil : DS.Motion.softSpring) {
+                position = .userLocation(fallback: .automatic)
+            }
+        }
+    }
+
+    // MARK: - Search
+
+    private func openSearch() {
+        isPlaceOpen = false
+        isSearchOpen = true
+    }
+
+    private func closeSearch() {
+        isSearchOpen = false
+    }
+
+    /// Opens what was picked in search: spots and water as the place sheet
+    /// over the map, ramps as their sheet, species as their page, and a town
+    /// or address by moving the map there.
+    private func handlePick(_ pick: ExploreSearchPick) {
+        closeSearch()
+        switch pick {
+        case .spot(let s):
+            frameAboveSheet(.spot(s))
+            showPlace(.spot(s))
+        case .water(let w):
+            // A saved water opens as its spot.
+            let place: ExplorePlace = spots.first { $0.waterbodyId != nil && $0.waterbodyId == w.id }
+                .map(ExplorePlace.spot) ?? .water(w)
+            frameAboveSheet(place)
+            showPlace(place)
+        case .ramp(let r):
+            frameAboveSheet(at: r.coordinate)
+            selectedRamp = r
+        case .species(let sp):
+            pendingRoute = .species(sp)
+        case .place(let coord, _):
+            fly(to: coord, distance: 12_000)
+        }
+    }
+
+    private func fly(to coord: CLLocationCoordinate2D, distance: CLLocationDistance = 2000) {
+        if mapStyle == .offline {
+            flyToCoordinate = coord
+        } else {
+            withAnimation(reduceMotion ? nil : DS.Motion.softSpring) {
+                position = .camera(.init(centerCoordinate: coord, distance: distance))
+            }
+        }
+    }
+
+    // MARK: - Routing
+
+    /// Spots and water open as the place sheet; anything else pushes on the
+    /// Explore stack. From a sheet, close it first and go once it has gone.
+    private func openRoute(_ route: ExploreRoute) {
+        peek = nil
+        inspector = nil
+        Task {
+            try? await Task.sleep(for: .milliseconds(350))
+            switch route {
+            case .spot(let ref):
+                frameAboveSheet(.spot(ref.spot))
+                showPlace(.spot(ref.spot))
+            case .waterbody(let ref):
+                let place: ExplorePlace = spots.first { $0.waterbodyId != nil && $0.waterbodyId == ref.waterbody.id }
+                    .map(ExplorePlace.spot) ?? .water(ref.waterbody)
+                frameAboveSheet(place)
+                showPlace(place)
+            default:
+                pendingRoute = route
+            }
+        }
+    }
+
+    // MARK: - Data
 
     /// Shared camera-change handler for both map backends: tracks span,
     /// prefetches tiles around the viewed area, and debounces waterbody loads.
     private func handleRegionChange(_ region: MKCoordinateRegion) {
         currentLatSpan = region.span.latitudeDelta
         lastMapCenter = region.center
+        lastRegion = region
         // Background-cache tiles around the viewed area for offline use.
         appState.mapManager.prefetchOfflineTiles(around: region.center)
         if layerRamps {
             let center = region.center, span = region.span.latitudeDelta
             Task { await rampService.load(around: center, latSpan: span) }
         }
-        // Debounce: cancel prior pending load, wait 300ms before firing
         waterbodyDebounceTask?.cancel()
         waterbodyDebounceTask = Task {
             try? await Task.sleep(for: .milliseconds(150))
@@ -756,44 +1339,39 @@ struct MapTab: View {
     private func loadData() async {
         spots = (try? appState.spotRepository.fetchAll()) ?? []
         catches = (try? appState.catchRepository.fetchAll(limit: 200)) ?? []
+        // A spot saved or a catch logged since can change where it is confirmed.
+        if let filter = speciesFilter {
+            speciesFilter = SpeciesMapFilter.load(filter.species, near: filter.origin, appState: appState)
+        }
 
+        // The most caught species at each spot draws its pin.
+        var tops: [String: Species] = [:]
         for spot in spots {
             let spotCatches = (try? appState.catchRepository.fetchForSpot(spot.id)) ?? []
-            catchCounts[spot.id] = spotCatches.count
-        }
-
-        // Fetch weather for map overlay
-        let coord = appState.locationManager.currentLocation?.coordinate ??
-            CLLocationCoordinate2D(latitude: -33.9, longitude: 18.4)
-        weather = await WeatherService.shared.current(for: coord)
-
-        // Show cached waterbodies instantly, fetch more from Overpass in background
-        let userLat = coord.latitude
-        let userLon = coord.longitude
-        waterbodies = (try? appState.waterbodyRepository.fetchForRegion(
-            minLat: userLat - 0.5, maxLat: userLat + 0.5,
-            minLon: userLon - 0.5, maxLon: userLon + 0.5,
-            minSurfaceAreaKm2: 0,
-            includeNilArea: true,
-            limit: 50
-        )) ?? []
-
-        // Background Overpass fetch for new data
-        Task {
-            if let results = await OverpassService.shared.fetchWaterbodies(
-                minLat: userLat - 0.5, maxLat: userLat + 0.5,
-                minLon: userLon - 0.5, maxLon: userLon + 0.5
-            ) {
-                let _ = try? appState.waterbodyRepository.insertFromOverpass(results)
-                waterbodies = (try? appState.waterbodyRepository.fetchForRegion(
-                    minLat: userLat - 0.5, maxLat: userLat + 0.5,
-                    minLon: userLon - 0.5, maxLon: userLon + 0.5,
-                    minSurfaceAreaKm2: 0,
-                    includeNilArea: true,
-                    limit: 50
-                )) ?? []
+            let grouped = Dictionary(grouping: spotCatches.compactMap(\.species), by: \.id)
+            if let top = grouped.values.max(by: { $0.count < $1.count })?.first {
+                tops[spot.id] = top
             }
         }
+        topSpecies = tops
+
+        // Water comes from the local database, filled from the bundled
+        // extract on first run, so pins show before any network call and
+        // without one. Weather waits until the pins are up.
+        if !ScreenshotSupport.isActive {
+            await BundledMapData.importWaterIfNeeded(into: appState.db)
+        }
+        let coord = userCoordinate ?? CLLocationCoordinate2D(latitude: -33.9, longitude: 18.4)
+        let region = lastRegion ?? MKCoordinateRegion(
+            center: coord,
+            span: MKCoordinateSpan(latitudeDelta: currentLatSpan, longitudeDelta: currentLatSpan)
+        )
+        await loadWaterbodies(region: region)
+
+        // Bite and weather where the angler is (also feeds the wind overlay).
+        let (bite, w) = await BiteSnapshot.load(at: coord)
+        nearBite = bite
+        weather = w
 
         // Compute bite scores for each spot
         for spot in spots {
@@ -827,19 +1405,19 @@ struct MapTab: View {
         let maxLon = region.center.longitude + region.span.longitudeDelta / 2
         let latSpan = region.span.latitudeDelta
 
-        // Zoom-adaptive filtering — fewer at zoom-out, show nil-area from metro level
+        // Zoom-adaptive filtering: fewer at zoom-out, show nil-area from metro level
         let (minArea, limit, showNilArea): (Double, Int, Bool) = switch latSpan {
         case 20...:         (2000, 8, false)   // Continental: only Great Lakes-scale
         case 10..<20:       (500, 12, false)   // Very zoomed out: major bodies only
         case 5..<10:        (100, 20, false)   // Country level
         case 3..<5:         (20, 25, false)    // Regional
-        case 1..<3:         (5, 35, true)      // State/province — start showing unknown-size
+        case 1..<3:         (5, 35, true)      // State/province, start showing unknown-size
         case 0.5..<1:       (0.5, 50, true)    // Metro area
         case 0.2..<0.5:     (0.05, 60, true)   // City level
-        default:            (0, 80, true)      // Street level — show everything
+        default:            (0, 80, true)      // Street level, show everything
         }
 
-        // 1) Show cached DB results INSTANTLY (no network wait)
+        // 1) Show cached DB results instantly (no network wait)
         waterbodies = (try? appState.waterbodyRepository.fetchForRegion(
             minLat: minLat, maxLat: maxLat,
             minLon: minLon, maxLon: maxLon,
@@ -848,13 +1426,16 @@ struct MapTab: View {
             limit: limit
         )) ?? []
 
-        // 2) Compute bite score in background — don't block waterbody display
+        // 2) Compute bite score in background, don't block waterbody display
         Task { await computeRegionScore(region: region) }
 
         // 3) Only hit Overpass when zoomed in enough (< 2.5° span) to avoid API
-        // spam — and never in screenshot mode, so captures show only the clean
+        // spam, and never in screenshot mode, so captures show only the clean
         // seeded set deterministically (no async network results mid-capture).
-        guard latSpan < 2.5, !ScreenshotSupport.isActive else {
+        // The bundled extract already holds everything Overpass would return
+        // inside its tiles, so only ask Overpass outside them.
+        guard latSpan < 2.5, !ScreenshotSupport.isActive,
+              !BundledMapData.covers(minLat: minLat, maxLat: maxLat, minLon: minLon, maxLon: maxLon) else {
             isLoadingWaterbodies = false
             return
         }
@@ -885,9 +1466,8 @@ struct MapTab: View {
         let center = region.center
         // Skip if we already have a score for this approximate area
         let regionKey = Int64(center.latitude * 100) * 100000 + Int64(center.longitude * 100)
-        guard waterbodyScores[regionKey] == nil else {
+        if let score = waterbodyScores[regionKey] {
             // Apply existing region score to new waterbodies
-            let score = waterbodyScores[regionKey]!
             for wb in waterbodies where waterbodyScores[wb.id ?? 0] == nil {
                 waterbodyScores[wb.id ?? 0] = score
             }
@@ -909,890 +1489,6 @@ struct MapTab: View {
         // Apply this score to all waterbodies in view
         for wb in waterbodies {
             waterbodyScores[wb.id ?? 0] = result.score
-        }
-    }
-}
-
-// MARK: - Search Completer
-
-/// Live type-ahead suggestions for the map search bar, biased to a region
-/// around the user so nearby water and places rank first.
-@Observable
-final class MapSearchCompleter: NSObject, MKLocalSearchCompleterDelegate {
-    var completions: [MKLocalSearchCompletion] = []
-    @ObservationIgnored private let completer = MKLocalSearchCompleter()
-
-    override init() {
-        super.init()
-        completer.delegate = self
-        completer.resultTypes = [.pointOfInterest, .address, .query]
-    }
-
-    func update(query: String, near coordinate: CLLocationCoordinate2D?) {
-        if let coordinate {
-            completer.region = MKCoordinateRegion(
-                center: coordinate,
-                latitudinalMeters: 120_000,
-                longitudinalMeters: 120_000
-            )
-        }
-        guard !query.isEmpty else {
-            clear()
-            return
-        }
-        completer.queryFragment = query
-    }
-
-    func clear() {
-        completions = []
-        completer.cancel()
-    }
-
-    func completerDidUpdateResults(_ completer: MKLocalSearchCompleter) {
-        completions = completer.results
-    }
-
-    func completer(_ completer: MKLocalSearchCompleter, didFailWithError error: Error) {
-        completions = []
-    }
-}
-
-// MARK: - Catch Pin (for individual catches on map)
-
-struct CatchPin: View {
-    let detail: CatchDetail
-    var accent: Color = CurrentsTheme.accent
-
-    var body: some View {
-        VStack(spacing: 2) {
-            ZStack {
-                Circle()
-                    .fill(accent)
-                    .frame(width: 28, height: 28)
-                    .shadow(color: .black.opacity(0.3), radius: 3, y: 1)
-                Image(systemName: "fish.fill")
-                    .font(.system(size: 14))
-                    .foregroundStyle(.white)
-            }
-            if let name = detail.species?.commonName {
-                Text(name)
-                    .font(.system(size: 9).bold())
-                    .padding(.horizontal, 4)
-                    .padding(.vertical, 1)
-                    .background(.ultraThinMaterial)
-                    .clipShape(Capsule())
-            }
-        }
-    }
-}
-
-// MARK: - User Location Marker
-
-/// Precise location dot with a Life360-style heading cone showing which way
-/// the user is facing (driven by the compass/gyro).
-struct UserLocationMarker: View {
-    let heading: Double
-    var accent: Color = CurrentsTheme.accent
-
-    var body: some View {
-        ZStack {
-            // Facing-direction cone
-            HeadingCone()
-                .fill(
-                    LinearGradient(
-                        colors: [accent.opacity(0.55), accent.opacity(0.0)],
-                        startPoint: .center,
-                        endPoint: .top
-                    )
-                )
-                .frame(width: 72, height: 72)
-                .rotationEffect(.degrees(heading))
-                .animation(.easeOut(duration: 0.2), value: heading)
-
-            // Exact position dot
-            Circle()
-                .fill(accent)
-                .frame(width: 16, height: 16)
-                .overlay(Circle().stroke(.white, lineWidth: 3))
-                .shadow(color: .black.opacity(0.35), radius: 3, y: 1)
-        }
-    }
-}
-
-/// A ~56° wedge pointing north (up); rotate it by the device heading.
-struct HeadingCone: Shape {
-    func path(in rect: CGRect) -> Path {
-        var p = Path()
-        let center = CGPoint(x: rect.midX, y: rect.midY)
-        let radius = min(rect.width, rect.height) / 2
-        p.move(to: center)
-        p.addArc(
-            center: center,
-            radius: radius,
-            startAngle: .degrees(-118),
-            endAngle: .degrees(-62),
-            clockwise: false
-        )
-        p.closeSubpath()
-        return p
-    }
-}
-
-// MARK: - Spot Pin
-
-struct SpotPin: View {
-    let spot: Spot
-    let catchCount: Int
-    let isSelected: Bool
-    var biteScore: Int?
-    var accent: Color = CurrentsTheme.accent
-
-    var body: some View {
-        VStack(spacing: 2) {
-            ZStack(alignment: .topTrailing) {
-                ZStack {
-                    Circle()
-                        .fill(accent)
-                        .frame(width: 40, height: 40)
-                        .shadow(color: .black.opacity(0.3), radius: 4, y: 2)
-                        .overlay(
-                            Circle().stroke(.white, lineWidth: isSelected ? 3 : 1.5)
-                        )
-
-                    Image(systemName: "mappin.and.ellipse")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundStyle(.white)
-                }
-
-                // Bite score badge
-                if let score = biteScore {
-                    Text("\(score)")
-                        .font(.system(size: 9, weight: .heavy))
-                        .monospacedDigit()
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 4)
-                        .padding(.vertical, 1)
-                        .background(CurrentsTheme.scoreColor(score))
-                        .clipShape(Capsule())
-                        .offset(x: 8, y: -6)
-                }
-
-                // Catch count badge
-                if catchCount > 0 {
-                    Text("\(catchCount)")
-                        .font(.system(size: 9, weight: .heavy))
-                        .monospacedDigit()
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 4)
-                        .padding(.vertical, 1)
-                        .background(.black.opacity(0.65))
-                        .clipShape(Capsule())
-                        .offset(x: -26, y: -6)
-                }
-            }
-            Text(spot.name)
-                .font(.caption2.bold())
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
-                .background(.ultraThinMaterial)
-                .clipShape(Capsule())
-        }
-    }
-}
-
-// MARK: - Spot Detail Sheet
-
-struct SpotDetailSheet: View {
-    @Environment(AppState.self) private var appState
-    @Environment(\.dismiss) private var dismiss
-    @State private var spot: Spot
-    @State private var catches: [CatchDetail] = []
-    @State private var weather: WeatherService.WeatherData?
-    @State private var forecast: ForecastEngine.ForecastResult?
-    @State private var showingDeleteConfirm = false
-    @State private var showingEdit = false
-    @State private var shareImage: UIImage?
-    @State private var showingShareSheet = false
-    @State private var isGeneratingShare = false
-
-    init(spot: Spot) {
-        _spot = State(initialValue: spot)
-    }
-
-    private var spotCoord: CLLocationCoordinate2D {
-        CLLocationCoordinate2D(latitude: spot.latitude, longitude: spot.longitude)
-    }
-
-    var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: CurrentsTheme.paddingM) {
-                    // Map preview
-                    Map(initialPosition: .camera(.init(
-                        centerCoordinate: spotCoord,
-                        distance: 1500
-                    ))) {
-                        Annotation(spot.name, coordinate: spotCoord) {
-                            Image(systemName: "mappin.circle.fill")
-                                .font(.title)
-                                .foregroundStyle(CurrentsTheme.accent)
-                        }
-                    }
-                    .mapStyle(.hybrid)
-                    .frame(height: 140)
-                    .clipShape(RoundedRectangle(cornerRadius: 16))
-                    .allowsHitTesting(false)
-
-                    DriveToButton(coordinate: spotCoord, name: spot.name)
-
-                    HStack {
-                        VStack(alignment: .leading) {
-                            Text(spot.name)
-                                .font(.title2.bold())
-                            Text(String(format: "%.4f, %.4f", spot.latitude, spot.longitude))
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                        if spot.type != .general {
-                            Label(spot.type.rawValue, systemImage: spot.type.icon)
-                                .font(.caption)
-                                .glassPill()
-                        }
-                        if FeatureFlags.spotPrivacy, spot.isPrivate {
-                            Label("Private", systemImage: "lock.fill")
-                                .font(.caption)
-                                .glassPill()
-                        }
-                    }
-
-                    // Weather + Bite Score
-                    if let weather {
-                        VStack(alignment: .leading, spacing: 10) {
-                            HStack {
-                                Label("Conditions Now", systemImage: "cloud.sun.fill")
-                                    .font(.headline)
-                                Spacer()
-                                if let f = forecast {
-                                    HStack(spacing: 4) {
-                                        ScoreGauge(score: f.score, label: "", size: 36)
-                                        Text("bite")
-                                            .font(.caption2)
-                                            .foregroundStyle(.secondary)
-                                    }
-                                }
-                            }
-                            HStack(spacing: 16) {
-                                VStack(spacing: 2) {
-                                    WeatherIcon(condition: weather.condition)
-                                    Text("\(Int(weather.temperatureC))°")
-                                        .font(.subheadline.bold().monospacedDigit())
-                                    Text("Air")
-                                        .font(.caption2)
-                                        .foregroundStyle(.secondary)
-                                }
-                                if let wt = weather.waterTempC {
-                                    VStack(spacing: 2) {
-                                        Image(systemName: "drop.fill")
-                                            .foregroundStyle(CurrentsTheme.accent)
-                                        Text("\(Int(wt))°")
-                                            .font(.subheadline.bold().monospacedDigit())
-                                        Text("Water")
-                                            .font(.caption2)
-                                            .foregroundStyle(.secondary)
-                                    }
-                                }
-                                VStack(spacing: 2) {
-                                    Image(systemName: "wind")
-                                        .foregroundStyle(.secondary)
-                                    Text("\(Int(weather.windSpeedKmh))")
-                                        .font(.subheadline.bold().monospacedDigit())
-                                    Text("km/h")
-                                        .font(.caption2)
-                                        .foregroundStyle(.secondary)
-                                }
-                                VStack(spacing: 2) {
-                                    Image(systemName: "barometer")
-                                        .foregroundStyle(.secondary)
-                                    Text("\(Int(weather.pressureHpa))")
-                                        .font(.subheadline.bold().monospacedDigit())
-                                    Text("hPa")
-                                        .font(.caption2)
-                                        .foregroundStyle(.secondary)
-                                }
-                            }
-                            if let f = forecast, !f.reasons.isEmpty {
-                                ForEach(f.reasons.prefix(2), id: \.self) { reason in
-                                    HStack(spacing: 4) {
-                                        Circle()
-                                            .fill(CurrentsTheme.scoreColor(f.score))
-                                            .frame(width: 5, height: 5)
-                                        Text(reason)
-                                            .font(.caption2)
-                                            .foregroundStyle(.secondary)
-                                    }
-                                }
-                            }
-                        }
-                        .glassCard()
-                    } else {
-                        HStack(spacing: 8) {
-                            ProgressView()
-                            Text("Loading weather...")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        .glassCard()
-                    }
-
-                    if !catches.isEmpty {
-                        HStack(spacing: 10) {
-                            StatCard(value: "\(catches.count)", label: "Catches", icon: "fish.fill")
-                            let species = Set(catches.compactMap { $0.species?.commonName }).count
-                            StatCard(value: "\(species)", label: "Species", icon: "leaf.fill")
-                            if let best = catches.max(by: { ($0.catchRecord.weightKg ?? 0) < ($1.catchRecord.weightKg ?? 0) }),
-                               let weight = best.catchRecord.weightKg {
-                                StatCard(value: String(format: "%.1fkg", weight), label: "Best", icon: "trophy.fill")
-                            }
-                            let released = catches.filter { $0.catchRecord.released }.count
-                            let releaseRate = Int(Double(released) / Double(catches.count) * 100)
-                            StatCard(value: "\(releaseRate)%", label: "Released", icon: "arrow.uturn.backward")
-                        }
-                    }
-
-                    if let notes = spot.notes, !notes.isEmpty {
-                        Text(notes)
-                            .font(.body)
-                            .foregroundStyle(.secondary)
-                    }
-
-                    // Share — renders a map card + attaches an Apple Maps pin link.
-                    Button {
-                        generateShareCard()
-                    } label: {
-                        if isGeneratingShare {
-                            HStack(spacing: 8) {
-                                ProgressView().tint(.white)
-                                Text("Preparing…")
-                            }
-                            .frame(maxWidth: .infinity)
-                        } else {
-                            Label("Share Spot", systemImage: "square.and.arrow.up")
-                                .frame(maxWidth: .infinity)
-                        }
-                    }
-                    .buttonStyle(.borderedProminent).labelStyle(.prominentButton)
-                    .tint(CurrentsTheme.accent)
-                    .disabled(isGeneratingShare)
-
-                    // Actions
-                    HStack(spacing: 12) {
-                        Button {
-                            showingEdit = true
-                        } label: {
-                            Label("Edit", systemImage: "pencil")
-                                .frame(maxWidth: .infinity)
-                        }
-                        .buttonStyle(.bordered)
-
-                        Button(role: .destructive) {
-                            showingDeleteConfirm = true
-                        } label: {
-                            Label("Delete", systemImage: "trash")
-                                .frame(maxWidth: .infinity)
-                        }
-                        .buttonStyle(.bordered)
-                    }
-
-                    if !catches.isEmpty {
-                        Text("Catches Here")
-                            .font(.headline)
-                        ForEach(catches, id: \.catchRecord.id) { detail in
-                            NavigationLink {
-                                CatchDetailView(detail: detail)
-                            } label: {
-                                CatchRow(detail: detail)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    } else {
-                        ContentUnavailableView(
-                            "No catches yet",
-                            systemImage: "fish",
-                            description: Text("Log your first catch at this spot")
-                        )
-                    }
-                }
-                .padding()
-            }
-        }
-        .task {
-            catches = (try? appState.catchRepository.fetchForSpot(spot.id)) ?? []
-            let w = await WeatherService.shared.current(for: spotCoord)
-            weather = w
-            forecast = ForecastEngine.forecast(
-                coordinate: spotCoord,
-                currentPressureHpa: w?.pressureHpa,
-                pressureChange6h: w?.pressureChange6h,
-                waterTempC: w?.waterTempC,
-                windSpeedKmh: w?.windSpeedKmh,
-                windDirection: w?.windDirectionDeg,
-                species: nil,
-                isInSpawningZone: false
-            )
-        }
-        .alert("Delete Spot?", isPresented: $showingDeleteConfirm) {
-            Button("Delete", role: .destructive) {
-                try? appState.spotRepository.delete(spot)
-                ToastCenter.shared.show("Spot deleted", style: .info)
-                dismiss()
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("This will remove the spot but keep any catches logged here.")
-        }
-        .sheet(isPresented: $showingEdit) {
-            EditSpotSheet(spot: spot) { updated in
-                var record = updated
-                try? appState.spotRepository.save(&record)
-                ToastCenter.shared.show("Spot updated")
-                // Refresh in place — closing the whole spot sheet after an
-                // edit made it feel like the app threw the user out.
-                spot = record
-            }
-        }
-        .sheet(isPresented: $showingShareSheet) {
-            if let shareImage {
-                ImageShareSheet(
-                    image: shareImage,
-                    filename: "Currents-\(spot.name)",
-                    caption: SpotShareCard.caption(for: spot)
-                )
-            }
-        }
-    }
-
-    private func generateShareCard() {
-        isGeneratingShare = true
-        Task {
-            let card = await SpotShareCard.render(
-                spot: spot,
-                catchCount: catches.count,
-                biteScore: forecast?.score
-            )
-            isGeneratingShare = false
-            if let card {
-                shareImage = card
-                showingShareSheet = true
-            }
-        }
-    }
-}
-
-// MARK: - Add Spot Sheet
-
-struct AddSpotSheet: View {
-    @Environment(AppState.self) private var appState
-    @Environment(\.dismiss) private var dismiss
-    @State private var name = ""
-    @State private var notes = ""
-    @State private var isPrivate = true
-    @State private var spotType: Spot.SpotType = .general
-    @State private var usePin: Bool
-    @State private var pinCoordinate: CLLocationCoordinate2D?
-    @State private var showingLocationPicker = false
-
-    init(prefillCoordinate: CLLocationCoordinate2D? = nil) {
-        _usePin = State(initialValue: prefillCoordinate != nil)
-        _pinCoordinate = State(initialValue: prefillCoordinate)
-    }
-
-    var body: some View {
-        NavigationStack {
-            Form {
-                Section {
-                    TextField("Spot Name", text: $name)
-                    Picker("Type", selection: $spotType) {
-                        ForEach(Spot.SpotType.allCases, id: \.self) { type in
-                            Label(type.rawValue, systemImage: type.icon).tag(type)
-                        }
-                    }
-                    TextField("Notes (optional)", text: $notes, axis: .vertical)
-                        .lineLimit(3...6)
-                }
-
-                Section("Location") {
-                    Toggle("Drop pin on map", isOn: $usePin)
-
-                    if usePin {
-                        if let coord = pinCoordinate {
-                            HStack {
-                                Image(systemName: "mappin.circle.fill")
-                                    .foregroundStyle(CurrentsTheme.accent)
-                                Text(String(format: "%.4f, %.4f", coord.latitude, coord.longitude))
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                Spacer()
-                                Button("Change") {
-                                    showingLocationPicker = true
-                                }
-                                .font(.caption)
-                            }
-                        } else {
-                            Button {
-                                showingLocationPicker = true
-                            } label: {
-                                Label("Choose location on map", systemImage: "map")
-                            }
-                        }
-                    } else {
-                        if let loc = appState.locationManager.currentLocation {
-                            HStack {
-                                Image(systemName: "location.fill")
-                                    .foregroundStyle(CurrentsTheme.accent)
-                                Text(String(format: "%.4f, %.4f", loc.coordinate.latitude, loc.coordinate.longitude))
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                        } else {
-                            Label("Waiting for location...", systemImage: "location.slash")
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                }
-
-                if FeatureFlags.spotPrivacy {
-                    Section {
-                        Toggle("Private Spot", isOn: $isPrivate)
-                    } footer: {
-                        Text("Private spots are never shared.")
-                    }
-                }
-            }
-            .navigationTitle("New Spot")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") { saveSpot() }
-                        .disabled(name.isEmpty)
-                        .bold()
-                }
-            }
-            .sheet(isPresented: $showingLocationPicker) {
-                LocationPickerSheet(coordinate: $pinCoordinate, pinLabel: "Spot")
-            }
-        }
-    }
-
-    private func saveSpot() {
-        let lat: Double
-        let lon: Double
-
-        if usePin, let coord = pinCoordinate {
-            lat = coord.latitude
-            lon = coord.longitude
-        } else if let location = appState.locationManager.currentLocation {
-            lat = location.coordinate.latitude
-            lon = location.coordinate.longitude
-        } else {
-            return
-        }
-
-        var spot = Spot(
-            name: name,
-            latitude: lat,
-            longitude: lon,
-            notes: notes.isEmpty ? nil : notes,
-            isPrivate: isPrivate,
-            spotType: spotType
-        )
-        try? appState.spotRepository.save(&spot)
-        ToastCenter.shared.show("Spot saved")
-        dismiss()
-    }
-}
-
-// MARK: - Edit Spot Sheet (Full Field Editing)
-
-struct EditSpotSheet: View {
-    @Environment(\.dismiss) private var dismiss
-    let spot: Spot
-    let onSave: (Spot) -> Void
-
-    @State private var name: String = ""
-    @State private var notes: String = ""
-    @State private var isPrivate: Bool = true
-    @State private var spotType: Spot.SpotType = .general
-    @State private var coordinate: CLLocationCoordinate2D?
-    @State private var showingLocationPicker = false
-
-    var body: some View {
-        NavigationStack {
-            Form {
-                Section("Details") {
-                    TextField("Spot Name", text: $name)
-                    Picker("Type", selection: $spotType) {
-                        ForEach(Spot.SpotType.allCases, id: \.self) { type in
-                            Label(type.rawValue, systemImage: type.icon).tag(type)
-                        }
-                    }
-                    TextField("Notes", text: $notes, axis: .vertical)
-                        .lineLimit(3...6)
-                }
-
-                Section("Location") {
-                    // Mini map preview of the (possibly moved) location
-                    if let coord = coordinate {
-                        Map(position: .constant(.camera(.init(
-                            centerCoordinate: coord,
-                            distance: 2500
-                        )))) {
-                            Annotation("", coordinate: coord) {
-                                Image(systemName: "mappin.circle.fill")
-                                    .font(.title)
-                                    .foregroundStyle(CurrentsTheme.accent)
-                            }
-                        }
-                        .mapStyle(.hybrid)
-                        .frame(height: 130)
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
-                        .allowsHitTesting(false)
-                        .listRowInsets(EdgeInsets())
-
-                        HStack {
-                            Image(systemName: "mappin.circle.fill")
-                                .foregroundStyle(CurrentsTheme.accent)
-                            Text(String(format: "%.4f, %.4f", coord.latitude, coord.longitude))
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            Spacer()
-                            Button("Move on Map") {
-                                showingLocationPicker = true
-                            }
-                            .font(.caption.bold())
-                        }
-                    }
-                }
-
-                if FeatureFlags.spotPrivacy {
-                    Section {
-                        Toggle("Private Spot", isOn: $isPrivate)
-                    } footer: {
-                        Text("Private spots are never shared.")
-                    }
-                }
-            }
-            .navigationTitle("Edit Spot")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
-                        var updated = spot
-                        updated.name = name
-                        updated.notes = notes.isEmpty ? nil : notes
-                        updated.isPrivate = isPrivate
-                        updated.type = spotType
-                        if let coord = coordinate {
-                            updated.latitude = coord.latitude
-                            updated.longitude = coord.longitude
-                            updated.geohash = Geohash.encode(
-                                latitude: coord.latitude,
-                                longitude: coord.longitude,
-                                precision: 7
-                            )
-                        }
-                        onSave(updated)
-                        dismiss()
-                    }
-                    .bold()
-                    .disabled(name.isEmpty)
-                }
-            }
-            .sheet(isPresented: $showingLocationPicker) {
-                LocationPickerSheet(coordinate: $coordinate, pinLabel: "Spot")
-            }
-            .task {
-                name = spot.name
-                notes = spot.notes ?? ""
-                isPrivate = spot.isPrivate
-                spotType = spot.type
-                if coordinate == nil {
-                    coordinate = CLLocationCoordinate2D(
-                        latitude: spot.latitude,
-                        longitude: spot.longitude
-                    )
-                }
-            }
-        }
-    }
-}
-
-// MARK: - Waterbody Pin
-
-struct WaterbodyPin: View {
-    let waterbody: Waterbody
-    var biteScore: Int?
-    var accent: Color = CurrentsTheme.accent
-
-    var body: some View {
-        VStack(spacing: 2) {
-            ZStack(alignment: .topTrailing) {
-                ZStack {
-                    Circle()
-                        .fill(accent.opacity(0.85))
-                        .frame(width: 36, height: 36)
-                        .shadow(color: accent.opacity(0.4), radius: 4, y: 2)
-
-                    Image(systemName: waterbodyIcon)
-                        .font(.system(size: 16))
-                        .foregroundStyle(.white)
-                }
-
-                if let score = biteScore {
-                    Text("\(score)")
-                        .font(.system(size: 9, weight: .heavy))
-                        .monospacedDigit()
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 4)
-                        .padding(.vertical, 1)
-                        .background(CurrentsTheme.scoreColor(score))
-                        .clipShape(Capsule())
-                        .offset(x: 8, y: -6)
-                }
-            }
-            Text(waterbody.name)
-                .font(.system(size: 9).bold())
-                .padding(.horizontal, 4)
-                .padding(.vertical, 1)
-                .background(.ultraThinMaterial)
-                .clipShape(Capsule())
-                .lineLimit(1)
-        }
-    }
-
-    private var waterbodyIcon: String {
-        switch waterbody.type {
-        case .lake: "water.waves"
-        case .dam: "water.waves.and.arrow.down"
-        case .river: "arrow.left.arrow.right"
-        case .estuary: "water.waves.slash"
-        case .coast: "sailboat.fill"
-        }
-    }
-}
-
-// MARK: - Boat ramp pin + detail
-
-/// A public boat ramp / fishing access marker — visually distinct from spots
-/// (teal square, marine icon) so launch points read at a glance.
-struct RampPin: View {
-    let ramp: BoatRamp
-    var accent: Color = CurrentsTheme.accent
-
-    var body: some View {
-        VStack(spacing: 2) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    .fill(Color.teal.opacity(0.9))
-                    .frame(width: 30, height: 30)
-                    .shadow(color: .teal.opacity(0.4), radius: 3, y: 2)
-                Image(systemName: ramp.kind.icon)
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(.white)
-            }
-            if ramp.name != ramp.kind.label {
-                Text(ramp.name)
-                    .font(.system(size: 9).bold())
-                    .padding(.horizontal, 4)
-                    .padding(.vertical, 1)
-                    .background(.ultraThinMaterial)
-                    .clipShape(Capsule())
-                    .lineLimit(1)
-            }
-        }
-    }
-}
-
-/// Tap a ramp: what it is, and one-tap driving directions — the whole reason
-/// you'd look for a ramp on the map.
-struct RampDetailSheet: View {
-    let ramp: BoatRamp
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        VStack(spacing: 14) {
-            HStack(spacing: 12) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(Color.teal.opacity(0.15))
-                        .frame(width: 48, height: 48)
-                    Image(systemName: ramp.kind.icon)
-                        .font(.title3)
-                        .foregroundStyle(.teal)
-                }
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(ramp.name).font(.headline)
-                    Text("\(ramp.kind.label) · OpenStreetMap")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-                Spacer()
-            }
-            Button {
-                Haptics.tap()
-                let item = MKMapItem(placemark: MKPlacemark(coordinate: ramp.coordinate))
-                item.name = ramp.name
-                item.openInMaps(launchOptions: [
-                    MKLaunchOptionsDirectionsModeKey: MKLaunchOptionsDirectionsModeDriving
-                ])
-            } label: {
-                Label("Directions", systemImage: "car.fill")
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderedProminent).labelStyle(.prominentButton).tint(CurrentsTheme.accent)
-            Button("Done") { dismiss() }
-                .font(.subheadline)
-        }
-        .padding(20)
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-}
-
-// MARK: - Map Layers Sheet
-
-/// Toggle the optional overlay layers. All off by default; choices persist via
-/// @AppStorage in MapTab.
-struct MapLayersSheet: View {
-    @Binding var nautical: Bool
-    @Binding var radar: Bool
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        NavigationStack {
-            Form {
-                Section {
-                    Toggle(isOn: $nautical) {
-                        Label("Nautical / Depth", systemImage: "water.waves")
-                    }
-                    Toggle(isOn: $radar) {
-                        Label("Weather Radar", systemImage: "cloud.rain")
-                    }
-                } footer: {
-                    Text("Nautical shows depth soundings, buoys and chart marks (OpenSeaMap). Weather radar shows live precipitation (RainViewer). Both need a connection to load new tiles; nautical tiles you've viewed are cached like the base map.")
-                }
-            }
-            .navigationTitle("Map Layers")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
-                }
-            }
         }
     }
 }

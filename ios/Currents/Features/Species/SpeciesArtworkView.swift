@@ -34,11 +34,10 @@ struct SpeciesArtworkView: View {
             } else {
                 // Silhouette fallback until bundled art ships
                 Image(systemName: "fish.fill")
-                    .font(.system(size: size * 0.5))
-                    .foregroundStyle(
-                        caught ? AnyShapeStyle(species.rarity.color.gradient)
-                               : AnyShapeStyle(Color.secondary)
-                    )
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: size * 0.5, height: size * 0.5)
+                    .foregroundStyle(caught ? species.artTint : Color.secondary)
                     .frame(width: size, height: size)
             }
         }

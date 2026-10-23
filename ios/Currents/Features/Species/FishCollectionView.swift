@@ -1,33 +1,31 @@
 import SwiftUI
 
-/// The "Cooler" — a Pokédex-style collection of every species in the app.
-///
-/// Uncaught species appear as greyed-out silhouettes; catching one fills it
-/// in with colour. Sortable by rarity (default) or catalog number, filterable
-/// by rarity tier and caught state.
+/// The Fishdex: every species in the app as a numbered grid, laid out like
+/// the Achievements page beside it in the Logbook. Species you have caught
+/// show in colour with their name and catch count; the rest are silhouettes
+/// marked "Not found yet". Tapping any of them opens its page. A rarity tally
+/// that doubles as a filter, an in-page search by name or number, found and
+/// habitat chips, and sort and rarity in the toolbar menu.
 struct FishCollectionView: View {
     @Environment(AppState.self) private var appState
-    /// True when hosted inside the Fish tab, which supplies its own
-    /// NavigationStack — nesting one here would break the search bar.
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// True when pushed into an existing NavigationStack (Logbook >
+    /// Fishdex). Standalone it supplies its own.
     var embedded: Bool = false
-    /// Rendered as the first row *inside* the scroll view. The tab's segment
-    /// pills live here so they scroll away with the content instead of being
-    /// pinned over the large title.
+    /// Optional first row inside the scroll view.
     var header: AnyView? = nil
 
+    @Namespace private var zoomNamespace
     @State private var species: [Species] = []
+    @State private var countById: [Int64: Int] = [:]
     @State private var caughtIds: Set<Int64> = []
+    @State private var loaded = false
+    @State private var appeared = false
+    @State private var titleShown = false
     @State private var searchText = ""
-    @FocusState private var searchFocused: Bool
-    @AppStorage("collectionSortMode") private var sort: SortMode = .number
+    @State private var filter: Filter = .all
     @State private var rarityFilter: SpeciesRarity?
-    @State private var showCaughtOnly = false
-    @State private var selected: Species?
-    // Observed + read in the body so the accent-tinted % + progress bar
-    // re-tint immediately on a theme change (CurrentsTheme.accent alone reads
-    // UserDefaults without creating a view dependency).
-    @AppStorage("selectedTheme") private var selectedTheme = ThemeOption.ocean.rawValue
-    private var accent: Color { (ThemeOption(rawValue: selectedTheme) ?? .ocean).primary }
+    @AppStorage("collectionSortMode") private var sort: SortMode = .number
 
     enum SortMode: String, CaseIterable {
         case rarest = "Rarest"
@@ -37,25 +35,42 @@ struct FishCollectionView: View {
         static let defaultMode: SortMode = .number
     }
 
-    private let columns = [GridItem(.adaptive(minimum: 104), spacing: 12)]
+    enum Filter: String, CaseIterable, Hashable {
+        case all = "All"
+        case found = "Found"
+        case freshwater = "Freshwater"
+        case saltwater = "Saltwater"
+    }
+
+    private let columns = [GridItem(.flexible(), spacing: 10, alignment: .top),
+                           GridItem(.flexible(), spacing: 10, alignment: .top),
+                           GridItem(.flexible(), alignment: .top)]
+
+    private var foundCount: Int { caughtIds.intersection(Set(species.map(\.id))).count }
 
     private var filtered: [Species] {
         var result = species
+        switch filter {
+        case .all: break
+        case .found: result = result.filter { caughtIds.contains($0.id) }
+        case .freshwater: result = result.filter { $0.habitat == .freshwater }
+        case .saltwater: result = result.filter { $0.habitat == .marine || $0.habitat == .brackish }
+        }
         if let rarity = rarityFilter {
             result = result.filter { $0.rarity == rarity }
         }
-        if showCaughtOnly {
-            result = result.filter { caughtIds.contains($0.id) }
-        }
-        if !searchText.isEmpty {
+        let query = searchText.trimmingCharacters(in: .whitespaces)
+        if !query.isEmpty {
+            let digits = query.trimmingCharacters(in: CharacterSet(charactersIn: "#"))
             result = result.filter {
-                $0.commonName.localizedCaseInsensitiveContains(searchText) ||
-                $0.scientificName.localizedCaseInsensitiveContains(searchText)
+                $0.commonName.localizedCaseInsensitiveContains(query) ||
+                $0.scientificName.localizedCaseInsensitiveContains(query) ||
+                (!digits.isEmpty && $0.fishdexNumber.contains(digits))
             }
         }
         switch sort {
         case .rarest:
-            // Rarest first; within a tier, caught ones first, then by name.
+            // Rarest first; within a tier, found ones first, then by name.
             result.sort {
                 if $0.rarity != $1.rarity { return $0.rarity > $1.rarity }
                 let lc = caughtIds.contains($0.id), rc = caughtIds.contains($1.id)
@@ -71,237 +86,351 @@ struct FishCollectionView: View {
     }
 
     var body: some View {
-        // Inside the Fish tab this is already in a NavigationStack; only wrap
-        // when used standalone.
         if embedded { content } else { NavigationStack { content } }
     }
 
-    @ViewBuilder
     private var content: some View {
-            ScrollView {
-                VStack(spacing: CurrentsTheme.paddingM) {
-                    if let header { header }
-                    progressHeader
-                    controls
-                    grid
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                if let header { header }
+                DetailHeader(over: "Fishdex",
+                             title: loaded ? "\(foundCount.formatted()) of \(species.count.formatted())" : "Fishdex",
+                             subtitle: loaded ? progressText : nil)
+                    .contentTransition(.numericText())
+
+                if loaded && !species.isEmpty {
+                    progress
+                        .padding(.horizontal, DS.gutter)
+                        .padding(.top, DS.Space.s4)
+                    rarityTally
+                        .padding(.horizontal, DS.gutter)
+                        .padding(.top, DS.Space.s5)
                 }
-                .padding(.horizontal)
-                .padding(.bottom, 24)
-            }
-            .navigationTitle(embedded ? "" : "Collection")
-            .searchable(text: $searchText, prompt: "Search species")
-            .searchFocused($searchFocused)
-            // Pulling past the top opens search with the keyboard up, so the
-            // overscroll gesture does something instead of bouncing on air.
-            .onScrollGeometryChange(for: Bool.self) { geo in
-                geo.contentOffset.y + geo.contentInsets.top < -60
-            } action: { wasPulled, isPulled in
-                if isPulled, !wasPulled, !searchFocused {
-                    Haptics.tap()
-                    searchFocused = true
+
+                PFSearchField(prompt: species.isEmpty ? "Search species" : "Search \(species.count.formatted()) species",
+                              text: $searchText)
+                    .padding(.top, DS.Space.s6)
+                FilterChips(Filter.allCases, selection: $filter) { $0.rawValue }
+                    .padding(.top, DS.Space.s2)
+                if rarityFilter != nil || sort != SortMode.defaultMode {
+                    activeOptions
+                        .padding(.top, DS.Space.s1)
                 }
+                grid
+                    .padding(.top, DS.Space.s4)
             }
-            .sensoryFeedback(.selection, trigger: sort)
-            .sensoryFeedback(.selection, trigger: rarityFilter)
-            .sensoryFeedback(.selection, trigger: showCaughtOnly)
-            // No .refreshable here — the pull gesture fought with cell taps and
-            // sheet swipe-downs, causing phantom "refreshes". Data reloads when
-            // the detail sheet closes instead.
-            .sheet(item: $selected, onDismiss: {
-                Task { await load() }
-            }) { sp in
-                NavigationStack {
-                    SpeciesDetailView(species: sp)
-                        .toolbar {
-                            ToolbarItem(placement: .cancellationAction) {
-                                Button("Done") { selected = nil }
-                            }
-                        }
-                }
-                .presentationDragIndicator(.visible)
-            }
-            .task { await load() }
+            .padding(.bottom, DS.Space.s8)
+            .pageWidth()
+        }
+        .scrollDismissesKeyboard(.immediately)
+        .detailTint(nil)
+        .pfTrackScroll($titleShown, threshold: 60)
+        .pfScrollTitle("Fishdex", shown: titleShown)
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) { optionsMenu }
+        }
+        .navigationDestination(for: SpeciesRoute.self) { route in
+            SpeciesDetailView(species: route.species,
+                              zoom: SpeciesZoomSource(id: route.species.id, namespace: zoomNamespace))
+        }
+        // Runs on every appear, so coming back from a species page (where a
+        // catch may have been logged) refreshes the counts.
+        .task { await load() }
     }
 
-    // MARK: - Progress Header
+    private var progressText: String {
+        let pct = species.isEmpty ? 0 : Double(foundCount) / Double(species.count) * 100
+        // One decimal so early progress isn't stuck at a flat 0 percent.
+        return String(format: "%.1f%% of species found", pct)
+    }
 
-    private var progressHeader: some View {
-        let total = species.count
-        let caught = caughtIds.intersection(Set(species.map(\.id))).count
-        let pct = total > 0 ? Double(caught) / Double(total) : 0
-        return VStack(spacing: 10) {
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("\(caught) / \(total)")
-                        .font(.title2.bold())
-                        .monospacedDigit()
-                    Text("species collected")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-                // One decimal so early progress isn't stuck at a flat 0% —
-                // with 1,500+ species you'd need ~16 to even reach 1%.
-                Text(String(format: "%.1f%%", pct * 100))
-                    .font(.title.bold())
-                    .monospacedDigit()
-                    .foregroundStyle(accent)
-            }
-            ProgressView(value: pct)
-                .tint(accent)
+    // MARK: - Progress
 
-            // Rarity breakdown
-            HStack(spacing: 10) {
-                ForEach(SpeciesRarity.allCases.reversed(), id: \.self) { rarity in
-                    let caughtInTier = species.filter { $0.rarity == rarity && caughtIds.contains($0.id) }.count
-                    let totalInTier = species.filter { $0.rarity == rarity }.count
-                    if totalInTier > 0 {
-                        VStack(spacing: 3) {
-                            Image(systemName: rarity.symbol)
-                                .font(.caption2)
-                                .foregroundStyle(rarity.color)
-                            Text("\(caughtInTier)/\(totalInTier)")
-                                .font(.system(size: 10, weight: .bold))
-                                .monospacedDigit()
-                                .foregroundStyle(.secondary)
-                        }
-                        .frame(maxWidth: .infinity)
-                    }
-                }
+    private var progress: some View {
+        let fraction = species.isEmpty ? 0 : Double(foundCount) / Double(species.count)
+        let fresh = species.filter { $0.habitat == .freshwater && caughtIds.contains($0.id) }.count
+        let salt = species.filter { $0.habitat != .freshwater && $0.habitat != nil && caughtIds.contains($0.id) }.count
+        return VStack(alignment: .leading, spacing: DS.Space.s2) {
+            LogbookProgressBar(fraction: appeared ? fraction : 0, tint: .dsScoreGood)
+                .animation(reduceMotion ? nil : DS.Motion.easeOut, value: appeared)
+            HStack(spacing: DS.Space.s4) {
+                splitLabel(fresh, "freshwater")
+                splitLabel(salt, "saltwater")
             }
         }
-        .glassCard()
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Fishdex progress")
+        .accessibilityValue("\(progressText). \(fresh) freshwater, \(salt) saltwater.")
     }
 
-    // MARK: - Controls
+    private func splitLabel(_ count: Int, _ label: String) -> some View {
+        HStack(spacing: 4) {
+            Text("\(count)")
+                .fontWeight(.semibold)
+                .monospacedDigit()
+                .foregroundStyle(.dsText)
+            Text(label)
+                .foregroundStyle(.dsText2)
+        }
+        .font(.footnote)
+    }
 
-    private var controls: some View {
-        VStack(spacing: 8) {
-            // Sort + caught toggle
-            HStack {
-                Menu {
-                    ForEach(SortMode.allCases, id: \.self) { mode in
-                        Button {
-                            sort = mode
-                        } label: {
-                            Label(mode.rawValue, systemImage: sort == mode ? "checkmark" : "")
-                        }
-                    }
-                    Divider()
-                    Button {
-                        sort = SortMode.defaultMode
-                    } label: {
-                        Label("Default (\(SortMode.defaultMode.rawValue))", systemImage: "arrow.uturn.backward")
-                    }
-                    .disabled(sort == SortMode.defaultMode)
-                } label: {
-                    Label("Sort: \(sort.rawValue)", systemImage: "arrow.up.arrow.down")
-                        .font(.caption.bold())
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 7)
-                        .background(.ultraThinMaterial, in: Capsule())
-                }
-                Spacer()
+    // MARK: - Rarity
+
+    private struct RarityCount: Identifiable {
+        let rarity: SpeciesRarity
+        let found: Int
+        let total: Int
+        var id: SpeciesRarity { rarity }
+    }
+
+    /// Found and total per tier, commonest first, skipping empty tiers.
+    private var rarityCounts: [RarityCount] {
+        var totals: [SpeciesRarity: Int] = [:]
+        var found: [SpeciesRarity: Int] = [:]
+        for sp in species {
+            totals[sp.rarity, default: 0] += 1
+            if caughtIds.contains(sp.id) { found[sp.rarity, default: 0] += 1 }
+        }
+        return SpeciesRarity.allCases.compactMap { rarity -> RarityCount? in
+            guard let total = totals[rarity], total > 0 else { return nil }
+            return RarityCount(rarity: rarity, found: found[rarity] ?? 0, total: total)
+        }
+    }
+
+    /// Found of total for each rarity with a bar in its colour, three across,
+    /// the same tally as the Achievements page. Tapping a tier filters the
+    /// grid to it; tapping it again clears the filter.
+    private var rarityTally: some View {
+        let columns = Array(repeating: GridItem(.flexible(), spacing: 10), count: 3)
+        return LazyVGrid(columns: columns, alignment: .leading, spacing: 10) {
+            ForEach(rarityCounts) { tier in
+                let selected = rarityFilter == tier.rarity
                 Button {
-                    withAnimation(.easeInOut(duration: 0.15)) { showCaughtOnly.toggle() }
+                    withAnimation(DS.Motion.softSpring) {
+                        rarityFilter = selected ? nil : tier.rarity
+                    }
                 } label: {
-                    Label("Caught only", systemImage: showCaughtOnly ? "checkmark.circle.fill" : "circle")
-                        .font(.caption.bold())
-                        .foregroundStyle(showCaughtOnly ? CurrentsTheme.accent : .secondary)
-                }
-            }
-
-            // Rarity filter chips
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 4) {
-                    FilterChip(title: "All", isSelected: rarityFilter == nil) {
-                        withAnimation(.easeInOut(duration: 0.15)) { rarityFilter = nil }
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(tier.rarity.label)
+                            .font(.footnote.weight(.medium))
+                            .foregroundStyle(.dsText2)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
+                        Text("\(tier.found) of \(tier.total.formatted())")
+                            .font(.headline)
+                            .monospacedDigit()
+                            .foregroundStyle(.dsText)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.7)
+                        LogbookProgressBar(fraction: appeared ? Double(tier.found) / Double(tier.total) : 0,
+                                           tint: tier.rarity.color, height: 6)
+                            .animation(reduceMotion ? nil : DS.Motion.easeOut, value: appeared)
                     }
-                    ForEach(SpeciesRarity.allCases.reversed(), id: \.self) { rarity in
-                        FilterChip(title: rarity.label, isSelected: rarityFilter == rarity) {
-                            withAnimation(.easeInOut(duration: 0.15)) {
-                                rarityFilter = rarityFilter == rarity ? nil : rarity
-                            }
-                        }
-                    }
+                    .padding(12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
+                    .contentShape(RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
+                    // The chosen tier stays bright and the others step back.
+                    .opacity(rarityFilter == nil || selected ? 1 : 0.45)
                 }
-                .padding(.vertical, 2)
+                .buttonStyle(.dim)
+                .buttonHaptic(.selection)
+                .accessibilityLabel("\(tier.rarity.label), \(tier.found) of \(tier.total) found")
+                .accessibilityHint(selected ? "Shows every rarity" : "Shows only \(tier.rarity.label.lowercased()) species")
+                .accessibilityAddTraits(selected ? .isSelected : [])
             }
         }
+    }
+
+    // MARK: - Options
+
+    private var optionsMenu: some View {
+        Menu {
+            Section("Sort by") {
+                Picker("Sort by", selection: $sort.haptic()) {
+                    ForEach(SortMode.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                }
+            }
+            Section("Rarity") {
+                Picker("Rarity", selection: $rarityFilter.haptic()) {
+                    Text("All rarities").tag(SpeciesRarity?.none)
+                    ForEach(SpeciesRarity.allCases, id: \.self) { rarity in
+                        Text(rarity.label).tag(SpeciesRarity?.some(rarity))
+                    }
+                }
+            }
+        } label: {
+            Image(systemName: "line.3.horizontal.decrease")
+        }
+        .accessibilityLabel("Sort and rarity")
+        .accessibilityValue("\(sort.rawValue), \(rarityFilter?.label ?? "all rarities")")
+    }
+
+    /// The menu's non-default choices as removable chips, as the Logbook
+    /// shows its active filter, so state is never hidden behind the menu.
+    private var activeOptions: some View {
+        HStack(spacing: 6) {
+            if let rarity = rarityFilter {
+                Chip(rarity.label, systemImage: "xmark", isSelected: true) {
+                    withAnimation(DS.Motion.softSpring) { rarityFilter = nil }
+                }
+                .accessibilityLabel("Showing \(rarity.label.lowercased()) species")
+                .accessibilityHint("Shows every rarity")
+            }
+            if sort != SortMode.defaultMode {
+                Chip("Sorted by \(sort.rawValue.lowercased())", systemImage: "xmark", isSelected: true) {
+                    sort = SortMode.defaultMode
+                }
+                .accessibilityHint("Sorts by number again")
+            }
+        }
+        .padding(.horizontal, DS.gutter)
+        .padding(.vertical, 4)
     }
 
     // MARK: - Grid
 
+    @ViewBuilder
     private var grid: some View {
-        LazyVGrid(columns: columns, spacing: 12) {
-            ForEach(filtered) { sp in
-                Button {
-                    Haptics.tap()
-                    selected = sp
-                } label: {
-                    CollectionCell(species: sp, caught: caughtIds.contains(sp.id))
-                }
-                .buttonStyle(.plain)
+        let list = filtered
+        if !loaded {
+            ProgressView()
+                .frame(maxWidth: .infinity)
+                .padding(.top, 60)
+        } else if species.isEmpty {
+            ContentUnavailableView("No species data", systemImage: "fish",
+                                   description: Text("Species will appear here once the guide has loaded."))
+        } else if list.isEmpty {
+            if filter == .found && searchText.isEmpty && rarityFilter == nil {
+                ContentUnavailableView("Nothing found yet", systemImage: "book.closed",
+                                       description: Text("Log a catch and the species joins your Fishdex."))
+            } else {
+                ContentUnavailableView("No species found", systemImage: "magnifyingglass",
+                                       description: Text("Try the common or scientific name, or a Fishdex number."))
             }
+        } else {
+            LazyVGrid(columns: columns, spacing: 14) {
+                ForEach(list) { sp in
+                    NavigationLink(value: SpeciesRoute(species: sp)) {
+                        FishdexCell(species: sp, count: countById[sp.id] ?? 0,
+                                    found: caughtIds.contains(sp.id), zoomNamespace: zoomNamespace)
+                    }
+                    .buttonStyle(.dim)
+                }
+            }
+            .padding(.horizontal, DS.gutter)
         }
     }
 
     private func load() async {
-        species = (try? appState.speciesRepository.fetchAll()) ?? []
+        if species.isEmpty {
+            species = (try? appState.speciesRepository.fetchAll()) ?? []
+        }
         caughtIds = (try? appState.speciesRepository.caughtSpeciesIds()) ?? []
+        let bests = (try? appState.catchRepository.personalBests()) ?? []
+        var counts: [Int64: Int] = [:]
+        for pb in bests { counts[pb.speciesId] = pb.totalCatches }
+        countById = counts
+        loaded = true
+        appeared = true
     }
 }
 
-// MARK: - Collection Cell
+// MARK: - Cell
 
-private struct CollectionCell: View {
+/// One Fishdex entry: square art, number, name and catch count. The art is
+/// on its colour like every species thumbnail when found, and a flat
+/// silhouette on the fill when not.
+private struct FishdexCell: View {
     let species: Species
-    let caught: Bool
+    let count: Int
+    let found: Bool
+    let zoomNamespace: Namespace.ID
+    @Environment(\.colorScheme) private var scheme
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
-        VStack(spacing: 6) {
-            // Always full colour and always named: this is the field guide as
-            // well as the collection now, so hiding a species you haven't
-            // caught would hide the reference you came here to read.
-            SpeciesArtworkView(species: species, caught: true, size: 72, fillWidth: true)
-                .frame(maxWidth: .infinity)
-                .frame(height: 76)
-
-            Text(species.commonName)
-                .font(.system(size: 11, weight: .semibold))
-                .lineLimit(1)
-                .minimumScaleFactor(0.85)
-                .foregroundStyle(.primary)
-
-            Text(String(format: "#%04d", species.id))
-                .font(.system(size: 9, weight: .medium))
+        VStack(alignment: .leading, spacing: 1) {
+            art
+                .matchedTransitionSource(id: species.id, in: zoomNamespace)
+                .padding(.bottom, 4)
+            Text(species.fishdexNumber)
+                .font(.caption2)
                 .monospacedDigit()
-                .foregroundStyle(.tertiary)
-        }
-        .padding(.vertical, 10)
-        .padding(.horizontal, 6)
-        .frame(maxWidth: .infinity)
-        .background(.ultraThinMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 14))
-        .overlay(alignment: .topTrailing) {
-            Image(systemName: species.rarity.symbol)
-                .font(.system(size: 9))
-                .foregroundStyle(species.rarity.color)
-                .padding(6)
-        }
-        // Caught is now shown by a tick rather than by hiding everything else.
-        .overlay(alignment: .topLeading) {
-            if caught {
-                Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 11))
-                    .symbolRenderingMode(.palette)
-                    .foregroundStyle(.white, .green)
-                    .padding(6)
+                .foregroundStyle(.dsText3)
+            Text(found ? species.commonName : "Not found yet")
+                .font(.footnote.weight(found ? .semibold : .medium))
+                .foregroundStyle(found ? Color.dsText : Color.dsText3)
+                .lineLimit(typeSize.isAccessibilitySize ? 3 : 1)
+                .multilineTextAlignment(.leading)
+            if found {
+                Text(count == 1 ? "1 caught" : "\(count) caught")
+                    .font(.caption)
+                    .foregroundStyle(.dsText2)
             }
         }
-        .overlay(
-            RoundedRectangle(cornerRadius: 14)
-                .stroke(caught ? species.rarity.color.opacity(0.6) : Color.clear, lineWidth: 1.5)
-        )
+        .frame(maxWidth: .infinity, alignment: .leading)
+        // Size from the column width alone. Without this the grid offers a
+        // shared row height, a cell with more text lines leaves less of it for
+        // the tile, and the square shrinks to a narrow pill.
+        .fixedSize(horizontal: false, vertical: true)
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(found
+            ? "\(species.fishdexNumber), \(species.commonName), \(count) caught"
+            : "\(species.fishdexNumber), not found yet")
+    }
+
+    /// A square as wide as the column. The art sits in overlays, which can
+    /// never change the tile's size, so every tile matches.
+    private var art: some View {
+        Color.clear
+            .aspectRatio(1, contentMode: .fit)
+            .background {
+                if found {
+                    ZStack {
+                        Color.dsBackground
+                        species.artTint.opacity(DS.thumbTintOpacity(scheme))
+                    }
+                } else {
+                    Color.dsFill
+                }
+            }
+            .overlay {
+                FishdexArt(species: species, found: found)
+                    .padding(6)
+            }
+            .clipShape(RoundedRectangle(cornerRadius: DS.Radius.thumb, style: .continuous))
+    }
+}
+
+/// The species art in colour when found, or as a flat silhouette when not.
+private struct FishdexArt: View {
+    let species: Species
+    let found: Bool
+
+    var body: some View {
+        if UIImage(named: species.artworkAssetName) != nil {
+            // The same picture either way, so found and not found tiles
+            // fill the square identically.
+            if found {
+                Image(species.artworkAssetName)
+                    .resizable()
+                    .scaledToFit()
+            } else {
+                Image(species.artworkAssetName)
+                    .renderingMode(.template)
+                    .resizable()
+                    .scaledToFit()
+                    .foregroundStyle(Color.dsText.opacity(0.16))
+            }
+        } else {
+            Image(systemName: "fish.fill")
+                .resizable()
+                .scaledToFit()
+                .padding(16)
+                .foregroundStyle(found ? species.artTint : Color.dsText.opacity(0.16))
+        }
     }
 }

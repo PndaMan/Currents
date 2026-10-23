@@ -2,8 +2,8 @@ import SwiftUI
 import MapKit
 import CoreLocation
 
-/// Strava-style shareable recap of a fishing session: the route drawn over a
-/// real map, headline stats, and the day's catches — rendered to an image.
+/// A shareable recap of a fishing session: the route drawn over a real map,
+/// headline stats and the day's catches, rendered to an image.
 @MainActor
 enum TripRecapCard {
     /// Async because it snapshots real map tiles for the route before laying
@@ -17,15 +17,13 @@ enum TripRecapCard {
             for: coords,
             size: CGSize(width: 1040, height: 588)
         )
-        let card = TripRecapCardView(trip: trip, catches: catches, routeImage: routeImage)
-        let renderer = ImageRenderer(content: card)
-        renderer.scale = 3
-        return renderer.uiImage
+        return ShareCardRenderer.image(
+            TripRecapCardView(trip: trip, catches: catches, routeImage: routeImage))
     }
 
     static func caption(for trip: Trip, catches: [CatchDetail]) -> String {
         let fish = catches.count
-        return "\(trip.name) — \(fish) fish, \(SessionFormat.distance(trip.totalTrackDistanceMeters)) covered. Logged with Currents 🎣"
+        return "\(trip.name): \(fish) fish, \(SessionFormat.distance(trip.totalTrackDistanceMeters)) covered. Logged with Currents"
     }
 }
 
@@ -111,12 +109,12 @@ enum RouteMapRenderer {
 
 // MARK: - Card
 
+/// The session recap in the share-card family: the route over a real map,
+/// the date and name, headline stats and the day's top species.
 struct TripRecapCardView: View {
     let trip: Trip
     let catches: [CatchDetail]
     let routeImage: UIImage?
-
-    private let cardWidth: CGFloat = 380
 
     private var speciesCounts: [(String, Int, Species?)] {
         var acc: [String: (Int, Species?)] = [:]
@@ -129,123 +127,101 @@ struct TripRecapCardView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            header
+        ShareCardCanvas(height: nil) {
             mapPanel
-            statsRow
-            if !speciesCounts.isEmpty { speciesList }
-            footer
-        }
-        .padding(22)
-        .frame(width: cardWidth)
-        .background(
-            LinearGradient(colors: [Color(red: 0.05, green: 0.11, blue: 0.19),
-                                    Color(red: 0.02, green: 0.05, blue: 0.10)],
-                           startPoint: .top, endPoint: .bottom)
-        )
-    }
-
-    private var header: some View {
-        HStack(alignment: .top) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(trip.name)
-                    .font(.title2.bold()).foregroundStyle(.white)
-                    .lineLimit(1).minimumScaleFactor(0.7)
-                Text(dateLabel)
-                    .font(.subheadline).foregroundStyle(.white.opacity(0.65))
+            Text(dateLabel)
+                .font(.subheadline)
+                .foregroundStyle(Color.dsText2)
+                .padding(.top, DS.Space.s4)
+            Text(trip.name)
+                .font(.title.bold())
+                .foregroundStyle(Color.dsText)
+                .lineLimit(2)
+                .minimumScaleFactor(0.7)
+            HStack(spacing: DS.Space.s2) {
+                ShareCardStat(value: "\(catches.count)", label: catches.count == 1 ? "Catch" : "Catches")
+                ShareCardStat(value: SessionFormat.distance(trip.totalTrackDistanceMeters), label: "Distance")
+                ShareCardStat(value: SessionFormat.duration(trip.totalDurationSeconds), label: "Time")
+                if trip.isMultiDay { ShareCardStat(value: "\(trip.dayCount)", label: "Days") }
             }
-            Spacer(minLength: 8)
-            Image("Logo")
-                .resizable().scaledToFit()
-                .frame(width: 42, height: 42)
-        }
-    }
-
-    @ViewBuilder private var mapPanel: some View {
-        ZStack(alignment: .bottomLeading) {
-            if let routeImage {
-                Image(uiImage: routeImage)
-                    .resizable().scaledToFill()
-            } else {
-                Rectangle().fill(Color.white.opacity(0.06))
-                    .overlay(
-                        Text("No track recorded")
-                            .font(.caption).foregroundStyle(.white.opacity(0.4))
-                    )
-            }
-
-            // Distance pill anchored to the map corner.
-            Label(SessionFormat.distance(trip.totalTrackDistanceMeters),
-                  systemImage: "point.topleft.down.to.point.bottomright.curvepath")
-                .font(.caption.bold())
-                .foregroundStyle(.white)
-                .padding(.horizontal, 10).padding(.vertical, 6)
-                .background(.black.opacity(0.55), in: Capsule())
-                .padding(10)
-        }
-        .frame(height: 192)
-        .frame(maxWidth: .infinity)
-        .clipShape(RoundedRectangle(cornerRadius: 18))
-        .overlay(
-            RoundedRectangle(cornerRadius: 18)
-                .strokeBorder(.white.opacity(0.12), lineWidth: 1)
-        )
-    }
-
-    private var statsRow: some View {
-        HStack(spacing: 10) {
-            stat("\(catches.count)", "Catches")
-            stat(SessionFormat.distance(trip.totalTrackDistanceMeters), "Distance")
-            stat(SessionFormat.duration(trip.totalDurationSeconds), "Time")
-            if trip.isMultiDay { stat("\(trip.dayCount)", "Days") }
-        }
-    }
-
-    private var speciesList: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            ForEach(Array(speciesCounts.prefix(3)), id: \.0) { row in
-                HStack(spacing: 10) {
-                    if let sp = row.2 {
-                        SpeciesArtworkView(species: sp, caught: true, size: 28)
+            .padding(.top, DS.Space.s4)
+            if !speciesCounts.isEmpty {
+                VStack(spacing: DS.Space.s2) {
+                    ForEach(Array(speciesCounts.prefix(3).enumerated()), id: \.offset) { _, row in
+                        speciesRow(name: row.0, count: row.1, species: row.2)
                     }
-                    Text(row.0).font(.subheadline.weight(.medium)).foregroundStyle(.white)
-                        .lineLimit(1).minimumScaleFactor(0.7)
-                    Spacer()
-                    Text("×\(row.1)").font(.subheadline.bold()).foregroundStyle(CurrentsTheme.accent)
+                }
+                .padding(.top, DS.Space.s4)
+            }
+            ShareCardFooter(detail: "Tight lines")
+                .padding(.top, DS.Space.s5)
+        }
+    }
+
+    private var mapPanel: some View {
+        Color.clear
+            .frame(height: 180)
+            .frame(maxWidth: .infinity)
+            .overlay {
+                if let routeImage {
+                    Image(uiImage: routeImage)
+                        .resizable()
+                        .scaledToFill()
+                } else {
+                    ZStack {
+                        Color.dsFill
+                        DS.accent.opacity(0.22)
+                        VStack(spacing: DS.Space.s2) {
+                            Image(systemName: "point.topleft.down.to.point.bottomright.curvepath")
+                                .font(.largeTitle)
+                                .foregroundStyle(DS.accent)
+                            Text("No track recorded")
+                                .font(.footnote)
+                                .foregroundStyle(Color.dsText2)
+                        }
+                    }
                 }
             }
-        }
-    }
-
-    private var footer: some View {
-        VStack(spacing: 12) {
-            Rectangle().fill(.white.opacity(0.10)).frame(height: 1)
-            HStack(spacing: 8) {
-                Image("Logo").resizable().scaledToFit().frame(width: 24, height: 24)
-                Text("Currents").font(.headline.bold()).foregroundStyle(.white)
-                Spacer()
-                Text("Tight lines 🎣")
-                    .font(.caption).foregroundStyle(.white.opacity(0.55))
+            .overlay(alignment: .bottomLeading) {
+                if routeImage != nil {
+                    // The distance on the map's corner, like a map label.
+                    Label(SessionFormat.distance(trip.totalTrackDistanceMeters),
+                          systemImage: "point.topleft.down.to.point.bottomright.curvepath")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(Color.dsText)
+                        .padding(.horizontal, DS.Space.s3)
+                        .padding(.vertical, 6)
+                        .background(Color.dsBackground.opacity(0.7), in: Capsule())
+                        .padding(DS.Space.s3)
+                }
             }
-        }
+            .clipShape(RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
     }
 
-    private func stat(_ value: String, _ label: String) -> some View {
-        VStack(spacing: 3) {
-            Text(value).font(.headline.bold()).foregroundStyle(.white)
-                .lineLimit(1).minimumScaleFactor(0.6)
-            Text(label).font(.caption2).foregroundStyle(.white.opacity(0.6))
+    private func speciesRow(name: String, count: Int, species: Species?) -> some View {
+        HStack(spacing: DS.Space.s3) {
+            if let species {
+                ThumbView(species: species, size: 36)
+            } else {
+                ThumbView(systemImage: "fish.fill", tint: .gray, size: 36)
+            }
+            Text(name)
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(Color.dsText)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+            Spacer(minLength: DS.Space.s2)
+            Text(count == 1 ? "1 fish" : "\(count) fish")
+                .font(.subheadline.weight(.semibold).monospacedDigit())
+                .foregroundStyle(Color.dsText2)
         }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 11)
-        .background(Color.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 12))
     }
 
     private var dateLabel: String {
         let start = trip.startDate.formatted(date: .abbreviated, time: .omitted)
         if trip.isMultiDay, let end = trip.endDate {
             let endStr = end.formatted(date: .abbreviated, time: .omitted)
-            if endStr != start { return "\(start) – \(endStr)" }
+            if endStr != start { return "\(start) to \(endStr)" }
         }
         return start
     }

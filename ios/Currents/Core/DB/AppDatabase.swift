@@ -407,6 +407,27 @@ final class AppDatabase: Sendable {
             }
         }
 
+        migrator.registerMigration("v23_spot_alerts") { db in
+            // Notification choices per spot. Only spots changed from the
+            // defaults get a row.
+            try db.create(table: "spotAlert") { t in
+                t.primaryKey("spotId", .text)
+                    .references("spot", onDelete: .cascade)
+                t.column("biteAlerts", .boolean).notNull().defaults(to: true)
+                t.column("headsUp", .boolean).notNull().defaults(to: true)
+                t.column("threshold", .integer)
+            }
+        }
+
+        migrator.registerMigration("v24_spot_cover") { db in
+            // A spot's picture. No style means the map render; a photo is a
+            // file in the catch photo store.
+            try db.alter(table: "spot") { t in
+                t.add(column: "coverStyle", .text)
+                t.add(column: "coverPhotoPath", .text)
+            }
+        }
+
         return migrator
     }
 }

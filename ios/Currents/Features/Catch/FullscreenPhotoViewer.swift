@@ -11,39 +11,78 @@ struct FullscreenPhotoViewer: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        ZStack(alignment: .topTrailing) {
-            Color.black.ignoresSafeArea()
+        TabView(selection: $currentIndex) {
+            ForEach(Array(photoPaths.enumerated()), id: \.offset) { index, path in
+                PhotoPage(path: path)
+                    .tag(index)
+            }
+        }
+        .tabViewStyle(.page(indexDisplayMode: photoPaths.count > 1 ? .automatic : .never))
+        .background(Color.black)
+        .ignoresSafeArea()
+        .viewerChrome(title: photoPaths.count > 1 ? "\(currentIndex + 1) of \(photoPaths.count)" : nil) {
+            dismiss()
+        }
+    }
+}
 
-            TabView(selection: $currentIndex) {
-                ForEach(Array(photoPaths.enumerated()), id: \.offset) { index, path in
-                    Group {
-                        if let image = PhotoManager.load(path) {
-                            ZoomableImage(image: image)
-                        } else {
-                            Image(systemName: "photo")
-                                .font(.largeTitle)
-                                .foregroundStyle(.secondary)
+extension View {
+    /// The viewer's close button and photo count, in a system toolbar over
+    /// the photo. The toolbar is its own bar above the content, so a zoomed
+    /// photo's scroll view can never take the close button's taps, which it
+    /// did when the button was a SwiftUI overlay on top of the zoom view.
+    func viewerChrome(title: String?, close: @escaping () -> Void) -> some View {
+        NavigationStack {
+            self
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    if let title {
+                        ToolbarItem(placement: .principal) {
+                            Text(title)
+                                .font(.subheadline.weight(.semibold))
+                                .monospacedDigit()
+                                .foregroundStyle(.white)
+                                .contentTransition(.numericText())
+                                .animation(DS.Motion.press, value: title)
                         }
                     }
-                    .tag(index)
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button("Close", systemImage: "xmark", action: close)
+                            .tint(.white)
+                    }
                 }
-            }
-            .tabViewStyle(.page(indexDisplayMode: photoPaths.count > 1 ? .automatic : .never))
-            .ignoresSafeArea()
-
-            Button {
-                dismiss()
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.body.bold())
-                    .foregroundStyle(.white)
-                    .frame(width: 36, height: 36)
-                    .background(.black.opacity(0.5), in: Circle())
-            }
-            .padding(.trailing, 16)
-            .padding(.top, 8)
+                .toolbarBackground(.hidden, for: .navigationBar)
+                .toolbarColorScheme(.dark, for: .navigationBar)
         }
-        .statusBarHidden()
+    }
+}
+
+/// One page of the viewer: decodes the full-size photo off the main thread,
+/// with a spinner until it arrives.
+private struct PhotoPage: View {
+    let path: String
+    @State private var image: UIImage?
+    @State private var failed = false
+
+    var body: some View {
+        Group {
+            if let image {
+                ZoomableImage(image: image)
+            } else if failed {
+                ContentUnavailableView("Photo not found", systemImage: "photo")
+                    .foregroundStyle(.white)
+            } else {
+                ProgressView()
+                    .tint(.white)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .task(id: path) {
+            let path = path
+            let loaded = await Task.detached { PhotoManager.load(path) }.value
+            image = loaded
+            failed = loaded == nil
+        }
     }
 }
 
@@ -55,22 +94,10 @@ struct FullscreenImageViewer: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        ZStack(alignment: .topTrailing) {
-            Color.black.ignoresSafeArea()
-            ZoomableImage(image: image).ignoresSafeArea()
-            Button {
-                dismiss()
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.body.bold())
-                    .foregroundStyle(.white)
-                    .frame(width: 36, height: 36)
-                    .background(.black.opacity(0.5), in: Circle())
-            }
-            .padding(.trailing, 16)
-            .padding(.top, 8)
-        }
-        .statusBarHidden()
+        ZoomableImage(image: image)
+            .background(Color.black)
+            .ignoresSafeArea()
+            .viewerChrome(title: nil) { dismiss() }
     }
 }
 

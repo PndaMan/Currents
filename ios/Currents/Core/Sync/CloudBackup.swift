@@ -9,7 +9,7 @@ import GRDB
 actor CloudBackup {
     static let shared = CloudBackup()
 
-    private let containerID = "iCloud.com.aidanmcconnon.currents"
+    private let containerID = CloudCapability.containerID
     private let backupFileName = "currents_backup.sqlite"
 
     enum BackupError: Error, LocalizedError {
@@ -30,13 +30,14 @@ actor CloudBackup {
 
     /// The iCloud Documents directory for this app's container.
     private var iCloudDocsURL: URL? {
-        FileManager.default.url(forUbiquityContainerIdentifier: containerID)?
+        guard CloudCapability.isAvailable else { return nil }
+        return FileManager.default.url(forUbiquityContainerIdentifier: containerID)?
             .appendingPathComponent("Documents", isDirectory: true)
     }
 
-    /// Whether iCloud is available on this device.
+    /// Whether iCloud is available on this device and to this build.
     var isAvailable: Bool {
-        FileManager.default.ubiquityIdentityToken != nil
+        CloudCapability.isAvailable && FileManager.default.ubiquityIdentityToken != nil
     }
 
     /// Last backup date, if any.

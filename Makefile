@@ -3,7 +3,7 @@
 # Since we can't run Xcode on Linux, this Makefile provides shortcuts
 # for triggering CI builds, checking status, and common dev tasks.
 
-.PHONY: help ci ci-status ci-logs lint test-local clean screenshots-caption app-store-check
+.PHONY: help ci ci-status ci-logs lint test-local clean screenshots-frame appstore-check
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | \
@@ -31,14 +31,12 @@ ci-ipa: ## Download just the IPA from latest CI run
 	@echo "IPA downloaded to Currents-IPA/Currents.ipa"
 	@echo "Install with: AltStore, TrollStore, or SideStore"
 
-screenshots-caption: ## Add caption headers to screenshots in ios/screenshots/6.9 (needs Pillow)
-	python3 scripts/caption_screenshots.py \
-		--captions docs/app-store/screenshots/captions.json \
-		--input ios/screenshots/6.9 \
-		--output ios/screenshots/captioned
+screenshots-frame: ## Frame raw captures in ios/screenshots/6.9 with headlines, then render in-app event media
+	uv run scripts/frame_screenshots.py --input ios/screenshots/6.9 --output ios/screenshots/6.9-framed --captions ios/AppStore/captions.json
+	uv run scripts/render_event_media.py --input ios/screenshots/6.9 --events ios/AppStore/events --output ios/screenshots/events
 
-app-store-check: ## Validate App Store metadata against App Store Connect limits
-	python3 scripts/validate_app_store_metadata.py docs/app-store/metadata
+appstore-check: ## Check App Store Connect text against Apple's limits
+	uv run scripts/check_appstore_metadata.py ios/AppStore/metadata
 
 swift-check: ## Check Swift syntax (requires swift on PATH)
 	@which swift > /dev/null 2>&1 && \

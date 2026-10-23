@@ -5,14 +5,26 @@ struct CurrentsApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var appState = AppState()
     @AppStorage("selectedTheme") private var selectedTheme = ThemeOption.ocean.rawValue
+    /// System, light or dark, chosen in Settings > Appearance.
+    @AppStorage("appearanceMode") private var appearanceMode = AppearanceMode.dark.rawValue
     @Environment(\.scenePhase) private var scenePhase
+    /// The opening animation plays once per launch, never in screenshot mode.
+    @State private var showsLaunch = !ScreenshotSupport.isActive
 
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .overlay {
+                    if showsLaunch {
+                        LaunchAnimation { showsLaunch = false }
+                    }
+                }
                 .environment(appState)
-                .preferredColorScheme(.dark)
+                .preferredColorScheme((AppearanceMode(rawValue: appearanceMode) ?? .dark).colorScheme)
                 .tint(ThemeOption(rawValue: selectedTheme)?.primary ?? .blue)
+                // Finishes tips left unfinished (an approved Ask to Buy, a
+                // purchase cut off by a crash). StoreKit wants this at launch.
+                .task { TipJar.shared.startListening() }
         }
         .onChange(of: scenePhase) { _, phase in
             // Check for group-trip invites on foreground; fires a local
@@ -24,7 +36,7 @@ struct CurrentsApp: App {
             // joined, but the unsigned simulator build has no iCloud
             // entitlement — any CloudKit op is an uncatchable crash.
             if phase == .active, UserDefaults.standard.bool(forKey: "communityJoined"),
-               !ScreenshotSupport.isActive {
+               !ScreenshotSupport.isActive, CrewCloud.buildHasCloudKit {
                 Task {
                     // Ensure APNs registration + CloudKit push subscriptions are
                     // in place, then reconcile the in-app lists.
@@ -33,19 +45,30 @@ struct CurrentsApp: App {
                     await CommunityService.shared.refreshFriendRequests()
                 }
             }
+            // Bite alerts follow the latest weather each time the app opens.
+            if phase == .active, !ScreenshotSupport.isActive {
+                Task { await BackgroundRefresh.rescheduleAlerts(appState: appState) }
+            }
             // Daily automatic backup, kicked off when the app is backgrounded.
             if phase == .background {
                 AutoBackup.runIfDue(db: appState.db)
-                // Refresh look-ahead prime-window alerts for saved spots.
-                if UserDefaults.standard.bool(forKey: "primeWindowAlerts") {
-                    let spots = (try? appState.spotRepository.fetchAll()) ?? []
-                    Task {
-                        await NotificationManager.shared.schedulePrimeWindowAlerts(
-                            spots: spots, using: WeatherService.shared
-                        )
-                    }
+                BackgroundRefresh.schedule()
+                // Re-plan the bite alerts on the way out. Asking for extra
+                // time keeps the app awake until the plan is saved.
+                let app = UIApplication.shared
+                var token = UIBackgroundTaskIdentifier.invalid
+                token = app.beginBackgroundTask(withName: "Bite alerts") { app.endBackgroundTask(token) }
+                let started = token
+                Task {
+                    await BackgroundRefresh.rescheduleAlerts(appState: appState)
+                    app.endBackgroundTask(started)
                 }
             }
+        }
+        // Background app refresh: fresh weather for the widget and the alerts
+        // while the app is closed.
+        .backgroundTask(.appRefresh(BackgroundRefresh.taskIdentifier)) {
+            await BackgroundRefresh.run()
         }
     }
 }

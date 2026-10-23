@@ -133,7 +133,7 @@ final class WindFieldView: UIView {
 
         // Fade the accumulation buffer toward transparent (trail decay).
         ctx.setBlendMode(.destinationIn)
-        ctx.setFillColor(UIColor(white: 1, alpha: 0.90).cgColor)
+        ctx.setFillColor(UIColor(white: 1, alpha: 0.90).cgColor) // ui-lint: allow, alpha mask for the wind trail fade, never drawn as colour
         ctx.fill(bounds)
         ctx.setBlendMode(.normal)
 

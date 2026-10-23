@@ -61,6 +61,21 @@ final class CatchRepository: ObservableObject {
         }
     }
 
+    /// `fetchAll` read on the database queue instead of the main thread, for
+    /// screens that load the whole log as they open (crew stats, the
+    /// leaderboard), where the synchronous read stalled the first frames.
+    func fetchAllInBackground(limit: Int = 50, offset: Int = 0) async throws -> [CatchDetail] {
+        try await db.db.read { db in
+            let request = Catch
+                .including(optional: Catch.species)
+                .including(optional: Catch.spot)
+                .including(optional: Catch.gearLoadout)
+                .order(Column("caughtAt").desc)
+                .limit(limit, offset: offset)
+            return try CatchDetail.fetchAll(db, request)
+        }
+    }
+
     func fetchForSpot(_ spotId: String) throws -> [CatchDetail] {
         try db.db.read { db in
             let request = Catch

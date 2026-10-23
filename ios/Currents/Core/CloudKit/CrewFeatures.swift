@@ -1,6 +1,7 @@
 import Foundation
 import CloudKit
 import UIKit
+import ImageIO
 
 // MARK: - Crew roles
 
@@ -108,6 +109,7 @@ extension CommunityService {
 
     /// Delete a post — the author always may; moderators may for anyone.
     func deleteCrewPost(_ post: CrewPost, in crew: Crew) async -> Bool {
+        defer { noteFeedWrite() }
         guard post.authorCode == friendCode || myRole(in: crew).canModerate else { return false }
         let ok = (try? await db.deleteRecord(withID: CKRecord.ID(recordName: post.id))) != nil
         if ok {
@@ -146,9 +148,11 @@ extension CommunityService {
 
     /// Banner + photo icon, served from disk instantly and refreshed from the
     /// server at most once per hour.
+    /// Files are read, stored and decoded off the main thread.
     func crewArt(code: String, forceRefresh: Bool = false) async -> (banner: UIImage?, icon: UIImage?) {
-        let cachedBanner = CommunityDiskCache.loadImage(key: "crewbanner-\(code)")
-        let cachedIcon = CommunityDiskCache.loadImage(key: "crewicon-\(code)")
+        let bannerKey = "crewbanner-\(code)", iconKey = "crewicon-\(code)"
+        let cachedBanner = await CommunityDiskCache.image(key: bannerKey)
+        let cachedIcon = await CommunityDiskCache.image(key: iconKey)
         let fresh = CommunityDiskCache.isFresh(key: "crewart-\(code)", maxAge: 3600)
         if !forceRefresh, fresh, cachedBanner != nil || cachedIcon != nil {
             return (cachedBanner, cachedIcon)
@@ -156,17 +160,16 @@ extension CommunityService {
         guard let r = try? await db.record(for: CKRecord.ID(recordName: "crew-\(code)")) else {
             return (cachedBanner, cachedIcon)
         }
+        let bannerURL = (r["banner"] as? CKAsset)?.fileURL
+        let iconURL = (r["iconPhoto"] as? CKAsset)?.fileURL
+        let stored = await Task.detached(priority: .utility) { () -> (banner: Bool, icon: Bool) in
+            (CommunityDiskCache.storeImageFile(at: bannerURL, key: bannerKey),
+             CommunityDiskCache.storeImageFile(at: iconURL, key: iconKey))
+        }.value
+        withExtendedLifetime(r) {}
         var banner = cachedBanner, icon = cachedIcon
-        if let a = r["banner"] as? CKAsset, let url = a.fileURL,
-           let data = try? Data(contentsOf: url), let img = UIImage(data: data) {
-            banner = img
-            CommunityDiskCache.saveImage(img, key: "crewbanner-\(code)")
-        }
-        if let a = r["iconPhoto"] as? CKAsset, let url = a.fileURL,
-           let data = try? Data(contentsOf: url), let img = UIImage(data: data) {
-            icon = img
-            CommunityDiskCache.saveImage(img, key: "crewicon-\(code)")
-        }
+        if stored.banner { banner = await CommunityDiskCache.image(key: bannerKey) }
+        if stored.icon { icon = await CommunityDiskCache.image(key: iconKey) }
         CommunityDiskCache.touch(key: "crewart-\(code)")
         return (banner, icon)
     }
@@ -188,6 +191,23 @@ extension CommunityService {
     /// as `before` to load the next page — no more loading 1,000 posts to
     /// show the first screen.
     func crewFeedPage(code: String, before: Date? = nil, limit: Int = 30) async -> [CrewPost] {
+        // The first page is what every open crew screen reloads on a push
+        // or poll; concurrent asks share one round of queries.
+        guard before == nil else { return await loadCrewFeedPage(code: code, before: before, limit: limit) }
+        let key = "\(code)-\(limit)-\(feedEpoch)"
+        let task: Task<[CrewPost], Never>
+        if let running = feedLoads[key] {
+            task = running
+        } else {
+            task = Task { await self.loadCrewFeedPage(code: code, before: nil, limit: limit) }
+            feedLoads[key] = task
+        }
+        let posts = await task.value
+        if feedLoads[key] == task { feedLoads[key] = nil }
+        return posts
+    }
+
+    private func loadCrewFeedPage(code: String, before: Date?, limit: Int) async -> [CrewPost] {
         var predicate = NSPredicate(format: "crewCode == %@", code)
         if let before {
             predicate = NSPredicate(format: "crewCode == %@ AND caughtAt < %@", code, before as NSDate)
@@ -306,6 +326,7 @@ extension CommunityService {
     @discardableResult
     func addComment(_ text: String, post: CrewPost,
                     replyTo: CrewComment? = nil) async -> CrewComment? {
+        defer { noteFeedWrite() }
         let clean = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard cloudAllowed, !clean.isEmpty else { return nil }
         let name = "crewcomment-\(UUID().uuidString)"
@@ -363,18 +384,20 @@ extension CommunityService {
 
     /// Delete a comment — the author always may; moderators may for anyone.
     func deleteComment(_ comment: CrewComment, in crew: Crew?) async -> Bool {
+        defer { noteFeedWrite() }
         let mayModerate = crew.map { myRole(in: $0).canModerate } ?? false
         guard comment.authorCode == friendCode || mayModerate else { return false }
         return (try? await db.deleteRecord(withID: CKRecord.ID(recordName: comment.id))) != nil
     }
 
     /// A crew-post photo, cached to disk so scrolling back through the feed
-    /// never re-downloads assets.
-    func crewPostImage(recordName: String) async -> UIImage? {
-        if let cached = CommunityDiskCache.loadImage(key: "post-\(recordName)") { return cached }
-        guard let img = await crewPostPhoto(recordName: recordName) else { return nil }
-        CommunityDiskCache.saveImage(img, key: "post-\(recordName)")
-        return img
+    /// never re-downloads assets. Decoded off the main thread at up to
+    /// `maxPixel`; rows should pass their thumbnail size.
+    func crewPostImage(recordName: String,
+                       maxPixel: CGFloat = CommunityDiskCache.fullPixel) async -> UIImage? {
+        let key = "post-\(recordName)"
+        if let cached = await CommunityDiskCache.image(key: key, maxPixel: maxPixel) { return cached }
+        return await downloadPhoto(recordName: recordName, cacheKey: key, maxPixel: maxPixel)
     }
 
     /// Batch profile fetch: disk-fresh entries return instantly, the rest load
@@ -437,13 +460,109 @@ enum CommunityDiskCache {
     static func saveImage(_ image: UIImage, key: String) {
         guard let data = image.jpegData(compressionQuality: 0.85) else { return }
         try? data.write(to: dir.appendingPathComponent("\(key).jpg"))
+        memory.removeObject(forKey: key as NSString)
     }
-    static func loadImage(key: String) -> UIImage? {
-        guard let data = try? Data(contentsOf: dir.appendingPathComponent("\(key).jpg")) else { return nil }
-        return UIImage(data: data)
+
+    /// Stores already-encoded image bytes as they are. Downloaded photos
+    /// used to be decoded and re-encoded to JPEG on the main thread.
+    static func saveImageData(_ data: Data, key: String) {
+        try? data.write(to: dir.appendingPathComponent("\(key).jpg"), options: .atomic)
+        memory.removeObject(forKey: key as NSString)
     }
+
+    /// The longest edge community images are decoded at by default: more
+    /// than any screen draws them, a fraction of a camera photo's pixels.
+    static let fullPixel: CGFloat = 1600
+
+    /// A cached image decoded at up to `maxPixel`, from memory when it has
+    /// been shown before. Reads and decodes on the calling thread; async
+    /// code should use `image(key:maxPixel:)`.
+    static func loadImage(key: String, maxPixel: CGFloat = fullPixel) -> UIImage? {
+        if let hit = memoryImage(key: key, maxPixel: maxPixel) { return hit }
+        let url = dir.appendingPathComponent("\(key).jpg")
+        guard let src = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let image = downsample(source: src, maxPixel: maxPixel) else { return nil }
+        remember(image, key: key, maxPixel: maxPixel)
+        return image
+    }
+
+    /// `loadImage` with the file read and decode on a background thread.
+    static func image(key: String, maxPixel: CGFloat = fullPixel) async -> UIImage? {
+        if let hit = memoryImage(key: key, maxPixel: maxPixel) { return hit }
+        return await Task.detached(priority: .userInitiated) {
+            CommunityDiskCache.loadImage(key: key, maxPixel: maxPixel)
+        }.value
+    }
+
+    /// Whether a cached image exists, without reading or decoding it.
+    static func hasImage(key: String) -> Bool {
+        memory.object(forKey: key as NSString) != nil
+            || FileManager.default.fileExists(atPath: dir.appendingPathComponent("\(key).jpg").path)
+    }
+
+    /// An image already decoded in memory at `maxPixel` or larger.
+    static func memoryImage(key: String, maxPixel: CGFloat = fullPixel) -> UIImage? {
+        guard let entry = memory.object(forKey: key as NSString), entry.maxPixel >= maxPixel else { return nil }
+        return entry.image
+    }
+
     static func deleteImage(key: String) {
         try? FileManager.default.removeItem(at: dir.appendingPathComponent("\(key).jpg"))
+        memory.removeObject(forKey: key as NSString)
+    }
+
+    /// Copies a downloaded asset file into the cache when it holds a
+    /// readable image. Call off the main thread. False leaves the old copy.
+    static func storeImageFile(at url: URL?, key: String) -> Bool {
+        guard let url, let data = try? Data(contentsOf: url), !data.isEmpty,
+              let src = CGImageSourceCreateWithData(data as CFData, nil),
+              CGImageSourceGetCount(src) > 0 else { return false }
+        saveImageData(data, key: key)
+        return true
+    }
+
+    /// Decoded images, so a row scrolling back into view or a page opening
+    /// again doesn't read and decode the file a second time. Bounded by
+    /// decoded bytes; NSCache is safe to use from any thread.
+    private final class ImageEntry {
+        let image: UIImage
+        let maxPixel: CGFloat
+        init(image: UIImage, maxPixel: CGFloat) {
+            self.image = image
+            self.maxPixel = maxPixel
+        }
+    }
+
+    private static let memory: NSCache<NSString, ImageEntry> = {
+        let cache = NSCache<NSString, ImageEntry>()
+        cache.totalCostLimit = 96 * 1024 * 1024
+        return cache
+    }()
+
+    private static func remember(_ image: UIImage, key: String, maxPixel: CGFloat) {
+        if let entry = memory.object(forKey: key as NSString), entry.maxPixel >= maxPixel { return }
+        let cost = image.cgImage.map { $0.bytesPerRow * $0.height } ?? 0
+        memory.setObject(ImageEntry(image: image, maxPixel: maxPixel), forKey: key as NSString, cost: cost)
+    }
+
+    /// Decodes image bytes straight to at most `maxPixel` on the long edge,
+    /// fully decoded so drawing it costs nothing more. Safe off the main
+    /// thread; the expensive part of showing a photo happens here instead of
+    /// on the main thread at first draw.
+    static func downsample(data: Data, maxPixel: CGFloat) -> UIImage? {
+        guard let src = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+        return downsample(source: src, maxPixel: maxPixel)
+    }
+
+    static func downsample(source src: CGImageSource, maxPixel: CGFloat) -> UIImage? {
+        let opts: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceThumbnailMaxPixelSize: max(1, maxPixel.rounded()),
+        ]
+        guard let cg = CGImageSourceCreateThumbnailAtIndex(src, 0, opts as CFDictionary) else { return nil }
+        return UIImage(cgImage: cg)
     }
 
     // Freshness stamps, so callers can serve cache-and-refresh with a TTL.
@@ -538,13 +657,13 @@ extension CommunityService {
            let kg = big.c.weightKg, kg > 0 {
             out.append(.init(id: "biggest", title: "Biggest fish", icon: "scalemass.fill",
                              anglerCode: big.c.friendCode, anglerName: big.c.anglerName,
-                             teamName: big.team, detail: "\(big.c.species) · \(Units.weight(kg: kg))"))
+                             teamName: big.team, detail: "\(big.c.species), \(Units.weight(kg: kg))"))
         }
         if let first = all.min(by: { $0.c.date < $1.c.date }) {
             out.append(.init(id: "first", title: "First fish", icon: "bolt.fill",
                              anglerCode: first.c.friendCode, anglerName: first.c.anglerName,
                              teamName: first.team,
-                             detail: "\(first.c.species) · \(first.c.date.formatted(date: .omitted, time: .shortened))"))
+                             detail: "\(first.c.species), \(first.c.date.formatted(date: .omitted, time: .shortened))"))
         }
         return out
     }
@@ -678,6 +797,7 @@ extension CommunityService {
     /// All the tournament's teams with live points. One query for the teams,
     /// then their catches concurrently.
     func teamStandings(tournament: Tournament) async -> [TeamStanding] {
+        if ScreenshotSupport.isActive { return ScreenshotSupport.demoStandings(tournament: tournament) }
         let q = CKQuery(recordType: groupTripType,
                         predicate: NSPredicate(format: "tournamentCode == %@", tournament.id))
         guard let res = try? await db.records(matching: q, resultsLimit: 50) else { return [] }
@@ -777,7 +897,8 @@ extension CommunityService {
     /// from "can't reach the server" so callers don't misreport offline as
     /// deleted.
     func tournamentExists(code: String) async -> RecordProbe {
-        await probeRecord(name: "tournament-\(code)")
+        if ScreenshotSupport.isActive { return .exists }
+        return await probeRecord(name: "tournament-\(code)")
     }
 
     /// Same probe for a group trip / team session.
@@ -801,6 +922,7 @@ extension CommunityService {
     /// All live, NON-tournament sessions in a crew — multiple can run at once;
     /// tournament team sessions live under the tournament hero instead.
     func liveCrewTrips(crewCode: String) async -> [GroupTrip] {
+        if ScreenshotSupport.isActive { return ScreenshotSupport.demoLiveTrips(crewCode: crewCode) }
         let q = CKQuery(recordType: groupTripType,
                         predicate: NSPredicate(format: "crewCode == %@", crewCode))
         guard let res = try? await db.records(matching: q, resultsLimit: 50) else { return [] }

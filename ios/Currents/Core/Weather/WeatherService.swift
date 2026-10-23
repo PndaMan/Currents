@@ -276,9 +276,12 @@ actor WeatherService {
         }
     }
 
-    /// Fetch hourly forecast for 48 hours
+    /// Fetch hourly forecast for 48 hours. Times come back as Unix seconds:
+    /// with `timezone=auto` the default ISO strings are local wall-clock
+    /// times with no offset and no seconds, which an ISO 8601 parser reads as
+    /// UTC (shifting every hour by the offset) or rejects.
     func hourlyForecast(for coordinate: CLLocationCoordinate2D) async -> HourlyForecast? {
-        let urlString = "https://api.open-meteo.com/v1/forecast?latitude=\(coordinate.latitude)&longitude=\(coordinate.longitude)&hourly=temperature_2m,pressure_msl,wind_speed_10m,wind_direction_10m,precipitation,cloud_cover&forecast_days=2&timezone=auto"
+        let urlString = "https://api.open-meteo.com/v1/forecast?latitude=\(coordinate.latitude)&longitude=\(coordinate.longitude)&hourly=temperature_2m,pressure_msl,wind_speed_10m,wind_direction_10m,precipitation,cloud_cover&forecast_days=2&timezone=auto&timeformat=unixtime"
 
         guard let url = URL(string: urlString) else { return nil }
 
@@ -286,7 +289,7 @@ actor WeatherService {
             let (data, _) = try await URLSession.shared.data(from: url)
             let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
             guard let hourly = json?["hourly"] as? [String: Any],
-                  let times = hourly["time"] as? [String],
+                  let times = hourly["time"] as? [NSNumber],
                   let temps = hourly["temperature_2m"] as? [Double],
                   let pressures = hourly["pressure_msl"] as? [Double],
                   let winds = hourly["wind_speed_10m"] as? [Double],
@@ -296,14 +299,12 @@ actor WeatherService {
                 return nil
             }
 
-            let formatter = ISO8601DateFormatter()
-            formatter.formatOptions = [.withFullDate, .withTime, .withDashSeparatorInDate, .withColonSeparatorInTime]
-
+            let n = [times.count, temps.count, pressures.count, winds.count,
+                     windDirs.count, precips.count, clouds.count].min() ?? 0
             var points: [HourlyPoint] = []
-            for i in 0..<min(times.count, temps.count) {
-                guard let date = formatter.date(from: times[i]) else { continue }
+            for i in 0..<n {
                 points.append(HourlyPoint(
-                    date: date,
+                    date: Date(timeIntervalSince1970: times[i].doubleValue),
                     temperatureC: temps[i],
                     pressureHpa: pressures[i],
                     windSpeedKmh: winds[i],

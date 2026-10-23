@@ -2841,7 +2841,7 @@
   {
     "id": 229,
     "scientificName": "Amphiprion clarkii",
-    "commonName": "Clark'S Anemonefish",
+    "commonName": "Clark's Anemonefish",
     "family": null,
     "habitat": "freshwater",
     "minTempC": 8,
@@ -6096,7 +6096,7 @@
   {
     "id": 446,
     "scientificName": "Hippocampus whitei",
-    "commonName": "White'S Seahorse",
+    "commonName": "White's Seahorse",
     "family": null,
     "habitat": "freshwater",
     "minTempC": 8,
@@ -7386,7 +7386,7 @@
   {
     "id": 532,
     "scientificName": "Aracana aurita",
-    "commonName": "Shaw'S Cowfish",
+    "commonName": "Shaw's Cowfish",
     "family": null,
     "habitat": "freshwater",
     "minTempC": 8,
@@ -9261,7 +9261,7 @@
   {
     "id": 657,
     "scientificName": "Coryphoblennius galerita",
-    "commonName": "Montagu'S Blenny",
+    "commonName": "Montagu's Blenny",
     "family": null,
     "habitat": "freshwater",
     "minTempC": 20,
@@ -9531,7 +9531,7 @@
   {
     "id": 675,
     "scientificName": "Haemulon parra",
-    "commonName": "Sailor'S Choice",
+    "commonName": "Sailor's Choice",
     "family": null,
     "habitat": "freshwater",
     "minTempC": 8,
@@ -9681,7 +9681,7 @@
   {
     "id": 685,
     "scientificName": "Thalassoma rueppellii",
-    "commonName": "Klunzinger'S Wrasse",
+    "commonName": "Klunzinger's Wrasse",
     "family": null,
     "habitat": "freshwater",
     "minTempC": 20,
@@ -10056,7 +10056,7 @@
   {
     "id": 710,
     "scientificName": "Gymnothorax eurostus",
-    "commonName": "Abbott'S Moray",
+    "commonName": "Abbott's Moray",
     "family": null,
     "habitat": "freshwater",
     "minTempC": 14,
@@ -10176,7 +10176,7 @@
   {
     "id": 718,
     "scientificName": "Chlorurus bleekeri",
-    "commonName": "Bleeker'S Parrotfish",
+    "commonName": "Bleeker's Parrotfish",
     "family": null,
     "habitat": "freshwater",
     "minTempC": 20,
@@ -10761,7 +10761,7 @@
   {
     "id": 757,
     "scientificName": "Boleophthalmus boddarti",
-    "commonName": "Boddart'S Blue-Spotted Mudskipper",
+    "commonName": "Boddart's Blue-Spotted Mudskipper",
     "family": null,
     "habitat": "freshwater",
     "minTempC": 14,
@@ -10926,7 +10926,7 @@
   {
     "id": 768,
     "scientificName": "Pseudolabrus guentheri",
-    "commonName": "Gunther'S Wrasse",
+    "commonName": "Gunther's Wrasse",
     "family": null,
     "habitat": "freshwater",
     "minTempC": 20,
@@ -11751,7 +11751,7 @@
   {
     "id": 823,
     "scientificName": "Parablennius zvonimiri",
-    "commonName": "Zvonimir'S Blenny",
+    "commonName": "Zvonimir's Blenny",
     "family": null,
     "habitat": "freshwater",
     "minTempC": 20,
@@ -13056,7 +13056,7 @@
   {
     "id": 910,
     "scientificName": "Abudefduf whitleyi",
-    "commonName": "Whitley'S Sergeant",
+    "commonName": "Whitley's Sergeant",
     "family": null,
     "habitat": "freshwater",
     "minTempC": 8,
@@ -13461,7 +13461,7 @@
   {
     "id": 937,
     "scientificName": "Istiblennius dussumieri",
-    "commonName": "Dussumier'S Rockskipper",
+    "commonName": "Dussumier's Rockskipper",
     "family": null,
     "habitat": "freshwater",
     "minTempC": 8,
@@ -13776,7 +13776,7 @@
   {
     "id": 958,
     "scientificName": "Istigobius hoesei",
-    "commonName": "Hoese'S Sandgoby",
+    "commonName": "Hoese's Sandgoby",
     "family": null,
     "habitat": "freshwater",
     "minTempC": 8,
@@ -14946,7 +14946,7 @@
   {
     "id": 1036,
     "scientificName": "Chaetodon meyeri",
-    "commonName": "Meyer'S Butterflyfish",
+    "commonName": "Meyer's Butterflyfish",
     "family": null,
     "habitat": "freshwater",
     "minTempC": 20,
@@ -15411,7 +15411,7 @@
   {
     "id": 1067,
     "scientificName": "Coris schroederii",
-    "commonName": "Schroeder'S Rainbow Wrasse",
+    "commonName": "Schroeder's Rainbow Wrasse",
     "family": null,
     "habitat": "freshwater",
     "minTempC": 20,
@@ -16836,7 +16836,7 @@
   {
     "id": 1162,
     "scientificName": "Lutjanus ehrenbergii",
-    "commonName": "Ehrenberg'S Snapper",
+    "commonName": "Ehrenberg's Snapper",
     "family": null,
     "habitat": "freshwater",
     "minTempC": 16,
@@ -17496,7 +17496,7 @@
   {
     "id": 1206,
     "scientificName": "Microlipophrys canevae",
-    "commonName": "Caneva'S Blenny",
+    "commonName": "Caneva's Blenny",
     "family": null,
     "habitat": "freshwater",
     "minTempC": 20,
@@ -18906,7 +18906,7 @@
   {
     "id": 1300,
     "scientificName": "Amblyeleotris steinitzi",
-    "commonName": "Steinitz'S Shrimpgoby",
+    "commonName": "Steinitz's Shrimpgoby",
     "family": null,
     "habitat": "freshwater",
     "minTempC": 8,
@@ -19041,7 +19041,7 @@
   {
     "id": 1309,
     "scientificName": "Chaetodon rainfordi",
-    "commonName": "Rainford'S Butterflyfish",
+    "commonName": "Rainford's Butterflyfish",
     "family": null,
     "habitat": "freshwater",
     "minTempC": 20,
@@ -19536,7 +19536,7 @@
   {
     "id": 1342,
     "scientificName": "Chaetodon guentheri",
-    "commonName": "Gunther'S Butterflyfish",
+    "commonName": "Gunther's Butterflyfish",
     "family": null,
     "habitat": "freshwater",
     "minTempC": 20,
@@ -19806,7 +19806,7 @@
   {
     "id": 1360,
     "scientificName": "Idiotropiscis lumnitzeri",
-    "commonName": "Sydney'S Pygmy Pipehorse",
+    "commonName": "Sydney's Pygmy Pipehorse",
     "family": null,
     "habitat": "freshwater",
     "minTempC": 8,
@@ -20691,7 +20691,7 @@
   {
     "id": 1419,
     "scientificName": "Gobius bucchichi",
-    "commonName": "Bucchich'S Goby",
+    "commonName": "Bucchich's Goby",
     "family": null,
     "habitat": "freshwater",
     "minTempC": 8,
@@ -21126,7 +21126,7 @@
   {
     "id": 1448,
     "scientificName": "Chrysiptera talboti",
-    "commonName": "Talbot'S Demoiselle",
+    "commonName": "Talbot's Demoiselle",
     "family": null,
     "habitat": "freshwater",
     "minTempC": 8,
@@ -21336,7 +21336,7 @@
   {
     "id": 1462,
     "scientificName": "Rubricatochromis letourneuxi",
-    "commonName": "Letourneux'S Jewel Cichlid",
+    "commonName": "Letourneux's Jewel Cichlid",
     "family": null,
     "habitat": "freshwater",
     "minTempC": 8,
@@ -21411,7 +21411,7 @@
   {
     "id": 1467,
     "scientificName": "Chromis weberi",
-    "commonName": "Weber'S Puller",
+    "commonName": "Weber's Puller",
     "family": null,
     "habitat": "freshwater",
     "minTempC": 8,

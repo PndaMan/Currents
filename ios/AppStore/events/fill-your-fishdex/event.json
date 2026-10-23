@@ -1,0 +1,18 @@
+{
+  "reference_name": "Fishdex challenge (monthly, re-run with new dates)",
+  "badge": "Challenge",
+  "purpose": "Bring back lapsed users",
+  "priority": "Normal",
+  "deep_link": "currents://sessions",
+  "territories": "all",
+  "schedule": {
+    "publish": "a week before the month starts",
+    "start": "first of the month",
+    "end": "last day of the month"
+  },
+  "media": {
+    "captures": ["04_logbook", "03_catch"],
+    "headline": "Fill your Fishdex",
+    "subline": "Catch a new species this month"
+  }
+}

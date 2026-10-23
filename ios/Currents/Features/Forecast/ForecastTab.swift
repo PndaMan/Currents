@@ -1,1147 +1,232 @@
 import SwiftUI
-import Charts
 import CoreLocation
 
+/// The forecast on its own, for places outside Today (the Explore map opens it
+/// as a sheet). Today pushes the same pages onto its own stack instead.
 struct ForecastTab: View {
     @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss
-    @AppStorage("use24HourTime") private var use24HourTime = true
     var presentedAsSheet: Bool = false
-    @State private var forecast: ForecastEngine.ForecastResult?
-    @State private var solunar: SolunarEngine.SolunarDay?
-    @State private var tideDay: TideEngine.TideDay?
-    @State private var weather: WeatherService.WeatherData?
-    @State private var dayWeathers: [WeatherService.WeatherData] = []
-    @State private var selectedSpecies: Species?
-    @State private var allSpecies: [Species] = []
-    @State private var selectedDay: Int = 0
-    @State private var isLoadingWeather = true
-    @State private var selectedHour: Int?
-    @State private var hourDetail: ForecastEngine.ForecastResult?
-    @State private var speciesSearch = ""
-    @State private var showAllSpecies = false
-
-    private var forecastDate: Date {
-        Calendar.current.date(byAdding: .day, value: selectedDay, to: .now) ?? .now
-    }
-
-    private var coordinate: CLLocationCoordinate2D {
-        appState.locationManager.currentLocation?.coordinate ??
-        CLLocationCoordinate2D(latitude: -33.9, longitude: 18.4)
-    }
-
-    /// Weather for the SELECTED day — live conditions for today, the daily
-    /// outlook for future days — so every card follows the day picker, not
-    /// just the bite score.
-    private var selectedDayWeather: WeatherService.WeatherData? {
-        if selectedDay == 0 { return weather ?? dayWeathers.first }
-        return dayWeathers.indices.contains(selectedDay) ? dayWeathers[selectedDay] : nil
-    }
+    @State private var store = ForecastStore()
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(spacing: CurrentsTheme.paddingM) {
-                    dayPicker
-
-                    // Main score
-                    if let forecast, let solunar {
-                        scoreCard(forecast, solunar: solunar)
-                    } else {
-                        FishLoader(message: "Reading the bite…")
-                            .frame(height: 120)
-                    }
-
-                    // Conditions for the selected day
-                    if let w = selectedDayWeather {
-                        currentConditionsCard(w)
-                        windAndPressureCard(w)
-                    } else if isLoadingWeather {
-                        HStack(spacing: 8) {
-                            ProgressView()
-                            Text("Fetching weather data...")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        .frame(maxWidth: .infinity)
-                        .glassCard()
-                    }
-
-                    // Hourly chart
-                    if let forecast, !forecast.hourlyScores.isEmpty {
-                        hourlyChart(forecast)
-                    }
-
-                    // Solunar feeding windows
-                    if let solunar {
-                        solunarCard(solunar)
-                    }
-
-                    // Tide chart
-                    if let tideDay {
-                        tideCard(tideDay)
-                    }
-
-                    // Sun times
-                    if let solunar {
-                        sunTimesCard(solunar)
-                    }
-
-                    // Breakdown
-                    if let forecast {
-                        breakdownCard(forecast)
-                    }
-
-                    // Solunar bite heatmap for the week ahead
-                    SolunarHeatmapView(coordinate: coordinate)
-
-                    // Species picker
-                    speciesPicker
-                }
-                .padding()
-            }
-            .navigationTitle("Forecast")
-            .toolbar {
-                if presentedAsSheet {
-                    ToolbarItem(placement: .cancellationAction) {
-                        Button("Done") { dismiss() }
-                    }
-                }
-                ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        Task { await fetchWeatherAndCompute(force: true) }
-                    } label: {
-                        Image(systemName: "arrow.clockwise")
-                    }
-                    .disabled(isLoadingWeather)
-                }
-            }
-            .sensoryFeedback(.selection, trigger: selectedDay)
-            .task {
-                allSpecies = (try? appState.speciesRepository.fetchAll()) ?? []
-                await fetchWeatherAndCompute()
-            }
-            .onChange(of: selectedDay) { _, _ in recompute() }
-        }
-    }
-
-    // MARK: - Current Conditions Card
-
-    private func currentConditionsCard(_ weather: WeatherService.WeatherData) -> some View {
-        VStack(spacing: 16) {
-            HStack {
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(selectedDay == 0 ? "Current Conditions" : "Expected Conditions")
-                        .font(.headline)
-                    Text("Tap a reading to see what it means")
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                }
-                Spacer()
-                Text(weather.fetchedAt, style: .relative)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                Text("ago")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
-
-            // Temperature row
-            HStack(spacing: 20) {
-                WeatherIcon(condition: weather.condition)
-                    .font(.system(size: 32))
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("\(Int(weather.temperatureC))°C")
-                        .font(.system(size: 32, weight: .bold))
-                        .monospacedDigit()
-                    Text(weather.condition.capitalized)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                Spacer()
-
-                if let waterTemp = weather.waterTempC {
-                    VStack(alignment: .trailing, spacing: 2) {
-                        HStack(spacing: 4) {
-                            Image(systemName: "water.waves")
-                                .foregroundStyle(CurrentsTheme.accent)
-                            Text("\(Int(waterTemp))°C")
-                                .font(.title2.bold())
-                                .monospacedDigit()
-                        }
-                        Text("Water Temp")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-            }
-
-            // Detail grid — 2x2
-            LazyVGrid(columns: [
-                GridItem(.flexible()), GridItem(.flexible())
-            ], spacing: 10) {
-                WeatherDetailCell(
-                    icon: "drop.fill", value: "\(weather.humidity)%", label: "Humidity",
-                    explanation: "High humidity usually travels with low pressure and cloud — the conditions that push fish shallow and feeding.")
-                WeatherDetailCell(
-                    icon: "cloud.fill", value: "\(weather.cloudCoverPct)%", label: "Cloud Cover",
-                    explanation: "Cloud takes away the ambush advantage bright sun gives prey, so an overcast day spreads the bite out instead of bunching it at dawn and dusk.")
-                WeatherDetailCell(
-                    icon: "umbrella.fill", value: String(format: "%.1fmm", weather.precipMm), label: "Precipitation",
-                    explanation: "Light rain dims the surface and adds oxygen — often a trigger. Heavy rain colours the water up and usually shuts it down for a while.")
-                WeatherDetailCell(
-                    icon: "sun.max.fill", value: String(format: "%.0f", weather.uvIndex), label: "UV Index",
-                    explanation: "Hard UV drives fish deep or under cover. When it's high, fish shade, structure and depth rather than open water.")
-            }
-        }
-        .glassCard()
-    }
-
-    // MARK: - Wind & Pressure Card
-
-    private func windAndPressureCard(_ weather: WeatherService.WeatherData) -> some View {
-        VStack(spacing: 16) {
-            // Wind
-            HStack {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Wind")
-                        .font(.headline)
-                    Text("\(Int(weather.windSpeedKmh)) km/h \(windDirection(weather.windDirectionDeg))")
-                        .font(.title3.bold())
-                        .monospacedDigit()
-                }
-
-                Spacer()
-
-                // Compass
-                ZStack {
-                    Circle()
-                        .stroke(.secondary.opacity(0.2), lineWidth: 2)
-                        .frame(width: 56, height: 56)
-                    Text("N")
-                        .font(.system(size: 8, weight: .bold))
-                        .foregroundStyle(.secondary)
-                        .offset(y: -30)
-                    Image(systemName: "location.north.fill")
-                        .font(.body)
-                        .foregroundStyle(CurrentsTheme.accent)
-                        .rotationEffect(.degrees(weather.windDirectionDeg))
-                }
-            }
-
-            // Pressure
-            HStack {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Pressure")
-                        .font(.headline)
-                    HStack(spacing: 6) {
-                        Text("\(Int(weather.pressureHpa)) hPa")
-                            .font(.title3.bold())
-                            .monospacedDigit()
-
-                        let trend = weather.pressureChange6h
-                        HStack(spacing: 2) {
-                            Image(systemName: trend < -1 ? "arrow.down" : trend > 1 ? "arrow.up" : "equal")
-                                .font(.caption)
-                            Text(String(format: "%+.1f", trend))
-                                .font(.caption.bold())
-                                .monospacedDigit()
-                        }
-                        .foregroundStyle(pressureTrendColor(trend))
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(pressureTrendColor(trend).opacity(0.15))
-                        .clipShape(Capsule())
-                    }
-                }
-                Spacer()
-                Text(pressureTrendLabel(weather.pressureChange6h))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            if weather.pressureIsEstimated == true {
-                Label("From device barometer (offline) — trend accurate, absolute value approximate",
-                      systemImage: "gauge.with.dots.needle.bottom.50percent")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .glassCard()
-    }
-
-    // MARK: - Day Picker
-
-    private var dayPicker: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(0..<7, id: \.self) { offset in
-                    let date = Calendar.current.date(byAdding: .day, value: offset, to: .now) ?? .now
-                    let label = offset == 0
-                        ? "Today"
-                        : "\(dayLabel(date)) \(Calendar.current.component(.day, from: date))"
-                    FilterChip(title: label, isSelected: selectedDay == offset) {
-                        withAnimation(.easeInOut(duration: 0.15)) { selectedDay = offset }
-                    }
-                }
-            }
-            .padding(.horizontal, 2)
-            .padding(.vertical, 2)
-        }
-    }
-
-    private func dayLabel(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "EEE"
-        return formatter.string(from: date)
-    }
-
-    // MARK: - Score Card
-
-    private func scoreCard(_ forecast: ForecastEngine.ForecastResult, solunar: SolunarEngine.SolunarDay) -> some View {
-        VStack(spacing: 16) {
-            HStack(alignment: .center, spacing: 16) {
-                ScoreGauge(score: forecast.score, label: "Bite Score", size: 90)
-
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack(spacing: 6) {
-                        Image(systemName: ratingIcon(solunar.dayRating))
-                            .foregroundStyle(ratingColor(solunar.dayRating))
-                        Text("\(solunar.dayRating.label) Day")
-                            .font(.title3.bold())
-                            .foregroundStyle(ratingColor(solunar.dayRating))
-                    }
-
-                    if !forecast.bestHours.isEmpty {
-                        HStack(spacing: 4) {
-                            Image(systemName: "clock.fill")
-                                .font(.caption)
-                                .foregroundStyle(CurrentsTheme.accent)
-                            Text("Best: " + forecast.bestHours.map { formatHour($0) }.joined(separator: ", "))
-                                .font(.caption.bold())
-                                .foregroundStyle(CurrentsTheme.accent)
+            ForecastDayPage(store: store)
+                .toolbar {
+                    if presentedAsSheet {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Done") { dismiss() }
                         }
                     }
-
-                    HStack(spacing: 4) {
-                        Image(systemName: solunar.moonPhase.symbolName)
-                            .symbolRenderingMode(.multicolor)
-                        Text(solunar.moonPhase.displayName)
-                            .font(.caption)
-                        Text("(\(Int(solunar.moonIllumination * 100))%)")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                Spacer()
-            }
-
-            if !forecast.reasons.isEmpty {
-                VStack(alignment: .leading, spacing: 4) {
-                    ForEach(forecast.reasons.prefix(4), id: \.self) { reason in
-                        Label(reason, systemImage: "info.circle")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-        }
-        .glassCard()
-    }
-
-    // MARK: - Hourly Chart
-
-    private func hourlyChart(_ forecast: ForecastEngine.ForecastResult) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text("Hourly Forecast")
-                    .font(.headline)
-                Spacer()
-                Text(selectedHour == nil ? "Tap a bar for details" : "Tap again to dismiss")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-            }
-
-            Chart(forecast.hourlyScores, id: \.hour) { point in
-                BarMark(
-                    x: .value("Hour", point.hour),
-                    y: .value("Score", point.score)
-                )
-                .foregroundStyle(selectedHour == point.hour ? CurrentsTheme.accent : barColor(score: point.score))
-                .opacity(selectedHour == nil || selectedHour == point.hour ? 1.0 : 0.4)
-            }
-            .chartYScale(domain: 0...100)
-            .chartXAxis {
-                AxisMarks(values: .stride(by: 3)) { value in
-                    AxisValueLabel {
-                        if let hour = value.as(Int.self) {
-                            Text(formatHour(hour))
-                                .font(.caption2)
+                    ToolbarItem(placement: .primaryAction) {
+                        Button {
+                            Task { await store.load(force: true) }
+                        } label: {
+                            Image(systemName: "arrow.clockwise")
                         }
+                        .accessibilityLabel("Refresh forecast")
+                        .disabled(store.isLoading)
                     }
                 }
-            }
-            .chartYAxis {
-                AxisMarks(values: [0, 25, 50, 75, 100]) { value in
-                    AxisGridLine()
-                    AxisValueLabel {
-                        if let v = value.as(Int.self) {
-                            Text("\(v)")
-                                .font(.caption2)
-                        }
-                    }
+                .navigationDestination(for: ForecastRoute.self) { route in
+                    ForecastDestination(store: store, route: route)
                 }
-            }
-            // Tap to select an hour and keep it pinned; tap the same bar
-            // again to dismiss. (chartXSelection required press-and-hold.)
-            .chartOverlay { proxy in
-                GeometryReader { geo in
-                    Rectangle()
-                        .fill(Color.clear)
-                        .contentShape(Rectangle())
-                        .onTapGesture { location in
-                            guard let plotFrame = proxy.plotFrame else { return }
-                            let origin = geo[plotFrame].origin
-                            let x = location.x - origin.x
-                            guard let hour: Int = proxy.value(atX: x) else { return }
-                            let clamped = min(23, max(0, hour))
-                            withAnimation(.easeInOut(duration: 0.15)) {
-                                selectedHour = (selectedHour == clamped) ? nil : clamped
-                            }
-                        }
-                }
-            }
-            .frame(height: 160)
-
-            // Hourly drill-down detail
-            if let hour = selectedHour, let detail = hourDetail {
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        Text(formatHour(hour))
-                            .font(.title3.bold())
-                        ScoreGauge(score: detail.score, label: "", size: 36)
-                        Spacer()
-                        if !detail.feedingWindows.isEmpty {
-                            let inWindow = detail.feedingWindows.contains { w in
-                                let hourDate = Calendar.current.startOfDay(for: forecastDate)
-                                    .addingTimeInterval(Double(hour) * 3600 + 1800)
-                                return hourDate >= w.start && hourDate <= w.end
-                            }
-                            if inWindow {
-                                Text("FEEDING")
-                                    .font(.caption2.bold())
-                                    .padding(.horizontal, 6)
-                                    .padding(.vertical, 2)
-                                    .background(CurrentsTheme.accent.opacity(0.2))
-                                    .foregroundStyle(CurrentsTheme.accent)
-                                    .clipShape(Capsule())
-                            }
-                        }
-                    }
-
-                    ForEach(detail.reasons.prefix(3), id: \.self) { reason in
-                        HStack(spacing: 4) {
-                            Circle()
-                                .fill(CurrentsTheme.scoreColor(detail.score))
-                                .frame(width: 5, height: 5)
-                            Text(reason)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-
-                    // Mini breakdown
-                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 6) {
-                        MiniBreakdownCell(label: "Pressure", value: detail.breakdown.pressure)
-                        MiniBreakdownCell(label: "Trend", value: detail.breakdown.pressureTrend)
-                        MiniBreakdownCell(label: "Tide", value: detail.breakdown.tide)
-                        MiniBreakdownCell(label: "Solunar", value: detail.breakdown.solunar)
-                        MiniBreakdownCell(label: "Time", value: detail.breakdown.timeOfDay)
-                        MiniBreakdownCell(label: "Wind", value: detail.breakdown.wind)
-                        MiniBreakdownCell(label: "Temp", value: detail.breakdown.temperature)
-                        MiniBreakdownCell(label: "Moon", value: detail.breakdown.moon)
-                    }
-                }
-                .padding(.top, 4)
-                .transition(.opacity)
-            }
         }
-        .glassCard()
-        .onChange(of: selectedHour) { _, newHour in
-            guard let hour = newHour else { hourDetail = nil; return }
-            let w = selectedDayWeather
-            hourDetail = ForecastEngine.forecastForHour(
-                hour: hour,
-                date: forecastDate,
-                coordinate: coordinate,
-                currentPressureHpa: w?.pressureHpa,
-                pressureChange6h: w?.pressureChange6h,
-                waterTempC: w?.waterTempC,
-                windSpeedKmh: w?.windSpeedKmh,
-                species: selectedSpecies,
-                isInSpawningZone: false
-            )
+        .dsScreenBackground()
+        .syncsTargetSpecies(store)
+        .task {
+            if let loc = appState.locationManager.currentLocation {
+                store.setLocation(loc.coordinate, name: "Current location")
+            }
+            await store.load()
         }
-    }
-
-    // MARK: - Solunar Card
-
-    private func solunarCard(_ solunar: SolunarEngine.SolunarDay) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Text("Solunar Periods")
-                    .font(.headline)
-                Spacer()
-                Image(systemName: solunar.moonPhase.symbolName)
-                    .symbolRenderingMode(.multicolor)
-                    .font(.title3)
-            }
-
-            ForEach(solunar.majorPeriods, id: \.peak) { window in
-                feedingRow(window, isMajor: true)
-            }
-            ForEach(solunar.minorPeriods, id: \.peak) { window in
-                feedingRow(window, isMajor: false)
-            }
-        }
-        .glassCard()
-    }
-
-    private func feedingRow(_ window: SolunarEngine.FeedingWindow, isMajor: Bool) -> some View {
-        HStack {
-            RoundedRectangle(cornerRadius: 2)
-                .fill(CurrentsTheme.accent.opacity(isMajor ? 1.0 : 0.5))
-                .frame(width: 4, height: 32)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(window.kind.rawValue)
-                    .font(.subheadline.bold())
-                Text("\(window.start, style: .time) – \(window.end, style: .time)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            Spacer()
-
-            Text(isMajor ? "MAJOR" : "MINOR")
-                .font(.caption2.bold())
-                .padding(.horizontal, 8)
-                .padding(.vertical, 3)
-                .background(CurrentsTheme.accent.opacity(isMajor ? 0.3 : 0.15))
-                .foregroundStyle(CurrentsTheme.accent)
-                .clipShape(Capsule())
-        }
-    }
-
-    // MARK: - Tide Card
-
-    private func tideCard(_ tide: TideEngine.TideDay) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Tides")
-                .font(.headline)
-
-            Chart(tide.points, id: \.time) { point in
-                LineMark(
-                    x: .value("Time", point.time),
-                    y: .value("Height", point.height)
-                )
-                .interpolationMethod(.catmullRom)
-                .foregroundStyle(CurrentsTheme.accent.gradient)
-
-                AreaMark(
-                    x: .value("Time", point.time),
-                    y: .value("Height", point.height)
-                )
-                .interpolationMethod(.catmullRom)
-                .foregroundStyle(CurrentsTheme.accent.opacity(0.15).gradient)
-            }
-            .chartYScale(domain: -1.2...1.2)
-            .chartXAxis {
-                AxisMarks(values: .stride(by: .hour, count: 6)) { value in
-                    AxisValueLabel(format: .dateTime.hour())
-                }
-            }
-            .chartYAxis(.hidden)
-            .frame(height: 120)
-
-            HStack(spacing: 16) {
-                ForEach(tide.highTides) { event in
-                    Label("\(event.time, style: .time)", systemImage: "arrow.up")
-                        .font(.caption)
-                        .foregroundStyle(CurrentsTheme.accent)
-                }
-                ForEach(tide.lowTides) { event in
-                    Label("\(event.time, style: .time)", systemImage: "arrow.down")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-        }
-        .glassCard()
-    }
-
-    // MARK: - Sun Times Card
-
-    private func sunTimesCard(_ solunar: SolunarEngine.SolunarDay) -> some View {
-        HStack {
-            VStack(spacing: 4) {
-                Image(systemName: "sunrise.fill")
-                    .font(.title3)
-                    .symbolRenderingMode(.multicolor)
-                Text(solunar.sunrise, style: .time)
-                    .font(.subheadline.bold())
-                    .monospacedDigit()
-                Text("Sunrise")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
-            .frame(maxWidth: .infinity)
-
-            Divider().frame(height: 40)
-
-            VStack(spacing: 4) {
-                Image(systemName: "sun.max.fill")
-                    .font(.title3)
-                    .foregroundStyle(CurrentsTheme.accent)
-                Text("Golden Hours")
-                    .font(.subheadline.bold())
-                Text("\(solunar.dawnGoldenHour.lowerBound, style: .time)–\(solunar.dawnGoldenHour.upperBound, style: .time)")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
-            .frame(maxWidth: .infinity)
-
-            Divider().frame(height: 40)
-
-            VStack(spacing: 4) {
-                Image(systemName: "sunset.fill")
-                    .font(.title3)
-                    .symbolRenderingMode(.multicolor)
-                Text(solunar.sunset, style: .time)
-                    .font(.subheadline.bold())
-                    .monospacedDigit()
-                Text("Sunset")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
-            .frame(maxWidth: .infinity)
-        }
-        .glassCard()
-    }
-
-    // MARK: - Breakdown Card
-
-    private func breakdownCard(_ forecast: ForecastEngine.ForecastResult) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .firstTextBaseline) {
-                Text("Score Breakdown")
-                    .font(.headline)
-                Spacer()
-                Text("points of \(forecast.score)")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-            }
-            Text("Track length shows how much each factor can move the score. Tap a row to see why it matters.")
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
-                .padding(.bottom, 2)
-
-            BreakdownRow(label: "Pressure", value: forecast.breakdown.pressure, weight: 10,
-                explanation: "Steady, moderate pressure keeps fish comfortable at their normal depth. Extremes push them down and make them sluggish.")
-            BreakdownRow(label: "Pressure Trend", value: forecast.breakdown.pressureTrend, weight: 15,
-                explanation: "A falling glass ahead of a front is the classic feeding trigger. The high-pressure bluebird day behind it is the toughest bite there is.")
-            BreakdownRow(label: "Tide", value: forecast.breakdown.tide, weight: 15,
-                explanation: "Moving water concentrates bait against structure. Slack water at the top or bottom of the tide is usually the quietest part of the cycle.")
-            BreakdownRow(label: "Moon Phase", value: forecast.breakdown.moon, weight: 10,
-                explanation: "Full and new moons give the biggest tidal movement, and a bright night can shift feeding into darkness and flatten the dawn bite.")
-            BreakdownRow(label: "Solunar Window", value: forecast.breakdown.solunar, weight: 15,
-                explanation: "Major and minor periods track when the moon is overhead or underfoot — the windows fish most reliably switch on.")
-            BreakdownRow(label: "Time of Day", value: forecast.breakdown.timeOfDay, weight: 15,
-                explanation: "Low light at dawn and dusk hands predators the advantage, which is why those hours consistently out-fish the middle of the day.")
-            BreakdownRow(label: "Wind", value: forecast.breakdown.wind, weight: 8,
-                explanation: "A ripple breaks up the surface and stacks bait on the windward bank. Dead calm makes fish spooky; a gale makes them unfishable.")
-            BreakdownRow(label: "Temperature", value: forecast.breakdown.temperature, weight: 7,
-                explanation: "Scored against your target species' preferred band — fish are cold-blooded, so water temperature sets how hard they'll chase.")
-            BreakdownRow(label: "Season/Spawn", value: forecast.breakdown.season, weight: 5,
-                explanation: "Pre-spawn fish feed hard, spawning fish guard rather than eat, and post-spawn fish recover before switching back on.")
-        }
-        .glassCard()
-    }
-
-    // MARK: - Species Picker
-
-    private var speciesPicker: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Target Species")
-                .font(.headline)
-
-            Button {
-                showAllSpecies = true
-            } label: {
-                HStack(spacing: 12) {
-                    if let species = selectedSpecies {
-                        SpeciesArtworkView(species: species, caught: true, size: 44)
-                            .frame(width: 44, height: 44)
-                    } else {
-                        ZStack {
-                            Circle()
-                                .fill(.secondary.opacity(0.15))
-                                .frame(width: 44, height: 44)
-                            Image(systemName: "fish.fill")
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(selectedSpecies?.commonName ?? "General (All Species)")
-                            .font(.body.bold())
-                            .foregroundStyle(.primary)
-                        if let sci = selectedSpecies?.scientificName {
-                            Text(sci)
-                                .font(.caption)
-                                .italic()
-                                .foregroundStyle(.secondary)
-                        } else {
-                            Text("Tap to choose a target species")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    Spacer()
-                    Image(systemName: "chevron.right")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-            .tint(.primary)
-
-            if let species = selectedSpecies {
-                HStack(spacing: 8) {
-                    if let temp = species.optimalTempC {
-                        Label("\(Int(temp))°C", systemImage: "thermometer.medium")
-                            .font(.caption)
-                            .glassPill()
-                    }
-                    if let habitat = species.habitat {
-                        Label(habitat.rawValue.capitalized, systemImage: "water.waves")
-                            .font(.caption)
-                            .glassPill()
-                    }
-                    Spacer()
-                    Button("Clear") {
-                        selectedSpecies = nil
-                        recompute()
-                    }
-                    .font(.caption)
-                    .foregroundStyle(CurrentsTheme.accent)
-                }
-            }
-        }
-        .glassCard()
-        .sheet(isPresented: $showAllSpecies) {
-            ForecastSpeciesPickerSheet(
-                allSpecies: allSpecies,
-                selectedSpecies: $selectedSpecies,
-                onSelect: { recompute() }
-            )
-        }
-    }
-
-    // MARK: - Data Loading
-
-    private func fetchWeatherAndCompute(force: Bool = false) async {
-        isLoadingWeather = true
-        // `force` (the toolbar refresh) bypasses the freshness cache and pulls
-        // a live reading; the initial load serves the cache when it's fresh.
-        weather = await WeatherService.shared.current(for: coordinate, force: force)
-        // 7-day outlook so every card follows the day picker; served from the
-        // disk cache when offline.
-        dayWeathers = await WeatherService.shared.forecastDays(for: coordinate, force: force)
-        isLoadingWeather = false
-        recompute()
-    }
-
-    private func recompute() {
-        let coord = coordinate
-        let date = forecastDate
-
-        solunar = SolunarEngine.compute(date: date, coordinate: coord)
-        tideDay = TideEngine.predict(date: date, coordinate: coord)
-
-        // Feed the engine the SELECTED day's weather, not today's.
-        let w = selectedDayWeather
-        forecast = ForecastEngine.forecast(
-            date: date,
-            coordinate: coord,
-            currentPressureHpa: w?.pressureHpa,
-            pressureChange6h: w?.pressureChange6h,
-            waterTempC: w?.waterTempC,
-            windSpeedKmh: w?.windSpeedKmh,
-            windDirection: w?.windDirectionDeg,
-            species: selectedSpecies,
-            isInSpawningZone: false
-        )
-
-        // Feed the home-screen widgets with today's bite score at the user's
-        // location (only for today + no species filter, so it stays "general").
-        if selectedDay == 0, selectedSpecies == nil, let f = forecast {
-            let verdict: String
-            switch f.score {
-            case 80...: verdict = "Excellent"
-            case 60..<80: verdict = "Good"
-            case 40..<60: verdict = "Fair"
-            default: verdict = "Slow"
-            }
-            WidgetSnapshotWriter.writeBite(score: f.score, verdict: verdict, location: "",
-                                           hourly: WidgetSnapshotWriter.hourlyEntries(from: f.hourlyScores))
-        }
-    }
-
-    // MARK: - Helpers
-
-    private func formatHour(_ hour: Int) -> String {
-        if use24HourTime {
-            return String(format: "%02d:00", hour)
-        }
-        let h = hour % 12 == 0 ? 12 : hour % 12
-        return "\(h)\(hour < 12 ? "am" : "pm")"
-    }
-
-    private func barColor(score: Int) -> Color {
-        CurrentsTheme.scoreColor(score).opacity(0.8)
-    }
-
-    private func ratingIcon(_ rating: SolunarEngine.DayRating) -> String {
-        switch rating {
-        case .poor: "star"
-        case .fair: "star.leadinghalf.filled"
-        case .good: "star.fill"
-        case .best: "sparkles"
-        }
-    }
-
-    private func ratingColor(_ rating: SolunarEngine.DayRating) -> Color {
-        switch rating {
-        case .poor: CurrentsTheme.scoreColor(15)
-        case .fair: CurrentsTheme.scoreColor(40)
-        case .good: CurrentsTheme.scoreColor(80)
-        case .best: CurrentsTheme.scoreColor(95)
-        }
-    }
-
-    private func windDirection(_ degrees: Double) -> String {
-        let directions = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE",
-                         "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"]
-        let index = Int((degrees + 11.25) / 22.5) % 16
-        return directions[index]
-    }
-
-    private func compassOffset(for dir: String, radius: CGFloat) -> CGSize {
-        switch dir {
-        case "N": return CGSize(width: 0, height: -radius)
-        case "S": return CGSize(width: 0, height: radius)
-        case "E": return CGSize(width: radius, height: 0)
-        case "W": return CGSize(width: -radius, height: 0)
-        default: return .zero
-        }
-    }
-
-    private func pressureTrendColor(_ trend: Double) -> Color {
-        if trend < -2 { return CurrentsTheme.accent }
-        if trend < -0.5 { return CurrentsTheme.accent.opacity(0.7) }
-        if trend > 2 { return CurrentsTheme.scoreColor(15) }
-        if trend > 0.5 { return CurrentsTheme.scoreColor(40) }
-        return .secondary
-    }
-
-    private func pressureTrendLabel(_ trend: Double) -> String {
-        if trend < -3 { return "Dropping fast" }
-        if trend < -1 { return "Falling" }
-        if trend > 3 { return "Rising fast" }
-        if trend > 1 { return "Rising" }
-        return "Stable"
     }
 }
 
-// MARK: - Weather Detail Cell
-
-struct WeatherDetailCell: View {
-    let icon: String
-    let value: String
-    let label: String
-    /// What this reading means for the bite. Tap to show, tap again to hide —
-    /// the same reveal used on the Best Windows bars.
-    var explanation: String? = nil
-    @State private var expanded = false
+/// The page for a forecast route. Declare with
+/// `.navigationDestination(for: ForecastRoute.self)` inside the stack's root.
+struct ForecastDestination: View {
+    let store: ForecastStore
+    let route: ForecastRoute
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            tile
-            if expanded, let explanation {
-                Text(explanation)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.horizontal, 2)
-                    .transition(.opacity.combined(with: .move(edge: .top)))
-            }
-        }
-        .contentShape(Rectangle())
-        .onTapGesture {
-            guard explanation != nil else { return }
-            withAnimation(.snappy(duration: 0.2)) { expanded.toggle() }
-        }
-    }
-
-    private var tile: some View {
-        // Was three stacked greys with no container, which read as a caption
-        // rather than a value. Now a proper tile: tinted glyph, the number as
-        // the loudest thing, and its own surface so the grid has structure.
-        HStack(spacing: 9) {
-            Image(systemName: icon)
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(CurrentsTheme.accent)
-                .frame(width: 26, height: 26)
-                .background(CurrentsTheme.accent.opacity(0.14), in: Circle())
-
-            VStack(alignment: .leading, spacing: 1) {
-                Text(value)
-                    .font(.subheadline.weight(.semibold))
-                    .monospacedDigit()
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
-                Text(label)
-                    .font(.system(size: 10))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 9)
-        .padding(.vertical, 8)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.primary.opacity(0.05),
-                    in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-    }
-}
-
-// MARK: - Mini Breakdown Cell (hourly drill-down)
-
-struct MiniBreakdownCell: View {
-    let label: String
-    let value: Double
-
-    var body: some View {
-        HStack(spacing: 6) {
-            Circle()
-                .fill(CurrentsTheme.scoreColor(Int(value * 100)))
-                .frame(width: 8, height: 8)
-            Text(label)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-            Spacer()
-            Text("\(Int(value * 100))%")
-                .font(.caption2.bold())
-                .monospacedDigit()
+        switch route {
+        case .day(let offset, let hour):
+            ForecastDayPage(store: store, initialDay: offset, initialHour: hour)
+        case .week:
+            ForecastWeekPage(store: store)
+        case .condition(let condition, let day):
+            ConditionPage(store: store, condition: condition, dayOffset: day)
+        case .lures:
+            WhatToThrowPage(store: store)
+        case .targetSpecies:
+            TargetSpeciesPage(store: store)
+        case .target:
+            TargetPage(store: store)
         }
     }
 }
 
-// MARK: - Forecast Species Picker Sheet
+/// Choose the species the forecast and lures are tuned for, or none for a
+/// general forecast. Pushed from the target page. Saves the shared
+/// `targetSpeciesId` the species page's Target button also writes, with
+/// recent targets at the top.
+struct TargetSpeciesPage: View {
+    let store: ForecastStore
 
-struct ForecastSpeciesPickerSheet: View {
-    let allSpecies: [Species]
-    @Binding var selectedSpecies: Species?
-    let onSelect: () -> Void
+    @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss
+    @AppStorage("targetSpeciesId") private var targetSpeciesId: Int = 0
+    @AppStorage(RecentTargets.key) private var recentTargets = ""
+    @State private var all: [Species] = []
+    @State private var loaded = false
     @State private var search = ""
-    @State private var habitatFilter: Species.Habitat?
+    @State private var habitat: SpeciesHabitatFilter = .all
 
     private var filtered: [Species] {
-        var result = allSpecies
-        if let hab = habitatFilter {
-            result = result.filter { $0.habitat == hab }
+        var result = all
+        if case .only(let h) = habitat {
+            result = result.filter { $0.habitat == h }
         }
-        if !search.isEmpty {
-            let q = search.lowercased()
+        let q = search.trimmingCharacters(in: .whitespaces).lowercased()
+        if !q.isEmpty {
             result = result.filter {
-                $0.commonName.lowercased().contains(q) ||
-                $0.scientificName.lowercased().contains(q) ||
-                ($0.family ?? "").lowercased().contains(q)
+                $0.commonName.lowercased().contains(q)
+                    || $0.scientificName.lowercased().contains(q)
+                    || ($0.family ?? "").lowercased().contains(q)
             }
         }
         return result
     }
 
+    /// Recent targets, shown above the list until a search or filter starts.
+    private var recents: [Species] {
+        guard search.isEmpty, habitat == .all else { return [] }
+        let byId = Dictionary(all.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        return RecentTargets.ids(recentTargets).compactMap { byId[$0] }
+    }
+
     var body: some View {
-        NavigationStack {
-            VStack(spacing: 0) {
-                // Habitat filter
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        FilterChip(title: "All", isSelected: habitatFilter == nil) {
-                            habitatFilter = nil
-                        }
-                        ForEach(Species.Habitat.allCases, id: \.self) { hab in
-                            FilterChip(title: hab.rawValue.capitalized, isSelected: habitatFilter == hab) {
-                                habitatFilter = hab
-                            }
-                        }
-                    }
-                    .padding(.horizontal)
-                }
-                .padding(.vertical, 8)
-
-                List {
-                    // General option
-                    Button {
-                        selectedSpecies = nil
-                        onSelect()
-                        dismiss()
-                    } label: {
-                        HStack(spacing: 12) {
-                            ZStack {
-                                Circle()
-                                    .fill(.secondary.opacity(0.15))
-                                    .frame(width: 44, height: 44)
-                                Image(systemName: "globe")
-                                    .foregroundStyle(.secondary)
-                            }
-                            Text("General (All Species)")
-                                .font(.body.bold())
-                                .foregroundStyle(.primary)
-                            Spacer()
-                            if selectedSpecies == nil {
-                                Image(systemName: "checkmark.circle.fill")
-                                    .foregroundStyle(CurrentsTheme.accent)
-                            }
-                        }
-                    }
-                    .tint(.primary)
-
-                    Section("\(filtered.count) species") {
-                        ForEach(filtered) { sp in
-                            Button {
-                                selectedSpecies = sp
-                                onSelect()
-                                dismiss()
-                            } label: {
-                                HStack(spacing: 12) {
-                                    SpeciesArtworkView(species: sp, caught: true, size: 44)
-                                        .frame(width: 44, height: 44)
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(sp.commonName)
-                                            .font(.body.bold())
-                                            .foregroundStyle(.primary)
-                                        Text(sp.scientificName)
-                                            .font(.caption)
-                                            .italic()
-                                            .foregroundStyle(.secondary)
-                                    }
-                                    Spacer()
-                                    if let temp = sp.optimalTempC {
-                                        Text("\(Int(temp))°")
-                                            .font(.caption.bold())
-                                            .foregroundStyle(CurrentsTheme.accent)
-                                    }
-                                    if selectedSpecies?.id == sp.id {
-                                        Image(systemName: "checkmark.circle.fill")
-                                            .foregroundStyle(CurrentsTheme.accent)
-                                    }
-                                }
-                            }
-                            .tint(.primary)
-                        }
+        let rows = filtered
+        let recent = recents
+        List {
+            Section {
+                FilterChips(SpeciesHabitatFilter.options, selection: $habitat, title: { $0.title })
+                    .dsListRow()
+                Button { pick(nil) } label: {
+                    ArtRow(title: "Any species", subtitle: "General forecast and lures") {
+                        ThumbView(systemImage: "scope", tint: DS.accent, size: 48)
+                    } trailing: {
+                        SpeciesCheckmark(isOn: store.species == nil)
                     }
                 }
-                .listStyle(.plain)
+                .buttonStyle(.dsRow)
+                .dsListRow()
             }
-            .navigationTitle("Target Species")
-            .navigationBarTitleDisplayMode(.inline)
-            .searchable(text: $search, prompt: "Search species by name or family...")
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
+
+            if !recent.isEmpty {
+                Section {
+                    SectionTitle("Recent")
+                        .padding(.top, DS.Space.s4)
+                        .dsListRow()
+                    ForEach(recent) { sp in
+                        speciesRow(sp)
+                    }
+                }
+            }
+
+            if !rows.isEmpty {
+                // A row, not a section header: plain-list headers pin and
+                // draw over the rows on this clear background.
+                Section {
+                    SectionTitle("Species", detail: "\(rows.count)")
+                        .padding(.top, DS.Space.s4)
+                        .dsListRow()
+                    ForEach(rows) { sp in
+                        speciesRow(sp)
+                    }
                 }
             }
         }
+        .dsPlainList()
+        .detailScrollEdge()
+        .overlay {
+            if !loaded {
+                ProgressView()
+            } else if all.isEmpty {
+                ContentUnavailableView("No species yet", systemImage: "fish",
+                                       description: Text("The species guide is still being set up. Try again in a moment."))
+            } else if rows.isEmpty {
+                if search.isEmpty {
+                    ContentUnavailableView("None in this group", systemImage: "line.3.horizontal.decrease",
+                                           description: Text("Pick another habitat."))
+                } else {
+                    ContentUnavailableView.search(text: search)
+                }
+            }
+        }
+        .navigationTitle("Target species")
+        .navigationBarTitleDisplayMode(.inline)
+        .searchable(text: $search, placement: .navigationBarDrawer(displayMode: .always), prompt: "Name or family")
+        .task {
+            guard !loaded else { return }
+            all = (try? appState.speciesRepository.fetchAll()) ?? []
+            loaded = true
+        }
     }
 
-    private func habitatColor(_ habitat: Species.Habitat?) -> Color {
-        switch habitat {
-        case .freshwater: CurrentsTheme.accent
-        case .marine: CurrentsTheme.accent.opacity(0.7)
-        case .brackish: CurrentsTheme.accent.opacity(0.5)
-        case nil: .gray
+    private func speciesRow(_ sp: Species) -> some View {
+        Button { pick(sp) } label: {
+            ArtRow(title: sp.commonName, subtitle: subtitle(for: sp)) {
+                ThumbView(species: sp, size: 48)
+            } trailing: {
+                SpeciesCheckmark(isOn: store.species?.id == sp.id)
+            }
+        }
+        .buttonStyle(.dsRow)
+        .dsListRow()
+    }
+
+    private func subtitle(for sp: Species) -> String {
+        if let t = sp.optimalTempC {
+            return "\(sp.scientificName), best at \(Int(t))°"
+        }
+        return sp.scientificName
+    }
+
+    private func pick(_ sp: Species?) {
+        targetSpeciesId = Int(sp?.id ?? 0)
+        if let sp { recentTargets = RecentTargets.adding(sp.id, to: recentTargets) }
+        store.setSpecies(sp)
+        TargetText.announce(sp)
+        dismiss()
+    }
+}
+
+/// Habitat filter for the species list.
+enum SpeciesHabitatFilter: Hashable {
+    case all
+    case only(Species.Habitat)
+
+    static var options: [SpeciesHabitatFilter] { [.all] + Species.Habitat.allCases.map { .only($0) } }
+
+    var title: String {
+        switch self {
+        case .all: "All"
+        case .only(let h): h.rawValue.capitalized
         }
     }
 }
 
-// MARK: - Breakdown Row
-
-struct BreakdownRow: View {
-    let label: String
-    let value: Double
-    let weight: Double
-    /// Why this factor matters. Tap the row to show it, tap again to hide.
-    var explanation: String? = nil
-    @State private var expanded = false
+private struct SpeciesCheckmark: View {
+    let isOn: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            row
-            if expanded, let explanation {
-                Text(explanation)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.leading, 2)
-                    .padding(.bottom, 2)
-                    .transition(.opacity.combined(with: .move(edge: .top)))
-            }
+        if isOn {
+            Image(systemName: "checkmark")
+                .font(.body.weight(.semibold))
+                .foregroundStyle(DS.accent)
+                .accessibilityLabel("Selected")
         }
-        .contentShape(Rectangle())
-        .onTapGesture {
-            guard explanation != nil else { return }
-            withAnimation(.snappy(duration: 0.2)) { expanded.toggle() }
-        }
-    }
-
-    private var row: some View {
-        // The same number was shown three ways — points, percent and a bar.
-        // Now one bar carrying the proportion, one figure carrying the points,
-        // and the bar's width reflecting how much this factor can move the
-        // score at all, so a 15-point factor visibly outweighs a 5-point one.
-        HStack(spacing: 10) {
-            Text(label)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .frame(width: 104, alignment: .leading)
-                .lineLimit(1)
-                .minimumScaleFactor(0.85)
-
-            GeometryReader { geo in
-                let full = geo.size.width * (weight / 15.0)
-                ZStack(alignment: .leading) {
-                    Capsule()
-                        .fill(.primary.opacity(0.08))
-                        .frame(width: full)
-                    Capsule()
-                        .fill(CurrentsTheme.scoreColor(Int(value * 100)).gradient)
-                        .frame(width: full * min(1, max(0, value)))
-                }
-                .frame(maxHeight: .infinity, alignment: .center)
-            }
-            .frame(height: 7)
-
-            Text("\(Int((value * weight).rounded()))")
-                .font(.caption.weight(.semibold))
-                .monospacedDigit()
-                .foregroundStyle(CurrentsTheme.scoreColor(Int(value * 100)))
-                .frame(width: 22, alignment: .trailing)
-        }
-        .frame(height: 20)
     }
 }

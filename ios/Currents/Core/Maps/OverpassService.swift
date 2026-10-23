@@ -56,17 +56,15 @@ actor OverpassService {
         // We get the center point (out center), name, and other tags
         let bbox = "\(minLat),\(minLon),\(maxLat),\(maxLon)"
         let query = """
-        [out:json][timeout:10];
+        [out:json][timeout:25];
         (
-          way["natural"="water"]["name"~"."](\(bbox));
-          relation["natural"="water"]["name"~"."](\(bbox));
-          way["water"~"lake|reservoir|pond|river|canal|basin"][\
-        "name"~"."](\(bbox));
-          relation["water"~"lake|reservoir|pond|river|canal|basin"]\
-        ["name"~"."](\(bbox));
-          way["waterway"="riverbank"]["name"~"."](\(bbox));
-          way["landuse"="reservoir"]["name"~"."](\(bbox));
-          relation["landuse"="reservoir"]["name"~"."](\(bbox));
+          way["natural"="water"]["name"](\(bbox));
+          relation["natural"="water"]["name"](\(bbox));
+          way["water"~"lake|reservoir|pond|river|canal|basin"]["name"](\(bbox));
+          relation["water"~"lake|reservoir|pond|river|canal|basin"]["name"](\(bbox));
+          way["waterway"="riverbank"]["name"](\(bbox));
+          way["landuse"="reservoir"]["name"](\(bbox));
+          relation["landuse"="reservoir"]["name"](\(bbox));
         );
         out center tags 100;
         """
@@ -110,7 +108,10 @@ actor OverpassService {
         request.httpMethod = "POST"
         request.httpBody = body
         request.setValue("Currents Fishing App", forHTTPHeaderField: "User-Agent")
-        request.timeoutInterval = 15
+        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        // Busy public servers often take 15 to 25 seconds; a shorter wait
+        // gave up on every mirror and left the map empty.
+        request.timeoutInterval = 35
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
             guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return nil }

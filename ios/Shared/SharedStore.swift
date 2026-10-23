@@ -15,6 +15,10 @@ public struct CurrentsSnapshot: Codable, Equatable {
     public var biteScore: Int
     public var biteVerdict: String
     public var locationName: String
+    /// Where the score is for, so a background refresh can recompute it
+    /// without the app open. Nil on snapshots written before it existed.
+    public var latitude: Double?
+    public var longitude: Double?
     public var updatedAt: Date
 
     /// Next planned session, if any.
@@ -31,12 +35,14 @@ public struct CurrentsSnapshot: Codable, Equatable {
     public var hourly: [SnapHour]
 
     public init(biteScore: Int = 0, biteVerdict: String = "—", locationName: String = "",
-                updatedAt: Date = .now, nextSessionName: String? = nil, nextSessionDate: Date? = nil,
+                latitude: Double? = nil, longitude: Double? = nil, updatedAt: Date = .now, nextSessionName: String? = nil, nextSessionDate: Date? = nil,
                 activeSessionName: String? = nil, activeSessionStart: Date? = nil,
                 activeSessionCatches: Int = 0, hourly: [SnapHour] = []) {
         self.biteScore = biteScore
         self.biteVerdict = biteVerdict
         self.locationName = locationName
+        self.latitude = latitude
+        self.longitude = longitude
         self.updatedAt = updatedAt
         self.nextSessionName = nextSessionName
         self.nextSessionDate = nextSessionDate
@@ -55,7 +61,7 @@ public struct CurrentsSnapshot: Codable, Equatable {
 
     // Tolerant decoding so snapshots written before `hourly` existed still load.
     private enum CodingKeys: String, CodingKey {
-        case biteScore, biteVerdict, locationName, updatedAt, nextSessionName,
+        case biteScore, biteVerdict, locationName, latitude, longitude, updatedAt, nextSessionName,
              nextSessionDate, activeSessionName, activeSessionStart, activeSessionCatches, hourly
     }
     public init(from decoder: Decoder) throws {
@@ -63,6 +69,8 @@ public struct CurrentsSnapshot: Codable, Equatable {
         biteScore = try c.decodeIfPresent(Int.self, forKey: .biteScore) ?? 0
         biteVerdict = try c.decodeIfPresent(String.self, forKey: .biteVerdict) ?? "—"
         locationName = try c.decodeIfPresent(String.self, forKey: .locationName) ?? ""
+        latitude = try c.decodeIfPresent(Double.self, forKey: .latitude)
+        longitude = try c.decodeIfPresent(Double.self, forKey: .longitude)
         updatedAt = try c.decodeIfPresent(Date.self, forKey: .updatedAt) ?? .now
         nextSessionName = try c.decodeIfPresent(String.self, forKey: .nextSessionName)
         nextSessionDate = try c.decodeIfPresent(Date.self, forKey: .nextSessionDate)
@@ -70,6 +78,19 @@ public struct CurrentsSnapshot: Codable, Equatable {
         activeSessionStart = try c.decodeIfPresent(Date.self, forKey: .activeSessionStart)
         activeSessionCatches = try c.decodeIfPresent(Int.self, forKey: .activeSessionCatches) ?? 0
         hourly = try c.decodeIfPresent([SnapHour].self, forKey: .hourly) ?? []
+    }
+}
+
+/// The one-word bite verdict on widgets and the watch. Same bands as the
+/// verdicts in the app, so a score reads the same everywhere.
+public enum BiteVerdict {
+    public static func word(_ score: Int) -> String {
+        switch score {
+        case 80...: return "Excellent"
+        case 65..<80: return "Good"
+        case 50..<65: return "Fair"
+        default: return "Slow"
+        }
     }
 }
 

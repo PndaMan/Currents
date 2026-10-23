@@ -1,158 +1,220 @@
 import SwiftUI
 import UIKit
 
-/// One screen for the app's whole look: the colour theme and the home-screen
-/// icon, kept in sync. By default the icon **follows the theme** — pick "Forest"
-/// and both the accent and the icon turn green. Choosing an icon that differs
-/// from the theme decouples them (an override); re-picking the matching icon (or
-/// "Match theme") links them back.
+/// One screen for the app's whole look: light or dark, the colour theme and the
+/// home-screen icon. By default the icon follows the theme: pick Forest and
+/// both the accent and the icon turn green. Choosing an icon that differs from
+/// the theme decouples them; re-picking the matching icon (or turning Match the
+/// colour theme back on) links them again.
 struct AppearanceSettingsView: View {
+    @AppStorage("appearanceMode") private var appearanceMode = AppearanceMode.dark.rawValue
     @AppStorage("selectedTheme") private var selectedTheme = ThemeOption.ocean.rawValue
     @AppStorage("selectedAppIcon") private var selectedAppIcon = "ocean"
     /// When true the app icon automatically tracks the colour theme.
     @AppStorage("appIconFollowsTheme") private var iconFollowsTheme = true
+    @AppStorage(Haptics.enabledKey) private var hapticsEnabled = true
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var titleShown = false
 
-    private let themeColumns = [GridItem(.adaptive(minimum: 80), spacing: 16)]
-    private let iconColumns = [GridItem(.adaptive(minimum: 100, maximum: 140), spacing: 16)]
+    private let themeColumns = [GridItem(.adaptive(minimum: 68), spacing: 12)]
+    private let iconColumns = [GridItem(.adaptive(minimum: 76), spacing: 12)]
+
+    private var theme: ThemeOption { ThemeOption(rawValue: selectedTheme) ?? .ocean }
 
     var body: some View {
-        Form {
-            Section {
-                LazyVGrid(columns: themeColumns, spacing: 20) {
-                    ForEach(ThemeOption.allCases) { theme in
-                        themeCircle(theme)
-                    }
-                }
-                .padding(.vertical, 12)
-            } header: {
-                Text("Color Theme")
-            } footer: {
-                Text("Sets the accent colour across buttons, highlights and the logo.")
-            }
+        ScrollView {
+            VStack(alignment: .leading, spacing: DS.Space.s6) {
+                DetailHeader(title: "Appearance", subtitle: "Dark is easier on the eyes at dawn.")
 
-            Section {
-                LazyVGrid(columns: iconColumns, spacing: 20) {
-                    ForEach(AppIconOption.all) { option in
-                        iconCell(for: option)
+                VStack(alignment: .leading, spacing: DS.Space.s3) {
+                    SectionTitle("Mode")
+                    HStack(spacing: 12) {
+                        ForEach(AppearanceMode.allCases) { mode in
+                            modeCard(mode)
+                        }
+                    }
+                    .padding(.horizontal, DS.gutter)
+                }
+
+                VStack(alignment: .leading, spacing: DS.Space.s3) {
+                    SectionTitle("Colour theme")
+                    LazyVGrid(columns: themeColumns, spacing: 16) {
+                        ForEach(ThemeOption.allCases) { theme in
+                            themeCircle(theme)
+                        }
+                    }
+                    .padding(.horizontal, DS.gutter)
+                }
+
+                VStack(alignment: .leading, spacing: DS.Space.s3) {
+                    SectionTitle("App icon")
+                    CardGroup {
+                        CardToggleRow("Match the colour theme", subtitle: "The icon follows your theme",
+                                      systemImage: "app.badge.fill", tint: theme.primary,
+                                      isOn: Binding(get: { iconFollowsTheme },
+                                                    set: { on in
+                                                        if on { relinkIconToTheme() } else { iconFollowsTheme = false }
+                                                    }))
+                    }
+                    LazyVGrid(columns: iconColumns, spacing: 16) {
+                        ForEach(AppIconOption.all) { option in
+                            iconCell(for: option)
+                        }
+                    }
+                    .padding(.horizontal, DS.gutter)
+                    PFFootnote(iconFollowsTheme ? "Pick another icon to set it on its own." : "Set on its own.")
+                }
+
+                VStack(alignment: .leading, spacing: DS.Space.s3) {
+                    SectionTitle("Haptics")
+                    CardGroup {
+                        CardToggleRow("Haptics", subtitle: "Taps, confirmations and celebrations",
+                                      systemImage: "iphone.radiowaves.left.and.right", tint: .purple,
+                                      isOn: Binding(get: { hapticsEnabled },
+                                                    set: { on in
+                                                        hapticsEnabled = on
+                                                        // A sample, so turning it on is felt.
+                                                        if on { Haptics.success() }
+                                                    }))
                     }
                 }
-                .padding(.vertical, 8)
-            } header: {
-                HStack {
-                    Text("App Icon")
-                    Spacer()
-                    if !iconFollowsTheme {
-                        Button("Match theme") { relinkIconToTheme() }
-                            .font(.caption.bold())
-                            .textCase(nil)
-                    }
-                }
-            } footer: {
-                Text(iconFollowsTheme
-                     ? "Your app icon follows your colour theme. Pick a different icon to set it on its own."
-                     : "Your app icon is set independently. Tap the icon matching your theme — or “Match theme” — to link them again.")
+            }
+            .padding(.bottom, DS.Space.s8)
+            .pageWidth()
+        }
+        .detailTint(nil)
+        .pfTrackScroll($titleShown, threshold: 60)
+        .pfScrollTitle("Appearance", shown: titleShown)
+    }
+
+    // MARK: - Mode cards
+
+    private func modeCard(_ mode: AppearanceMode) -> some View {
+        let isActive = appearanceMode == mode.rawValue
+        return Button {
+            appearanceMode = mode.rawValue
+        } label: {
+            VStack(spacing: DS.Space.s2) {
+                modeArt(mode)
+                    .frame(height: 96)
+                    .frame(maxWidth: .infinity)
+                    .clipShape(RoundedRectangle(cornerRadius: DS.Radius.thumb, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: DS.Radius.thumb, style: .continuous)
+                            .strokeBorder(isActive ? theme.primary : Color.dsSeparator, lineWidth: isActive ? 2.5 : 1)
+                    )
+                Label(mode.title, systemImage: mode.systemImage)
+                    .font(.subheadline.weight(isActive ? .semibold : .regular))
+                    .foregroundStyle(isActive ? Color.dsText : Color.dsText2)
             }
         }
-        .navigationTitle("Appearance")
-        .sensoryFeedback(.selection, trigger: selectedTheme)
-        .sensoryFeedback(.selection, trigger: selectedAppIcon)
+        .buttonStyle(.dim)
+        .buttonHaptic(.selection)
+        .accessibilityLabel(mode.title)
+        .accessibilityAddTraits(isActive ? .isSelected : [])
+    }
+
+    /// A tiny page sketch in the mode's colours. System shows both halves.
+    @ViewBuilder
+    private func modeArt(_ mode: AppearanceMode) -> some View {
+        switch mode {
+        case .light: modeSketch(dark: false)
+        case .dark: modeSketch(dark: true)
+        case .system:
+            HStack(spacing: 0) {
+                modeSketch(dark: false)
+                modeSketch(dark: true)
+            }
+        }
+    }
+
+    private func modeSketch(dark: Bool) -> some View {
+        let bg = dark ? Color.black : Color.white
+        let fill = dark ? Color.white.opacity(0.14) : Color.black.opacity(0.08)
+        return ZStack(alignment: .topLeading) {
+            bg
+            VStack(alignment: .leading, spacing: 6) {
+                Capsule().fill(fill).frame(width: 34, height: 7)
+                Capsule().fill(theme.primary.opacity(0.8)).frame(height: 18)
+                Capsule().fill(fill).frame(height: 10)
+                Capsule().fill(fill).frame(width: 40, height: 10)
+            }
+            .padding(10)
+        }
+        .accessibilityHidden(true)
     }
 
     // MARK: - Theme grid
 
     private func themeCircle(_ theme: ThemeOption) -> some View {
         let isActive = selectedTheme == theme.rawValue
-        return VStack(spacing: 8) {
-            ZStack {
+        return Button {
+            selectTheme(theme)
+        } label: {
+            VStack(spacing: 8) {
                 Circle()
-                    .fill(
-                        LinearGradient(
-                            colors: [theme.gradient.0, theme.gradient.1],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-                    .frame(width: 52, height: 52)
-
-                if isActive {
-                    Image(systemName: "checkmark")
-                        .font(.body.bold())
-                        .foregroundStyle(.white)
-                }
+                    .fill(theme.primary)
+                    .frame(width: 44, height: 44)
+                    .overlay {
+                        if isActive {
+                            Image(systemName: "checkmark")
+                                .font(.body.bold())
+                                .foregroundStyle(.white)
+                        }
+                    }
+                    .padding(4)
+                    .overlay(Circle().strokeBorder(isActive ? theme.primary : Color.clear, lineWidth: 2.5))
+                Text(theme.displayName)
+                    .font(.caption)
+                    .foregroundStyle(isActive ? Color.dsText : Color.dsText2)
             }
-            .overlay(
-                Circle()
-                    .stroke(isActive ? theme.primary : Color.clear, lineWidth: 3)
-                    .frame(width: 60, height: 60)
-            )
-
-            Text(theme.displayName)
-                .font(.caption)
-                .foregroundStyle(isActive ? .primary : .secondary)
         }
-        .contentShape(Rectangle())
-        .onTapGesture { selectTheme(theme) }
+        .buttonStyle(.dim)
+        .buttonHaptic(.selection)
+        .accessibilityLabel(theme.displayName)
+        .accessibilityAddTraits(isActive ? .isSelected : [])
     }
 
     // MARK: - Icon grid
 
-    @ViewBuilder
     private func iconCell(for option: AppIconOption) -> some View {
         let isSelected = selectedAppIcon == option.id
         let tint = (ThemeOption(rawValue: option.id) ?? .ocean).primary
-        VStack(spacing: 8) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(Color(.secondarySystemBackground))
-                    .frame(width: 72, height: 72)
+        return Button {
+            selectIcon(option)
+        } label: {
+            VStack(spacing: 8) {
+                AppIconPreview(tint: tint, size: 64)
+                    .padding(3)
                     .overlay(
-                        CurrentsMark()
-                            .stroke(tint, style: StrokeStyle(lineWidth: 5, lineCap: .round, lineJoin: .round))
-                            .frame(width: 46, height: 46)
+                        RoundedRectangle(cornerRadius: DS.Radius.button + 3, style: .continuous)
+                            .strokeBorder(isSelected ? tint : Color.dsSeparator, lineWidth: isSelected ? 2.5 : 1)
                     )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .strokeBorder(isSelected ? tint : Color.primary.opacity(0.08), lineWidth: isSelected ? 3 : 1)
-                    )
-                    .shadow(color: isSelected ? tint.opacity(0.35) : .clear, radius: 6, y: 2)
-
-                if isSelected {
-                    VStack {
-                        HStack {
-                            Spacer()
-                            Image(systemName: "checkmark.circle.fill")
-                                .font(.system(size: 20))
-                                .foregroundStyle(.white, tint)
-                        }
-                        Spacer()
-                    }
-                    .frame(width: 72, height: 72)
-                    .offset(x: 6, y: -6)
-                }
+                Text(option.name)
+                    .font(.caption)
+                    .foregroundStyle(isSelected ? Color.dsText : Color.dsText2)
+                    .fontWeight(isSelected ? .semibold : .regular)
             }
-
-            Text(option.name)
-                .font(.caption)
-                .foregroundStyle(isSelected ? .primary : .secondary)
-                .fontWeight(isSelected ? .semibold : .regular)
         }
-        .contentShape(Rectangle())
-        .onTapGesture { selectIcon(option) }
+        .buttonStyle(.dim)
+        .buttonHaptic(.selection)
+        .accessibilityLabel("\(option.name) icon")
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
     // MARK: - Selection + sync
 
     private func selectTheme(_ theme: ThemeOption) {
-        withAnimation(.easeInOut(duration: 0.2)) { selectedTheme = theme.rawValue }
+        withAnimation(reduceMotion ? nil : .easeInOut(duration: DS.Motion.fast)) { selectedTheme = theme.rawValue }
         // Icon follows the theme unless the user has overridden it.
         guard iconFollowsTheme, selectedAppIcon != theme.rawValue else { return }
-        withAnimation(.easeInOut(duration: 0.2)) { selectedAppIcon = theme.rawValue }
+        withAnimation(reduceMotion ? nil : .easeInOut(duration: DS.Motion.fast)) { selectedAppIcon = theme.rawValue }
         setAppIcon(AppIconOption.option(for: theme.rawValue).alternateIconName)
     }
 
     private func selectIcon(_ option: AppIconOption) {
         if selectedAppIcon != option.id {
-            withAnimation(.easeInOut(duration: 0.2)) { selectedAppIcon = option.id }
+            withAnimation(reduceMotion ? nil : .easeInOut(duration: DS.Motion.fast)) { selectedAppIcon = option.id }
             setAppIcon(option.alternateIconName)
         }
         // Linked only while the icon matches the active theme; otherwise it's a
@@ -163,7 +225,7 @@ struct AppearanceSettingsView: View {
     private func relinkIconToTheme() {
         iconFollowsTheme = true
         guard selectedAppIcon != selectedTheme else { return }
-        withAnimation(.easeInOut(duration: 0.2)) { selectedAppIcon = selectedTheme }
+        withAnimation(reduceMotion ? nil : .easeInOut(duration: DS.Motion.fast)) { selectedAppIcon = selectedTheme }
         setAppIcon(AppIconOption.option(for: selectedTheme).alternateIconName)
     }
 
