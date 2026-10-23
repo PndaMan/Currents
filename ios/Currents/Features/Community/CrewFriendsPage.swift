@@ -76,6 +76,7 @@ struct CrewFriendsPage: View {
     @State private var query = ""
     @State private var showingAdd = false
     @State private var confirmRemove: CommunityService.Profile?
+    @ObservedObject private var connection = CrewConnection.shared
 
     private var filtered: [CommunityService.Profile] {
         let q = query.trimmingCharacters(in: .whitespaces)
@@ -90,28 +91,15 @@ struct CrewFriendsPage: View {
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
-                DetailHeader(title: "Friends",
-                             subtitle: svc.friends.isEmpty ? "Your angler code is \(svc.friendCode)."
-                                : "\(svc.friends.count) \(svc.friends.count == 1 ? "friend" : "friends"). Your angler code is \(svc.friendCode).")
-                ActionTriple {
-                    Button { showingAdd = true } label: {
-                        Label("Add friend", systemImage: "person.badge.plus")
-                    }
-                    .buttonStyle(ActionTileStyle(.primary))
-                    Button {
-                        UIPasteboard.general.string = svc.friendCode
-                        ToastCenter.shared.show("Angler code copied", style: .success)
-                    } label: {
-                        Label("Copy code", systemImage: "doc.on.doc")
-                    }
-                    .buttonStyle(ActionTileStyle())
-                    ShareLink(item: svc.friendInviteMessage()) {
-                        ActionTileLabel("Invite", systemImage: "square.and.arrow.up")
-                    }
-                    .buttonStyle(.dim)
+                DetailHeader(title: "Friends", subtitle: "Your angler code is \(svc.friendCode)")
+                actions
+                    .padding(.top, DS.Space.s5)
+                // With nothing saved, the empty friends list says it instead.
+                if connection.isOffline && !friends.isEmpty {
+                    EventNotice("Offline. Showing your friends as last saved.",
+                                systemImage: "wifi.slash") { EmptyView() }
+                        .padding(.top, DS.Space.s5)
                 }
-                .padding(.top, DS.Space.s5)
-
                 if !requests.isEmpty {
                     CrewSection(title: "Requests", detail: "\(requests.count)") {
                         ForEach(requests) { req in
@@ -119,46 +107,7 @@ struct CrewFriendsPage: View {
                         }
                     }
                 }
-
-                CrewSection(title: "Your friends") {
-                    if svc.friends.count > 6 {
-                        searchField
-                            .padding(.horizontal, DS.gutter)
-                            .padding(.bottom, DS.Space.s2)
-                    }
-                    if svc.friends.isEmpty {
-                        InlineEmpty(systemImage: "person.2",
-                                        text: "No friends yet. Add one with their angler code.",
-                                        actionTitle: "Add a friend") { showingAdd = true }
-                    } else if isLoading && friends.isEmpty {
-                        FishLoader(message: "Loading friends")
-                            .frame(height: 88).frame(maxWidth: .infinity)
-                    } else if friends.isEmpty {
-                        InlineEmpty(systemImage: "wifi.slash",
-                                        text: "Couldn't load your friends. Check your connection and come back.")
-                    } else if filtered.isEmpty {
-                        InlineEmpty(systemImage: "magnifyingglass",
-                                        text: "No friends match \"\(query)\".")
-                    } else {
-                        ForEach(filtered) { f in
-                            NavigationLink(value: CrewRoute.friend(f.id)) {
-                                ArtRow(title: CrewFriendsLoader.fullName(f),
-                                       subtitle: friendLine(f),
-                                       chevron: true) {
-                                    CrewAvatar(image: f.avatar, name: f.name, size: 56)
-                                        .frame(width: 64, height: 64)
-                                }
-                            }
-                            .buttonStyle(.dsRow)
-                            .contextMenu {
-                                Button(role: .destructive) { confirmRemove = f } label: {
-                                    Label("Remove friend", systemImage: "person.badge.minus")
-                                }
-                            }
-                        }
-                    }
-                }
-
+                friendsSection
                 CrewSection(title: "You") {
                     NavigationLink(value: CrewRoute.myProfile) {
                         ArtRow(title: "Your angler profile", subtitle: svc.myName, chevron: true) {
@@ -172,9 +121,9 @@ struct CrewFriendsPage: View {
             .padding(.bottom, DS.Space.s8)
             .pageWidth()
         }
+        .scrollDismissesKeyboard(.interactively)
         .detailTint(nil)
-        .navigationTitle("")
-        .navigationBarTitleDisplayMode(.inline)
+        .eventPageTitle("Friends")
         .sheet(isPresented: $showingAdd, onDismiss: { Task { await load() } }) {
             CrewAddFriendSheet()
         }
@@ -196,23 +145,70 @@ struct CrewFriendsPage: View {
         .onChange(of: svc.revision) { _, _ in Task { await load() } }
     }
 
-    private var searchField: some View {
-        HStack(spacing: DS.Space.s2) {
-            Image(systemName: "magnifyingglass").foregroundStyle(.dsText3)
-            TextField("Search friends", text: $query)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-            if !query.isEmpty {
-                Button { query = "" } label: {
-                    Image(systemName: "xmark.circle.fill").foregroundStyle(.dsText3)
-                }
-                .buttonStyle(.dim)
-                .accessibilityLabel("Clear search")
+    private var actions: some View {
+        ActionTriple {
+            Button { showingAdd = true } label: {
+                Label("Add friend", systemImage: "person.badge.plus")
+            }
+            .buttonStyle(ActionTileStyle(.primary))
+            Button {
+                UIPasteboard.general.string = svc.friendCode
+                ToastCenter.shared.show("Angler code copied", style: .success)
+            } label: {
+                Label("Copy code", systemImage: "doc.on.doc")
+            }
+            .buttonStyle(ActionTileStyle())
+            ShareLink(item: svc.friendInviteMessage()) {
+                ActionTileLabel("Invite", systemImage: "square.and.arrow.up")
+            }
+            .buttonStyle(.dim)
+        }
+    }
+
+    private var friendsSection: some View {
+        CrewSection(title: "Your friends", detail: svc.friends.isEmpty ? nil : "\(svc.friends.count)") {
+            if svc.friends.count > 6 {
+                PFSearchField(prompt: "Search friends", text: $query)
+                    .padding(.bottom, DS.Space.s2)
+            }
+            friendsList
+        }
+    }
+
+    @ViewBuilder private var friendsList: some View {
+        if svc.friends.isEmpty {
+            InlineEmpty(systemImage: "person.2",
+                        text: "No friends yet. Add one with their angler code.",
+                        actionTitle: "Add a friend") { showingAdd = true }
+        } else if isLoading && friends.isEmpty {
+            FishLoader(message: "Loading friends")
+                .frame(height: 88).frame(maxWidth: .infinity)
+        } else if friends.isEmpty {
+            InlineEmpty(systemImage: "wifi.slash",
+                        text: connection.isOffline ? "Offline. Your friends load when you're back online."
+                                                   : "Couldn't load your friends. Check your connection and come back.")
+        } else if filtered.isEmpty {
+            InlineEmpty(systemImage: "magnifyingglass", text: "No friends match \"\(query)\".")
+        } else {
+            ForEach(filtered) { f in
+                friendRow(f)
             }
         }
-        .padding(.horizontal, DS.Space.s3)
-        .frame(minHeight: 44)
-        .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.button, style: .continuous))
+    }
+
+    private func friendRow(_ f: CommunityService.Profile) -> some View {
+        NavigationLink(value: CrewRoute.friend(f.id)) {
+            ArtRow(title: CrewFriendsLoader.fullName(f), subtitle: friendLine(f), chevron: true) {
+                CrewAvatar(image: f.avatar, name: f.name, size: 56)
+                    .frame(width: 64, height: 64)
+            }
+        }
+        .buttonStyle(.dsRow)
+        .contextMenu {
+            Button(role: .destructive) { confirmRemove = f } label: {
+                Label("Remove friend", systemImage: "person.badge.minus")
+            }
+        }
     }
 
     private func friendLine(_ f: CommunityService.Profile) -> String {
@@ -240,11 +236,17 @@ struct CrewRequestsPage: View {
     @State private var invites: [CommunityService.TripInvite] = []
     @State private var loaded = false
     @State private var openedTrip: CrewOpenedTrip?
+    @ObservedObject private var connection = CrewConnection.shared
 
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
                 DetailHeader(title: "Requests", subtitle: subtitle)
+                if connection.isOffline {
+                    EventNotice("Offline. New requests and invites show when you're back online.",
+                                systemImage: "wifi.slash") { EmptyView() }
+                        .padding(.top, DS.Space.s2)
+                }
                 if !loaded {
                     FishLoader(message: "Checking for requests")
                         .frame(height: 88).frame(maxWidth: .infinity)
@@ -272,8 +274,7 @@ struct CrewRequestsPage: View {
             .pageWidth()
         }
         .detailTint(nil)
-        .navigationTitle("")
-        .navigationBarTitleDisplayMode(.inline)
+        .eventPageTitle("Requests")
         .navigationDestination(item: $openedTrip) { trip in
             GroupTripView(tripId: svc.tripId(forGroupCode: trip.code), tripName: trip.name, initialCode: trip.code)
         }
@@ -442,6 +443,7 @@ struct CrewAddFriendSheet: View {
     @State private var addCode = ""
     @State private var sending = false
     @State private var error: String?
+    @ObservedObject private var connection = CrewConnection.shared
 
     private var codeReady: Bool {
         addCode.trimmingCharacters(in: .whitespaces).count == 6 || addCode == "90210"
@@ -451,11 +453,8 @@ struct CrewAddFriendSheet: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: DS.Space.s5) {
-                    VStack(alignment: .leading, spacing: DS.Space.s2) {
-                        Text("Their angler code")
-                            .font(.title3.weight(.semibold))
-                            .foregroundStyle(.dsText)
-                        CodeField(text: $addCode, placeholder: "Angler code")
+                    VStack(alignment: .leading, spacing: DS.Space.s3) {
+                        CodeField(text: $addCode, placeholder: "Their angler code")
                             .onChange(of: addCode) { _, _ in error = nil }
                         if let error {
                             Label(error, systemImage: "exclamationmark.circle")
@@ -471,29 +470,7 @@ struct CrewAddFriendSheet: View {
                         .disabled(sending || !codeReady)
                     }
 
-                    VStack(alignment: .leading, spacing: DS.Space.s2) {
-                        Text("Your angler code")
-                            .font(.title3.weight(.semibold))
-                            .foregroundStyle(.dsText)
-                        // Side by side when it fits, stacked at large text
-                        // sizes so the row never runs off the screen.
-                        ViewThatFits(in: .horizontal) {
-                            HStack {
-                                CopyableCode(code: svc.friendCode, font: .title2.monospaced().bold())
-                                Spacer(minLength: DS.Space.s3)
-                                shareInvite
-                            }
-                            VStack(alignment: .leading, spacing: DS.Space.s3) {
-                                CopyableCode(code: svc.friendCode, font: .title2.monospaced().bold())
-                                shareInvite
-                            }
-                        }
-                        .padding(DS.Space.s4)
-                        .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
-                        Text("Friends see your best catches. You choose which spots they see.")
-                            .font(.footnote)
-                            .foregroundStyle(.dsText2)
-                    }
+                    yourCode
                 }
                 .padding(.horizontal, DS.gutter)
                 .padding(.top, DS.Space.s3)
@@ -511,6 +488,33 @@ struct CrewAddFriendSheet: View {
         }
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
+    }
+
+    /// Your code, labelled like the field above it, with the invite beside
+    /// it when it fits and under it at large text sizes.
+    private var yourCode: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Your angler code")
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.dsText2)
+            ViewThatFits(in: .horizontal) {
+                HStack {
+                    CopyableCode(code: svc.friendCode, font: .title2.bold().monospacedDigit())
+                    Spacer(minLength: DS.Space.s3)
+                    shareInvite
+                }
+                VStack(alignment: .leading, spacing: DS.Space.s3) {
+                    CopyableCode(code: svc.friendCode, font: .title2.bold().monospacedDigit())
+                    shareInvite
+                }
+            }
+            .padding(DS.Space.s4)
+            .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.button, style: .continuous))
+            Text("Friends see your best catches. You choose which spots they see.")
+                .font(.footnote)
+                .foregroundStyle(.dsText2)
+                .padding(.top, DS.Space.s1)
+        }
     }
 
     private var shareInvite: some View {
@@ -544,7 +548,9 @@ struct CrewAddFriendSheet: View {
                 dismiss()
             } else {
                 Haptics.error()
-                error = "No angler matches that code. Check it with your friend."
+                error = connection.isOffline
+                    ? "You're offline. Send it again when you're back online."
+                    : "No angler matches that code. Check it with your friend."
             }
         }
     }
