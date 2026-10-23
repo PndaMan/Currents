@@ -401,7 +401,7 @@ struct AnalyticsView: View {
                         SpotDetailView(spot: spot)
                     } label: {
                         ArtRow(title: spot.name, subtitle: speciesMix(catches), chevron: true) {
-                            ThumbView(systemImage: spot.type.icon, tint: DS.accent, size: 52)
+                            PlaceSnapshotThumb(spot: spot, size: 52)
                         } trailing: {
                             Text("\(catches.count)")
                                 .font(.title3.weight(.semibold))

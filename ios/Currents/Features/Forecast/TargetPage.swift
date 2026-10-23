@@ -416,7 +416,7 @@ struct TargetPage: View {
                                    ? "\(item.count) caught here, \(Units.distance(km: item.km, imperial: imperial)) away"
                                    : "Your spot, known to hold it, \(Units.distance(km: item.km, imperial: imperial)) away",
                                chevron: true) {
-                            ThumbView(systemImage: item.spot.type.icon, tint: species.artTint, size: 48)
+                            PlaceSnapshotThumb(spot: item.spot, size: 48)
                         }
                     }
                     .buttonStyle(.dsRow)

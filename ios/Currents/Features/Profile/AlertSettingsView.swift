@@ -307,7 +307,7 @@ struct AlertSettingsView: View {
         let choice = spotAlerts[spot.id] ?? .defaults(for: spot.id)
         let threshold = choice.threshold ?? Int(alertThreshold)
         return HStack(spacing: 14) {
-            ThumbView(systemImage: "mappin", tint: DS.accent, size: 40)
+            PlaceSnapshotThumb(spot: spot, size: 44)
             VStack(alignment: .leading, spacing: 2) {
                 Text(spot.name)
                     .foregroundStyle(.dsText)

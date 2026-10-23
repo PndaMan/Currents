@@ -395,7 +395,7 @@ struct SpeciesDetailView: View {
         let grouped = Dictionary(grouping: spots, by: \.id)
         let tallies = grouped.map { id, value in
             Tally(key: id, name: value.first?.name ?? "Spot", detail: nil, count: value.count,
-                  icon: value.first?.type.icon)
+                  icon: value.first?.type.icon, spot: value.first)
         }
         return Array(tallies.sorted { $0.count > $1.count }.prefix(5))
     }
@@ -407,11 +407,21 @@ struct SpeciesDetailView: View {
                     openSpotId = spot.key
                 } label: {
                     ArtRow(title: spot.name, subtitle: tallySubtitle(spot), chevron: true) {
-                        ThumbView(systemImage: spot.icon ?? "mappin.and.ellipse", tint: DS.accent, size: 52)
+                        spotThumb(spot)
                     }
                 }
                 .buttonStyle(.dsRow)
             }
+        }
+    }
+
+    /// The spot's map render, or its symbol when the group has no spot.
+    @ViewBuilder
+    private func spotThumb(_ tally: Tally) -> some View {
+        if let spot = tally.spot {
+            PlaceSnapshotThumb(spot: spot, size: 52)
+        } else {
+            ThumbView(systemImage: tally.icon ?? "mappin.and.ellipse", tint: DS.accent, size: 52)
         }
     }
 
@@ -580,6 +590,8 @@ struct SpeciesDetailView: View {
         let detail: String?
         let count: Int
         var icon: String? = nil
+        /// The spot behind a "where you caught it" group.
+        var spot: Spot? = nil
     }
 
     /// A section title and its content, spaced like the sections on a catch page.

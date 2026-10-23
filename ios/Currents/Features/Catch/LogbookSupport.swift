@@ -209,11 +209,14 @@ struct LogbookSearchSheet: View {
 // MARK: - Track thumbnail
 
 /// A session's GPS track drawn into a square thumbnail, start and end dots
-/// included. Falls back to a route symbol when there is no usable track.
+/// included. With no usable track it shows a catch photo from the session
+/// when there is one, else a route symbol.
 struct TrackThumb: View {
     let points: [Trip.TrackPoint]
     var tint: Color = DS.accent
     var size: CGFloat = 64
+    /// A catch photo from the session, for when there is no track to draw.
+    var photoPath: String? = nil
 
     var body: some View {
         if points.count > 1 {
@@ -222,9 +225,18 @@ struct TrackThumb: View {
                     .stroke(tint, style: StrokeStyle(lineWidth: max(2, size / 28), lineCap: .round, lineJoin: .round))
                     .padding(size * 0.18)
             }
+        } else if let photoPath {
+            PhotoThumbnail(path: photoPath, size: size,
+                           cornerRadius: size < 48 ? size * 0.25 : DS.Radius.thumb) {
+                symbol
+            }
         } else {
-            ThumbView(systemImage: "point.topleft.down.to.point.bottomright.curvepath", tint: tint, size: size)
+            symbol
         }
+    }
+
+    private var symbol: some View {
+        ThumbView(systemImage: "point.topleft.down.to.point.bottomright.curvepath", tint: tint, size: size)
     }
 }
 

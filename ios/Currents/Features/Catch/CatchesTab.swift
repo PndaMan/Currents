@@ -705,7 +705,8 @@ struct CatchesTab: View {
             ArtRow(over: sessionOver(trip), title: trip.name,
                    subtitle: "\(LogbookFormat.duration(trip.totalDurationSeconds)), \(n) \(n == 1 ? "catch" : "catches")",
                    chevron: best == nil) {
-                TrackThumb(points: trip.allTrackPoints, tint: best.map { DS.scoreColor($0) } ?? DS.accent)
+                TrackThumb(points: trip.allTrackPoints, tint: best.map { DS.scoreColor($0) } ?? DS.accent,
+                           photoPath: summary.photoByTrip[trip.id])
             } trailing: {
                 if let best {
                     Text("\(best)")
@@ -894,6 +895,8 @@ struct LogbookSummary {
     var thisYear = 0
     var catchesByTrip: [String: Int] = [:]
     var bestScoreByTrip: [String: Int] = [:]
+    /// The first catch photo found for each session, for sessions with no track.
+    var photoByTrip: [String: String] = [:]
 
     init() {}
 
@@ -914,6 +917,9 @@ struct LogbookSummary {
         for c in catches {
             guard let trip = c.catchRecord.tripId else { continue }
             catchesByTrip[trip, default: 0] += 1
+            if photoByTrip[trip] == nil, let path = c.catchRecord.allPhotoPaths.first {
+                photoByTrip[trip] = path
+            }
             if let s = c.catchRecord.forecastScoreAtCapture {
                 bestScoreByTrip[trip] = max(bestScoreByTrip[trip] ?? 0, s)
             }
