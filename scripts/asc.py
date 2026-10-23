@@ -7,8 +7,11 @@
   status   the latest builds with processing and TestFlight state
   events   create or update the in-app events in ios/AppStore/events
   pages    create or update the custom product pages in ios/AppStore/custom-product-pages
+  gamecenter
+           turn on Game Center and create or update the achievements,
+           leaderboards and challenges in ios/AppStore/game-center
 
-events and pages are dry runs unless --apply is given: they read App Store
+events, pages and gamecenter are dry runs unless --apply is given: they read App Store
 Connect, print every change they would make, and send no writes. Nothing here
 submits anything for review.
 
@@ -47,6 +50,7 @@ ROOT = Path(__file__).resolve().parent.parent
 APPSTORE_DIR = ROOT / "ios" / "AppStore"
 EVENTS_DIR = APPSTORE_DIR / "events"
 PAGES_DIR = APPSTORE_DIR / "custom-product-pages"
+GAMECENTER_DIR = APPSTORE_DIR / "game-center"
 SCREENSHOTS_DIR = Path(os.environ.get("APPSTORE_SCREENSHOTS_DIR") or ROOT / "ios" / "build" / "appstore-screenshots" / "branch")
 SCREENSHOTS_SCRIPT = ROOT / "scripts" / "appstore_screenshots.sh"
 
@@ -824,6 +828,452 @@ def sync_page_keywords(api: Client, loc_id: str, spec: PageSpec, available: dict
                   {"data": [{"type": "appKeywords", "id": k} for k in remove]}, f"unassign keywords: {', '.join(remove)}")
 
 
+# ---------------------------------------------------------------- Game Center
+
+
+# A version in one of these states takes text and image changes. A live one
+# gets a new version; one in review is left alone.
+EDITABLE_GC_STATES = {"PREPARE_FOR_SUBMISSION", "DEVELOPER_REJECTED", "REJECTED"}
+LIVE_GC_STATES = {"LIVE", "REPLACED_WITH_NEW_VERSION"}
+GC_FORMATTERS = {"INTEGER", "DECIMAL_POINT_1_PLACE", "DECIMAL_POINT_2_PLACE", "DECIMAL_POINT_3_PLACE"}
+EDITABLE_APP_VERSION_STATES = {"PREPARE_FOR_SUBMISSION", "DEVELOPER_REJECTED", "REJECTED", "METADATA_REJECTED"}
+
+
+@dataclass(frozen=True)
+class GCKind:
+    """The resources behind one kind of Game Center item. Achievements and
+    leaderboards use the versioned v2 API; challenges only exist in v1."""
+    label: str
+    type: str
+    create: str
+    listing: str
+    version_type: str
+    version_create: str
+    versions: str
+    version_rel: str
+    loc_type: str
+    loc_create: str
+    locs: str
+    image_type: str
+    image_create: str
+    # Achievement and leaderboard images hang off each localization, a
+    # challenge's default image off its version.
+    image_on_version: bool = False
+    image_of_version: str = ""
+
+
+ACHIEVEMENTS = GCKind(
+    "achievement", "gameCenterAchievements", "/v2/gameCenterAchievements",
+    "/v1/gameCenterDetails/{id}/gameCenterAchievementsV2",
+    "gameCenterAchievementVersions", "/v2/gameCenterAchievementVersions", "/v2/gameCenterAchievements/{id}/versions",
+    "achievement", "gameCenterAchievementLocalizations", "/v2/gameCenterAchievementLocalizations",
+    "/v2/gameCenterAchievementVersions/{id}/localizations",
+    "gameCenterAchievementImages", "/v2/gameCenterAchievementImages",
+)
+LEADERBOARDS = GCKind(
+    "leaderboard", "gameCenterLeaderboards", "/v2/gameCenterLeaderboards",
+    "/v1/gameCenterDetails/{id}/gameCenterLeaderboardsV2",
+    "gameCenterLeaderboardVersions", "/v2/gameCenterLeaderboardVersions", "/v2/gameCenterLeaderboards/{id}/versions",
+    "leaderboard", "gameCenterLeaderboardLocalizations", "/v2/gameCenterLeaderboardLocalizations",
+    "/v2/gameCenterLeaderboardVersions/{id}/localizations",
+    "gameCenterLeaderboardImages", "/v2/gameCenterLeaderboardImages",
+)
+CHALLENGES = GCKind(
+    "challenge", "gameCenterChallenges", "/v1/gameCenterChallenges",
+    "/v1/gameCenterDetails/{id}/gameCenterChallenges",
+    "gameCenterChallengeVersions", "/v1/gameCenterChallengeVersions", "/v1/gameCenterChallenges/{id}/versions",
+    "challenge", "gameCenterChallengeLocalizations", "/v1/gameCenterChallengeLocalizations",
+    "/v1/gameCenterChallengeVersions/{id}/localizations",
+    "gameCenterChallengeImages", "/v1/gameCenterChallengeImages",
+    image_on_version=True, image_of_version="/v1/gameCenterChallengeVersions/{id}/defaultImage",
+)
+
+
+@dataclass
+class GCItem:
+    folder: Path
+    vendor: str
+    # Sent when the item is created, then compared with App Store Connect.
+    attributes: dict
+    # Attributes App Store Connect fixes at creation (the vendor id, a
+    # challenge's type).
+    create_only: dict
+    localization: dict
+    image: Path
+    leaderboard: str = ""
+
+
+@dataclass
+class GCState:
+    """What App Store Connect holds for one item."""
+    item: dict | None = None
+    version: dict | None = None
+    versions: list[dict] = field(default_factory=list)
+    locs: list[dict] = field(default_factory=list)
+    images: dict[str, dict] = field(default_factory=dict)
+    version_image: dict | None = None
+
+
+def get_optional(api: Client, path: str, **params) -> dict | None:
+    """A to-one relationship, or None when there is nothing behind it."""
+    try:
+        return api.get(path, **params).get("data")
+    except ASCError as exc:
+        if "HTTP 404" in str(exc):
+            return None
+        raise
+
+
+def load_gc_json(folder: Path, filename: str, required: tuple[str, ...]) -> dict:
+    raw = json.loads((folder / filename).read_text(encoding="utf-8"))
+    missing = [k for k in required if not raw.get(k) and raw.get(k) is not False]
+    if missing:
+        raise ASCError(f"{folder.name}/{filename}: missing {', '.join(missing)}")
+    if not (folder / "image.png").is_file():
+        raise ASCError(f"{folder.name}: no image.png; run uv run scripts/render_achievement_art.py")
+    return raw
+
+
+def check_length(folder: Path, key: str, value: str, limit: int) -> None:
+    if len(value) > limit:
+        raise ASCError(f"{folder.name}: {key} is {len(value)} characters; the limit is {limit}")
+
+
+def load_achievements() -> list[GCItem]:
+    items = []
+    for folder in sorted(p for p in (GAMECENTER_DIR / "achievements").iterdir() if p.is_dir()):
+        raw = load_gc_json(folder, "achievement.json", ("reference_name", "vendor_identifier", "points", "name",
+                                                         "before_earned_description", "after_earned_description"))
+        if not 1 <= int(raw["points"]) <= 100:
+            raise ASCError(f"{folder.name}: points must be 1 to 100")
+        loc = {"name": raw["name"], "beforeEarnedDescription": raw["before_earned_description"],
+               "afterEarnedDescription": raw["after_earned_description"]}
+        check_length(folder, "name", loc["name"], 30)
+        for key in ("beforeEarnedDescription", "afterEarnedDescription"):
+            check_length(folder, key, loc[key], 200)
+        items.append(GCItem(
+            folder, raw["vendor_identifier"],
+            {"referenceName": raw["reference_name"], "points": int(raw["points"]),
+             "showBeforeEarned": bool(raw.get("show_before_earned", True)),
+             "repeatable": bool(raw.get("repeatable", False))},
+            {"vendorIdentifier": raw["vendor_identifier"]},
+            loc, folder / "image.png"))
+    total = sum(i.attributes["points"] for i in items)
+    if total > 1000:
+        raise ASCError(f"achievement points total {total}; Apple allows 1000")
+    return items
+
+
+def load_leaderboards() -> list[GCItem]:
+    items = []
+    for folder in sorted(p for p in (GAMECENTER_DIR / "leaderboards").iterdir() if p.is_dir()):
+        raw = load_gc_json(folder, "leaderboard.json", ("reference_name", "vendor_identifier", "formatter", "name"))
+        if raw["formatter"] not in GC_FORMATTERS:
+            raise ASCError(f"{folder.name}: formatter must be one of {', '.join(sorted(GC_FORMATTERS))}")
+        attributes = {
+            "referenceName": raw["reference_name"],
+            "defaultFormatter": raw["formatter"],
+            "submissionType": raw.get("submission_type", "BEST_SCORE"),
+            "scoreSortType": raw.get("sort", "DESC"),
+        }
+        recurrence = raw.get("recurrence")
+        if recurrence:
+            attributes.update({"recurrenceStartDate": recurrence["start"],
+                               "recurrenceDuration": recurrence["duration"],
+                               "recurrenceRule": recurrence["rule"]})
+        loc = {"name": raw["name"], "description": raw.get("description", ""),
+               "formatterSuffix": raw.get("suffix", ""), "formatterSuffixSingular": raw.get("suffix_singular", "")}
+        check_length(folder, "name", loc["name"], 64)
+        items.append(GCItem(folder, raw["vendor_identifier"], attributes,
+                            {"vendorIdentifier": raw["vendor_identifier"]}, loc, folder / "image.png"))
+    return items
+
+
+def load_challenges() -> list[GCItem]:
+    items = []
+    for folder in sorted(p for p in (GAMECENTER_DIR / "challenges").iterdir() if p.is_dir()):
+        raw = load_gc_json(folder, "challenge.json", ("reference_name", "vendor_identifier", "leaderboard", "name"))
+        loc = {"name": raw["name"], "description": raw.get("description", "")}
+        items.append(GCItem(folder, raw["vendor_identifier"],
+                            {"referenceName": raw["reference_name"], "repeatable": bool(raw.get("repeatable", True))},
+                            {"vendorIdentifier": raw["vendor_identifier"], "challengeType": "LEADERBOARD"},
+                            loc, folder / "image.png", leaderboard=raw["leaderboard"]))
+    return items
+
+
+def same_value(key: str, current: Any, wanted: Any) -> bool:
+    if key == "recurrenceStartDate" and current and wanted:
+        parse = lambda v: dt.datetime.fromisoformat(v.replace("Z", "+00:00")).astimezone(dt.timezone.utc)  # noqa: E731
+        return parse(current) == parse(wanted)
+    return (current if current is not None else None) == (wanted if wanted != "" else None) or current == wanted
+
+
+def read_gc_state(api: Client, kind: GCKind, item: dict | None) -> GCState:
+    """Reads one item's versions, the editable version's localizations and
+    their images. Runs on a worker thread."""
+    state = GCState(item=item)
+    if item is None or not api.online:
+        return state
+    state.versions = api.get_all(kind.versions.format(id=item["id"]))
+    ordered = sorted(state.versions, key=lambda v: v["attributes"].get("version") or 0)
+    if ordered:
+        state.version = ordered[-1]
+        vid = state.version["id"]
+        out = api.get(kind.locs.format(id=vid), include="image", limit=50) if not kind.image_on_version \
+            else api.get(kind.locs.format(id=vid), limit=50)
+        state.locs = out.get("data", [])
+        included = {i["id"]: i for i in out.get("included", [])}
+        for loc in state.locs:
+            ref = ((loc.get("relationships") or {}).get("image") or {}).get("data")
+            if ref and ref["id"] in included:
+                state.images[loc["id"]] = included[ref["id"]]
+        if kind.image_on_version:
+            state.version_image = get_optional(api, kind.image_of_version.format(id=vid))
+    return state
+
+
+def image_is_current(image: dict | None, path: Path) -> bool:
+    if not image:
+        return False
+    a = image.get("attributes") or {}
+    return (a.get("fileSize") == path.stat().st_size
+            and (a.get("assetDeliveryState") or {}).get("state") in {"COMPLETE", "UPLOAD_COMPLETE"})
+
+
+def sync_gc_items(api: Client, kind: GCKind, items: list[GCItem], detail_id: str, locales: list[str],
+                  leaderboard_ids: dict[str, str] | None = None) -> dict[str, str]:
+    """Creates or updates every item of one kind. Returns the ids by vendor id."""
+    existing: dict[str, dict] = {}
+    if api.online and not is_placeholder(detail_id):
+        for found in api.get_all(kind.listing.format(id=detail_id)):
+            existing[found["attributes"].get("vendorIdentifier")] = found
+    with ThreadPoolExecutor(max_workers=UPLOAD_WORKERS) as pool:
+        states = list(pool.map(lambda i: read_gc_state(api, kind, existing.get(i.vendor)), items))
+
+    ids: dict[str, str] = {}
+    jobs: list[tuple[dict, Path]] = []
+    for spec, state in zip(items, states):
+        print(f"{kind.label} {spec.vendor}: {spec.localization['name']!r}")
+        current = state.item
+        if current is None:
+            relationships: dict[str, Any] = {
+                "gameCenterDetail": {"data": {"type": "gameCenterDetails", "id": detail_id}},
+                "versions": {"data": [{"type": kind.version_type, "id": "${new-version}"}]},
+            }
+            if spec.leaderboard:
+                board = (leaderboard_ids or {}).get(spec.leaderboard)
+                if not board:
+                    raise ASCError(f"{spec.folder.name}: no leaderboard {spec.leaderboard} in game-center/leaderboards")
+                relationships["leaderboardV2"] = {"data": {"type": "gameCenterLeaderboards", "id": board}}
+            created = api.write(
+                "POST", kind.create,
+                {"data": {"type": kind.type, "attributes": {**spec.create_only, **spec.attributes},
+                          "relationships": relationships},
+                 "included": [{"type": kind.version_type, "id": "${new-version}"}]},
+                f"create the {kind.label}: " + ", ".join(f"{k} {json.dumps(v)}" for k, v in spec.attributes.items()),
+            )
+            item_id = created["data"]["id"]
+            version_id = "(new-version)"
+            if api.apply:
+                versions = api.get_all(kind.versions.format(id=item_id))
+                version_id = versions[0]["id"] if versions else version_id
+        else:
+            item_id = current["id"]
+            attrs = current.get("attributes") or {}
+            changes = {k: v for k, v in spec.attributes.items() if not same_value(k, attrs.get(k), v)}
+            if attrs.get("archived"):
+                print("  warning: archived in App Store Connect; left as is")
+                changes = {}
+            if changes:
+                api.write(
+                    "PATCH", f"{kind.create}/{item_id}",
+                    {"data": {"type": kind.type, "id": item_id, "attributes": changes}},
+                    f"update the {kind.label}: " + "; ".join(
+                        f"{k} {json.dumps(attrs.get(k))} -> {json.dumps(v)}" for k, v in changes.items()),
+                )
+            version = state.version
+            vstate = (version or {}).get("attributes", {}).get("state")
+            if version is None or vstate in LIVE_GC_STATES:
+                if version is not None and not gc_text_differs(spec, state, locales):
+                    ids[spec.vendor] = item_id
+                    print(f"  exists ({item_id}), version {version['attributes'].get('version')} {vstate}, up to date")
+                    continue
+                created = api.write(
+                    "POST", kind.version_create,
+                    {"data": {"type": kind.version_type,
+                              "relationships": {kind.version_rel: {"data": {"type": kind.type, "id": item_id}}}}},
+                    f"start a new {kind.label} version" + (f" (version {version['attributes'].get('version')} is {vstate})" if version else ""),
+                )
+                version_id = created["data"]["id"]
+                state = GCState(item=current)
+            elif vstate not in EDITABLE_GC_STATES:
+                print(f"  exists ({item_id}), version {version['attributes'].get('version')} is {vstate}; skipping until review finishes")
+                ids[spec.vendor] = item_id
+                continue
+            else:
+                version_id = version["id"]
+                print(f"  exists ({item_id}), version {version['attributes'].get('version')} {vstate}")
+        ids[spec.vendor] = item_id
+
+        for locale in locales:
+            loc = next((l for l in state.locs if l["attributes"].get("locale") == locale), None)
+            if loc is None:
+                created = api.write(
+                    "POST", kind.loc_create,
+                    {"data": {"type": kind.loc_type, "attributes": {"locale": locale, **spec.localization},
+                              "relationships": {"version": {"data": {"type": kind.version_type, "id": version_id}}}}},
+                    f"add {locale}: " + ", ".join(f"{k} {json.dumps(v, ensure_ascii=False)}" for k, v in spec.localization.items() if v),
+                )
+                loc_id = created["data"]["id"]
+            else:
+                loc_id = loc["id"]
+                changes = {k: v for k, v in spec.localization.items() if (loc["attributes"].get(k) or "") != v}
+                if changes:
+                    api.write(
+                        "PATCH", f"{kind.loc_create}/{loc_id}",
+                        {"data": {"type": kind.loc_type, "id": loc_id, "attributes": changes}},
+                        f"update {locale}: " + "; ".join(
+                            f"{k} {json.dumps(loc['attributes'].get(k), ensure_ascii=False)} -> {json.dumps(v, ensure_ascii=False)}"
+                            for k, v in changes.items()),
+                    )
+            if not kind.image_on_version:
+                old = state.images.get(loc_id)
+                if not image_is_current(old, spec.image):
+                    if old:
+                        api.write("DELETE", f"{kind.image_create}/{old['id']}", None,
+                                  f"remove the old {locale} image {old['attributes'].get('fileName')}")
+                    jobs.append(gc_image_job(kind, spec, "localization", kind.loc_type, loc_id))
+        if kind.image_on_version and not image_is_current(state.version_image, spec.image):
+            if state.version_image:
+                api.write("DELETE", f"{kind.image_create}/{state.version_image['id']}", None, "remove the old image")
+            jobs.append(gc_image_job(kind, spec, "version", kind.version_type, version_id))
+    print(f"{len(jobs)} {kind.label} images to upload")
+    upload_assets(api, kind.image_create, jobs, kind.image_type, checksum=False)
+    print()
+    return ids
+
+
+def gc_text_differs(spec: GCItem, state: GCState, locales: list[str]) -> bool:
+    """Whether a live version's text or image differs from the folder."""
+    for locale in locales:
+        loc = next((l for l in state.locs if l["attributes"].get("locale") == locale), None)
+        if loc is None or any((loc["attributes"].get(k) or "") != v for k, v in spec.localization.items()):
+            return True
+        if not state.version_image and not image_is_current(state.images.get(loc["id"]), spec.image):
+            return True
+    if state.version_image is not None and not image_is_current(state.version_image, spec.image):
+        return True
+    return False
+
+
+def gc_image_job(kind: GCKind, spec: GCItem, rel: str, rel_type: str, rel_id: str) -> tuple[dict, Path]:
+    # Named after the item so App Store Connect lists recognisable files.
+    name = f"{spec.vendor}.png"
+    return ({"data": {"type": kind.image_type,
+                      "attributes": {"fileName": name, "fileSize": spec.image.stat().st_size},
+                      "relationships": {rel: {"data": {"type": rel_type, "id": rel_id}}}}},
+            spec.image)
+
+
+def ensure_game_center_capability(api: Client) -> None:
+    """The App ID needs the Game Center capability for the entitlement to
+    sign. It is on by default for App Store App IDs; this checks."""
+    if not api.online:
+        print("App ID: would check the Game Center capability\n")
+        return
+    try:
+        bundles = api.get("/v1/bundleIds", **{"filter[identifier]": BUNDLE_ID, "include": "bundleIdCapabilities",
+                                              "limit[bundleIdCapabilities]": 50})
+    except ASCError as exc:
+        print(f"App ID: could not read capabilities with this key ({str(exc).splitlines()[-1]}); "
+              "check Game Center under Certificates, Identifiers & Profiles\n")
+        return
+    bundle = next((b for b in bundles.get("data", []) if b["attributes"].get("identifier") == BUNDLE_ID), None)
+    if bundle is None:
+        print(f"App ID: {BUNDLE_ID} not found; check Game Center under Certificates, Identifiers & Profiles\n")
+        return
+    # The identifier filter also matches the widget and watch App IDs, so
+    # only the app's own capabilities count.
+    mine = {c["id"] for c in ((bundle.get("relationships") or {}).get("bundleIdCapabilities") or {}).get("data") or []}
+    caps = {i["attributes"].get("capabilityType") for i in bundles.get("included", [])
+            if i["type"] == "bundleIdCapabilities" and i["id"] in mine}
+    if "GAME_CENTER" in caps:
+        print("App ID: Game Center capability is on\n")
+        return
+    api.write("POST", "/v1/bundleIdCapabilities",
+              {"data": {"type": "bundleIdCapabilities", "attributes": {"capabilityType": "GAME_CENTER"},
+                        "relationships": {"bundleId": {"data": {"type": "bundleIds", "id": bundle["id"]}}}}},
+              "turn on the Game Center capability for the App ID")
+    print()
+
+
+def ensure_version_game_center(api: Client, app: dict) -> None:
+    """Ticks Game Center on the version being prepared, if there is one, so
+    the achievements and leaderboards can go to review with it."""
+    versions = api.get_all(f"/v1/apps/{app['id']}/appStoreVersions", **{"filter[platform]": "IOS"})
+    editable = [v for v in versions if v["attributes"].get("appVersionState") in EDITABLE_APP_VERSION_STATES
+                or v["attributes"].get("appStoreState") in EDITABLE_APP_VERSION_STATES]
+    if not editable:
+        print("App version: none being prepared. Create the next version (1.3.1 or 1.4.0) in App Store Connect, "
+              "run this again, then add the achievements and leaderboards to it before submitting.\n")
+        return
+    version = editable[0]
+    label = version["attributes"].get("versionString")
+    current = get_optional(api, f"/v1/appStoreVersions/{version['id']}/gameCenterAppVersion")
+    if current is not None and (current.get("attributes") or {}).get("enabled") is not False:
+        print(f"App version {label}: Game Center is on\n")
+        return
+    if current is None:
+        api.write("POST", "/v1/gameCenterAppVersions",
+                  {"data": {"type": "gameCenterAppVersions",
+                            "relationships": {"appStoreVersion": {"data": {"type": "appStoreVersions", "id": version["id"]}}}}},
+                  f"turn on Game Center for version {label}")
+    else:
+        api.write("PATCH", f"/v1/gameCenterAppVersions/{current['id']}",
+                  {"data": {"type": "gameCenterAppVersions", "id": current["id"], "attributes": {"enabled": True}}},
+                  f"turn on Game Center for version {label}")
+    print()
+
+
+def cmd_gamecenter(api: Client, args) -> int:
+    achievements = load_achievements()
+    leaderboards = load_leaderboards()
+    challenges = load_challenges()
+    app = find_app(api) if api.online else None
+    locales = store_locales(api, app)
+    if app is None:
+        print("No credentials: showing everything as new without reading App Store Connect.\n")
+    print(f"Locales: {', '.join(locales)}\n")
+
+    ensure_game_center_capability(api)
+    detail = get_optional(api, f"/v1/apps/{app['id']}/gameCenterDetail") if app else None
+    if detail is None:
+        created = api.write(
+            "POST", "/v1/gameCenterDetails",
+            {"data": {"type": "gameCenterDetails",
+                      "relationships": {"app": {"data": {"type": "apps", "id": app["id"] if app else "(app)"}}}}},
+            "turn on Game Center for the app",
+        )
+        detail_id = created["data"]["id"]
+        print()
+    else:
+        detail_id = detail["id"]
+        print(f"Game Center is on for the app ({detail_id})\n")
+    if app:
+        ensure_version_game_center(api, app)
+
+    sync_gc_items(api, ACHIEVEMENTS, achievements, detail_id, locales)
+    board_ids = sync_gc_items(api, LEADERBOARDS, leaderboards, detail_id, locales)
+    sync_gc_items(api, CHALLENGES, challenges, detail_id, locales, board_ids)
+
+    points = sum(i.attributes["points"] for i in achievements)
+    print(f"{len(achievements)} achievements ({points} points), {len(leaderboards)} leaderboards, "
+          f"{len(challenges)} challenges. Add them to the app version in App Store Connect and submit "
+          "them with it; nothing here submits.")
+    finish(api, "gamecenter")
+    return 0
+
+
 def finish(api: Client, what: str) -> None:
     if api.writes == 0:
         print(f"Nothing to change; App Store Connect matches the {what} folders.")
@@ -855,6 +1305,8 @@ def build_parser() -> argparse.ArgumentParser:
     ev.add_argument("--apply", action="store_true", help="send the writes")
     pg = sub.add_parser("pages", help="create or update the custom product pages (dry run unless --apply)")
     pg.add_argument("--apply", action="store_true", help="send the writes")
+    gc = sub.add_parser("gamecenter", help="Game Center achievements, leaderboards and challenges (dry run unless --apply)")
+    gc.add_argument("--apply", action="store_true", help="send the writes")
     return parser
 
 
@@ -867,7 +1319,8 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     api = Client(creds, apply)
     try:
-        return {"status": cmd_status, "events": cmd_events, "pages": cmd_pages}[args.command](api, args)
+        return {"status": cmd_status, "events": cmd_events, "pages": cmd_pages,
+                "gamecenter": cmd_gamecenter}[args.command](api, args)
     except ASCError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1

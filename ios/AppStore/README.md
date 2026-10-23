@@ -13,7 +13,8 @@ ios/AppStore/
 │   ├── en-GB/                    English (U.K.): serves South Africa, the UK, Ireland, Australia
 │   └── es-MX/keywords.txt        a second keyword field the US storefront also indexes
 ├── events/<slug>/                in-app events: name, short and long description, event.json
-└── custom-product-pages/<slug>/  name, promotional text, screenshot order and keywords per page
+├── custom-product-pages/<slug>/  name, promotional text, screenshot order and keywords per page
+└── game-center/                 achievements, leaderboards and challenges, each a json and image.png
 ```
 
 The text files use the `fastlane deliver` layout and are uploaded by the make targets in [Publish](#publish). `make appstore-check` fails on any over-limit field.
@@ -124,7 +125,13 @@ Promo codes give the app or an in-app purchase away for free, up to 100 per vers
 
 ## Game Center
 
-Game Center is a code feature, not a listing field: it needs the GameKit capability, leaderboard and achievement definitions in App Store Connect, and calls from the app to report scores. Currents already has its own leaderboards (most fish, heaviest, longest, over CloudKit) and 132 achievements. Mirroring them into Game Center would add an Apple-managed leaderboard among Game Center friends and achievement cards in the Games app, at the cost of a second source of truth for scores. It is a reasonable 1.4 feature, not a marketing task. Leave the section empty for now.
+The app mirrors its badges into Game Center (`Core/GameCenter/GameCenter.swift`) and submits four leaderboards. Guideline 2.5.1 lets a non-game use Game Center for virtual challenges as long as the description says so; it does, in the crew paragraph.
+
+- `game-center/achievements/<id>/`: one per visible badge, written by `uv run scripts/render_achievement_art.py` from the badge list in `FishingLogStreak.swift`, with a 1024x1024 medallion. The ids are `badge.<title in snake case>`, which the app derives the same way, so a renamed badge is a new achievement. Bass Daddy and Patron stay in the app. Points scale by rarity and total 970 of Apple's 1000.
+- `game-center/leaderboards/<id>/`: most fish, heaviest (grams, shown as kg), longest (millimetres, shown as cm) and fish this week, which recurs every Monday 00:00 UTC.
+- `game-center/challenges/<id>/`: iOS 26 challenges on the heaviest and weekly boards, with a 1920x1080 image.
+
+The first achievements, leaderboards and challenges go to review with an app version that contains the GameKit code.
 
 ## Asset library
 
@@ -132,7 +139,7 @@ The asset library is where screenshots, previews and event media are uploaded on
 
 ## Publish
 
-The listing is pushed with an App Store Connect API key (Users and Access → Integrations → App Store Connect API, role App Manager). Put `ASC_KEY_ID`, `ASC_ISSUER_ID` and `ASC_KEY_PATH` in the repo's `.env.local` or the environment; the key file defaults to `~/.appstoreconnect/private_keys/AuthKey_<ASC_KEY_ID>.p8`. Text and screenshots go through `fastlane deliver` (`ios/fastlane/Fastfile`); events and custom product pages, which deliver does not handle, go through `scripts/asc.py`. Nothing here submits for review.
+The listing is pushed with an App Store Connect API key (Users and Access → Integrations → App Store Connect API, role App Manager). Put `ASC_KEY_ID`, `ASC_ISSUER_ID` and `ASC_KEY_PATH` in the repo's `.env.local` or the environment; the key file defaults to `~/.appstoreconnect/private_keys/AuthKey_<ASC_KEY_ID>.p8`. Text and screenshots go through `fastlane deliver` (`ios/fastlane/Fastfile`); events, custom product pages and Game Center, which deliver does not handle, go through `scripts/asc.py`. Nothing here submits for review.
 
 1. `make appstore-setup` once, to install fastlane into `ios/vendor/bundle`.
 2. `make appstore-status` to see that the build is processed and in TestFlight.
@@ -140,7 +147,8 @@ The listing is pushed with an App Store Connect API key (Users and Access → In
 4. `make appstore-screenshots` replaces the screenshots in all three localisations with the `framed/` set and `watch.png` from the screenshots branch.
 5. `make appstore-events START=<launch date>` shows what would change; `make appstore-events START=<launch date> APPLY=1` writes it.
 6. `make appstore-pages`, then `make appstore-pages APPLY=1`. It prints each page id.
-7. In App Store Connect, submit the version, the events and the custom product pages for review.
+7. `make appstore-gamecenter`, then `make appstore-gamecenter APPLY=1`. It turns on the Game Center capability for the App ID and Game Center for the app and the version being prepared, and creates the achievements, leaderboards and challenges with their images in all three localisations.
+8. In App Store Connect, submit the version, the events, the custom product pages and the Game Center items for review.
 
 Still by hand:
 

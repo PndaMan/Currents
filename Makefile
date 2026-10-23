@@ -3,7 +3,7 @@
 # Since we can't run Xcode on Linux, this Makefile provides shortcuts
 # for triggering CI builds, checking status, and common dev tasks.
 
-.PHONY: help ci ci-status ci-logs lint test-local clean screenshots-frame appstore-check appstore-setup appstore-status appstore-metadata appstore-screenshots appstore-events appstore-pages push-test
+.PHONY: help ci ci-status ci-logs lint test-local clean screenshots-frame appstore-check appstore-setup appstore-status appstore-metadata appstore-screenshots appstore-events appstore-pages appstore-gamecenter push-test
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | \
@@ -62,6 +62,9 @@ appstore-events: ## In-app events; dry run unless APPLY=1, START=YYYY-MM-DD sets
 
 appstore-pages: ## Custom product pages; dry run unless APPLY=1
 	$(ASC_ENV) uv run scripts/asc.py pages $(APPLY_FLAG)
+
+appstore-gamecenter: ## Game Center achievements, leaderboards and challenges; dry run unless APPLY=1
+	$(ASC_ENV) uv run scripts/asc.py gamecenter $(APPLY_FLAG)
 
 # CloudKit pushes to one device. CK_KEY_ID and CK_KEY_PATH (server-to-server
 # key) come from the environment or .env.local.
