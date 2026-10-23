@@ -1843,8 +1843,11 @@ struct SharedSpotDetailView: View {
                     .padding(.top, DS.Space.s2)
                 }
 
-                DetailHeader(over: "Shared by \(friendName)", title: spot.name, subtitle: spot.type)
-                    .padding(.top, DS.Space.s4)
+                CommunityHero(label: "Shared by \(friendName)", title: spot.name,
+                              line: spot.type) {
+                    ThumbView(systemImage: "mappin.and.ellipse", tint: CrewTint.spot, size: 72)
+                }
+                .padding(.top, DS.Space.s4)
 
                 if spot.coordinate != nil {
                     Button {
@@ -1862,19 +1865,18 @@ struct SharedSpotDetailView: View {
                     }
                 }
 
-                if spot.isApproximate || !spot.notes.isEmpty {
+                CrewSection(title: "About this spot") { spotFacts }
+
+                if !spot.notes.isEmpty {
                     CrewSection(title: "Notes") {
-                        VStack(alignment: .leading, spacing: DS.Space.s2) {
-                            if !spot.notes.isEmpty {
-                                Text(spot.notes).font(.body).foregroundStyle(.dsText)
-                            }
-                            if spot.isApproximate {
-                                Label("Shared as an approximate area. \(friendName) kept the exact location private.",
-                                      systemImage: "eye.slash")
-                                    .font(.subheadline).foregroundStyle(.dsText2)
-                            }
-                        }
-                        .padding(.horizontal, DS.gutter)
+                        Text(spot.notes)
+                            .font(.body)
+                            .foregroundStyle(.dsText)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(DS.Space.s4)
+                            .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.card,
+                                                                           style: .continuous))
+                            .padding(.horizontal, DS.gutter)
                     }
                 }
 
@@ -1892,6 +1894,24 @@ struct SharedSpotDetailView: View {
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+    }
+
+    /// Who shared it and how precise the pin is, as
+    /// coloured rows on one card.
+    private var spotFacts: some View {
+        GroupedCard {
+            IconRow("Shared by", systemImage: "person.fill", tint: CrewTint.people) {
+                Text(friendName).foregroundStyle(.dsText2).lineLimit(1)
+            }
+            CardDivider()
+            if spot.isApproximate {
+                IconRow("Approximate area", subtitle: "\(friendName) kept the exact pin private",
+                        systemImage: "eye.slash.fill", tint: CrewTint.lock)
+            } else {
+                IconRow("Exact pin", subtitle: "Shared to the metre",
+                        systemImage: "scope", tint: CrewTint.exact)
+            }
+        }
     }
 
     private func copySpot() {
@@ -2162,15 +2182,17 @@ struct AddFriendConfirmView: View {
 
                 Group {
                     if isFriend {
-                        Label("You're friends", systemImage: "checkmark.circle.fill")
-                            .font(.headline)
-                            .foregroundStyle(.dsScoreGood)
-                            .frame(maxWidth: .infinity, minHeight: 52)
+                        GroupedCard {
+                            IconRow("You're friends", subtitle: "You already share catches",
+                                    systemImage: "checkmark", tint: .dsScoreGood)
+                        }
+                        .padding(.horizontal, -DS.gutter)
                     } else if added {
-                        Label("Friend request sent", systemImage: "paperplane.fill")
-                            .font(.headline)
-                            .foregroundStyle(.dsScoreGood)
-                            .frame(maxWidth: .infinity, minHeight: 52)
+                        GroupedCard {
+                            IconRow("Friend request sent", subtitle: "Waiting for them to accept",
+                                    systemImage: "paperplane.fill", tint: .blue)
+                        }
+                        .padding(.horizontal, -DS.gutter)
                     } else {
                         Button {
                             sending = true
@@ -2192,11 +2214,10 @@ struct AddFriendConfirmView: View {
                 .padding(.top, DS.Space.s5)
                 SectionFootnote("They'll see your request on their Crew tab.")
             } else {
-                ContentUnavailableView(
-                    "Angler not found",
-                    systemImage: "person.slash",
-                    description: Text("Code \(code) doesn't match anyone yet. Ask them to join the community first.")
-                )
+                CommunityHero(label: "Code \(code)", title: "Angler not found",
+                              line: "Nobody uses that code yet. Ask them to set up their angler profile.") {
+                    ThumbView(systemImage: "person.slash.fill", tint: CrewTint.lock, size: 72)
+                }
                 .padding(.top, DS.Space.s6)
             }
         }

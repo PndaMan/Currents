@@ -359,10 +359,9 @@ struct CrewDetailView: View {
     }
 
     private var unavailable: some View {
-        ContentUnavailableView {
-            Label("Crew not available", systemImage: "person.3")
-        } description: {
-            Text("It may have been deleted, or you're offline. Try again when you have a connection.")
+        GroupedCard {
+            IconRow("Crew not available", subtitle: "It may be deleted, or you're offline.",
+                    systemImage: "person.3.fill", tint: CrewTint.lock)
         }
         .padding(.top, DS.Space.s8)
     }
