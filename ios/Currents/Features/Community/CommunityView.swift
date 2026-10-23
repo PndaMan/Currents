@@ -1,6 +1,7 @@
 import SwiftUI
 import PhotosUI
 import MapKit
+import Network
 
 /// The Crew tab root: what is happening now, group trips, your crews, friends
 /// and the merged catch feed from every crew. Crew, friend and request pages
@@ -10,6 +11,7 @@ struct CommunityView: View {
     @Environment(\.scenePhase) private var scenePhase
     @StateObject private var svc = CommunityService.shared
     @ObservedObject private var cloud = CrewCloud.shared
+    @ObservedObject private var connection = CrewConnection.shared
 
     private enum CrewSheet: String, Identifiable {
         case add, newCrew, joinCrew, addFriend
@@ -211,88 +213,35 @@ struct CommunityView: View {
 
     // MARK: Joined
 
-    private var hasAnything: Bool {
-        !svc.myCrews.isEmpty || !svc.friends.isEmpty || !svc.myGroups.isEmpty || notificationCount > 0
-    }
-
-    private var summaryLine: String {
-        let crews = svc.myCrews.count, friends = svc.friends.count
-        return "\(crews) \(crews == 1 ? "crew" : "crews"), \(friends) \(friends == 1 ? "friend" : "friends")"
-    }
-
+    /// Luma's home order: what needs you, what is on now, your plans, your
+    /// groups, your people, then the feed. Each section keeps its title and
+    /// shows an inline empty state rather than disappearing, so a new angler
+    /// sees every way in.
     @ViewBuilder private var joinedContent: some View {
-        Text(summaryLine)
-            .font(.subheadline)
-            .foregroundStyle(.dsText2)
-            .padding(.horizontal, DS.gutter)
-            .padding(.bottom, DS.Space.s2)
-
-        if !hasAnything {
-            emptyState
-        } else {
-            inboxRow
-            happeningNow
-            groupTrips
-            crewsSection
-            friendsSection
-            feedSection
+        if connection.isOffline {
+            EventNotice("Offline. Crews, trips and the feed update when you're back online.",
+                        systemImage: "wifi.slash") { EmptyView() }
+                .padding(.top, DS.Space.s2)
         }
+        inboxRow
+        happeningNow
+        groupTrips
+        crewsSection
+        friendsSection
+        feedSection
     }
 
-    /// Joined, but no crews, friends or trips yet.
-    private var emptyState: some View {
-        VStack(spacing: DS.Space.s3) {
-            CrewGateArt()
-                .padding(.bottom, DS.Space.s3)
-            Text("Fish with friends")
-                .font(.title2.bold())
-                .foregroundStyle(.dsText)
-            Text("Start a crew or add a friend. Their catches, trips and tournaments land here.")
-                .font(.body)
-                .foregroundStyle(.dsText2)
-                .multilineTextAlignment(.center)
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: DS.Space.s2) { emptyStateButtons }
-                VStack(spacing: DS.Space.s2) { emptyStateButtons }
-            }
-            .padding(.top, DS.Space.s2)
-            Button("Join a crew with a code") { sheet = .joinCrew }
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(DS.accent)
-                .buttonStyle(.dim)
-                .padding(.top, DS.Space.s1)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.horizontal, DS.gutter)
-        .padding(.top, DS.Space.s6)
-    }
-
-    @ViewBuilder private var emptyStateButtons: some View {
-        Button("Start a crew") { sheet = .newCrew }
-            .buttonStyle(PrimaryButtonStyle(fullWidth: true))
-        Button("Add a friend") { sheet = .addFriend }
-            .buttonStyle(TonalButtonStyle(fullWidth: true))
-    }
+    /// "2" after a section title, or nothing when there are none.
+    private func countDetail(_ n: Int) -> String? { n > 0 ? "\(n)" : nil }
 
     // MARK: Inbox
 
     @ViewBuilder private var inboxRow: some View {
         if notificationCount > 0 {
             NavigationLink(value: CrewRoute.requests) {
-                ArtRow(title: "\(notificationCount) waiting for you", subtitle: inboxSummary, chevron: true) {
-                    ZStack(alignment: .bottomTrailing) {
-                        CrewAvatar(image: nil,
-                                   name: pendingRequests.first?.fromName ?? pendingInvites.first?.fromName ?? "A",
-                                   size: 56)
-                        Image(systemName: "tray.fill")
-                            .font(.caption2.weight(.semibold))
-                            .foregroundStyle(.white)
-                            .frame(width: 24, height: 24)
-                            .background(DS.accent, in: Circle())
-                            .overlay(Circle().stroke(Color.dsBackground, lineWidth: 2.5))
-                            .offset(x: 4, y: 4)
-                    }
-                    .frame(width: 64, height: 64)
+                ArtRow(title: notificationCount == 1 ? "1 waiting for you" : "\(notificationCount) waiting for you",
+                       subtitle: inboxSummary, chevron: true) {
+                    ThumbView(systemImage: "bell.fill", tint: DS.accent)
                 }
             }
             .buttonStyle(.dsRow)
@@ -343,69 +292,89 @@ struct CommunityView: View {
         if !liveTournaments.isEmpty || !liveTrips.isEmpty {
             CrewSection(title: "Happening now") {
                 ForEach(liveTournaments) { item in
-                    NavigationLink {
-                        TournamentView(tournament: item.tournament, crew: item.crew)
-                    } label: {
-                        CrewEventRow(isLive: true, over: item.crew.name, title: item.tournament.name,
-                                     endsAt: item.tournament.endsAt,
-                                     pill: item.rank.map { CrewText.ordinal($0) }) {
-                            ThumbView(systemImage: "trophy.fill", tint: .dsScoreFair)
-                        }
-                    }
-                    .buttonStyle(.dsRow)
+                    liveTournamentRow(item)
                 }
                 ForEach(liveTrips) { item in
-                    NavigationLink(value: CrewRoute.trip(code: item.trip.id, name: item.trip.name)) {
-                        CrewEventRow(isLive: true, over: item.crew.name, title: item.trip.name,
-                                     subtitle: item.trip.hostCode == svc.friendCode
-                                        ? "You're hosting" : "Hosted by \(item.trip.hostName)") {
-                            ThumbView(systemImage: "dot.radiowaves.left.and.right", tint: .dsScoreGood)
-                        }
-                    }
-                    .buttonStyle(.dsRow)
+                    liveTripRow(item)
                 }
             }
         }
     }
 
+    private func liveTournamentRow(_ item: LiveTournament) -> some View {
+        NavigationLink {
+            TournamentView(tournament: item.tournament, crew: item.crew)
+        } label: {
+            CrewEventRow(isLive: true,
+                         over: item.rank.map { "\(item.crew.name), you're \(CrewText.ordinal($0))" } ?? item.crew.name,
+                         title: item.tournament.name,
+                         endsAt: item.tournament.endsAt) {
+                ThumbView(systemImage: "trophy.fill", tint: .dsScoreFair)
+            }
+        }
+        .buttonStyle(.dsRow)
+    }
+
+    private func liveTripRow(_ item: LiveTrip) -> some View {
+        NavigationLink(value: CrewRoute.trip(code: item.trip.id, name: item.trip.name)) {
+            CrewEventRow(isLive: true, over: item.crew.name, title: item.trip.name,
+                         subtitle: item.trip.hostCode == svc.friendCode
+                            ? "You're hosting" : "Hosted by \(item.trip.hostName)") {
+                ThumbView(systemImage: "dot.radiowaves.left.and.right", tint: .dsScoreGood)
+            }
+        }
+        .buttonStyle(.dsRow)
+    }
+
     // MARK: Group trips
 
+    /// Trips still running first, ended ones after them.
+    private var sortedGroups: [CommunityService.GroupRef] {
+        svc.myGroups.filter { $0.endedAt == nil } + svc.myGroups.filter { $0.endedAt != nil }
+    }
+
     private var groupTrips: some View {
-        CrewSection(title: "Group trips") {
-            ForEach(svc.myGroups) { g in
-                NavigationLink(value: CrewRoute.trip(code: g.code, name: g.name)) {
-                    CrewEventRow(over: g.isHost ? "You're hosting" : "Hosted by \(g.hostName)",
-                                 title: g.name,
-                                 subtitle: g.teamName.map { "Tournament team \($0)" } ?? "Trip code \(g.code)",
-                                 pill: g.endedAt != nil ? "Ended" : nil) {
-                        ThumbView(systemImage: g.teamName != nil ? "trophy.fill" : "person.3.fill",
-                                  tint: g.endedAt != nil ? .dsText2 : .dsScoreLow)
-                    }
-                }
-                .buttonStyle(.dsRow)
-                .contextMenu {
-                    Button(role: .destructive) { confirmRemoveTrip = g } label: {
-                        Label("Remove trip", systemImage: "trash")
-                    }
-                }
+        CrewSection(title: "Group trips", detail: countDetail(svc.myGroups.count)) {
+            ForEach(sortedGroups) { g in
+                groupRow(g)
             }
             NavigationLink(value: CrewRoute.tripSetup(crewCode: nil)) {
-                ArtRow(title: "Plan a group trip", subtitle: "Start now or pick a day, then invite friends") {
-                    ThumbView(systemImage: "calendar.badge.plus", tint: .dsText2)
+                ArtRow(title: "Plan a group trip", subtitle: "Start now or pick a day, then invite friends",
+                       chevron: true) {
+                    ThumbView(systemImage: "calendar.badge.plus", tint: DS.accent)
                 }
             }
             .buttonStyle(.dsRow)
         }
     }
 
+    private func groupRow(_ g: CommunityService.GroupRef) -> some View {
+        let ended = g.endedAt != nil
+        let host = g.isHost ? "You're hosting" : "Hosted by \(g.hostName)"
+        return NavigationLink(value: CrewRoute.trip(code: g.code, name: g.name)) {
+            CrewEventRow(over: ended ? "Ended" : host,
+                         title: g.name,
+                         subtitle: g.teamName.map { "Tournament team \($0)" } ?? "Trip code \(g.code)") {
+                ThumbView(systemImage: g.teamName != nil ? "trophy.fill" : "person.3.fill",
+                          tint: ended ? .dsText2 : .dsScoreLow)
+            }
+        }
+        .buttonStyle(.dsRow)
+        .contextMenu {
+            Button(role: .destructive) { confirmRemoveTrip = g } label: {
+                Label("Remove trip", systemImage: "trash")
+            }
+        }
+    }
+
     // MARK: Crews
 
     private var crewsSection: some View {
-        CrewSection(title: "Your crews", link: .crews) {
+        CrewSection(title: "Your crews", detail: countDetail(svc.myCrews.count), link: .crews) {
             if svc.myCrews.isEmpty {
                 InlineEmpty(systemImage: "person.3",
-                                text: "No crews yet. Start one, or join with a code from a friend.",
-                                actionTitle: "Start a crew") { sheet = .newCrew }
+                            text: "No crews yet. Start one, or join with a code from a friend.",
+                            actionTitle: "Start a crew") { sheet = .newCrew }
             } else {
                 ForEach(svc.myCrews) { crew in
                     NavigationLink(value: CrewRoute.crew(crew.code)) {
@@ -424,40 +393,52 @@ struct CommunityView: View {
     // MARK: Friends
 
     private var friendsSection: some View {
-        CrewSection(title: "Friends", link: .friends) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(alignment: .top, spacing: DS.Space.s2) {
-                    Button { sheet = .addFriend } label: {
-                        VStack(spacing: 4) {
-                            Image(systemName: "person.badge.plus")
-                                .font(.title2.weight(.medium))
-                                .foregroundStyle(.dsText)
-                                .frame(width: 56, height: 56)
-                                .background(Color.dsFill2, in: Circle())
-                            Text("Add")
-                                .font(.footnote.weight(.medium))
-                                .foregroundStyle(.dsText)
-                        }
-                        .frame(width: 72)
-                    }
-                    .buttonStyle(.dim)
-                    .accessibilityLabel("Add a friend")
-                    ForEach(friendProfiles) { p in
-                        NavigationLink(value: CrewRoute.friend(p.id)) {
-                            CrewPersonCell(image: p.avatar, name: CrewFriendsLoader.shortName(p))
-                        }
-                        .buttonStyle(.dim)
-                    }
-                }
-                .padding(.horizontal, DS.gutter - 8)
-                .padding(.bottom, DS.Space.s2)
+        CrewSection(title: "Friends", detail: countDetail(svc.friends.count), link: .friends) {
+            if svc.friends.isEmpty {
+                InlineEmpty(systemImage: "person.2",
+                            text: "No friends yet. Add one with their angler code to see their catches.",
+                            actionTitle: "Add a friend") { sheet = .addFriend }
+                    .padding(.bottom, DS.Space.s2)
+            } else {
+                friendStrip
             }
             NavigationLink(value: CrewRoute.leaderboard) {
-                ArtRow(title: "Friends leaderboard", subtitle: "Most fish, heaviest and longest", chevron: true) {
+                ArtRow(title: "Leaderboard", subtitle: "Most fish, heaviest and longest", chevron: true) {
                     ThumbView(systemImage: "trophy.fill", tint: .dsScoreFair)
                 }
             }
             .buttonStyle(.dsRow)
+        }
+    }
+
+    /// Faces you can tap, with Add first, like the people strip in Messages.
+    private var friendStrip: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(alignment: .top, spacing: DS.Space.s2) {
+                Button { sheet = .addFriend } label: {
+                    VStack(spacing: 4) {
+                        Image(systemName: "person.badge.plus")
+                            .font(.title2.weight(.medium))
+                            .foregroundStyle(.dsText)
+                            .frame(width: 56, height: 56)
+                            .background(Color.dsTonal, in: Circle())
+                        Text("Add")
+                            .font(.footnote.weight(.medium))
+                            .foregroundStyle(.dsText)
+                    }
+                    .frame(width: 72)
+                }
+                .buttonStyle(.dim)
+                .accessibilityLabel("Add a friend")
+                ForEach(friendProfiles) { p in
+                    NavigationLink(value: CrewRoute.friend(p.id)) {
+                        CrewPersonCell(image: p.avatar, name: CrewFriendsLoader.shortName(p))
+                    }
+                    .buttonStyle(.dim)
+                }
+            }
+            .padding(.horizontal, DS.gutter - 8)
+            .padding(.bottom, DS.Space.s2)
         }
     }
 
@@ -626,6 +607,28 @@ struct CommunityView: View {
             bestLengthCm: catches.compactMap { $0.catchRecord.lengthCm }.max() ?? 0,
             favoriteSpecies: fav
         )
+    }
+}
+
+// MARK: - Connection
+
+/// Whether the phone has a connection, for the Crew pages' offline notices.
+/// It starts assuming online, so nothing flashes "Offline" before the first
+/// answer arrives.
+@MainActor
+final class CrewConnection: ObservableObject {
+    static let shared = CrewConnection()
+    @Published private(set) var isOffline = false
+    private let monitor = NWPathMonitor()
+
+    private init() {
+        monitor.pathUpdateHandler = { path in
+            let offline = path.status != .satisfied
+            Task { @MainActor in
+                if CrewConnection.shared.isOffline != offline { CrewConnection.shared.isOffline = offline }
+            }
+        }
+        monitor.start(queue: DispatchQueue(label: "CrewConnection"))
     }
 }
 
