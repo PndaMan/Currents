@@ -1809,9 +1809,10 @@ struct SharedSpotDetailView: View {
 // MARK: - Community catch detail
 
 /// A single community catch, pushed from a friend's profile, a trip or a
-/// leaderboard row: the read-only version of a catch page. Photo cover, title
-/// block, grouped rows, then the approximate area and directions. Tinted with
-/// the species' art colour when the name resolves to a known species.
+/// leaderboard row: the read-only version of a catch page, built from the
+/// same parts. Photo hero, title block, the stat grid, then the approximate
+/// area and directions. Tinted with the species' art colour when the name
+/// resolves to a known species.
 struct CommunityCatchDetailView: View {
     let row: CommunityService.LeaderRow
     @Environment(AppState.self) private var appState
@@ -1819,7 +1820,10 @@ struct CommunityCatchDetailView: View {
     private var imperial: Bool { units == "imperial" }
     @State private var species: Species?
     @State private var photo: UIImage?
+    @State private var photoLoaded = false
     @State private var showingFullscreen = false
+
+    private var hasPhoto: Bool { row.localPhotoPath != nil || row.hasRemotePhoto }
 
     var body: some View {
         CrewCloudGate { page }
@@ -1832,8 +1836,7 @@ struct CommunityCatchDetailView: View {
                 .pageWidth()
         }
         .detailTint(species?.artTint)
-        .navigationTitle(row.species)
-        .navigationBarTitleDisplayMode(.inline)
+        .modifier(CatchHeroChrome(title: row.species, heroFactor: CatchHero.factor(hasPhoto: hasPhoto)))
         .fullScreenCover(isPresented: $showingFullscreen) {
             if let photo { FullscreenImageViewer(image: photo) }
         }
@@ -1843,41 +1846,46 @@ struct CommunityCatchDetailView: View {
             } else if row.hasRemotePhoto {
                 photo = await CommunityService.shared.catchPhoto(recordName: row.id)
             }
+            photoLoaded = true
             species = (try? appState.speciesRepository.fetchByCommonName(row.species)) ?? nil
         }
     }
 
     private var content: some View {
         VStack(alignment: .leading, spacing: 0) {
-            cover
-                .padding(.horizontal, DS.gutter)
-                .padding(.top, DS.Space.s2)
+            CatchHero(photos: photo.map { [$0] } ?? [],
+                      index: .constant(0),
+                      species: species,
+                      showsPhotos: hasPhoto,
+                      isLoading: hasPhoto && !photoLoaded,
+                      open: { showingFullscreen = true })
             DetailHeader(over: row.date.formatted(date: .long, time: .omitted),
                          title: row.species,
                          subtitle: "Caught by \(row.anglerName)")
                 .padding(.top, DS.Space.s4)
-
-            SectionTitle("The catch")
-                .padding(.top, DS.Space.s8)
-            KeyValueList(rows: catchRows)
-
+            CatchFactsLine(facts: facts)
+                .padding(.top, DS.Space.s3)
+            if !stats.isEmpty {
+                CatchStatGrid(stats: stats)
+                    .padding(.top, DS.Space.s6)
+            }
             whereSection
         }
     }
 
-    private var catchRows: [KeyValueList.Row] {
-        var rows: [KeyValueList.Row] = []
-        if let l = row.lengthCm {
-            rows.append(.init(label: "Length", value: Units.length(cm: l, imperial: imperial)))
-        }
+    private var facts: [CatchFact] {
+        row.region.isEmpty ? [] : [CatchFact(systemImage: "mappin.and.ellipse", text: row.region)]
+    }
+
+    private var stats: [CatchStat] {
+        var list: [CatchStat] = []
         if let w = row.weightKg {
-            rows.append(.init(label: "Weight", value: Units.weight(kg: w, imperial: imperial)))
+            list.append(CatchStat("Weight", measured: Units.weight(kg: w, imperial: imperial)))
         }
-        rows.append(.init(label: "Caught", value: row.date.formatted(date: .abbreviated, time: .omitted)))
-        if !row.region.isEmpty {
-            rows.append(.init(label: "Region", value: row.region))
+        if let l = row.lengthCm {
+            list.append(CatchStat("Length", measured: Units.length(cm: l, imperial: imperial)))
         }
-        return rows
+        return list
     }
 
     @ViewBuilder private var whereSection: some View {
@@ -1885,7 +1893,7 @@ struct CommunityCatchDetailView: View {
             SectionTitle("Where")
                 .padding(.top, DS.Space.s8)
             CommunityCatchMap(coordinate: coord, tint: species?.artTint ?? DS.accent)
-                .frame(height: 170)
+                .frame(height: CatchMapRender.height)
                 .clipShape(RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
                 .accessibilityLabel("Map of the approximate area")
                 .padding(.horizontal, DS.gutter)
@@ -1893,34 +1901,6 @@ struct CommunityCatchDetailView: View {
             DirectionsButton(coordinate: coord, name: row.region.isEmpty ? row.species : row.region)
                 .padding(.horizontal, DS.gutter)
                 .padding(.top, DS.Space.s3)
-        }
-    }
-
-    /// The photo fills the cover like your own catch; no photo shows the
-    /// species art on its colour.
-    @ViewBuilder private var cover: some View {
-        if let photo {
-            Button { showingFullscreen = true } label: {
-                Color.clear
-                    .overlay {
-                        Image(uiImage: photo)
-                            .resizable()
-                            .scaledToFill()
-                    }
-                    .frame(height: 340)
-                    .clipShape(RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
-                    .contentShape(RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
-            }
-            .buttonStyle(.dim)
-            .accessibilityLabel("Photo of the catch")
-            .accessibilityHint("Opens the photo full screen")
-        } else if let species {
-            SpeciesArtworkView(species: species, caught: true, size: 200)
-                .frame(maxWidth: .infinity)
-                .frame(height: 240)
-                .background(species.artTint.opacity(0.18),
-                            in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
-                .accessibilityHidden(true)
         }
     }
 }
