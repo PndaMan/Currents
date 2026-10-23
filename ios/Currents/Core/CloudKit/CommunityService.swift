@@ -96,7 +96,18 @@ final class CommunityService: ObservableObject {
     /// the underlying values live in UserDefaults/files and aren't observable
     /// on their own.
     @Published private(set) var revision = 0
-    func bumpRevision() { revision &+= 1 }
+    func bumpRevision() {
+        revision &+= 1
+        feedEpoch &+= 1
+    }
+
+    /// First-page crew feed loads in flight. Every open crew screen reloads
+    /// the feed on the same revision bump; they share one round of queries.
+    var feedLoads: [String: Task<[CrewPost], Never>] = [:]
+    /// Part of the `feedLoads` key, bumped after every write that changes a
+    /// feed, so a reload after a write never joins a load started before it.
+    private(set) var feedEpoch = 0
+    func noteFeedWrite() { feedEpoch &+= 1 }
 
     // MARK: - Identity
 
@@ -1626,6 +1637,7 @@ final class CommunityService: ObservableObject {
 
     /// Create/update a crew post for a catch (used by auto-post and manual share).
     func postCatch(_ c: Catch, speciesName: String, toCrew code: String, caption: String, tripName: String = "") async {
+        defer { noteFeedWrite() }
         guard cloudAllowed else { return }
         let id = CKRecord.ID(recordName: "crewpost-\(code)-\(c.id)")
         let record = (try? await db.record(for: id)) ?? CKRecord(recordType: crewPostType, recordID: id)
@@ -1644,6 +1656,7 @@ final class CommunityService: ObservableObject {
 
     /// Set/clear the one-line caption on a post I authored.
     func setCrewCaption(_ caption: String, postId: String) async {
+        defer { noteFeedWrite() }
         let id = CKRecord.ID(recordName: postId)
         guard let r = try? await db.record(for: id) else { return }
         r["caption"] = caption as CKRecordValue
@@ -1654,6 +1667,7 @@ final class CommunityService: ObservableObject {
     /// replaces it (one reaction per member per post).
     func toggleCrewReaction(emoji: String, postId: String, crewCode: String,
                             postAuthorCode: String) async {
+        defer { noteFeedWrite() }
         let id = CKRecord.ID(recordName: "crewreact-\(postId)-\(friendCode)")
         if let existing = try? await db.record(for: id) {
             if (existing["emoji"] as? String) == emoji {

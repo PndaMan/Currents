@@ -109,6 +109,7 @@ extension CommunityService {
 
     /// Delete a post — the author always may; moderators may for anyone.
     func deleteCrewPost(_ post: CrewPost, in crew: Crew) async -> Bool {
+        defer { noteFeedWrite() }
         guard post.authorCode == friendCode || myRole(in: crew).canModerate else { return false }
         let ok = (try? await db.deleteRecord(withID: CKRecord.ID(recordName: post.id))) != nil
         if ok {
@@ -190,6 +191,23 @@ extension CommunityService {
     /// as `before` to load the next page — no more loading 1,000 posts to
     /// show the first screen.
     func crewFeedPage(code: String, before: Date? = nil, limit: Int = 30) async -> [CrewPost] {
+        // The first page is what every open crew screen reloads on a push
+        // or poll; concurrent asks share one round of queries.
+        guard before == nil else { return await loadCrewFeedPage(code: code, before: before, limit: limit) }
+        let key = "\(code)-\(limit)-\(feedEpoch)"
+        let task: Task<[CrewPost], Never>
+        if let running = feedLoads[key] {
+            task = running
+        } else {
+            task = Task { await self.loadCrewFeedPage(code: code, before: nil, limit: limit) }
+            feedLoads[key] = task
+        }
+        let posts = await task.value
+        if feedLoads[key] == task { feedLoads[key] = nil }
+        return posts
+    }
+
+    private func loadCrewFeedPage(code: String, before: Date?, limit: Int) async -> [CrewPost] {
         var predicate = NSPredicate(format: "crewCode == %@", code)
         if let before {
             predicate = NSPredicate(format: "crewCode == %@ AND caughtAt < %@", code, before as NSDate)
@@ -308,6 +326,7 @@ extension CommunityService {
     @discardableResult
     func addComment(_ text: String, post: CrewPost,
                     replyTo: CrewComment? = nil) async -> CrewComment? {
+        defer { noteFeedWrite() }
         let clean = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard cloudAllowed, !clean.isEmpty else { return nil }
         let name = "crewcomment-\(UUID().uuidString)"
@@ -365,6 +384,7 @@ extension CommunityService {
 
     /// Delete a comment — the author always may; moderators may for anyone.
     func deleteComment(_ comment: CrewComment, in crew: Crew?) async -> Bool {
+        defer { noteFeedWrite() }
         let mayModerate = crew.map { myRole(in: $0).canModerate } ?? false
         guard comment.authorCode == friendCode || mayModerate else { return false }
         return (try? await db.deleteRecord(withID: CKRecord.ID(recordName: comment.id))) != nil
