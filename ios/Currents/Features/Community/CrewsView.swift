@@ -246,7 +246,7 @@ struct CrewDetailView: View {
                 fishingNowSection
                 feedSection
                 settingsSection
-                CrewDangerButton(title: "Leave crew", systemImage: "rectangle.portrait.and.arrow.right") {
+                DangerButton(title: "Leave crew", systemImage: "rectangle.portrait.and.arrow.right") {
                     confirmLeave = true
                 }
                 .padding(.top, DS.Space.s8)
@@ -549,7 +549,7 @@ struct CrewDetailView: View {
                     }
                     .buttonStyle(.dsRow)
                 } else if tournament == nil {
-                    CrewInlineEmpty(systemImage: "trophy",
+                    InlineEmpty(systemImage: "trophy",
                                     text: "No tournament running. A crew admin can start one.")
                 }
             }
@@ -598,7 +598,7 @@ struct CrewDetailView: View {
     private var fishingNowSection: some View {
         CrewSection(title: "Fishing right now") {
             if liveTrips.isEmpty {
-                CrewInlineEmpty(systemImage: "dot.radiowaves.left.and.right",
+                InlineEmpty(systemImage: "dot.radiowaves.left.and.right",
                                 text: "No live sessions right now. Start one when you're fishing together.",
                                 actionTitle: "Start a live session") { showingTripSetup = true }
             } else {
@@ -634,7 +634,7 @@ struct CrewDetailView: View {
                     FishLoader(message: "Loading the feed")
                         .frame(height: 90).frame(maxWidth: .infinity)
                 } else {
-                    CrewInlineEmpty(systemImage: "fish",
+                    InlineEmpty(systemImage: "fish",
                                     text: "No catches yet. When you or a crewmate log a catch, it shows up here.")
                 }
             } else {
@@ -650,7 +650,7 @@ struct CrewDetailView: View {
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, DS.Space.s4)
                 } else if !canLoadMore, feed.count > 20 {
-                    CrewFootnote(text: "You're all caught up.")
+                    SectionFootnote("You're all caught up.")
                 }
             }
         }

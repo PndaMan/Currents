@@ -1036,7 +1036,7 @@ struct GearDetailSheet: View {
                         if rows.isEmpty {
                             PFFootnote("Nothing in this preset yet. Edit it to add a rod, reel and lure.")
                         } else {
-                            PFKeyValueCard(rows: rows)
+                            KeyValueList(rows: rows)
                         }
                     }
                 }

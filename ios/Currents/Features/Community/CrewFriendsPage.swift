@@ -127,17 +127,17 @@ struct CrewFriendsPage: View {
                             .padding(.bottom, DS.Space.s2)
                     }
                     if svc.friends.isEmpty {
-                        CrewInlineEmpty(systemImage: "person.2",
+                        InlineEmpty(systemImage: "person.2",
                                         text: "No friends yet. Add one with their angler code.",
                                         actionTitle: "Add a friend") { showingAdd = true }
                     } else if isLoading && friends.isEmpty {
                         FishLoader(message: "Loading friends")
                             .frame(height: 88).frame(maxWidth: .infinity)
                     } else if friends.isEmpty {
-                        CrewInlineEmpty(systemImage: "wifi.slash",
+                        InlineEmpty(systemImage: "wifi.slash",
                                         text: "Couldn't load your friends. Check your connection and come back.")
                     } else if filtered.isEmpty {
-                        CrewInlineEmpty(systemImage: "magnifyingglass",
+                        InlineEmpty(systemImage: "magnifyingglass",
                                         text: "No friends match \"\(query)\".")
                     } else {
                         ForEach(filtered) { f in

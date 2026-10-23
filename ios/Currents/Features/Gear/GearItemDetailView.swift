@@ -159,7 +159,7 @@ struct GearItemDetailView: View {
 
             VStack(alignment: .leading, spacing: 0) {
                 SectionTitle("Details")
-                PFKeyValueCard(rows: detailRows(item))
+                KeyValueList(rows: detailRows(item))
             }
 
             VStack(alignment: .leading, spacing: 0) {
@@ -168,7 +168,7 @@ struct GearItemDetailView: View {
                     PFNotice(systemImage: "fish", tint: .dsText2, title: "No catches with this yet",
                              message: "Pick it when you log a catch and it shows up here.")
                 } else {
-                    PFKeyValueCard(rows: waterRows(mine))
+                    KeyValueList(rows: waterRows(mine))
                     NavigationLink(value: GearEffectivenessRoute()) {
                         HStack {
                             Text("Compare with your other gear")

@@ -179,15 +179,15 @@ struct GroupTripSetupView: View {
                 .padding(.top, DS.Space.s5)
 
                 if !startableTrips.isEmpty {
-                    EventSection("Your trips") {
+                    CrewSection(title: "Your trips") {
                         VStack(spacing: 0) {
                             ForEach(startableTrips) { t in yourTripRow(t) }
                         }
-                        EventFootnote("Start one to take it live, or tap it to edit.")
+                        SectionFootnote("Start one to take it live, or tap it to edit.")
                     }
                 }
 
-                EventSection("Join a friend's trip") {
+                CrewSection(title: "Join a friend's trip") {
                     VStack(spacing: DS.Space.s3) {
                         CodeField(text: $joinCode, placeholder: "Trip code")
                             .focused($joinFocused)
@@ -201,7 +201,7 @@ struct GroupTripSetupView: View {
                         .disabled(busy || joinCode.trimmingCharacters(in: .whitespaces).count != 6)
                     }
                     .padding(.horizontal, DS.gutter)
-                    EventFootnote("Use the code they shared, or tap their invite.")
+                    SectionFootnote("Use the code they shared, or tap their invite.")
                 }
                 .id(Self.joinAnchor)
             }
@@ -567,7 +567,7 @@ struct GroupTripView: View {
             GroupTripIntro(systemImage: "person.crop.circle.badge.plus",
                            title: "Join to fish together",
                            message: "You're invited to \(trip?.name ?? tripName). Pick a name to join. No account needed.")
-            EventSection("Your angler name") {
+            CrewSection(title: "Your angler name") {
                 VStack(spacing: DS.Space.s3) {
                     GroupTripTextField(placeholder: "Name", text: $joinName)
                         .textContentType(.givenName)
@@ -625,7 +625,7 @@ struct GroupTripView: View {
             .padding(.horizontal, DS.gutter)
             .padding(.top, DS.Space.s6)
 
-            EventSection("Join a friend's trip") {
+            CrewSection(title: "Join a friend's trip") {
                 VStack(spacing: DS.Space.s3) {
                     CodeField(text: $joinCode, placeholder: "Trip code")
                     Button {
@@ -701,7 +701,7 @@ struct GroupTripView: View {
             .disabled(busy)
             .padding(.horizontal, DS.gutter)
             .padding(.top, DS.Space.s6)
-            EventFootnote("Your spots and exact locations stay private.")
+            SectionFootnote("Your spots and exact locations stay private.")
         }
     }
 
@@ -865,10 +865,10 @@ struct GroupTripView: View {
     private func standingsSection(ended: Bool) -> some View {
         let stats = standings()
         let hasFish = !stats.allSatisfy { $0.count == 0 }
-        return EventSection(ended ? "Final results" : "Leaderboard",
-                            detail: feed.isEmpty ? nil : "\(feed.count) fish") {
+        return CrewSection(title: ended ? "Final results" : "Leaderboard",
+                           detail: feed.isEmpty ? nil : "\(feed.count) fish") {
             if stats.isEmpty || !hasFish {
-                EventInlineEmpty(text: "No fish yet. The first catch takes the lead.", systemImage: "trophy")
+                InlineEmpty(text: "No fish yet. The first catch takes the lead.", systemImage: "trophy")
                     .padding(.bottom, stats.isEmpty ? 0 : DS.Space.s2)
             }
             VStack(spacing: 0) {
@@ -890,7 +890,7 @@ struct GroupTripView: View {
             }
             .animation(reduceMotion ? nil : DS.Motion.softSpring, value: stats.map(\.code))
             if !feed.isEmpty {
-                EventFootnote("\(Set(feed.map(\.species)).count) species on the trip so far.")
+                SectionFootnote("\(Set(feed.map(\.species)).count) species on the trip so far.")
             }
         }
     }
@@ -898,9 +898,9 @@ struct GroupTripView: View {
     // MARK: - Live feed
 
     private var feedSection: some View {
-        EventSection("Live feed") {
+        CrewSection(title: "Live feed") {
             if feed.isEmpty {
-                EventInlineEmpty(text: "Catches land here the moment anyone logs one.")
+                InlineEmpty(text: "Catches land here the moment anyone logs one.")
             } else {
                 VStack(spacing: 0) {
                     ForEach(feed) { c in
@@ -934,9 +934,9 @@ struct GroupTripView: View {
     // MARK: - Trip details
 
     @ViewBuilder private func tripDetailsSection(_ code: String, ended: Bool) -> some View {
-        EventSection("Trip") {
+        CrewSection(title: "Trip") {
             if isTournamentTeam {
-                EventInlineEmpty(text: "Crewmates join this team from the tournament page.", systemImage: "trophy")
+                InlineEmpty(text: "Crewmates join this team from the tournament page.", systemImage: "trophy")
             } else {
                 VStack(spacing: 0) {
                     if !ended {
@@ -954,10 +954,11 @@ struct GroupTripView: View {
                     }
                 }
             }
-            EventDangerButton(title: ended ? "Remove from my trips" : "Leave trip",
-                              systemImage: "person.fill.xmark") {
+            DangerButton(title: ended ? "Remove from my trips" : "Leave trip",
+                         systemImage: "person.fill.xmark") {
                 if ended { leave(code: code) } else { confirmingLeave = true }
             }
+            .padding(.top, DS.Space.s8)
         }
     }
 
@@ -993,10 +994,10 @@ struct GroupTripView: View {
             SectionTitle("Friends")
                 .padding(.top, DS.Space.s6)
             if friendProfiles.isEmpty {
-                EventInlineEmpty(text: "Add friends on the Crew tab to invite them in one tap.",
+                InlineEmpty(text: "Add friends on the Crew tab to invite them in one tap.",
                                  systemImage: "person.2")
             } else if invitable.isEmpty {
-                EventInlineEmpty(text: "All your friends are on this trip.", systemImage: "checkmark.circle")
+                InlineEmpty(text: "All your friends are on this trip.", systemImage: "checkmark.circle")
             } else {
                 ForEach(invitable) { f in
                     ArtRow(title: f.name, subtitle: f.homeWater.isEmpty ? nil : f.homeWater) {
@@ -1067,10 +1068,10 @@ struct GroupTripView: View {
         let linkedId = service.tripId(forGroupCode: code)
         let isThisActive = tracker.isTracking && tracker.activeTrip?.id == linkedId && linkedId != nil
 
-        EventSection("Your GPS session") {
+        CrewSection(title: "Your GPS session") {
             if ended {
                 if isThisActive {
-                    EventKeyValueList(rows: [.init(label: "Trip", value: "Ended")])
+                    KeyValueList(rows: [.init(label: "Trip", value: "Ended")])
                     Button(role: .destructive) {
                         Haptics.warning()
                         _ = appState.tripTracker.end()
@@ -1093,12 +1094,12 @@ struct GroupTripView: View {
                     }
                     .buttonStyle(.dsRow)
                 } else {
-                    EventInlineEmpty(text: "This trip has ended.", systemImage: "flag.checkered")
+                    InlineEmpty(text: "This trip has ended.", systemImage: "flag.checkered")
                 }
             } else if isThisActive, tracker.isDayActive {
                 TimelineView(.periodic(from: .now, by: 1)) { _ in
                     let start = tracker.activeTrip?.currentDayStart ?? tracker.activeTrip?.startDate ?? .now
-                    EventKeyValueList(rows: [
+                    KeyValueList(rows: [
                         .init(label: tracker.manualPaused ? "GPS paused" : "Tracking live",
                               value: SessionFormat.duration(tracker.manualPaused ? 0 : Date.now.timeIntervalSince(start)),
                               emphasized: true),
@@ -1136,7 +1137,7 @@ struct GroupTripView: View {
                 .padding(.horizontal, DS.gutter)
                 .padding(.top, DS.Space.s3)
             } else if isThisActive {
-                EventInlineEmpty(text: "Day ended. The trip is still open.", systemImage: "moon.zzz")
+                InlineEmpty(text: "Day ended. The trip is still open.", systemImage: "moon.zzz")
                 VStack(spacing: DS.Space.s2) {
                     Button {
                         Haptics.success()
@@ -1157,11 +1158,11 @@ struct GroupTripView: View {
                 .padding(.horizontal, DS.gutter)
                 .padding(.top, DS.Space.s3)
             } else if tracker.isTracking {
-                EventInlineEmpty(text: "Another session is running. End it to track this trip.",
+                InlineEmpty(text: "Another session is running. End it to track this trip.",
                                  systemImage: "location.slash")
             } else if let linkedId, let lt = (try? appState.tripRepository.fetch(linkedId)) ?? nil {
                 if lt.isCompleted {
-                    EventInlineEmpty(text: "Your session ended. New catches still count.",
+                    InlineEmpty(text: "Your session ended. New catches still count.",
                                      systemImage: "flag.checkered")
                 } else {
                     Button {
@@ -1172,7 +1173,7 @@ struct GroupTripView: View {
                     }
                     .buttonStyle(.dsTonal)
                     .padding(.horizontal, DS.gutter)
-                    EventFootnote("Optional. Records your track alongside the trip.")
+                    SectionFootnote("Optional. Records your track alongside the trip.")
                 }
             }
         }

@@ -204,7 +204,7 @@ struct KnotDetailView: View {
                     .padding(.horizontal, DS.gutter)
                 }
 
-                PFKeyValueCard(rows: facts)
+                KeyValueList(rows: facts)
 
                 VStack(alignment: .leading, spacing: 0) {
                     SectionTitle("Steps", detail: "\(knot.steps.count)")

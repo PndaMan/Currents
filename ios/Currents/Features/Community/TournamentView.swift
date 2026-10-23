@@ -249,9 +249,10 @@ struct TournamentView: View {
                 highlightsSection
                 rulesSection
                 if role.canRunTournaments && !tournament.isEnded {
-                    EventDangerButton(title: "End tournament", systemImage: "flag.checkered") {
+                    DangerButton(title: "End tournament", systemImage: "flag.checkered") {
                         showingEnd = true
                     }
+                    .padding(.top, DS.Space.s8)
                 }
             }
             .padding(.bottom, DS.Space.s8)
@@ -564,8 +565,8 @@ struct TournamentView: View {
     // MARK: Standings
 
     @ViewBuilder private var standingsSection: some View {
-        EventSection(tournament.isEnded ? "Final standings" : "Standings",
-                     detail: standings.isEmpty ? nil : "\(standings.count)") {
+        CrewSection(title: tournament.isEnded ? "Final standings" : "Standings",
+                    detail: standings.isEmpty ? nil : "\(standings.count)") {
             if standings.isEmpty {
                 if loading {
                     EventSkeletonRows(count: 3, thumbSize: 36, label: "Loading the standings")
@@ -624,7 +625,7 @@ struct TournamentView: View {
     // MARK: Join or create a team
 
     private var joinSection: some View {
-        EventSection("Get on the board") {
+        CrewSection(title: "Get on the board") {
             VStack(spacing: DS.Space.s3) {
                 TextField("Team name", text: $newTeamName)
                     .font(.body)
@@ -643,7 +644,7 @@ struct TournamentView: View {
                 .disabled(!canCreateTeam)
             }
             .padding(.horizontal, DS.gutter)
-            EventFootnote(standings.isEmpty
+            SectionFootnote(standings.isEmpty
                           ? "Your team is a live session. Every catch you log scores."
                           : "Open a team above to join it, or start your own.")
         }
@@ -679,9 +680,9 @@ struct TournamentView: View {
     // MARK: Assign crewmates (admins)
 
     private var assignSection: some View {
-        EventSection("Assign crewmates") {
+        CrewSection(title: "Assign crewmates") {
             if unassignedMembers.isEmpty {
-                EventInlineEmpty(text: "Everyone's on a team.", systemImage: "person.3")
+                InlineEmpty(text: "Everyone's on a team.", systemImage: "person.3")
             } else {
                 VStack(spacing: 0) {
                     ForEach(unassignedMembers, id: \.id) { m in
@@ -732,7 +733,7 @@ struct TournamentView: View {
             let rival: CommunityService.TeamStanding? = i == 0
                 ? (standings.count > 1 ? standings[1] : nil)
                 : standings.first
-            EventSection("On your lock screen") {
+            CrewSection(title: "On your lock screen") {
                 TimelineView(.periodic(from: .now, by: 30)) { ctx in
                     VStack(spacing: DS.Space.s1) {
                         Text(ctx.date, format: .dateTime.hour().minute())
@@ -754,7 +755,7 @@ struct TournamentView: View {
                 .padding(.horizontal, DS.gutter)
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel("Live Activity preview: your team \(pointsText(me.points)), \(eventOrdinal(i + 1)) of \(standings.count)")
-                EventFootnote("Shows on your lock screen and in the Dynamic Island while you're on a team.")
+                SectionFootnote("Shows on your lock screen and in the Dynamic Island while you're on a team.")
             }
         }
     }
@@ -818,7 +819,7 @@ struct TournamentView: View {
     @ViewBuilder private var highlightsSection: some View {
         let highlights = CommunityService.tournamentHighlights(from: standings)
         if !highlights.isEmpty {
-            EventSection("Highlights") {
+            CrewSection(title: "Highlights") {
                 VStack(spacing: 0) {
                     ForEach(highlights) { h in
                         ArtRow(over: h.title,
@@ -838,7 +839,7 @@ struct TournamentView: View {
 
     private var rulesSection: some View {
         let r = tournament.rates
-        var rows: [EventKeyValueList.Row] = [
+        var rows: [KeyValueList.Row] = [
             .init(label: "Each fish", value: pointsText(r.perFish)),
             .init(label: "Each kilogram", value: "+\(r.perKg)"),
             .init(label: "New species", value: "+\(r.newSpeciesBonus)"),
@@ -855,10 +856,10 @@ struct TournamentView: View {
         rows.append(.init(label: "Hosted by", value: tournament.hostCode == svc.friendCode ? "You" : tournament.hostName))
         rows.append(.init(label: "Teams so far", value: "\(standings.count)"))
         rows.append(.init(label: "Fish landed", value: "\(standings.reduce(0) { $0 + $1.fishCount })"))
-        return EventSection("Rules") {
-            EventKeyValueList(rows: rows)
+        return CrewSection(title: "Rules") {
+            KeyValueList(rows: rows)
             if r != TournamentPoints.standard {
-                EventFootnote("This tournament uses custom scoring set by its host.")
+                SectionFootnote("This tournament uses custom scoring set by its host.")
             }
         }
     }
@@ -894,13 +895,13 @@ private struct TournamentScoringSheet: View {
                             subtitle: "The team's first of its kind", value: "+\(rates.newSpeciesBonus)")
 
                     EventFormLabel("A new species at 3 kg")
-                    EventKeyValueList(rows: [
+                    KeyValueList(rows: [
                         .init(label: "The fish", value: pointsText(rates.perFish)),
                         .init(label: "3 kg", value: "+\(3 * rates.perKg)"),
                         .init(label: "New species", value: "+\(rates.newSpeciesBonus)"),
                         .init(label: "Total", value: pointsText(exampleTotal), emphasized: true),
                     ])
-                    EventFootnote(rates != TournamentPoints.standard
+                    SectionFootnote(rates != TournamentPoints.standard
                                   ? "Custom scoring set by the host. An admin confirms the winner at the end."
                                   : "Points update as catches come in. An admin confirms the winner at the end.")
                 }
@@ -954,7 +955,7 @@ private struct EndTournamentSheet: View {
                         .padding(.top, DS.Space.s2)
                     EventFormLabel("Declare the winner")
                     if standings.isEmpty {
-                        EventInlineEmpty(text: "No team fished this tournament.", systemImage: "trophy")
+                        InlineEmpty(text: "No team fished this tournament.", systemImage: "trophy")
                     }
                     ForEach(Array(standings.enumerated()), id: \.element.id) { i, s in
                         teamRow(s, rank: i + 1)
@@ -1220,7 +1221,7 @@ struct TeamTournamentDetailView: View {
         let fishPts = standing.fishCount * rates.perFish
         let speciesPts = standing.speciesCount * rates.newSpeciesBonus
         let weightPts = standing.points - fishPts - speciesPts
-        var rows: [EventKeyValueList.Row] = [
+        var rows: [KeyValueList.Row] = [
             .init(label: "\(standing.fishCount) fish, \(rates.perFish) each", value: "\(fishPts)"),
             .init(label: "Weight, +\(rates.perKg) a kilogram", value: "\(weightPts)"),
             .init(label: "\(standing.speciesCount) species, +\(rates.newSpeciesBonus) each", value: "\(speciesPts)"),
@@ -1229,8 +1230,8 @@ struct TeamTournamentDetailView: View {
         if standing.totalWeightKg > 0 {
             rows.insert(.init(label: "Total weight", value: Units.weight(kg: standing.totalWeightKg)), at: 3)
         }
-        return EventSection("Where the points came from") {
-            EventKeyValueList(rows: rows)
+        return CrewSection(title: "Where the points came from") {
+            KeyValueList(rows: rows)
         }
     }
 
@@ -1247,7 +1248,7 @@ struct TeamTournamentDetailView: View {
                 return (code, name, cs.count, cs.compactMap(\.weightKg).reduce(0, +))
             }
             .sorted { $0.fish > $1.fish }
-        return EventSection("Anglers", detail: "\(rows.count)") {
+        return CrewSection(title: "Anglers", detail: "\(rows.count)") {
             VStack(spacing: 0) {
                 ForEach(rows, id: \.code) { row in
                     let label = ArtRow(over: row.code == standing.hostCode ? "Started the session" : nil,
@@ -1286,9 +1287,9 @@ struct TeamTournamentDetailView: View {
 
     private var catchesSection: some View {
         let points = catchPoints
-        return EventSection("Catches", detail: standing.catches.isEmpty ? nil : "\(standing.catches.count)") {
+        return CrewSection(title: "Catches", detail: standing.catches.isEmpty ? nil : "\(standing.catches.count)") {
             if standing.catches.isEmpty {
-                EventInlineEmpty(text: "Nothing landed yet. The first fish scores \(pointsText(tournament.rates.perFish + tournament.rates.newSpeciesBonus)).")
+                InlineEmpty(text: "Nothing landed yet. The first fish scores \(pointsText(tournament.rates.perFish + tournament.rates.newSpeciesBonus)).")
             } else {
                 VStack(spacing: 0) {
                     ForEach(standing.catches) { c in
@@ -1339,7 +1340,7 @@ struct TeamTournamentDetailView: View {
         // Once the team's session is over, the trip screen is a dead end for
         // "where did I fish", so link straight to YOUR recorded session.
         if ended, let lt = myLinkedTrip {
-            EventSection("Your GPS session") {
+            CrewSection(title: "Your GPS session") {
                 NavigationLink {
                     SessionDetailView(trip: lt)
                 } label: {
@@ -1352,7 +1353,7 @@ struct TeamTournamentDetailView: View {
                 .buttonStyle(.dsRow)
             }
         } else {
-            EventSection(isMember ? "Your team session" : "Team session") {
+            CrewSection(title: isMember ? "Your team session" : "Team session") {
                 NavigationLink {
                     GroupTripView(tripId: svc.tripId(forGroupCode: standing.id),
                                   tripName: standing.teamName, initialCode: standing.id)
