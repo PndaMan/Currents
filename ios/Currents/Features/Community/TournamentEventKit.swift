@@ -2,8 +2,8 @@ import SwiftUI
 import UIKit
 
 // Shared pieces for the event pages (tournament, team, group trip and the
-// leaderboard): podium, rank rows, live tag, countdown, key-value list,
-// cover art, sheet rows and the fading page title.
+// leaderboard): podium, rank rows, live tag, countdown, cover art, form
+// fields, notices and the fading page title.
 
 // MARK: - Ordinals
 
@@ -12,6 +12,19 @@ func eventOrdinal(_ n: Int) -> String {
     let f = NumberFormatter()
     f.numberStyle = .ordinal
     return f.string(from: NSNumber(value: n)) ?? "\(n)"
+}
+
+// MARK: - Times
+
+/// "18:00" today, "Sat 18:00" within the week, "2 Nov, 18:00" further out.
+func eventTimeText(_ date: Date, now: Date = .now) -> String {
+    if Calendar.current.isDate(date, inSameDayAs: now) {
+        return date.formatted(date: .omitted, time: .shortened)
+    }
+    if abs(date.timeIntervalSince(now)) < 6 * 86_400 {
+        return date.formatted(.dateTime.weekday(.abbreviated).hour().minute())
+    }
+    return date.formatted(.dateTime.day().month(.abbreviated).hour().minute())
 }
 
 // MARK: - Live tag
@@ -71,10 +84,12 @@ private struct EventPageTitle: ViewModifier {
     }
 }
 
-/// A sheet's inline title with a close button, and the same firm edge under
+/// A sheet's inline title with the crew sheets' text button on the leading
+/// side ("Cancel" on forms, "Done" elsewhere), and the same firm edge under
 /// the bar as the pushed pages.
 private struct EventSheetTitle: ViewModifier {
     let title: String
+    let close: String
     @Environment(\.dismiss) private var dismiss
 
     func body(content: Content) -> some View {
@@ -83,9 +98,8 @@ private struct EventSheetTitle: ViewModifier {
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button { dismiss() } label: { Image(systemName: "xmark") }
-                        .accessibilityLabel("Close")
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(close) { dismiss() }
                 }
             }
     }
@@ -99,15 +113,18 @@ extension View {
     }
 
     /// Title and close button for a sheet's root, inside its NavigationStack.
-    func eventSheetTitle(_ title: String) -> some View {
-        modifier(EventSheetTitle(title: title))
+    /// Forms pass `close: "Cancel"`.
+    func eventSheetTitle(_ title: String, close: String = "Done") -> some View {
+        modifier(EventSheetTitle(title: title, close: close))
     }
 }
 
 // MARK: - Cover
 
-/// Luma's cover art at the top of an event page: the event's species on its
-/// art colour, or a large symbol on the page tint when there's no fish yet.
+/// Luma's cover art at the top of an event page: the event's best fish on its
+/// art colour, or a large symbol on `tint` when there's no fish yet. The page
+/// takes its `detailTint` from the same species, so a cover without a fish
+/// sits on the plain background.
 struct EventCover: View {
     var species: Species?
     var systemImage: String
@@ -139,27 +156,45 @@ struct EventCover: View {
     }
 }
 
-// MARK: - Sheet rows
+/// The heaviest (then longest) fish among `catches`, as a species for the
+/// cover art. Nil when there are no catches or the name isn't in the guide.
+@MainActor
+func eventCoverSpecies(_ catches: [CommunityService.GroupCatch], appState: AppState) -> Species? {
+    let best = catches.max { a, b in
+        (a.weightKg ?? 0, a.lengthCm ?? 0) < (b.weightKg ?? 0, b.lengthCm ?? 0)
+    }
+    guard let name = best?.species else { return nil }
+    return (try? appState.speciesRepository.fetchByCommonName(name)) ?? nil
+}
 
-/// A small grey group label in a sheet ("Scoring", "Declare the winner").
-struct EventFormLabel: View {
-    let text: String
-    init(_ text: String) { self.text = text }
+// MARK: - Form fields
+
+/// A labelled control in a sheet form, the same shape as `CrewTextField`:
+/// the label above, the control on a filled rounded box. Stack several
+/// `EventFormRow`s inside to share one box.
+struct EventFormField<Content: View>: View {
+    let label: String
+    private let content: Content
+
+    init(_ label: String, @ViewBuilder content: () -> Content) {
+        self.label = label
+        self.content = content()
+    }
 
     var body: some View {
-        Text(text)
-            .font(.subheadline)
-            .foregroundStyle(Color.dsText2)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, DS.gutter)
-            .padding(.top, DS.Space.s6)
-            .padding(.bottom, DS.Space.s1)
-            .accessibilityAddTraits(.isHeader)
+        VStack(alignment: .leading, spacing: 6) {
+            Text(label)
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.dsText2)
+                .accessibilityAddTraits(.isHeader)
+            VStack(spacing: 0) { content }
+                .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.button, style: .continuous))
+        }
     }
 }
 
-/// A plain sheet row: label on the left, control on the right, a hairline
-/// under it.
+/// One row inside an `EventFormField` box: label on the left, control on
+/// the right, a hairline under it unless it's the last.
 struct EventFormRow<Trailing: View>: View {
     let label: String
     var showsDivider = true
@@ -188,12 +223,12 @@ struct EventFormRow<Trailing: View>: View {
                 trailing
             }
             .font(.body)
-            .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
-            .padding(.vertical, stacked ? DS.Space.s3 : 0)
-            .padding(.horizontal, DS.gutter)
+            .frame(maxWidth: .infinity, minHeight: 50, alignment: .leading)
+            .padding(.vertical, stacked ? DS.Space.s3 : DS.Space.s1)
+            .padding(.horizontal, DS.Space.s4)
             if showsDivider {
                 Rectangle().fill(Color.dsSeparator).frame(height: 0.5)
-                    .padding(.leading, DS.gutter)
+                    .padding(.leading, DS.Space.s4)
             }
         }
     }
@@ -324,7 +359,8 @@ struct EventHeader<Over: View>: View {
 // MARK: - Countdown
 
 /// Four ticking cells (days, hours, minutes, seconds) to a target date, with
-/// rolling digits. Shows "Overtime" once the target has passed.
+/// rolling digits. Shows "Overtime" once the target has passed. The caller
+/// titles it with a section; `label` is what VoiceOver reads.
 struct EventCountdown: View {
     let label: String
     let target: Date
@@ -333,10 +369,7 @@ struct EventCountdown: View {
     @ScaledMetric(relativeTo: .title) private var digitSize: CGFloat = 26
 
     var body: some View {
-        VStack(alignment: .leading, spacing: DS.Space.s2) {
-            Text(label)
-                .font(.subheadline)
-                .foregroundStyle(Color.dsText2)
+        VStack(alignment: .leading, spacing: 0) {
             TimelineView(.periodic(from: .now, by: 1)) { ctx in
                 let left = max(0, Int(target.timeIntervalSince(ctx.date)))
                 if left == 0 {
@@ -576,9 +609,10 @@ struct EventRankRow: View {
     }
 }
 
-// MARK: - Banner
+// MARK: - Notice
 
-/// A one-line notice with an inline action ("You're watching this trip").
+/// A one-line notice with an optional inline text action, in the same box
+/// as Today's location notice ("Offline. Standings as of 10:42.  Try again").
 struct EventNotice<Action: View>: View {
     let text: String
     let systemImage: String
@@ -593,18 +627,27 @@ struct EventNotice<Action: View>: View {
     var body: some View {
         HStack(spacing: DS.Space.s3) {
             Image(systemName: systemImage)
-                .foregroundStyle(Color.dsText2)
+                .foregroundStyle(.dsText2)
             Text(text)
                 .font(.subheadline)
-                .foregroundStyle(Color.dsText)
+                .foregroundStyle(.dsText2)
                 .fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: DS.Space.s2)
+            Spacer(minLength: 0)
             action
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(DS.accent)
+                .buttonStyle(.dim)
         }
-        .padding(.leading, DS.Space.s4)
-        .padding(.trailing, DS.Space.s3)
-        .padding(.vertical, DS.Space.s3)
-        .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
+        .padding(14)
+        .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.button, style: .continuous))
         .padding(.horizontal, DS.gutter)
     }
+}
+
+/// The offline line for a page showing its last load: "Offline. Standings
+/// as of 10:42." or, with nothing loaded yet, "Offline. Standings load when
+/// you're back online."
+func eventOfflineText(_ what: String, since: Date?) -> String {
+    guard let since else { return "Offline. \(what) load when you're back online." }
+    return "Offline. \(what) as of \(since.formatted(date: .omitted, time: .shortened))."
 }

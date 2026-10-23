@@ -50,6 +50,8 @@ struct TournamentSetupView: View {
         TournamentPoints.Rates(perFish: perFish, perKg: perKg, newSpeciesBonus: speciesBonus)
     }
 
+    private var isStandard: Bool { rates == TournamentPoints.standard }
+
     private var durationLabel: String {
         let hours = Self.durations[durationIndex]
         if hours == 0 { return "No end" }
@@ -61,87 +63,96 @@ struct TournamentSetupView: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
-                    Text("For \(crew.name). Teams are live sessions and every catch during the tournament scores.")
-                        .font(.subheadline)
-                        .foregroundStyle(Color.dsText2)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.horizontal, DS.gutter)
-                        .padding(.top, DS.Space.s2)
-
-                    EventFormLabel("Tournament")
-                    EventFormRow("Name") {
-                        TextField("Winter classic", text: $name)
-                            .multilineTextAlignment(.trailing)
-                            .submitLabel(.done)
-                            .foregroundStyle(Color.dsText)
-                    }
-                    EventFormRow("Runs for", showsDivider: hasEnd) {
-                        EventStepper(label: "Runs for", value: durationLabel,
-                                     canDecrement: durationIndex > 0,
-                                     canIncrement: durationIndex < Self.durations.count - 1,
-                                     decrement: { setDuration(durationIndex - 1) },
-                                     increment: { setDuration(durationIndex + 1) })
-                    }
-                    if hasEnd {
-                        EventFormRow("Ends", showsDivider: false) {
-                            DatePicker("Ends", selection: $endsAt, in: Date()...,
-                                       displayedComponents: [.date, .hourAndMinute])
-                                .labelsHidden()
-                        }
-                        .transition(.opacity)
-                    }
-
-                    EventFormLabel("Scoring")
-                    EventFormRow("Each fish") {
-                        EventStepper(label: "Points for each fish", value: pointsText(perFish),
-                                     canDecrement: perFish > 0, canIncrement: perFish < 100,
-                                     decrement: { perFish -= 1 }, increment: { perFish += 1 })
-                    }
-                    EventFormRow("Each kilogram") {
-                        EventStepper(label: "Points for each kilogram", value: "+\(perKg)",
-                                     canDecrement: perKg > 0, canIncrement: perKg < 50,
-                                     decrement: { perKg -= 1 }, increment: { perKg += 1 })
-                    }
-                    EventFormRow("New species", showsDivider: false) {
-                        EventStepper(label: "Bonus for each new species", value: "+\(speciesBonus)",
-                                     canDecrement: speciesBonus > 0, canIncrement: speciesBonus < 100,
-                                     decrement: { speciesBonus -= 1 }, increment: { speciesBonus += 1 })
-                    }
-                    if rates != TournamentPoints.standard {
-                        Button("Use standard scoring", action: resetScoring)
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(DS.accent)
-                            .buttonStyle(.dim)
-                            .padding(.horizontal, DS.gutter)
-                            .padding(.top, DS.Space.s2)
-                            .transition(.opacity)
-                    }
-
-                    Button(action: create) {
-                        HStack(spacing: DS.Space.s2) {
-                            if busy { ProgressView() }
-                            Label("Start tournament", systemImage: "trophy")
-                        }
-                    }
-                    .buttonStyle(.dsPrimary)
-                    .disabled(!canCreate)
-                    .padding(.horizontal, DS.gutter)
-                    .padding(.top, DS.Space.s6)
-                }
-                .padding(.bottom, DS.Space.s8)
-                .animation(DS.Motion.softSpring, value: hasEnd)
-                .animation(DS.Motion.softSpring, value: rates != TournamentPoints.standard)
-                .pageWidth()
-            }
-            .scrollDismissesKeyboard(.interactively)
-            .dsScreenBackground()
-            .eventSheetTitle("New tournament")
+            ScrollView { form }
+                .scrollDismissesKeyboard(.interactively)
+                .dsScreenBackground()
+                .eventSheetTitle("New tournament", close: "Cancel")
         }
-        .tint(DS.accent)
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)
+    }
+
+    private var form: some View {
+        VStack(alignment: .leading, spacing: DS.Space.s5) {
+            Text("For \(crew.name). Teams are live sessions, and every catch logged during the tournament scores.")
+                .font(.body)
+                .foregroundStyle(.dsText2)
+                .fixedSize(horizontal: false, vertical: true)
+            CrewTextField(label: "Tournament name", placeholder: "Winter classic", text: $name)
+                .submitLabel(.done)
+            lengthField
+            scoringField
+            startButton
+        }
+        .padding(.horizontal, DS.gutter)
+        .padding(.top, DS.Space.s3)
+        .padding(.bottom, DS.Space.s6)
+        .animation(DS.Motion.softSpring, value: hasEnd)
+        .animation(DS.Motion.softSpring, value: isStandard)
+        .pageWidth()
+    }
+
+    private var lengthField: some View {
+        EventFormField("Length") {
+            EventFormRow("Runs for", showsDivider: hasEnd) {
+                EventStepper(label: "Runs for", value: durationLabel,
+                             canDecrement: durationIndex > 0,
+                             canIncrement: durationIndex < Self.durations.count - 1,
+                             decrement: { setDuration(durationIndex - 1) },
+                             increment: { setDuration(durationIndex + 1) })
+            }
+            if hasEnd {
+                EventFormRow("Ends", showsDivider: false) {
+                    DatePicker("Ends", selection: $endsAt, in: Date()...,
+                               displayedComponents: [.date, .hourAndMinute])
+                        .labelsHidden()
+                }
+                .transition(.opacity)
+            }
+        }
+    }
+
+    private var scoringField: some View {
+        VStack(alignment: .leading, spacing: DS.Space.s3) {
+            EventFormField("Scoring") {
+                EventFormRow("Each fish") {
+                    EventStepper(label: "Points for each fish", value: pointsText(perFish),
+                                 canDecrement: perFish > 0, canIncrement: perFish < 100,
+                                 decrement: { perFish -= 1 }, increment: { perFish += 1 })
+                }
+                EventFormRow("Each kilogram") {
+                    EventStepper(label: "Points for each kilogram", value: "+\(perKg)",
+                                 canDecrement: perKg > 0, canIncrement: perKg < 50,
+                                 decrement: { perKg -= 1 }, increment: { perKg += 1 })
+                }
+                EventFormRow("New species", showsDivider: false) {
+                    EventStepper(label: "Bonus for each new species", value: "+\(speciesBonus)",
+                                 canDecrement: speciesBonus > 0, canIncrement: speciesBonus < 100,
+                                 decrement: { speciesBonus -= 1 }, increment: { speciesBonus += 1 })
+                }
+            }
+            if !isStandard {
+                Button("Use standard scoring", action: resetScoring)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(DS.accent)
+                    .buttonStyle(.dim)
+                    .transition(.opacity)
+            }
+        }
+    }
+
+    private var startButton: some View {
+        VStack(alignment: .leading, spacing: DS.Space.s4) {
+            Button(action: create) {
+                if busy { ProgressView() } else { Text("Start tournament") }
+            }
+            .buttonStyle(.dsPrimary)
+            .disabled(!canCreate)
+            Text("Crewmates start or join teams from the tournament page once it's live.")
+                .font(.footnote)
+                .foregroundStyle(.dsText2)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 
     private func setDuration(_ index: Int) {
@@ -181,32 +192,37 @@ struct TournamentSetupView: View {
 
 // MARK: - Tournament screen
 
-/// The tournament event page: result or countdown, where you stand, actions,
-/// the podium and standings, your Live Activity, highlights and rules.
+/// The tournament event page: cover, title, three actions, then the result
+/// or time left, your team, the podium and standings, your Live Activity,
+/// highlights and rules.
 struct TournamentView: View {
     let crew: CommunityService.Crew
 
     @Environment(AppState.self) private var appState
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dismiss) private var dismiss
     @StateObject private var svc = CommunityService.shared
     @State private var tournament: CommunityService.Tournament
     @State private var standings: [CommunityService.TeamStanding] = []
     @State private var profiles: [String: CommunityService.Profile] = [:]
     @State private var crewMembers: [CommunityService.GroupMember] = []
+    /// The best fish landed so far, for the cover and the page tint.
+    @State private var coverSpecies: Species?
     @State private var loading = true
+    /// The last refresh couldn't reach iCloud, so the page shows what it had.
+    @State private var offline = false
+    @State private var lastUpdated: Date?
     @State private var showingInfo = false
     @State private var showingEnd = false
     @State private var showingHistory = false
     @State private var showingLog = false
-    @State private var newTeamName = ""
-    @State private var creatingTeam = false
+    @State private var showingNewTeam = false
     @State private var shareImage: UIImage?
     @State private var showingShare = false
     @State private var confirmingDelete = false
     @State private var trophyBounce = 0
     /// The result pattern plays once per visit, not on every return to the page.
     @State private var celebratedResult = false
-    @Environment(\.dismiss) private var dismiss
 
     init(tournament: CommunityService.Tournament, crew: CommunityService.Crew) {
         self.crew = crew
@@ -229,97 +245,107 @@ struct TournamentView: View {
     }
 
     private var page: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                resultBanner
-                header
-                if !tournament.isEnded, let ends = tournament.endsAt {
-                    EventCountdown(label: "Ends in", target: ends)
-                        .padding(.top, DS.Space.s6)
+        scrollPage
+            .navigationDestination(isPresented: $showingHistory) {
+                TournamentHistoryView(crew: crew)
+            }
+            .sheet(isPresented: $showingShare) { shareSheet }
+            .fullScreenCover(isPresented: $showingLog, onDismiss: { Task { await refresh() } }) {
+                LogCatchView(groupCodeOverride: myTeam?.id)
+            }
+            .confirmationDialog("Delete this tournament?", isPresented: $confirmingDelete,
+                                titleVisibility: .visible) {
+                Button("Delete tournament", role: .destructive, action: deleteTournament)
+            } message: {
+                Text("The tournament disappears for the whole crew and its history. Team sessions end, but everyone keeps their logged catches.")
+            }
+            .sheet(isPresented: $showingInfo) {
+                TournamentScoringSheet(rates: tournament.rates)
+            }
+            .sheet(isPresented: $showingNewTeam) {
+                NewTeamSheet(hasTeams: !standings.isEmpty, create: createTeam(named:))
+            }
+            .sheet(isPresented: $showingEnd) { endSheet }
+            .task {
+                await refresh()
+                await pollLoop()
+            }
+    }
+
+    private var scrollPage: some View {
+        ScrollView { content }
+            .detailTint(coverSpecies?.artTint)
+            .eventPageTitle(tournament.name)
+    }
+
+    private var content: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            EventCover(species: coverSpecies, systemImage: "trophy.fill", tint: DS.accent)
+                .padding(.top, DS.Space.s2)
+            header
+                .padding(.top, DS.Space.s4)
+            actions
+                .padding(.top, DS.Space.s5)
+            if offline {
+                offlineNotice
+                    .padding(.top, DS.Space.s4)
+            }
+            resultSection
+            countdownSection
+            yourTeamSection
+            standingsSection
+            if canAssign && !standings.isEmpty { assignSection }
+            if myTeam != nil && !tournament.isEnded { lockScreenSection }
+            highlightsSection
+            rulesSection
+            if role.canRunTournaments && !tournament.isEnded {
+                DangerButton(title: "End tournament", systemImage: "flag.checkered") {
+                    showingEnd = true
                 }
-                rankCard
-                actions
-                    .padding(.top, DS.Space.s5)
-                standingsSection
-                // Wait for the first standings load before offering to create a
-                // team, so members never see the join form over their own team.
-                if !loading && myTeam == nil && !tournament.isEnded { joinSection }
-                if canAssign && !standings.isEmpty { assignSection }
-                if myTeam != nil && !tournament.isEnded { lockScreenSection }
-                highlightsSection
-                rulesSection
-                if role.canRunTournaments && !tournament.isEnded {
-                    DangerButton(title: "End tournament", systemImage: "flag.checkered") {
-                        showingEnd = true
-                    }
-                    .padding(.top, DS.Space.s8)
-                }
-            }
-            .padding(.bottom, DS.Space.s8)
-            .pageWidth()
-        }
-        .detailTint(.dsScoreFair)
-        .eventPageTitle(tournament.name)
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button { showingInfo = true } label: { Image(systemName: "questionmark.circle") }
-                    .accessibilityLabel("How points work")
+                .padding(.top, DS.Space.s8)
             }
         }
-        .navigationDestination(isPresented: $showingHistory) {
-            TournamentHistoryView(crew: crew)
+        .padding(.bottom, DS.Space.s8)
+        .pageWidth()
+    }
+
+    @ViewBuilder private var shareSheet: some View {
+        if let shareImage {
+            ImageShareSheet(image: shareImage,
+                            filename: "Currents-\(tournament.name)",
+                            caption: TournamentShareCard.caption(tournament: tournament,
+                                                                 standings: standings))
         }
-        .sheet(isPresented: $showingShare) {
-            if let shareImage {
-                ImageShareSheet(image: shareImage,
-                                filename: "Currents-\(tournament.name)",
-                                caption: TournamentShareCard.caption(tournament: tournament,
-                                                                     standings: standings))
+    }
+
+    private var endSheet: some View {
+        EndTournamentSheet(tournament: tournament, crew: crew, standings: standings,
+                           images: teamImages) { winner in
+            tournament.endedAt = .now
+            tournament.winnerTeam = winner
+            // Team sessions are ended server-side with the tournament,
+            // so close my own local GPS session too if it was one of them.
+            if let active = appState.tripTracker.activeTrip,
+               let linked = svc.groupCode(forTripId: active.id),
+               standings.contains(where: { $0.id == linked }) {
+                _ = appState.tripTracker.end()
+                ToastCenter.shared.show("Your team session ended with the tournament",
+                                        style: .info, haptic: false)
             }
+            Task { await refresh() }
         }
-        .fullScreenCover(isPresented: $showingLog, onDismiss: { Task { await refresh() } }) {
-            LogCatchView(groupCodeOverride: myTeam?.id)
-        }
-        .confirmationDialog("Delete this tournament?", isPresented: $confirmingDelete,
-                            titleVisibility: .visible) {
-            Button("Delete tournament", role: .destructive) {
-                Task {
-                    if await svc.deleteTournament(tournament, crew: crew) {
-                        Haptics.warning()
-                        TournamentActivityManager.shared.end()
-                        ToastCenter.shared.show("Tournament deleted", style: .info, haptic: false)
-                        dismiss()
-                    } else {
-                        ToastCenter.shared.show("Couldn't delete the tournament", style: .error)
-                    }
-                }
+    }
+
+    private func deleteTournament() {
+        Task {
+            if await svc.deleteTournament(tournament, crew: crew) {
+                Haptics.warning()
+                TournamentActivityManager.shared.end()
+                ToastCenter.shared.show("Tournament deleted", style: .info, haptic: false)
+                dismiss()
+            } else {
+                ToastCenter.shared.show("Couldn't delete the tournament", style: .error)
             }
-        } message: {
-            Text("The tournament disappears for the whole crew and its history. Team sessions end, but everyone keeps their logged catches.")
-        }
-        .sheet(isPresented: $showingInfo) {
-            TournamentScoringSheet(rates: tournament.rates)
-        }
-        .sheet(isPresented: $showingEnd) {
-            EndTournamentSheet(tournament: tournament, crew: crew, standings: standings,
-                               images: teamImages) { winner in
-                tournament.endedAt = .now
-                tournament.winnerTeam = winner
-                // Team sessions are ended server-side with the tournament,
-                // so close my own local GPS session too if it was one of them.
-                if let active = appState.tripTracker.activeTrip,
-                   let linked = svc.groupCode(forTripId: active.id),
-                   standings.contains(where: { $0.id == linked }) {
-                    _ = appState.tripTracker.end()
-                    ToastCenter.shared.show("Your team session ended with the tournament",
-                                            style: .info, haptic: false)
-                }
-                Task { await refresh() }
-            }
-        }
-        .task {
-            await refresh()
-            await pollLoop()
         }
     }
 
@@ -332,11 +358,19 @@ struct TournamentView: View {
     }
 
     private func refresh() async {
-        async let freshTournament = svc.activeTournament(crewCode: crew.code)
+        async let latestTournament = svc.activeTournament(crewCode: crew.code)
         async let members = svc.crewMembers(code: crew.code)
-        if let fresh = await freshTournament, fresh.id == tournament.id {
-            tournament = fresh
-        } else if await svc.tournamentExists(code: tournament.id) == .missing {
+        let latest = await latestTournament
+        if let latest, latest.id == tournament.id { tournament = latest }
+        let fresh = await svc.teamStandings(tournament: tournament)
+        // No teams and no connection both come back empty, and a tournament
+        // missing from the crew's list may have been deleted, so ask the
+        // server which it is before saying anything.
+        var probe = CommunityService.RecordProbe.exists
+        if fresh.isEmpty || latest?.id != tournament.id {
+            probe = await svc.tournamentExists(code: tournament.id)
+        }
+        if probe == .missing {
             // Deleted under us (a Mate removed it), so stop polling a ghost.
             TournamentActivityManager.shared.end()
             ToastCenter.shared.show("This tournament was deleted", style: .info)
@@ -344,15 +378,20 @@ struct TournamentView: View {
             return
         }
         crewMembers = await members
-        let fresh = await svc.teamStandings(tournament: tournament)
-        // Teams slide to their new places on the podium and in the list.
+        let unreachable = probe == .unreachable && fresh.isEmpty
         withAnimation(reduceMotion ? nil : DS.Motion.softSpring) {
-            standings = fresh
+            offline = unreachable
+            // Teams slide to their new places on the podium and in the list.
+            if !unreachable { standings = fresh }
         }
-        // Lock Screen scoreboard: starts when you're on a team, updates with
-        // every refresh, ends with the tournament.
-        TournamentActivityManager.shared.sync(
-            tournament: tournament, standings: standings, myCode: svc.friendCode)
+        if !unreachable {
+            lastUpdated = .now
+            // Lock Screen scoreboard: starts when you're on a team, updates
+            // with every refresh, ends with the tournament.
+            TournamentActivityManager.shared.sync(
+                tournament: tournament, standings: standings, myCode: svc.friendCode)
+        }
+        coverSpecies = eventCoverSpecies(standings.flatMap(\.catches), appState: appState)
         let codes = Array(Set(standings.flatMap(\.memberCodes)))
         if !codes.isEmpty {
             profiles = await svc.profiles(for: codes)
@@ -379,122 +418,57 @@ struct TournamentView: View {
         return codes.prefix(2).map { avatar($0) }
     }
 
-    // MARK: Result and header
+    private func teamPage(_ s: CommunityService.TeamStanding, rank: Int) -> some View {
+        TeamTournamentDetailView(tournament: tournament, crew: crew,
+                                 standing: s, rank: rank, profiles: profiles)
+    }
 
-    @ViewBuilder private var resultBanner: some View {
-        if tournament.isEnded, let winner = tournament.winnerTeam {
-            let won = myTeam?.teamName == winner
-            let winnerPoints = standings.first { $0.teamName == winner }?.points
-            HStack(spacing: DS.Space.s3) {
-                Image(systemName: "trophy.fill")
-                    .font(.title2)
-                    .foregroundStyle(Color.dsScoreFair)
-                    .frame(width: 52, height: 52)
-                    .background(Color.dsScoreFair.opacity(0.22), in: Circle())
-                    .symbolEffect(.bounce, value: trophyBounce)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(won ? "You won" : "\(winner) won")
-                        .font(.headline)
-                        .foregroundStyle(Color.dsText)
-                    Text(resultDetail(points: winnerPoints))
-                        .font(.subheadline)
-                        .foregroundStyle(Color.dsText2)
-                }
-                Spacer(minLength: 0)
-            }
-            .padding(DS.Space.s4)
-            .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
-            .overlay {
-                if won {
-                    RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous)
-                        .strokeBorder(Color.dsScoreFair.opacity(0.7), lineWidth: 1.5)
-                }
-            }
-            .padding(.horizontal, DS.gutter)
-            .padding(.bottom, DS.Space.s5)
-            .accessibilityElement(children: .combine)
-            .onChange(of: trophyBounce) {
-                guard won, !celebratedResult else { return }
-                celebratedResult = true
-                Haptics.celebrate(.tournamentResult)
-            }
-            .onAppear {
-                guard !reduceMotion else { return }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.42) { trophyBounce += 1 }
-            }
+    /// Wraps a row in a link to the team's page when the team is in the
+    /// standings, so every team row opens the same way.
+    @ViewBuilder
+    private func teamLink<L: View>(_ team: CommunityService.TeamStanding?,
+                                   @ViewBuilder label: () -> L) -> some View {
+        if let team, let i = standings.firstIndex(where: { $0.id == team.id }) {
+            NavigationLink { teamPage(team, rank: i + 1) } label: { label() }
+                .buttonStyle(.dim)
+        } else {
+            label()
         }
     }
 
-    private func resultDetail(points: Int?) -> String {
-        let when = (tournament.endedAt ?? .now).formatted(date: .abbreviated, time: .omitted)
-        if let points { return "Ended \(when), \(pointsText(points))" }
-        return "Ended \(when)"
-    }
+    // MARK: Header
 
-    private var header: some View {
-        EventHeader(title: tournament.name,
-                    subtitle: "Hosted by \(tournament.hostCode == svc.friendCode ? "you" : tournament.hostName)") {
-            if tournament.isEnded {
-                Text("Ended")
-            } else {
-                EventLiveTag()
-            }
-            Text(crew.name)
-        }
-    }
-
-    // MARK: Where you stand
-
-    @ViewBuilder private var rankCard: some View {
-        if let i = myIndex {
-            let me = standings[i]
-            let count = standings.count
-            let lines = rankLines(i: i, me: me, count: count)
-            let wonBanner = tournament.isEnded && tournament.winnerTeam == me.teamName
-            if !wonBanner {
-                HStack(spacing: DS.Space.s4) {
-                    Text(eventOrdinal(i + 1))
-                        .font(.title.bold())
-                        .monospacedDigit()
-                        .foregroundStyle(i == 0 ? Color.dsScoreFair : Color.dsText)
-                        .contentTransition(.numericText())
-                        .frame(minWidth: 58)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(lines.title)
-                            .font(.headline)
-                            .foregroundStyle(Color.dsText)
-                        Text(lines.detail)
-                            .font(.subheadline)
-                            .foregroundStyle(Color.dsText2)
-                    }
-                    Spacer(minLength: 0)
-                }
-                .padding(DS.Space.s4)
-                .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
-                .padding(.horizontal, DS.gutter)
-                .padding(.top, DS.Space.s3)
-                .accessibilityElement(children: .combine)
-            }
-        }
-    }
-
-    private func rankLines(i: Int, me: CommunityService.TeamStanding, count: Int) -> (title: String, detail: String) {
+    @ViewBuilder private var header: some View {
         if tournament.isEnded {
-            return ("You finished \(eventOrdinal(i + 1)) of \(count)",
-                    "\(pointsText(me.points)) from \(me.fishCount) fish")
+            DetailHeader(over: endedLine, title: tournament.name, subtitle: hostLine)
+        } else {
+            EventHeader(title: tournament.name, subtitle: hostLine) {
+                EventLiveTag()
+                Text(liveLine)
+            }
         }
-        if i == 0 {
-            guard count > 1 else { return ("You're leading", "The only team so far. Keep fishing.") }
-            let gap = me.points - standings[1].points
-            return ("You're leading", "\(pointsText(gap)) clear of \(standings[1].teamName). Keep fishing.")
+    }
+
+    private var hostLine: String {
+        let host = tournament.hostCode == svc.friendCode ? "you" : tournament.hostName
+        return "Hosted by \(host) in \(crew.name)"
+    }
+
+    private var endedLine: String {
+        "Ended \((tournament.endedAt ?? .now).formatted(date: .abbreviated, time: .omitted))"
+    }
+
+    private var liveLine: String {
+        guard let ends = tournament.endsAt else {
+            return "Started \(eventTimeText(tournament.createdAt))"
         }
-        let ahead = standings[i - 1]
-        let gap = ahead.points - me.points
-        let title = gap == 0 ? "Level with \(ahead.teamName)" : "\(pointsText(gap)) behind \(ahead.teamName)"
-        let perFish = tournament.rates.perFish
-        guard perFish > 0 else { return (title, "Keep fishing.") }
-        let fishNeeded = max(1, Int((Double(gap + 1) / Double(perFish)).rounded(.up)))
-        return (title, fishNeeded == 1 ? "One more fish gets you past." : "\(fishNeeded) more fish get you past.")
+        return ends > .now ? "Ends \(eventTimeText(ends))" : "In overtime"
+    }
+
+    private var offlineNotice: some View {
+        EventNotice(eventOfflineText("Standings", since: lastUpdated), systemImage: "wifi.slash") {
+            Button("Try again") { Task { await refresh() } }
+        }
     }
 
     // MARK: Actions
@@ -512,35 +486,41 @@ struct TournamentView: View {
             }
         } else if myTeam != nil {
             ActionTriple {
-                Button {
-                    showingLog = true
-                } label: { Label("Log catch", systemImage: "plus") }
+                Button { showingLog = true } label: { Label("Log catch", systemImage: "plus") }
                     .buttonStyle(ActionTileStyle(.primary))
-                Button(action: share) { Label("Share", systemImage: "square.and.arrow.up") }
-                    .buttonStyle(ActionTileStyle(.tonal))
+                shareTile
                 moreMenu
             }
         } else {
             ActionTriple {
-                Button(action: share) { Label("Share", systemImage: "square.and.arrow.up") }
-                    .buttonStyle(ActionTileStyle(.tonal))
-                Button { showingInfo = true } label: {
-                    Label("Scoring", systemImage: "questionmark.circle")
-                }
-                .buttonStyle(ActionTileStyle(.tonal))
+                // Wait for the first standings load before offering a new
+                // team, so members never start a second one over their own.
+                Button { showingNewTeam = true } label: { Label("Start a team", systemImage: "plus") }
+                    .buttonStyle(ActionTileStyle(.primary))
+                    .disabled(loading)
+                shareTile
                 moreMenu
             }
         }
     }
 
+    private var shareTile: some View {
+        Button(action: share) { Label("Share", systemImage: "square.and.arrow.up") }
+            .buttonStyle(ActionTileStyle(.tonal))
+    }
+
+    private var canEnd: Bool { role.canRunTournaments && !tournament.isEnded }
+
     private var moreMenu: some View {
         Menu {
             Button { showingInfo = true } label: { Label("How points work", systemImage: "questionmark.circle") }
-            Button { showingHistory = true } label: {
-                Label("All tournaments", systemImage: "clock.arrow.circlepath")
+            if !tournament.isEnded {
+                Button { showingHistory = true } label: {
+                    Label("All tournaments", systemImage: "clock.arrow.circlepath")
+                }
             }
-            if role.canRunTournaments && !tournament.isEnded {
-                Divider()
+            if canEnd || role.canManage { Divider() }
+            if canEnd {
                 Button(role: .destructive) { showingEnd = true } label: {
                     Label("End tournament", systemImage: "flag.checkered")
                 }
@@ -553,6 +533,7 @@ struct TournamentView: View {
         } label: {
             ActionTileLabel("More", systemImage: "ellipsis")
         }
+        .buttonStyle(.dim)
         .accessibilityLabel("More")
     }
 
@@ -562,48 +543,174 @@ struct TournamentView: View {
         if shareImage != nil { showingShare = true }
     }
 
+    // MARK: Result
+
+    @ViewBuilder private var resultSection: some View {
+        if tournament.isEnded {
+            CrewSection(title: "Result") {
+                if let winner = tournament.winnerTeam {
+                    winnerRow(winner)
+                }
+                if let i = myIndex, standings[i].teamName != tournament.winnerTeam {
+                    finishRow(i)
+                }
+                if tournament.winnerTeam == nil && myIndex == nil {
+                    InlineEmpty(systemImage: "flag.checkered", text: "Ended without a winner.")
+                }
+            }
+        }
+    }
+
+    private func winnerRow(_ winner: String) -> some View {
+        let team = standings.first { $0.teamName == winner }
+        let won = myTeam?.teamName == winner
+        return teamLink(team) {
+            ArtRow(over: won ? "Your team won" : "Winner",
+                   title: winner,
+                   subtitle: team.map { "\(pointsText($0.points)) from \($0.fishCount) fish" },
+                   chevron: team != nil) {
+                ThumbView(tint: .dsScoreFair, size: 56) {
+                    Image(systemName: "trophy.fill")
+                        .font(.title2)
+                        .foregroundStyle(Color.dsScoreFair)
+                        .symbolEffect(.bounce, value: trophyBounce)
+                }
+            }
+        }
+        .onAppear {
+            guard !reduceMotion else { return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.42) { trophyBounce += 1 }
+        }
+        .onChange(of: trophyBounce) {
+            guard won, !celebratedResult else { return }
+            celebratedResult = true
+            Haptics.celebrate(.tournamentResult)
+        }
+    }
+
+    private func finishRow(_ i: Int) -> some View {
+        let me = standings[i]
+        return teamLink(me) {
+            ArtRow(over: me.teamName,
+                   title: "You finished \(eventOrdinal(i + 1)) of \(standings.count)",
+                   subtitle: "\(pointsText(me.points)) from \(me.fishCount) fish",
+                   chevron: true) {
+                placeThumb(i + 1)
+            }
+        }
+    }
+
+    /// "2nd" on the accent, the leading art of your team's row.
+    private func placeThumb(_ place: Int) -> some View {
+        ThumbView(tint: DS.accent, size: 56) {
+            Text(eventOrdinal(place))
+                .font(.headline.monospacedDigit())
+                .foregroundStyle(DS.accent)
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+                .contentTransition(.numericText())
+        }
+    }
+
+    // MARK: Time left and your team
+
+    @ViewBuilder private var countdownSection: some View {
+        if !tournament.isEnded, let ends = tournament.endsAt {
+            CrewSection(title: "Time left") {
+                EventCountdown(label: "Time left", target: ends)
+            }
+        }
+    }
+
+    @ViewBuilder private var yourTeamSection: some View {
+        if !tournament.isEnded, let i = myIndex {
+            CrewSection(title: "Your team", detail: pointsText(standings[i].points)) {
+                yourTeamRow(i)
+            }
+        }
+    }
+
+    private func yourTeamRow(_ i: Int) -> some View {
+        let me = standings[i]
+        let lines = rankLines(i: i, me: me)
+        return teamLink(me) {
+            ArtRow(over: me.teamName, title: lines.title, subtitle: lines.detail, chevron: true) {
+                placeThumb(i + 1)
+            }
+        }
+    }
+
+    private func rankLines(i: Int, me: CommunityService.TeamStanding) -> (title: String, detail: String) {
+        if i == 0 {
+            guard standings.count > 1 else { return ("You're leading", "The only team so far") }
+            let gap = me.points - standings[1].points
+            return ("You're leading", "\(pointsText(gap)) clear of \(standings[1].teamName)")
+        }
+        let ahead = standings[i - 1]
+        let gap = ahead.points - me.points
+        let title = gap == 0 ? "Level with \(ahead.teamName)" : "\(pointsText(gap)) behind \(ahead.teamName)"
+        let perFish = tournament.rates.perFish
+        guard perFish > 0 else { return (title, "Keep fishing") }
+        let fishNeeded = max(1, Int((Double(gap + 1) / Double(perFish)).rounded(.up)))
+        return (title, fishNeeded == 1 ? "One more fish gets you past" : "\(fishNeeded) more fish get you past")
+    }
+
     // MARK: Standings
 
-    @ViewBuilder private var standingsSection: some View {
+    private var standingsSection: some View {
         CrewSection(title: tournament.isEnded ? "Final standings" : "Standings",
                     detail: standings.isEmpty ? nil : "\(standings.count)") {
             if standings.isEmpty {
-                if loading {
-                    EventSkeletonRows(count: 3, thumbSize: 36, label: "Loading the standings")
-                } else {
-                    ContentUnavailableView(
-                        "No teams yet",
-                        systemImage: "trophy",
-                        description: Text(tournament.isEnded
-                                          ? "Nobody fished this one."
-                                          : "Start the first team below. Every catch its anglers log scores."))
-                }
+                standingsEmpty
             } else {
-                EventPodium(entries: standings.prefix(3).map(podiumEntry)) { e in
-                    if let i = standings.firstIndex(where: { $0.id == e.id }) {
-                        TeamTournamentDetailView(tournament: tournament, crew: crew,
-                                                 standing: standings[i], rank: i + 1, profiles: profiles)
-                    }
+                podium
+                rankRows
+                if !tournament.isEnded && myTeam == nil {
+                    SectionFootnote("Open a team to join it, or start your own.")
                 }
-                VStack(spacing: 0) {
-                    ForEach(Array(standings.enumerated()).dropFirst(3), id: \.element.id) { i, s in
-                        NavigationLink {
-                            TeamTournamentDetailView(tournament: tournament, crew: crew,
-                                                     standing: s, rank: i + 1, profiles: profiles)
-                        } label: {
-                            EventRankRow(rank: i + 1,
-                                         name: teamLabel(s),
-                                         subtitle: teamSubtitle(s),
-                                         value: s.points == 1 ? "1 pt" : "\(s.points) pts",
-                                         images: teamImages(s),
-                                         isMe: s.memberCodes.contains(svc.friendCode))
-                        }
-                        .buttonStyle(.dim)
-                    }
-                }
-                .padding(.top, DS.Space.s3)
             }
         }
+    }
+
+    @ViewBuilder private var standingsEmpty: some View {
+        if loading {
+            EventSkeletonRows(count: 3, thumbSize: 36, label: "Loading the standings")
+        } else if offline {
+            InlineEmpty(systemImage: "wifi.slash", text: "No standings saved on this phone yet.")
+        } else if tournament.isEnded {
+            InlineEmpty(systemImage: "trophy", text: "Nobody fished this one.")
+        } else {
+            InlineEmpty(systemImage: "trophy",
+                        text: "No teams yet. Start one and every catch you log scores.",
+                        actionTitle: "Start a team") { showingNewTeam = true }
+        }
+    }
+
+    private var podium: some View {
+        EventPodium(entries: standings.prefix(3).map(podiumEntry)) { e in
+            if let i = standings.firstIndex(where: { $0.id == e.id }) {
+                teamPage(standings[i], rank: i + 1)
+            }
+        }
+    }
+
+    private var rankRows: some View {
+        VStack(spacing: 0) {
+            ForEach(Array(standings.enumerated()).dropFirst(3), id: \.element.id) { i, s in
+                NavigationLink {
+                    teamPage(s, rank: i + 1)
+                } label: {
+                    EventRankRow(rank: i + 1,
+                                 name: teamLabel(s),
+                                 subtitle: teamSubtitle(s),
+                                 value: s.points == 1 ? "1 pt" : "\(s.points) pts",
+                                 images: teamImages(s),
+                                 isMe: s.memberCodes.contains(svc.friendCode))
+                }
+                .buttonStyle(.dim)
+            }
+        }
+        .padding(.top, DS.Space.s3)
     }
 
     private func podiumEntry(_ s: CommunityService.TeamStanding) -> EventPodiumEntry {
@@ -622,59 +729,24 @@ struct TournamentView: View {
         return parts.joined(separator: ", ")
     }
 
-    // MARK: Join or create a team
+    // MARK: Start a team
 
-    private var joinSection: some View {
-        CrewSection(title: "Get on the board") {
-            VStack(spacing: DS.Space.s3) {
-                TextField("Team name", text: $newTeamName)
-                    .font(.body)
-                    .padding(.horizontal, DS.Space.s4)
-                    .frame(minHeight: 50)
-                    .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.button, style: .continuous))
-                    .submitLabel(.go)
-                    .onSubmit { if canCreateTeam { createTeam() } }
-                Button(action: createTeam) {
-                    HStack(spacing: DS.Space.s2) {
-                        if creatingTeam { ProgressView() }
-                        Text("Create a team")
-                    }
-                }
-                .buttonStyle(.dsPrimary)
-                .disabled(!canCreateTeam)
-            }
-            .padding(.horizontal, DS.gutter)
-            SectionFootnote(standings.isEmpty
-                          ? "Your team is a live session. Every catch you log scores."
-                          : "Open a team above to join it, or start your own.")
+    /// A team IS a live session: start (or adopt) a real GPS-tracked trip
+    /// locally, then share it as the team, so tracking, log-to-trip and the
+    /// session strip all work like any live trip.
+    private func createTeam(named teamName: String) async -> Bool {
+        let trip = appState.tripTracker.activeTrip
+            ?? appState.tripTracker.start(name: teamName, spotId: nil)
+        let code = await svc.createTeam(named: teamName, tournament: tournament,
+                                        localTripId: trip.id)
+        guard code != nil else {
+            ToastCenter.shared.show("Couldn't create the team", style: .error)
+            return false
         }
-    }
-
-    private var canCreateTeam: Bool {
-        !creatingTeam && !newTeamName.trimmingCharacters(in: .whitespaces).isEmpty
-    }
-
-    private func createTeam() {
-        creatingTeam = true
-        let teamName = newTeamName.trimmingCharacters(in: .whitespaces)
-        Task {
-            // A team IS a live session: start (or adopt) a real GPS-tracked
-            // trip locally, then share it as the team, so tracking, log-to-
-            // trip and the session strip all work like any live trip.
-            let trip = appState.tripTracker.activeTrip
-                ?? appState.tripTracker.start(name: teamName, spotId: nil)
-            let code = await svc.createTeam(named: teamName, tournament: tournament,
-                                            localTripId: trip.id)
-            creatingTeam = false
-            if code != nil {
-                Haptics.success()
-                ToastCenter.shared.show("Team created. Your session is live.", style: .success, haptic: false)
-                newTeamName = ""
-                await refresh()
-            } else {
-                ToastCenter.shared.show("Couldn't create the team", style: .error)
-            }
-        }
+        Haptics.success()
+        ToastCenter.shared.show("Team created. Your session is live.", style: .success, haptic: false)
+        Task { await refresh() }
+        return true
     }
 
     // MARK: Assign crewmates (admins)
@@ -685,30 +757,33 @@ struct TournamentView: View {
                 InlineEmpty(text: "Everyone's on a team.", systemImage: "person.3")
             } else {
                 VStack(spacing: 0) {
-                    ForEach(unassignedMembers, id: \.id) { m in
-                        Menu {
-                            Section("Add to team") {
-                                ForEach(standings.filter { !$0.isEnded }) { team in
-                                    Button(team.teamName) { assign(m, to: team) }
-                                }
-                            }
-                        } label: {
-                            ArtRow(title: m.id == svc.friendCode ? "You (\(m.name))" : m.name,
-                                   subtitle: "Not on a team") {
-                                AnglerAvatar(image: avatar(m.id), size: 44)
-                            } trailing: {
-                                Label("Add teammate", systemImage: "person.badge.plus")
-                                    .labelStyle(.iconOnly)
-                                    .font(.title3)
-                                    .foregroundStyle(.tint)
-                            }
-                        }
-                        .buttonStyle(.dsRow)
-                        .accessibilityLabel("Add \(m.name) to a team")
-                    }
+                    ForEach(unassignedMembers, id: \.id) { m in assignRow(m) }
                 }
+                SectionFootnote("Pick a team for each crewmate. Their phone joins it on its own.")
             }
         }
+    }
+
+    private func assignRow(_ m: CommunityService.GroupMember) -> some View {
+        Menu {
+            Section("Add to team") {
+                ForEach(standings.filter { !$0.isEnded }) { team in
+                    Button(team.teamName) { assign(m, to: team) }
+                }
+            }
+        } label: {
+            ArtRow(title: m.id == svc.friendCode ? "You (\(m.name))" : m.name,
+                   subtitle: "Not on a team") {
+                AnglerAvatar(image: avatar(m.id), size: 44)
+            } trailing: {
+                Label("Add to a team", systemImage: "person.badge.plus")
+                    .labelStyle(.iconOnly)
+                    .font(.title3)
+                    .foregroundStyle(.tint)
+            }
+        }
+        .buttonStyle(.dim)
+        .accessibilityLabel("Add \(m.name) to a team")
     }
 
     /// Admin: put a crewmate on this team. Their device picks the trip up on
@@ -729,35 +804,39 @@ struct TournamentView: View {
 
     @ViewBuilder private var lockScreenSection: some View {
         if let i = myIndex {
-            let me = standings[i]
-            let rival: CommunityService.TeamStanding? = i == 0
-                ? (standings.count > 1 ? standings[1] : nil)
-                : standings.first
             CrewSection(title: "On your lock screen") {
-                TimelineView(.periodic(from: .now, by: 30)) { ctx in
-                    VStack(spacing: DS.Space.s1) {
-                        Text(ctx.date, format: .dateTime.hour().minute())
-                            .font(.system(size: 56, weight: .bold, design: .rounded)) // ui-lint: allow, lock-screen clock numeral in a fixed-size device preview
-                            .foregroundStyle(Color.dsText)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.6)
-                        Text(ctx.date, format: .dateTime.weekday(.wide).day().month(.wide))
-                            .font(.subheadline.weight(.medium))
-                            .foregroundStyle(Color.dsText2)
-                        liveActivityCard(me: me, rank: i + 1, rival: rival, now: ctx.date)
-                            .padding(.top, DS.Space.s4)
-                    }
-                    .padding(DS.Space.s4)
-                    .frame(maxWidth: .infinity)
-                    .background(Color.dsScoreFair.opacity(0.18),
-                                in: RoundedRectangle(cornerRadius: DS.Radius.card + 8, style: .continuous))
-                }
-                .padding(.horizontal, DS.gutter)
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel("Live Activity preview: your team \(pointsText(me.points)), \(eventOrdinal(i + 1)) of \(standings.count)")
+                lockScreenPreview(i)
                 SectionFootnote("Shows on your lock screen and in the Dynamic Island while you're on a team.")
             }
         }
+    }
+
+    private func lockScreenPreview(_ i: Int) -> some View {
+        let me = standings[i]
+        let rival: CommunityService.TeamStanding? = i == 0
+            ? (standings.count > 1 ? standings[1] : nil)
+            : standings.first
+        return TimelineView(.periodic(from: .now, by: 30)) { ctx in
+            VStack(spacing: DS.Space.s1) {
+                Text(ctx.date, format: .dateTime.hour().minute())
+                    .font(.system(.largeTitle, design: .rounded, weight: .bold))
+                    .monospacedDigit()
+                    .foregroundStyle(Color.dsText)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
+                Text(ctx.date, format: .dateTime.weekday(.wide).day().month(.wide))
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(Color.dsText2)
+                liveActivityCard(me: me, rank: i + 1, rival: rival, now: ctx.date)
+                    .padding(.top, DS.Space.s4)
+            }
+            .padding(DS.Space.s4)
+            .frame(maxWidth: .infinity)
+            .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
+        }
+        .padding(.horizontal, DS.gutter)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Live Activity preview: your team \(pointsText(me.points)), \(eventOrdinal(i + 1)) of \(standings.count)")
     }
 
     private func liveActivityCard(me: CommunityService.TeamStanding, rank: Int,
@@ -775,32 +854,11 @@ struct TournamentView: View {
                         .foregroundStyle(Color.dsText2)
                 }
             }
-            HStack(alignment: .bottom) {
-                VStack(alignment: .leading, spacing: 0) {
-                    Text("Your team").font(.footnote).foregroundStyle(Color.dsText2)
-                    Text("\(me.points)")
-                        .font(.system(.largeTitle, design: .rounded).bold()) // ui-lint: allow, big score numeral
-                        .monospacedDigit()
-                        .contentTransition(.numericText())
-                }
-                Spacer()
-                if let rival {
-                    Text("vs").font(.subheadline).foregroundStyle(Color.dsText2)
-                        .padding(.bottom, DS.Space.s3)
-                    Spacer()
-                    VStack(alignment: .trailing, spacing: 0) {
-                        Text(rival.teamName).font(.footnote).foregroundStyle(Color.dsText2).lineLimit(1)
-                        Text("\(rival.points)")
-                            .font(.system(.largeTitle, design: .rounded).bold()) // ui-lint: allow, big score numeral
-                            .monospacedDigit()
-                            .contentTransition(.numericText())
-                    }
-                }
-            }
+            liveActivityScores(me: me, rival: rival)
             HStack {
                 Text(rank == 1 ? "Leading" : "\(eventOrdinal(rank)) of \(standings.count)")
                     .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(Color.dsScoreFair)
+                    .foregroundStyle(DS.accent)
                 Spacer()
                 if let bite = SharedStore.load()?.score() {
                     Text("Bite \(bite)")
@@ -811,7 +869,33 @@ struct TournamentView: View {
         }
         .foregroundStyle(Color.dsText)
         .padding(DS.Space.s4)
-        .background(Color.dsElevated.opacity(0.92), in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
+        .background(Color.dsElevated, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
+    }
+
+    private func liveActivityScores(me: CommunityService.TeamStanding,
+                                    rival: CommunityService.TeamStanding?) -> some View {
+        HStack(alignment: .bottom) {
+            VStack(alignment: .leading, spacing: 0) {
+                Text("Your team").font(.footnote).foregroundStyle(Color.dsText2)
+                Text("\(me.points)")
+                    .font(.system(.largeTitle, design: .rounded, weight: .bold))
+                    .monospacedDigit()
+                    .contentTransition(.numericText())
+            }
+            Spacer()
+            if let rival {
+                Text("vs").font(.subheadline).foregroundStyle(Color.dsText2)
+                    .padding(.bottom, DS.Space.s3)
+                Spacer()
+                VStack(alignment: .trailing, spacing: 0) {
+                    Text(rival.teamName).font(.footnote).foregroundStyle(Color.dsText2).lineLimit(1)
+                    Text("\(rival.points)")
+                        .font(.system(.largeTitle, design: .rounded, weight: .bold))
+                        .monospacedDigit()
+                        .contentTransition(.numericText())
+                }
+            }
+        }
     }
 
     // MARK: Highlights
@@ -825,7 +909,7 @@ struct TournamentView: View {
                         ArtRow(over: h.title,
                                title: plainDetail(h.detail),
                                subtitle: "\(h.anglerCode == svc.friendCode ? "You" : h.anglerName), \(h.teamName)") {
-                            ThumbView(systemImage: h.icon, tint: .dsScoreFair, size: 56)
+                            ThumbView(systemImage: h.icon, tint: DS.accent, size: 56)
                         } trailing: {
                             AnglerAvatar(image: avatar(h.anglerCode), size: 32)
                         }
@@ -838,6 +922,15 @@ struct TournamentView: View {
     // MARK: Rules
 
     private var rulesSection: some View {
+        CrewSection(title: "Rules") {
+            KeyValueList(rows: ruleRows)
+            if tournament.rates != TournamentPoints.standard {
+                SectionFootnote("This tournament uses custom scoring set by its host.")
+            }
+        }
+    }
+
+    private var ruleRows: [KeyValueList.Row] {
         let r = tournament.rates
         var rows: [KeyValueList.Row] = [
             .init(label: "Each fish", value: pointsText(r.perFish)),
@@ -853,15 +946,9 @@ struct TournamentView: View {
         } else {
             rows.append(.init(label: "Ends", value: "When an admin ends it"))
         }
-        rows.append(.init(label: "Hosted by", value: tournament.hostCode == svc.friendCode ? "You" : tournament.hostName))
         rows.append(.init(label: "Teams so far", value: "\(standings.count)"))
         rows.append(.init(label: "Fish landed", value: "\(standings.reduce(0) { $0 + $1.fishCount })"))
-        return CrewSection(title: "Rules") {
-            KeyValueList(rows: rows)
-            if r != TournamentPoints.standard {
-                SectionFootnote("This tournament uses custom scoring set by its host.")
-            }
-        }
+        return rows
     }
 }
 
@@ -871,6 +958,72 @@ private struct TrophyLabelStyle: LabelStyle {
         HStack(spacing: 6) {
             configuration.icon.foregroundStyle(Color.dsScoreFair)
             configuration.title
+        }
+    }
+}
+
+// MARK: - New team
+
+/// Start a team: one name, then the team's live session starts. The same
+/// form as the crew sheets.
+private struct NewTeamSheet: View {
+    let hasTeams: Bool
+    let create: @MainActor (String) async -> Bool
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var name = ""
+    @State private var busy = false
+
+    private var trimmed: String { name.trimmingCharacters(in: .whitespaces) }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView { form }
+                .scrollDismissesKeyboard(.interactively)
+                .dsScreenBackground()
+                .eventSheetTitle("New team", close: "Cancel")
+        }
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
+    }
+
+    private var form: some View {
+        VStack(alignment: .leading, spacing: DS.Space.s5) {
+            Text("Your team is a live session with GPS on. Every catch you log scores for it.")
+                .font(.body)
+                .foregroundStyle(.dsText2)
+                .fixedSize(horizontal: false, vertical: true)
+            CrewTextField(label: "Team name", placeholder: "Early risers", text: $name)
+                .submitLabel(.go)
+                .onSubmit(start)
+            VStack(alignment: .leading, spacing: DS.Space.s4) {
+                Button(action: start) {
+                    if busy { ProgressView() } else { Text("Start team") }
+                }
+                .buttonStyle(.dsPrimary)
+                .disabled(busy || trimmed.isEmpty)
+                Text(hasTeams
+                     ? "To join a team that's already fishing, open it from the standings."
+                     : "Crewmates join your team from the tournament page.")
+                    .font(.footnote)
+                    .foregroundStyle(.dsText2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(.horizontal, DS.gutter)
+        .padding(.top, DS.Space.s3)
+        .padding(.bottom, DS.Space.s6)
+        .pageWidth()
+    }
+
+    private func start() {
+        guard !busy, !trimmed.isEmpty else { return }
+        busy = true
+        let teamName = trimmed
+        Task {
+            let ok = await create(teamName)
+            busy = false
+            if ok { dismiss() }
         }
     }
 }
@@ -885,42 +1038,46 @@ private struct TournamentScoringSheet: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
-                    rateRow("fish.fill", tint: DS.accent, title: "Every fish landed",
-                            subtitle: nil, value: pointsText(rates.perFish))
-                    rateRow("scalemass.fill", tint: Color.dsScoreGood, title: "Each kilogram",
-                            subtitle: "Rounded, for every fish", value: "+\(rates.perKg)")
-                    rateRow("star.fill", tint: Color.dsScoreFair, title: "New species",
-                            subtitle: "The team's first of its kind", value: "+\(rates.newSpeciesBonus)")
-
-                    EventFormLabel("A new species at 3 kg")
-                    KeyValueList(rows: [
-                        .init(label: "The fish", value: pointsText(rates.perFish)),
-                        .init(label: "3 kg", value: "+\(3 * rates.perKg)"),
-                        .init(label: "New species", value: "+\(rates.newSpeciesBonus)"),
-                        .init(label: "Total", value: pointsText(exampleTotal), emphasized: true),
-                    ])
-                    SectionFootnote(rates != TournamentPoints.standard
-                                  ? "Custom scoring set by the host. An admin confirms the winner at the end."
-                                  : "Points update as catches come in. An admin confirms the winner at the end.")
-                }
-                .padding(.top, DS.Space.s2)
-                .padding(.bottom, DS.Space.s6)
-                .pageWidth()
-            }
-            .dsScreenBackground()
-            .eventSheetTitle("Scoring")
+            ScrollView { content }
+                .dsScreenBackground()
+                .eventSheetTitle("How points work")
         }
-        .tint(DS.accent)
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
     }
 
-    private func rateRow(_ icon: String, tint: Color, title: String,
-                         subtitle: String?, value: String) -> some View {
+    private var content: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            rateRow("fish.fill", title: "Every fish landed",
+                    subtitle: nil, value: pointsText(rates.perFish))
+            rateRow("scalemass.fill", title: "Each kilogram",
+                    subtitle: "Rounded, for every fish", value: "+\(rates.perKg)")
+            rateRow("star.fill", title: "New species",
+                    subtitle: "The team's first of its kind", value: "+\(rates.newSpeciesBonus)")
+            CrewSection(title: "A new species at 3 kg") {
+                KeyValueList(rows: exampleRows)
+                SectionFootnote(rates != TournamentPoints.standard
+                                ? "Custom scoring set by the host. An admin confirms the winner at the end."
+                                : "Points update as catches come in. An admin confirms the winner at the end.")
+            }
+        }
+        .padding(.top, DS.Space.s2)
+        .padding(.bottom, DS.Space.s6)
+        .pageWidth()
+    }
+
+    private var exampleRows: [KeyValueList.Row] {
+        [
+            .init(label: "The fish", value: pointsText(rates.perFish)),
+            .init(label: "3 kg", value: "+\(3 * rates.perKg)"),
+            .init(label: "New species", value: "+\(rates.newSpeciesBonus)"),
+            .init(label: "Total", value: pointsText(exampleTotal), emphasized: true),
+        ]
+    }
+
+    private func rateRow(_ icon: String, title: String, subtitle: String?, value: String) -> some View {
         ArtRow(title: title, subtitle: subtitle) {
-            ThumbView(systemImage: icon, tint: tint, size: 44)
+            ThumbView(systemImage: icon, tint: DS.accent, size: 44)
         } trailing: {
             Text(value)
         }
@@ -946,54 +1103,61 @@ private struct EndTournamentSheet: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
-                    Text("Most points wins by default. Pick another team if the crew agreed one.")
-                        .font(.callout)
-                        .foregroundStyle(Color.dsText2)
-                        .padding(.horizontal, DS.gutter)
-                        .padding(.top, DS.Space.s2)
-                    EventFormLabel("Declare the winner")
-                    if standings.isEmpty {
-                        InlineEmpty(text: "No team fished this tournament.", systemImage: "trophy")
-                    }
-                    ForEach(Array(standings.enumerated()), id: \.element.id) { i, s in
-                        teamRow(s, rank: i + 1)
-                    }
-                }
-                .padding(.bottom, DS.Space.s6)
-                .pageWidth()
-            }
-            .dsScreenBackground()
-            .safeAreaInset(edge: .bottom) {
-                Button(role: .destructive) {
-                    confirming = true
-                } label: {
-                    HStack(spacing: DS.Space.s2) {
-                        if busy { ProgressView() }
-                        Label("Declare winner and end", systemImage: "flag.checkered")
-                    }
-                }
-                .buttonStyle(.dsPrimary)
-                .disabled(selected == nil || busy)
-                .padding(.horizontal, DS.gutter)
-                .padding(.vertical, DS.Space.s3)
-                .background(.bar)
+            ScrollView { content }
+                .dsScreenBackground()
+                .eventSheetTitle("End tournament", close: "Cancel")
                 .confirmationDialog("End the tournament?", isPresented: $confirming,
                                     titleVisibility: .visible) {
                     Button("End tournament", role: .destructive) { end() }
                 } message: {
                     Text("Points stop counting and any team sessions still running are ended for everyone.")
                 }
-            }
-            .eventSheetTitle("End tournament")
-            .onAppear {
-                if selected == nil { selected = standings.first?.teamName }
-            }
+                .onAppear {
+                    if selected == nil { selected = standings.first?.teamName }
+                }
         }
-        .tint(DS.accent)
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
+    }
+
+    private var content: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("Most points wins by default. Pick another team if the crew agreed one.")
+                .font(.body)
+                .foregroundStyle(.dsText2)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, DS.gutter)
+                .padding(.top, DS.Space.s3)
+            CrewSection(title: "Winner") {
+                if standings.isEmpty {
+                    InlineEmpty(text: "No team fished this tournament.", systemImage: "trophy")
+                }
+                ForEach(Array(standings.enumerated()), id: \.element.id) { i, s in
+                    teamRow(s, rank: i + 1)
+                }
+            }
+            endButton
+                .padding(.horizontal, DS.gutter)
+                .padding(.top, DS.Space.s6)
+        }
+        .padding(.bottom, DS.Space.s6)
+        .pageWidth()
+    }
+
+    private var endButton: some View {
+        VStack(alignment: .leading, spacing: DS.Space.s4) {
+            Button(role: .destructive) {
+                confirming = true
+            } label: {
+                if busy { ProgressView() } else { Text("Declare winner and end") }
+            }
+            .buttonStyle(.dsPrimary)
+            .disabled(selected == nil || busy)
+            Text("Points stop counting and team sessions still running end for everyone.")
+                .font(.footnote)
+                .foregroundStyle(.dsText2)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 
     private func teamRow(_ s: CommunityService.TeamStanding, rank: Int) -> some View {
@@ -1013,7 +1177,7 @@ private struct EndTournamentSheet: View {
                     .contentTransition(.symbolEffect(.replace))
             }
         }
-        .buttonStyle(.dsRow)
+        .buttonStyle(.dim)
         .buttonHaptic(.selection)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
@@ -1060,10 +1224,7 @@ struct TournamentHistoryView: View {
                     if loading {
                         EventSkeletonRows(count: 4, thumbSize: 56, label: "Loading tournaments")
                     } else {
-                        ContentUnavailableView(
-                            "No tournaments yet",
-                            systemImage: "trophy",
-                            description: Text("Results land here when the crew runs one."))
+                        InlineEmpty(systemImage: "trophy", text: "No tournaments yet. Results land here when the crew runs one.")
                     }
                 }
                 .dsListRow()
@@ -1083,30 +1244,33 @@ struct TournamentHistoryView: View {
             }
         }
         .dsPlainList()
+        .detailTint(nil)
         .eventPageTitle("Tournaments")
         .confirmationDialog("Delete this tournament?",
                             isPresented: Binding(get: { tournamentToDelete != nil },
                                                  set: { if !$0 { tournamentToDelete = nil } }),
                             titleVisibility: .visible) {
-            Button("Delete tournament", role: .destructive) {
-                guard let t = tournamentToDelete else { return }
-                tournamentToDelete = nil
-                Task {
-                    if await svc.deleteTournament(t, crew: crew) {
-                        Haptics.warning()
-                        withAnimation(DS.Motion.softSpring) { list.removeAll { $0.id == t.id } }
-                        ToastCenter.shared.show("Tournament deleted", style: .info, haptic: false)
-                    } else {
-                        ToastCenter.shared.show("Couldn't delete the tournament", style: .error)
-                    }
-                }
-            }
+            Button("Delete tournament", role: .destructive, action: deleteChosen)
         } message: {
             Text("It disappears for the whole crew and its history. Everyone keeps their logged catches.")
         }
         .task {
             list = await svc.tournaments(crewCode: crew.code)
             loading = false
+        }
+    }
+
+    private func deleteChosen() {
+        guard let t = tournamentToDelete else { return }
+        tournamentToDelete = nil
+        Task {
+            if await svc.deleteTournament(t, crew: crew) {
+                Haptics.warning()
+                withAnimation(DS.Motion.softSpring) { list.removeAll { $0.id == t.id } }
+                ToastCenter.shared.show("Tournament deleted", style: .info, haptic: false)
+            } else {
+                ToastCenter.shared.show("Couldn't delete the tournament", style: .error)
+            }
         }
     }
 
@@ -1148,65 +1312,104 @@ struct TournamentHistoryView: View {
                subtitleIcon: t.winnerTeam != nil ? "trophy.fill" : nil,
                chevron: true) {
             ThumbView(systemImage: t.isEnded ? "flag.checkered" : "trophy.fill",
-                      tint: t.isEnded ? Color.gray : Color.dsScoreFair, size: 56)
+                      tint: t.isEnded ? Color.gray : DS.accent, size: 56)
         } trailing: {
             if !t.isEnded { EventLiveTag().font(.subheadline) }
         }
     }
 }
 
-// MARK: - Team summary
+// MARK: - Team page
 
-/// One team's tournament story: points with their breakdown, each angler's
-/// contribution, and every catch. The live session is one row at the bottom.
+/// One team's tournament story, laid out like the tournament: cover, title,
+/// three actions, then the points with their breakdown, each angler's
+/// contribution and every catch.
 struct TeamTournamentDetailView: View {
     let tournament: CommunityService.Tournament
     let crew: CommunityService.Crew
-    @State var standing: CommunityService.TeamStanding
-    let rank: Int
     let profiles: [String: CommunityService.Profile]
 
     @Environment(AppState.self) private var appState
     @StateObject private var svc = CommunityService.shared
+    @State private var standing: CommunityService.TeamStanding
+    /// The team's place, kept current by the refresh.
+    @State private var place: Int
+    /// The team's best fish, for the cover and the page tint.
+    @State private var coverSpecies: Species?
+    @State private var offline = false
+    @State private var showingLog = false
+    @State private var showingScoring = false
+
+    init(tournament: CommunityService.Tournament, crew: CommunityService.Crew,
+         standing: CommunityService.TeamStanding, rank: Int,
+         profiles: [String: CommunityService.Profile]) {
+        self.tournament = tournament
+        self.crew = crew
+        self.profiles = profiles
+        _standing = State(initialValue: standing)
+        _place = State(initialValue: rank)
+    }
 
     private var isMember: Bool { standing.memberCodes.contains(svc.friendCode) }
     private var ended: Bool { standing.isEnded || tournament.isEnded }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                EventAvatarStack(images: standing.memberCodes.prefix(2).map { avatar($0) }, size: 72)
-                    .padding(.horizontal, DS.gutter)
-                    .padding(.bottom, DS.Space.s4)
-                EventHeader(title: standing.teamName,
-                            subtitle: "\(pointsText(standing.points)) from \(standing.fishCount) fish") {
-                    if ended { Text("Ended") } else { EventLiveTag() }
-                    Text("\(tournament.name), \(eventOrdinal(rank)) place")
-                }
-                pointsSection
-                anglersSection
-                catchesSection
-                sessionSection
+        ScrollView { content }
+            .detailTint(coverSpecies?.artTint)
+            .eventPageTitle(standing.teamName)
+            .sheet(isPresented: $showingScoring) {
+                TournamentScoringSheet(rates: tournament.rates)
             }
-            .padding(.bottom, DS.Space.s8)
-            .pageWidth()
-        }
-        .detailTint(.dsScoreFair)
-        .eventPageTitle(standing.teamName)
-        .task {
-            await refresh()
-            while !Task.isCancelled, !tournament.isEnded, !standing.isEnded {
-                try? await Task.sleep(nanoseconds: 20_000_000_000)
-                guard !Task.isCancelled else { return }
+            .fullScreenCover(isPresented: $showingLog, onDismiss: { Task { await refresh() } }) {
+                LogCatchView(groupCodeOverride: standing.id)
+            }
+            .task {
+                coverSpecies = eventCoverSpecies(standing.catches, appState: appState)
                 await refresh()
+                while !Task.isCancelled, !tournament.isEnded, !standing.isEnded {
+                    try? await Task.sleep(nanoseconds: 20_000_000_000)
+                    guard !Task.isCancelled else { return }
+                    await refresh()
+                }
             }
+    }
+
+    private var content: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            EventCover(species: coverSpecies, systemImage: "person.2.fill", tint: DS.accent)
+                .padding(.top, DS.Space.s2)
+            header
+                .padding(.top, DS.Space.s4)
+            actions
+                .padding(.top, DS.Space.s5)
+            if offline {
+                EventNotice("Offline. Points update when you're back online.", systemImage: "wifi.slash") {
+                    Button("Try again") { Task { await refresh() } }
+                }
+                .padding(.top, DS.Space.s4)
+            }
+            pointsSection
+            anglersSection
+            catchesSection
         }
+        .padding(.bottom, DS.Space.s8)
+        .pageWidth()
     }
 
     private func refresh() async {
-        if let fresh = await svc.teamStandings(tournament: tournament)
-            .first(where: { $0.id == standing.id }) {
-            withAnimation(DS.Motion.softSpring) { standing = fresh }
+        let all = await svc.teamStandings(tournament: tournament)
+        if let i = all.firstIndex(where: { $0.id == standing.id }) {
+            withAnimation(DS.Motion.softSpring) {
+                standing = all[i]
+                place = i + 1
+                offline = false
+            }
+            coverSpecies = eventCoverSpecies(standing.catches, appState: appState)
+        } else if all.isEmpty {
+            // Empty means no connection (this team exists), unless the
+            // session itself is gone.
+            let probe = await svc.groupTripExists(code: standing.id)
+            withAnimation(DS.Motion.softSpring) { offline = probe == .unreachable }
         }
     }
 
@@ -1214,9 +1417,101 @@ struct TeamTournamentDetailView: View {
         code == svc.friendCode ? (svc.myAvatar ?? profiles[code]?.avatar) : profiles[code]?.avatar
     }
 
+    // MARK: Header
+
+    @ViewBuilder private var header: some View {
+        if ended {
+            DetailHeader(over: endedLine, title: standing.teamName, subtitle: summaryLine)
+        } else {
+            EventHeader(title: standing.teamName, subtitle: summaryLine) {
+                EventLiveTag()
+                Text("\(eventOrdinal(place)) place")
+            }
+        }
+    }
+
+    private var endedLine: String {
+        tournament.isEnded
+            ? "Finished \(eventOrdinal(place))"
+            : "Session ended, \(eventOrdinal(place)) place"
+    }
+
+    private var summaryLine: String {
+        "\(pointsText(standing.points)) from \(standing.fishCount) fish in \(tournament.name)"
+    }
+
+    // MARK: Actions
+
+    @ViewBuilder private var actions: some View {
+        if !ended && isMember {
+            ActionTriple {
+                Button { showingLog = true } label: { Label("Log catch", systemImage: "plus") }
+                    .buttonStyle(ActionTileStyle(.primary))
+                sessionTile("Session", systemImage: "dot.radiowaves.left.and.right", kind: .tonal)
+                scoringTile
+            }
+        } else if !ended {
+            ActionTriple {
+                sessionTile("Join team", systemImage: "person.badge.plus", kind: .primary)
+                scoringTile
+            }
+        } else if let trip = myLinkedTrip {
+            ActionTriple {
+                // Once the team's session is over, the trip page is a dead
+                // end for "where did I fish", so the first tile opens YOUR
+                // recorded session.
+                NavigationLink {
+                    SessionDetailView(trip: trip)
+                } label: {
+                    ActionTileLabel("Your track", systemImage: "map", kind: .primary)
+                }
+                .buttonStyle(.dim)
+                sessionTile("Session", systemImage: "dot.radiowaves.left.and.right", kind: .tonal)
+                scoringTile
+            }
+        } else {
+            ActionTriple {
+                sessionTile("Session", systemImage: "dot.radiowaves.left.and.right", kind: .primary)
+                scoringTile
+            }
+        }
+    }
+
+    /// The team's live session page: the feed, GPS and log-to-trip for
+    /// members, the join confirmation for everyone else.
+    private func sessionTile(_ title: String, systemImage: String, kind: ActionTileKind) -> some View {
+        NavigationLink {
+            GroupTripView(tripId: svc.tripId(forGroupCode: standing.id),
+                          tripName: standing.teamName, initialCode: standing.id)
+        } label: {
+            ActionTileLabel(title, systemImage: systemImage, kind: kind)
+        }
+        .buttonStyle(.dim)
+    }
+
+    private var scoringTile: some View {
+        Button { showingScoring = true } label: {
+            Label("Scoring", systemImage: "questionmark.circle")
+        }
+        .buttonStyle(ActionTileStyle(.tonal))
+    }
+
+    /// My local trip linked to this team's session, for the track link once
+    /// the session is over.
+    private var myLinkedTrip: Trip? {
+        guard isMember, let id = svc.tripId(forGroupCode: standing.id) else { return nil }
+        return (try? appState.tripRepository.fetch(id)) ?? nil
+    }
+
     // MARK: Points breakdown
 
     private var pointsSection: some View {
+        CrewSection(title: "Points", detail: pointsText(standing.points)) {
+            KeyValueList(rows: pointRows)
+        }
+    }
+
+    private var pointRows: [KeyValueList.Row] {
         let rates = tournament.rates
         let fishPts = standing.fishCount * rates.perFish
         let speciesPts = standing.speciesCount * rates.newSpeciesBonus
@@ -1230,42 +1525,54 @@ struct TeamTournamentDetailView: View {
         if standing.totalWeightKg > 0 {
             rows.insert(.init(label: "Total weight", value: Units.weight(kg: standing.totalWeightKg)), at: 3)
         }
-        return CrewSection(title: "Where the points came from") {
-            KeyValueList(rows: rows)
-        }
+        return rows
     }
 
     // MARK: Anglers
 
-    private var anglersSection: some View {
-        // Each angler's contribution, biggest haul first. Members who haven't
-        // landed anything yet still show, so the roster is complete.
+    private struct AnglerLine {
+        let code: String
+        let name: String
+        let fish: Int
+        let kg: Double
+    }
+
+    /// Each angler's contribution, biggest haul first. Members who haven't
+    /// landed anything yet still show, so the roster is complete.
+    private var anglerLines: [AnglerLine] {
         let byAngler = Dictionary(grouping: standing.catches, by: \.friendCode)
-        let rows: [(code: String, name: String, fish: Int, kg: Double)] =
-            standing.memberCodes.map { code in
-                let cs = byAngler[code] ?? []
-                let name = profiles[code]?.name ?? cs.first?.anglerName ?? code
-                return (code, name, cs.count, cs.compactMap(\.weightKg).reduce(0, +))
-            }
-            .sorted { $0.fish > $1.fish }
-        return CrewSection(title: "Anglers", detail: "\(rows.count)") {
+        return standing.memberCodes.map { code in
+            let cs = byAngler[code] ?? []
+            let name = profiles[code]?.name ?? cs.first?.anglerName ?? code
+            return AnglerLine(code: code, name: name, fish: cs.count,
+                              kg: cs.compactMap(\.weightKg).reduce(0, +))
+        }
+        .sorted { $0.fish > $1.fish }
+    }
+
+    private var anglersSection: some View {
+        let lines = anglerLines
+        return CrewSection(title: "Anglers", detail: "\(lines.count)") {
             VStack(spacing: 0) {
-                ForEach(rows, id: \.code) { row in
-                    let label = ArtRow(over: row.code == standing.hostCode ? "Started the session" : nil,
-                                       title: row.code == svc.friendCode ? "You" : row.name,
-                                       subtitle: row.fish == 0 ? "No catches yet"
-                                           : "\(row.fish) fish, \(Units.weight(kg: row.kg))",
-                                       chevron: row.code != svc.friendCode) {
-                        AnglerAvatar(image: avatar(row.code), size: 48)
-                    }
-                    if row.code == svc.friendCode {
-                        label
-                    } else {
-                        NavigationLink { FriendProfileView(code: row.code) } label: { label }
-                            .buttonStyle(.dsRow)
-                    }
-                }
+                ForEach(lines, id: \.code) { line in anglerRow(line) }
             }
+        }
+    }
+
+    @ViewBuilder private func anglerRow(_ line: AnglerLine) -> some View {
+        let isMe = line.code == svc.friendCode
+        let row = ArtRow(over: line.code == standing.hostCode ? "Started the session" : nil,
+                         title: isMe ? "You" : line.name,
+                         subtitle: line.fish == 0 ? "No catches yet"
+                             : "\(line.fish) fish, \(Units.weight(kg: line.kg))",
+                         chevron: !isMe) {
+            AnglerAvatar(image: avatar(line.code), size: 48)
+        }
+        if isMe {
+            row
+        } else {
+            NavigationLink { FriendProfileView(code: line.code) } label: { row }
+                .buttonStyle(.dim)
         }
     }
 
@@ -1289,27 +1596,35 @@ struct TeamTournamentDetailView: View {
         let points = catchPoints
         return CrewSection(title: "Catches", detail: standing.catches.isEmpty ? nil : "\(standing.catches.count)") {
             if standing.catches.isEmpty {
-                InlineEmpty(text: "Nothing landed yet. The first fish scores \(pointsText(tournament.rates.perFish + tournament.rates.newSpeciesBonus)).")
+                InlineEmpty(text: firstFishText)
             } else {
                 VStack(spacing: 0) {
-                    ForEach(standing.catches) { c in
-                        let row = leaderRow(from: c)
-                        NavigationLink {
-                            CommunityCatchDetailView(row: row)
-                        } label: {
-                            ArtRow(over: "\(c.friendCode == svc.friendCode ? "You" : c.anglerName), \(c.date.formatted(date: .abbreviated, time: .shortened))",
-                                   title: sizeTitle(c)) {
-                                CommunityCatchThumb(row: row, size: 56)
-                            } trailing: {
-                                Text("+\(points[c.id] ?? 0)")
-                                    .foregroundStyle(Color.dsScoreGood)
-                            }
-                        }
-                        .buttonStyle(.dsRow)
-                    }
+                    ForEach(standing.catches) { c in catchRow(c, points: points[c.id] ?? 0) }
                 }
             }
         }
+    }
+
+    private var firstFishText: String {
+        let first = tournament.rates.perFish + tournament.rates.newSpeciesBonus
+        return "Nothing landed yet. The first fish scores \(pointsText(first))."
+    }
+
+    private func catchRow(_ c: CommunityService.GroupCatch, points: Int) -> some View {
+        let row = leaderRow(from: c)
+        let who = c.friendCode == svc.friendCode ? "You" : c.anglerName
+        return NavigationLink {
+            CommunityCatchDetailView(row: row)
+        } label: {
+            ArtRow(over: "\(who), \(c.date.formatted(date: .abbreviated, time: .shortened))",
+                   title: sizeTitle(c)) {
+                CommunityCatchThumb(row: row, size: 56)
+            } trailing: {
+                Text("+\(points)")
+                    .foregroundStyle(Color.dsScoreGood)
+            }
+        }
+        .buttonStyle(.dim)
     }
 
     private func sizeTitle(_ c: CommunityService.GroupCatch) -> String {
@@ -1325,51 +1640,5 @@ struct TeamTournamentDetailView: View {
             id: c.id, anglerName: c.anglerName, friendCode: c.friendCode,
             species: c.species, weightKg: c.weightKg, lengthCm: c.lengthCm,
             catchCount: nil, region: "", date: c.date, hasRemotePhoto: true)
-    }
-
-    // MARK: Session
-
-    /// My local trip linked to this team's session, for the GPS-session link
-    /// once the tournament is over.
-    private var myLinkedTrip: Trip? {
-        guard isMember, let id = svc.tripId(forGroupCode: standing.id) else { return nil }
-        return (try? appState.tripRepository.fetch(id)) ?? nil
-    }
-
-    @ViewBuilder private var sessionSection: some View {
-        // Once the team's session is over, the trip screen is a dead end for
-        // "where did I fish", so link straight to YOUR recorded session.
-        if ended, let lt = myLinkedTrip {
-            CrewSection(title: "Your GPS session") {
-                NavigationLink {
-                    SessionDetailView(trip: lt)
-                } label: {
-                    ArtRow(title: "Open your session",
-                           subtitle: "Your track, stats and catches from this team",
-                           chevron: true) {
-                        ThumbView(systemImage: "map", tint: DS.accent, size: 48)
-                    }
-                }
-                .buttonStyle(.dsRow)
-            }
-        } else {
-            CrewSection(title: isMember ? "Your team session" : "Team session") {
-                NavigationLink {
-                    GroupTripView(tripId: svc.tripId(forGroupCode: standing.id),
-                                  tripName: standing.teamName, initialCode: standing.id)
-                } label: {
-                    ArtRow(over: standing.hostName.isEmpty ? nil
-                               : "Started by \(standing.hostCode == svc.friendCode ? "you" : standing.hostName)",
-                           title: isMember ? "Open the team session" : "Watch the live session",
-                           subtitle: isMember ? "Log to the trip, GPS and standings"
-                               : "See the feed, or join the team from there",
-                           chevron: true) {
-                        ThumbView(systemImage: "dot.radiowaves.left.and.right",
-                                  tint: standing.isEnded ? Color.gray : Color.dsScoreGood, size: 48)
-                    }
-                }
-                .buttonStyle(.dsRow)
-            }
-        }
     }
 }
