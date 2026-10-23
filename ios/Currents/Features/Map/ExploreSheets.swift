@@ -35,10 +35,10 @@ struct PinPeekSheet: View {
             .pageWidth()
         }
         .scrollBounceBehavior(.basedOnSize)
-        .background(Color.dsElevated.ignoresSafeArea())
+        .background(Color.dsBackground.ignoresSafeArea())
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
-        .presentationBackground(Color.dsElevated)
+        .presentationBackground(Color.dsBackground)
     }
 
     @ViewBuilder
@@ -152,10 +152,10 @@ struct RampDetailSheet: View {
             ExploreFootnote("From OpenStreetMap. Check access and fees at the gate.")
             Spacer(minLength: 0)
         }
-        .background(Color.dsElevated.ignoresSafeArea())
+        .background(Color.dsBackground.ignoresSafeArea())
         .presentationDetents([.medium])
         .presentationDragIndicator(.visible)
-        .presentationBackground(Color.dsElevated)
+        .presentationBackground(Color.dsBackground)
         .confirmationDialog("Remove \(ramp.name) from your spots?", isPresented: $confirmingRemove, titleVisibility: .visible) {
             Button("Remove spot", role: .destructive) { Haptics.warning(); remove() }
         } message: {
@@ -261,7 +261,7 @@ struct MapLayersSheet: View {
                 }
                 .padding(.vertical, DS.Space.s3)
             }
-            .background(Color.dsElevated.ignoresSafeArea())
+            .background(Color.dsBackground.ignoresSafeArea())
             .detailScrollEdge()
             .navigationTitle("Map layers")
             .navigationBarTitleDisplayMode(.inline)
@@ -273,7 +273,7 @@ struct MapLayersSheet: View {
         }
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
-        .presentationBackground(Color.dsElevated)
+        .presentationBackground(Color.dsBackground)
     }
 
     private func styleTile(_ option: MapTab.MapStyleOption) -> some View {
