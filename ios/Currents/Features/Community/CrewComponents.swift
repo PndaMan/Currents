@@ -269,8 +269,8 @@ struct CrewFootnote: View {
     }
 }
 
-/// A settings-style list row on the page background: tinted icon, title,
-/// trailing value or control.
+/// A plain settings row on the page background: tinted icon, title, and a
+/// trailing value or control, in the gutter like every other row.
 struct CrewListRow<Trailing: View>: View {
     let title: String
     let systemImage: String
@@ -283,13 +283,16 @@ struct CrewListRow<Trailing: View>: View {
                 .font(.body.weight(.medium))
                 .foregroundStyle(tint)
                 .frame(width: 28)
+                .accessibilityHidden(true)
             Text(title)
                 .font(.body)
                 .foregroundStyle(.dsText)
+                .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: DS.Space.s2)
             trailing()
         }
-        .padding(.horizontal, DS.Space.s4)
+        .padding(.horizontal, DS.gutter)
+        .padding(.vertical, DS.Space.s2)
         .frame(minHeight: 52)
         .contentShape(Rectangle())
     }
@@ -799,14 +802,6 @@ struct CrewAvatarStack: View {
             }
         }
         .accessibilityHidden(true)
-    }
-}
-
-/// The hairline between rows on a filled settings card, inset past the icon.
-struct CrewRowDivider: View {
-    var inset: CGFloat = 56
-    var body: some View {
-        Divider().overlay(Color.dsSeparator).padding(.leading, inset)
     }
 }
 
