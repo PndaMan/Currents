@@ -37,6 +37,23 @@ struct GearTab: View {
     }
 
     var body: some View {
+        withSheets(withConfirmations(page))
+            .detailTint(nil)
+            .pfTrackScroll($titleShown, threshold: 60)
+            .pfScrollTitle("Tackle box", shown: titleShown)
+            .navigationDestination(for: GearItemRoute.self) { route in
+                GearItemDetailView(itemID: route.id)
+            }
+            .navigationDestination(for: GearEffectivenessRoute.self) { _ in
+                GearEffectivenessView()
+            }
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) { addMenu }
+            }
+            .task { await refresh() }
+    }
+
+    private var page: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: DS.Space.s4) {
                 DetailHeader(title: "Tackle box", subtitle: didLoad ? subtitle : nil)
@@ -57,120 +74,104 @@ struct GearTab: View {
             .animation(reduceMotion ? nil : .easeOut(duration: DS.Motion.fast), value: categoryFilter)
             .pageWidth()
         }
-        .detailTint(nil)
-        .pfTrackScroll($titleShown, threshold: 60)
-        .pfScrollTitle("Tackle box", shown: titleShown)
-        .navigationDestination(for: GearItemRoute.self) { route in
-            GearItemDetailView(itemID: route.id)
-        }
-        .navigationDestination(for: GearEffectivenessRoute.self) { _ in
-            GearEffectivenessView()
-        }
-        .confirmationDialog("Delete this gear?",
-                            isPresented: Binding(get: { gearToDelete != nil },
-                                                 set: { if !$0 { gearToDelete = nil } }),
-                            titleVisibility: .visible) {
-            Button("Delete gear", role: .destructive) {
-                if let item = gearToDelete {
-                    try? appState.ownedGearRepository.delete(item)
-                    if let p = item.photoPath { PhotoManager.delete(p) }
-                    NotificationManager.shared.cancelLowStockAlert(itemId: item.id)
-                    Haptics.warning()
-                    ToastCenter.shared.show("Gear deleted", style: .info, haptic: false)
-                    Task { await refresh() }
-                }
-                gearToDelete = nil
+    }
+
+    private var addMenu: some View {
+        Menu {
+            Button {
+                showingAddItem = true
+            } label: {
+                Label("Add gear", systemImage: "plus.circle")
             }
-        } message: {
-            Text("The item, its photo and any stock alerts are removed.")
-        }
-        .confirmationDialog("Delete this preset?",
-                            isPresented: Binding(get: { loadoutToDelete != nil },
-                                                 set: { if !$0 { loadoutToDelete = nil } }),
-                            titleVisibility: .visible) {
-            Button("Delete preset", role: .destructive) {
-                if let loadout = loadoutToDelete {
-                    try? appState.gearRepository.delete(loadout)
-                    Haptics.warning()
-                    ToastCenter.shared.show("Preset deleted", style: .info, haptic: false)
-                    Task { await refresh() }
-                }
-                loadoutToDelete = nil
+            Button {
+                showingAddLoadout = true
+            } label: {
+                Label("New preset", systemImage: "square.stack.3d.up")
             }
-        } message: {
-            Text("Catches logged with it keep their gear snapshot.")
-        }
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Menu {
-                    Button {
-                        showingAddItem = true
-                    } label: {
-                        Label("Add gear item", systemImage: "plus.circle")
-                    }
-                    Button {
-                        showingAddLoadout = true
-                    } label: {
-                        Label("New preset", systemImage: "square.stack.3d.up")
-                    }
-                    Divider()
-                    Button {
-                        showingCatalog = true
-                    } label: {
-                        Label("Browse the gear catalog", systemImage: "books.vertical")
-                    }
-                } label: {
-                    Image(systemName: "plus")
-                }
-                .accessibilityLabel("Add")
+            Divider()
+            Button {
+                showingCatalog = true
+            } label: {
+                Label("Browse the gear catalog", systemImage: "books.vertical")
             }
+        } label: {
+            Image(systemName: "plus")
         }
-        .sheet(isPresented: $showingAddItem, onDismiss: {
-            Task { await refresh() }
-        }) {
-            AddOwnedGearSheet()
-        }
-        .sheet(isPresented: $showingAddLoadout, onDismiss: {
-            Task { await refresh() }
-        }) {
-            AddGearSheet()
-        }
-        .sheet(isPresented: $showingCatalog, onDismiss: {
-            Task { await refresh() }
-        }) {
-            NavigationStack {
-                GearCatalogBrowser()
-                    .navigationTitle("Gear catalog")
-                    .navigationBarTitleDisplayMode(.inline)
-                    .toolbar {
-                        ToolbarItem(placement: .confirmationAction) {
-                            Button("Done") { showingCatalog = false }
-                        }
-                    }
+        .accessibilityLabel("Add")
+    }
+
+    // MARK: - Dialogs and sheets
+
+    private func withConfirmations<Content: View>(_ content: Content) -> some View {
+        content
+            .confirmationDialog("Delete this gear?",
+                                isPresented: Binding(get: { gearToDelete != nil },
+                                                     set: { if !$0 { gearToDelete = nil } }),
+                                titleVisibility: .visible) {
+                Button("Delete gear", role: .destructive, action: deleteChosenGear)
+            } message: {
+                Text("The item, its photo and any stock alerts are removed.")
             }
+            .confirmationDialog("Delete this preset?",
+                                isPresented: Binding(get: { loadoutToDelete != nil },
+                                                     set: { if !$0 { loadoutToDelete = nil } }),
+                                titleVisibility: .visible) {
+                Button("Delete preset", role: .destructive, action: deleteChosenLoadout)
+            } message: {
+                Text("Catches logged with it keep their gear snapshot.")
+            }
+    }
+
+    private func withSheets<Content: View>(_ content: Content) -> some View {
+        content
+            .sheet(isPresented: $showingAddItem, onDismiss: reload) {
+                AddOwnedGearSheet()
+            }
+            .sheet(isPresented: $showingAddLoadout, onDismiss: reload) {
+                AddGearSheet()
+            }
+            .sheet(isPresented: $showingCatalog, onDismiss: reload) {
+                GearCatalogSheet()
+            }
+            .sheet(item: $selectedLoadout) { loadout in
+                GearDetailSheet(loadout: loadout, onEdit: { edited in
+                    selectedLoadout = nil
+                    editingLoadout = edited
+                }, onDelete: { doomed in
+                    selectedLoadout = nil
+                    loadoutToDelete = doomed
+                })
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+            }
+            .sheet(item: $editingOwnedGear, onDismiss: reload) { gear in
+                EditOwnedGearSheet(gear: gear)
+            }
+            .sheet(item: $editingLoadout, onDismiss: reload) { loadout in
+                EditLoadoutSheet(loadout: loadout)
+            }
+    }
+
+    private func deleteChosenGear() {
+        if let item = gearToDelete {
+            try? appState.ownedGearRepository.delete(item)
+            if let p = item.photoPath { PhotoManager.delete(p) }
+            NotificationManager.shared.cancelLowStockAlert(itemId: item.id)
+            Haptics.warning()
+            ToastCenter.shared.show("Gear deleted", style: .info, haptic: false)
+            reload()
         }
-        .sheet(item: $selectedLoadout) { loadout in
-            GearDetailSheet(loadout: loadout, onEdit: { edited in
-                selectedLoadout = nil
-                editingLoadout = edited
-            }, onDelete: { doomed in
-                selectedLoadout = nil
-                loadoutToDelete = doomed
-            })
-            .presentationDetents([.medium, .large])
-            .presentationDragIndicator(.visible)
+        gearToDelete = nil
+    }
+
+    private func deleteChosenLoadout() {
+        if let loadout = loadoutToDelete {
+            try? appState.gearRepository.delete(loadout)
+            Haptics.warning()
+            ToastCenter.shared.show("Preset deleted", style: .info, haptic: false)
+            reload()
         }
-        .sheet(item: $editingOwnedGear, onDismiss: {
-            Task { await refresh() }
-        }) { gear in
-            EditOwnedGearSheet(gear: gear)
-        }
-        .sheet(item: $editingLoadout, onDismiss: {
-            Task { await refresh() }
-        }) { loadout in
-            EditLoadoutSheet(loadout: loadout)
-        }
-        .task { await refresh() }
+        loadoutToDelete = nil
     }
 
     // MARK: - Owned gear
@@ -182,81 +183,88 @@ struct GearTab: View {
     @ViewBuilder
     private var ownedGearContent: some View {
         if !didLoad {
-            ProgressView()
-                .frame(maxWidth: .infinity)
-                .padding(.top, DS.Space.s8)
+            loading
         } else if ownedGear.isEmpty {
-            ContentUnavailableView {
-                Label("No gear yet", systemImage: "shippingbox")
-            } description: {
-                Text("Add your rods, reels, lures and more to mix and match when you log a catch.")
-            } actions: {
-                Button("Add your first item") { showingAddItem = true }
-                    .buttonStyle(PrimaryButtonStyle(fullWidth: false))
-                Button("Browse the gear catalog") { showingCatalog = true }
-                    .font(.subheadline.weight(.semibold))
-            }
-            .padding(.top, DS.Space.s6)
+            emptyGear
         } else {
             if let low = ownedGear.first(where: \.isLowStock) {
-                NavigationLink(value: GearItemRoute(id: low.id)) {
-                    PFNotice(systemImage: "shippingbox.fill", tint: .dsScoreLow,
-                             title: (low.stock ?? 0) <= 0 ? "Out of \(low.name)" : "Running low on \(low.name)",
-                             message: lowMessage(low)) {
-                        Image(systemName: "chevron.right")
-                            .font(.footnote.weight(.semibold))
-                            .foregroundStyle(.dsText3)
-                    }
-                }
-                .buttonStyle(.dim)
+                lowStockNotice(low)
             }
-
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 6) {
-                    Chip("All", isSelected: categoryFilter == nil) { categoryFilter = nil }
-                    ForEach(ownedCategories, id: \.self) { cat in
-                        Chip("\(cat.plural) \(count(for: cat))", isSelected: categoryFilter == cat) {
-                            categoryFilter = categoryFilter == cat ? nil : cat
-                        }
-                    }
-                }
-                .padding(.horizontal, DS.gutter)
-            }
-
-            LazyVStack(alignment: .leading, spacing: 0) {
-                ForEach(shownCategories, id: \.self) { category in
-                    Text(category.plural)
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.dsText2)
-                        .padding(.horizontal, DS.gutter)
-                        .padding(.top, DS.Space.s4)
-                        .padding(.bottom, DS.Space.s1)
-                        .accessibilityAddTraits(.isHeader)
-                    ForEach(items(in: category)) { item in
-                        gearRow(item)
-                    }
-                }
-            }
-
-            NavigationLink(value: GearEffectivenessRoute()) {
-                HStack(spacing: 14) {
-                    PFIcon(systemImage: "chart.bar.fill", color: .orange)
-                    Text("Gear effectiveness")
-                        .foregroundStyle(.dsText)
-                    Spacer()
-                    Text("Which lures catch")
-                        .foregroundStyle(.dsText2)
-                    Image(systemName: "chevron.right")
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(.dsText3)
-                }
-                .padding(DS.Space.s4)
-                .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
-                .padding(.horizontal, DS.gutter)
-            }
-            .buttonStyle(.dim)
-            .padding(.top, DS.Space.s4)
+            categoryChips
+            gearList
+            effectivenessRow
+                .padding(.top, DS.Space.s4)
         }
+    }
+
+    private var loading: some View {
+        ProgressView()
+            .frame(maxWidth: .infinity)
+            .padding(.top, DS.Space.s8)
+    }
+
+    private var emptyGear: some View {
+        VStack(alignment: .leading, spacing: DS.Space.s3) {
+            InlineEmpty(systemImage: "shippingbox",
+                        text: "Your tackle box is empty. Add rods, reels, lures and more to pick from when you log a catch.",
+                        actionTitle: "Add gear") { showingAddItem = true }
+            Button { showingCatalog = true } label: {
+                ArtRow(title: "Browse the gear catalog", subtitle: "Popular rods, reels, lures and bait",
+                       chevron: true) {
+                    ThumbView(systemImage: "books.vertical.fill", tint: .orange, size: 52)
+                }
+            }
+            .buttonStyle(.dsRow)
+        }
+    }
+
+    private func lowStockNotice(_ low: OwnedGear) -> some View {
+        NavigationLink(value: GearItemRoute(id: low.id)) {
+            PFNotice(systemImage: "shippingbox.fill", tint: .dsScoreLow,
+                     title: (low.stock ?? 0) <= 0 ? "Out of \(low.name)" : "Running low on \(low.name)",
+                     message: lowMessage(low)) {
+                Image(systemName: "chevron.right")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.dsText3)
+            }
+        }
+        .buttonStyle(.dim)
+    }
+
+    private var categoryChips: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                Chip("All", isSelected: categoryFilter == nil) { categoryFilter = nil }
+                ForEach(ownedCategories, id: \.self) { cat in
+                    Chip("\(cat.plural) \(count(for: cat))", isSelected: categoryFilter == cat) {
+                        categoryFilter = categoryFilter == cat ? nil : cat
+                    }
+                }
+            }
+            .padding(.horizontal, DS.gutter)
+        }
+        .scrollBounceBehavior(.basedOnSize, axes: [.horizontal])
+    }
+
+    private var gearList: some View {
+        LazyVStack(alignment: .leading, spacing: 0) {
+            ForEach(shownCategories, id: \.self) { category in
+                SectionTitle(category.plural, detail: "\(count(for: category))")
+                    .padding(.top, DS.Space.s4)
+                ForEach(items(in: category)) { item in
+                    gearRow(item)
+                }
+            }
+        }
+    }
+
+    private var effectivenessRow: some View {
+        NavigationLink(value: GearEffectivenessRoute()) {
+            ArtRow(title: "Gear effectiveness", subtitle: "Which lures and presets catch", chevron: true) {
+                ThumbView(systemImage: "chart.bar.fill", tint: .orange, size: 52)
+            }
+        }
+        .buttonStyle(.dsRow)
     }
 
     private func lowMessage(_ item: OwnedGear) -> String {
@@ -278,32 +286,23 @@ struct GearTab: View {
         ownedGear.filter { $0.category == category }.count
     }
 
-    private func gearRow(_ item: OwnedGear) -> some View {
+    /// Brand (or specs) and how many catches it has, on one line.
+    private func rowSubtitle(_ item: OwnedGear) -> String? {
+        var parts: [String] = []
+        if let sub = [item.brand, item.specs].compactMap({ $0 }).first(where: { !$0.isEmpty }) {
+            parts.append(sub)
+        }
         let caught = GearStats.catchCount(for: item, in: catches)
-        return HStack(spacing: 14) {
+        if caught > 0 { parts.append(caught == 1 ? "1 catch" : "\(caught) catches") }
+        return parts.isEmpty ? nil : parts.joined(separator: ", ")
+    }
+
+    private func gearRow(_ item: OwnedGear) -> some View {
+        HStack(spacing: 0) {
             NavigationLink(value: GearItemRoute(id: item.id)) {
-                HStack(spacing: 14) {
+                ArtRow(title: item.name, subtitle: rowSubtitle(item)) {
                     GearThumb(item: item, size: 56)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(item.name)
-                            .font(.body)
-                            .foregroundStyle(.dsText)
-                            .lineLimit(1)
-                        if let sub = [item.brand, item.specs].compactMap({ $0 }).first(where: { !$0.isEmpty }) {
-                            Text(sub)
-                                .font(.subheadline)
-                                .foregroundStyle(.dsText2)
-                                .lineLimit(1)
-                        }
-                        if caught > 0 {
-                            Label(caught == 1 ? "1 catch" : "\(caught) catches", systemImage: "fish")
-                                .font(.footnote)
-                                .foregroundStyle(.dsText2)
-                        }
-                    }
-                    Spacer(minLength: 4)
                 }
-                .contentShape(Rectangle())
             }
             .buttonStyle(.dim)
 
@@ -313,10 +312,9 @@ struct GearTab: View {
                     changeStock(item, by: delta)
                 }
                 .foregroundStyle(item.isLowStock ? Color.dsScoreLow : Color.dsText)
+                .padding(.trailing, DS.gutter)
             }
         }
-        .padding(.horizontal, DS.gutter)
-        .padding(.vertical, DS.Space.s2)
         .contextMenu {
             Button {
                 editingOwnedGear = item
@@ -355,46 +353,46 @@ struct GearTab: View {
     @ViewBuilder
     private var presetContent: some View {
         if !didLoad {
-            ProgressView()
-                .frame(maxWidth: .infinity)
-                .padding(.top, DS.Space.s8)
+            loading
         } else if loadouts.isEmpty {
-            ContentUnavailableView {
-                Label("No presets yet", systemImage: "square.stack.3d.up")
-            } description: {
-                Text("Save rod, reel and lure combos so logging a catch takes one tap.")
-            } actions: {
-                Button("Create a preset") { showingAddLoadout = true }
-                    .buttonStyle(PrimaryButtonStyle(fullWidth: false))
-            }
-            .padding(.top, DS.Space.s6)
+            InlineEmpty(systemImage: "square.stack.3d.up",
+                        text: "No presets yet. Save a rod, reel and lure combo so logging a catch takes one tap.",
+                        actionTitle: "New preset") { showingAddLoadout = true }
         } else {
             LazyVStack(spacing: 0) {
                 ForEach(loadouts) { loadout in
-                    Button {
-                        selectedLoadout = loadout
-                    } label: {
-                        PresetCard(loadout: loadout,
-                                   catchCount: GearStats.catchCount(for: loadout, in: catches),
-                                   lureItem: ownedGear.first { $0.displayName == loadout.lure })
-                    }
-                    .buttonStyle(.dim)
-                    .contextMenu {
-                        Button {
-                            editingLoadout = loadout
-                        } label: {
-                            Label("Edit", systemImage: "pencil")
-                        }
-                        Button(role: .destructive) {
-                            loadoutToDelete = loadout
-                        } label: {
-                            Label("Delete", systemImage: "trash")
-                        }
-                    }
+                    presetRow(loadout)
                 }
             }
-            PFFootnote("Pick a preset when you log a catch to save the whole setup.")
+            SectionFootnote("Pick a preset when you log a catch to save the whole setup.")
         }
+    }
+
+    private func presetRow(_ loadout: GearLoadout) -> some View {
+        Button {
+            selectedLoadout = loadout
+        } label: {
+            PresetCard(loadout: loadout,
+                       catchCount: GearStats.catchCount(for: loadout, in: catches),
+                       lureItem: ownedGear.first { $0.displayName == loadout.lure })
+        }
+        .buttonStyle(.dsRow)
+        .contextMenu {
+            Button {
+                editingLoadout = loadout
+            } label: {
+                Label("Edit", systemImage: "pencil")
+            }
+            Button(role: .destructive) {
+                loadoutToDelete = loadout
+            } label: {
+                Label("Delete", systemImage: "trash")
+            }
+        }
+    }
+
+    private func reload() {
+        Task { await refresh() }
     }
 
     private func refresh() async {
@@ -415,6 +413,8 @@ struct GearEffectivenessRoute: Hashable {}
 
 // MARK: - Preset row
 
+/// A preset in the tackle box: the lure's picture, the name, what's in it and
+/// how many catches it has.
 struct PresetCard: View {
     let loadout: GearLoadout
     var catchCount: Int = 0
@@ -425,7 +425,7 @@ struct PresetCard: View {
         if let lure = loadout.lure {
             parts.append(loadout.lureColor.map { "\(lure) (\($0))" } ?? lure)
         }
-        if let line = loadout.lineLb { parts.append("\(Int(line)) lb line") }
+        if let line = loadout.lineLb { parts.append("\(PresetSheet.number(line)) lb line") }
         if parts.isEmpty, let rod = loadout.rod { parts.append(rod) }
         if parts.isEmpty, let reel = loadout.reel { parts.append(reel) }
         if let technique = loadout.technique { parts.append(technique.lowercased()) }
@@ -433,128 +433,175 @@ struct PresetCard: View {
     }
 
     var body: some View {
-        HStack(spacing: 14) {
-            if let lureItem {
-                GearThumb(item: lureItem, size: 56)
-            } else if let lure = loadout.lure, !lure.isEmpty {
-                LureArtView(name: lure, size: 56)
-            } else {
-                ThumbView(systemImage: "square.stack.3d.up.fill", tint: .orange, size: 56)
-            }
-            VStack(alignment: .leading, spacing: 2) {
-                Text(loadout.name)
-                    .foregroundStyle(.dsText)
-                    .lineLimit(1)
-                Text(summary.isEmpty ? "Empty preset, tap to add a rod, reel and lure" : summary)
+        ArtRow(title: loadout.name, subtitle: summary.isEmpty ? "Nothing in it yet" : summary,
+               chevron: true) {
+            art
+        } trailing: {
+            if catchCount > 0 {
+                Label("\(catchCount)", systemImage: "fish")
                     .font(.subheadline)
                     .foregroundStyle(.dsText2)
-                    .lineLimit(1)
-                if catchCount > 0 {
-                    Label(catchCount == 1 ? "1 catch" : "\(catchCount) catches", systemImage: "fish")
-                        .font(.footnote)
-                        .foregroundStyle(.dsText2)
-                }
+                    .accessibilityLabel(catchCount == 1 ? "1 catch" : "\(catchCount) catches")
             }
-            Spacer(minLength: 4)
-            Image(systemName: "chevron.right")
-                .font(.footnote.weight(.semibold))
-                .foregroundStyle(.dsText3)
         }
-        .padding(.horizontal, DS.gutter)
-        .padding(.vertical, DS.Space.s2)
-        .contentShape(Rectangle())
+    }
+
+    @ViewBuilder
+    private var art: some View {
+        if let lureItem {
+            GearThumb(item: lureItem, size: 56)
+        } else if let lure = loadout.lure, !lure.isEmpty {
+            LureArtView(name: lure, size: 56)
+        } else {
+            ThumbView(systemImage: "square.stack.3d.up.fill", tint: .orange, size: 56)
+        }
     }
 }
 
-// MARK: - Add Owned Gear Sheet
+// MARK: - Owned gear form
 
+/// Add a new item to the tackle box.
 struct AddOwnedGearSheet: View {
+    var body: some View { OwnedGearSheet() }
+}
+
+/// Edit an item already in the tackle box.
+struct EditOwnedGearSheet: View {
+    let gear: OwnedGear
+    var body: some View { OwnedGearSheet(editing: gear) }
+}
+
+/// The one form for adding and editing tackle box items, laid out like a
+/// Contacts edit sheet: the photo on top, then labelled rows, Cancel and
+/// Add or Save in the bar.
+struct OwnedGearSheet: View {
     @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss
 
-    @State private var category: OwnedGear.Category = .rod
-    @State private var name = ""
-    @State private var brand = ""
-    @State private var specs = ""
-    @State private var barcode = ""
-    @State private var stock = 1
-    @State private var lowStockThreshold = 2
+    let editing: OwnedGear?
+    @State private var category: OwnedGear.Category
+    @State private var name: String
+    @State private var brand: String
+    @State private var specs: String
+    @State private var barcode: String
+    @State private var stock: Int
+    @State private var lowStockThreshold: Int
+    @State private var photo: UIImage?
     @State private var showingScanner = false
     @State private var lookupState: BarcodeLookupState = .idle
-    @State private var photo: UIImage?
+
+    init(editing: OwnedGear? = nil) {
+        self.editing = editing
+        _category = State(initialValue: editing?.category ?? .rod)
+        _name = State(initialValue: editing?.name ?? "")
+        _brand = State(initialValue: editing?.brand ?? "")
+        _specs = State(initialValue: editing?.specs ?? "")
+        _barcode = State(initialValue: editing?.barcode ?? "")
+        _stock = State(initialValue: editing.map { $0.stock ?? 0 } ?? 1)
+        _lowStockThreshold = State(initialValue: editing?.lowStockThreshold ?? 2)
+        _photo = State(initialValue: editing?.photoPath.flatMap { PhotoManager.load($0) })
+    }
+
+    private var trimmedName: String { name.trimmingCharacters(in: .whitespaces) }
 
     var body: some View {
         NavigationStack {
-            Form {
-                // Photo first: for a lure it carries the colour and pattern
-                // that a name never will, so it's the fastest way to make an
-                // entry recognisable later.
+            List {
                 Section {
-                    GearPhotoField(image: $photo)
-                        .listRowInsets(EdgeInsets())
-                        .listRowBackground(Color.clear)
-                }
-                Section {
-                    GearCategoryChips(selection: $category, inset: 0)
+                    GearPhotoField(image: $photo, category: category, name: name)
                         .gearFormBareRow()
-                } header: {
-                    Text("Type")
                 }
-                Section("Details") {
-                    TextField("Name, for example Shimano Stradic", text: $name)
-                    TextField("Brand (optional)", text: $brand)
-                    TextField("Specs or notes (optional)", text: $specs)
-                }
-                .pfRows()
+                detailsSection
                 if category.isConsumable {
-                    Section("Stock") {
-                        GearStockRow(title: "In stock", value: $stock, range: 0...999)
-                        GearStockRow(title: "Remind me at", value: $lowStockThreshold, range: 0...99)
-                    }
-                    .pfRows()
+                    stockSection
                 }
-                if BarcodeScannerView.isSupported {
-                    Section {
-                        Button {
-                            showingScanner = true
-                        } label: {
-                            Label(barcode.isEmpty ? "Scan barcode" : "Barcode \(barcode)",
-                                  systemImage: "barcode.viewfinder")
-                        }
-                        BarcodeLookupStatus(state: lookupState)
-                    } footer: {
-                        Text("Fills in the name and brand.")
-                    }
-                    .pfRows()
+                if BarcodeScannerView.isDeviceSupported || !barcode.isEmpty {
+                    barcodeSection
                 }
             }
             .gearFormStyle()
-            .sheet(isPresented: $showingScanner) {
-                NavigationStack {
-                    BarcodeScannerView { code in
-                        Task { await handleScan(code) }
-                    }
-                    .ignoresSafeArea()
-                    .navigationTitle("Scan barcode")
-                    .navigationBarTitleDisplayMode(.inline)
-                    .toolbar {
-                        ToolbarItem(placement: .cancellationAction) {
-                            Button("Cancel") { showingScanner = false }
-                        }
-                    }
-                }
-            }
-            .navigationTitle("Add gear")
+            .navigationTitle(editing == nil ? "Add gear" : "Edit gear")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") { save() }
-                        .disabled(name.isEmpty)
+                    Button(editing == nil ? "Add" : "Save", action: save)
+                        .bold()
+                        .disabled(trimmedName.isEmpty)
                 }
             }
+            .sheet(isPresented: $showingScanner) {
+                BarcodeScannerSheet { code in
+                    Task { await handleScan(code) }
+                }
+            }
+        }
+    }
+
+    private var detailsSection: some View {
+        Section {
+            Picker("Type", selection: $category) {
+                ForEach(OwnedGear.Category.allCases, id: \.self) { cat in
+                    Text(cat.rawValue).tag(cat)
+                }
+            }
+            .pickerStyle(.menu)
+            .haptic(.selection, trigger: category)
+            GearFormField("Name", text: $name, prompt: "Stradic 2500")
+            GearFormField("Brand", text: $brand, prompt: "Optional")
+            GearFormField("Specs", text: $specs, prompt: "Length, weight or notes")
+        } header: {
+            Text("Details")
+        }
+        .pfRows()
+    }
+
+    private var stockSection: some View {
+        Section {
+            GearStockRow(title: "In stock", value: $stock, range: 0...999)
+            GearStockRow(title: "Remind me at", value: $lowStockThreshold, range: 0...99)
+        } header: {
+            Text("Stock")
+        } footer: {
+            Text("You get a reminder when you are down to \(lowStockThreshold).")
+        }
+        .pfRows()
+    }
+
+    private var barcodeSection: some View {
+        Section {
+            if !barcode.isEmpty {
+                LabeledContent("Barcode") {
+                    Text(barcode)
+                        .monospacedDigit()
+                        .textSelection(.enabled)
+                }
+            }
+            if BarcodeScannerView.isDeviceSupported {
+                Button {
+                    Task { await startScan() }
+                } label: {
+                    Label(barcode.isEmpty ? "Scan barcode" : "Scan again", systemImage: "barcode.viewfinder")
+                }
+            }
+            BarcodeLookupStatus(state: lookupState)
+        } header: {
+            Text("Barcode")
+        } footer: {
+            Text("Scanning fills in the name and brand when the product is known.")
+        }
+        .pfRows()
+    }
+
+    private func startScan() async {
+        let allowed = await CameraAccess.request()
+        if allowed && BarcodeScannerView.isSupported {
+            if lookupState == .cameraOff { lookupState = .idle }
+            showingScanner = true
+        } else {
+            lookupState = .cameraOff
         }
     }
 
@@ -567,7 +614,7 @@ struct AddOwnedGearSheet: View {
         lookupState = .looking
         do {
             let product = try await GearProductLookup.lookup(code)
-            if name.isEmpty { name = product.title }
+            if trimmedName.isEmpty { name = product.title }
             if brand.isEmpty, let b = product.brand { brand = b }
             lookupState = .found(product.title)
         } catch GearProductLookup.LookupError.notFound {
@@ -579,37 +626,49 @@ struct AddOwnedGearSheet: View {
 
     private func save() {
         let consumable = category.isConsumable
-        var item = OwnedGear(
-            category: category,
-            name: name,
-            brand: brand.isEmpty ? nil : brand,
-            specs: specs.isEmpty ? nil : specs,
-            stock: consumable ? stock : nil,
-            lowStockThreshold: consumable ? lowStockThreshold : nil,
-            barcode: barcode.isEmpty ? nil : barcode
-        )
-        // Saved under the item's own id so it travels with the record and is
-        // picked up by the existing photo backup.
-        if let photo, let filename = try? PhotoManager.save(photo, id: "gear_\(item.id)") {
-            item.photoPath = filename
-        }
+        var item = editing ?? OwnedGear(category: category, name: trimmedName)
+        item.category = category
+        item.name = trimmedName
+        item.brand = brand.isEmpty ? nil : brand
+        item.specs = specs.isEmpty ? nil : specs
+        item.stock = consumable ? stock : nil
+        item.lowStockThreshold = consumable ? lowStockThreshold : nil
+        item.barcode = barcode.isEmpty ? nil : barcode
+        savePhoto(into: &item)
         try? appState.ownedGearRepository.save(&item)
         if item.isLowStock {
             Task { await NotificationManager.shared.scheduleLowStockAlert(item: item) }
+        } else if editing != nil {
+            NotificationManager.shared.cancelLowStockAlert(itemId: item.id)
         }
-        ToastCenter.shared.show("Gear saved")
+        ToastCenter.shared.show(editing == nil ? "Gear added" : "Gear updated")
         dismiss()
+    }
+
+    /// Saved under the item's own id so it travels with the record and is
+    /// picked up by the existing photo backup.
+    private func savePhoto(into item: inout OwnedGear) {
+        if let old = editing?.photoPath {
+            // Delete first even when replacing: it clears the cached
+            // thumbnail, otherwise the row would keep showing the old
+            // picture at the same filename.
+            PhotoManager.delete(old)
+        }
+        item.photoPath = photo.flatMap { try? PhotoManager.save($0, id: "gear_\(item.id)") }
     }
 }
 
 // MARK: - Barcode lookup status
 
 enum BarcodeLookupState: Equatable {
-    case idle, looking, found(String), notFound, invalid, offline
+    case idle, looking, found(String), notFound, invalid, offline, cameraOff
 }
 
+/// One row under the scan button saying what the last scan found, or why
+/// scanning can't start.
 struct BarcodeLookupStatus: View {
     let state: BarcodeLookupState
+    @Environment(\.openURL) private var openURL
 
     var body: some View {
         switch state {
@@ -617,25 +676,60 @@ struct BarcodeLookupStatus: View {
             EmptyView()
         case .looking:
             Label { Text("Looking up the product") } icon: { ProgressView() }
-                .font(.caption).foregroundStyle(.secondary)
+                .font(.footnote).foregroundStyle(.dsText2)
         case .found(let title):
             Label("Found \(title)", systemImage: "checkmark.circle.fill")
-                .font(.caption).foregroundStyle(.green)
+                .font(.footnote).foregroundStyle(.dsScoreGood)
         case .notFound:
             Label("Barcode saved. No match found, so add the details yourself.", systemImage: "questionmark.circle")
-                .font(.caption).foregroundStyle(.secondary)
+                .font(.footnote).foregroundStyle(.dsText2)
         case .invalid:
-            Label("That doesn't look like a valid product barcode.", systemImage: "exclamationmark.triangle")
-                .font(.caption).foregroundStyle(.orange)
+            Label("That doesn't look like a product barcode. Try again.", systemImage: "exclamationmark.triangle")
+                .font(.footnote).foregroundStyle(.dsScoreLow)
         case .offline:
             Label("Barcode saved. The product database could not be reached, so add the details yourself.", systemImage: "wifi.slash")
-                .font(.caption).foregroundStyle(.secondary)
+                .font(.footnote).foregroundStyle(.dsText2)
+        case .cameraOff:
+            cameraOff
+        }
+    }
+
+    private var cameraOff: some View {
+        VStack(alignment: .leading, spacing: DS.Space.s2) {
+            Label("Camera access is off. Allow it in Settings to scan barcodes.", systemImage: "camera.badge.ellipsis")
+                .font(.footnote)
+                .foregroundStyle(.dsText2)
+            Button("Open Settings") {
+                if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
+            }
+            .buttonStyle(TonalButtonStyle(fullWidth: false))
+        }
+        .padding(.vertical, DS.Space.s1)
+    }
+}
+
+// MARK: - Gear catalog
+
+/// The catalog in its own sheet, opened from the tackle box.
+struct GearCatalogSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            GearCatalogBrowser()
+                .navigationTitle("Gear catalog")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Done") { dismiss() }
+                    }
+                }
         }
     }
 }
 
-// MARK: - Gear Catalog Browser
-
+/// Popular gear to add to the tackle box in one tap: a plain list grouped by
+/// category, filtered by chips and searched from the bar.
 struct GearCatalogBrowser: View {
     @Environment(AppState.self) private var appState
     @State private var items: [GearItem] = []
@@ -643,18 +737,20 @@ struct GearCatalogBrowser: View {
     @State private var searchText = ""
     @State private var selectedCategory: GearItem.GearCategory?
     @State private var didLoad = false
+    @State private var retrying = false
 
     var filtered: [GearItem] {
         var result = items
         if let cat = selectedCategory {
             result = result.filter { $0.category == cat }
         }
-        if !searchText.isEmpty {
+        let q = searchText.trimmingCharacters(in: .whitespaces)
+        if !q.isEmpty {
             result = result.filter {
-                $0.brand.localizedCaseInsensitiveContains(searchText) ||
-                $0.model.localizedCaseInsensitiveContains(searchText) ||
-                ($0.type ?? "").localizedCaseInsensitiveContains(searchText) ||
-                ($0.targetSpecies ?? "").localizedCaseInsensitiveContains(searchText)
+                $0.brand.localizedCaseInsensitiveContains(q) ||
+                $0.model.localizedCaseInsensitiveContains(q) ||
+                ($0.type ?? "").localizedCaseInsensitiveContains(q) ||
+                ($0.targetSpecies ?? "").localizedCaseInsensitiveContains(q)
             }
         }
         return result
@@ -670,87 +766,98 @@ struct GearCatalogBrowser: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            // The row used to be pinned to a hard 46pt. Chips are taller than
-            // that once they have an icon, so the content overflowed its own
-            // scroll view and could be dragged around inside it. It sizes to
-            // its content now, and only bounces along the axis it scrolls.
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 6) {
-                    Chip("All", isSelected: selectedCategory == nil) {
-                        selectedCategory = nil
-                    }
-                    ForEach(GearItem.GearCategory.allCases, id: \.self) { cat in
-                        Chip(cat.rawValue, systemImage: GearItem.icon(for: cat),
-                             isSelected: selectedCategory == cat) {
-                            selectedCategory = selectedCategory == cat ? nil : cat
-                        }
+        List {
+            Section {
+                chips.dsListRow()
+            }
+            ForEach(grouped, id: \.category) { group in
+                Section {
+                    SectionTitle(group.category.plural, detail: "\(group.items.count)")
+                        .padding(.top, DS.Space.s4)
+                        .dsListRow()
+                    ForEach(group.items) { item in
+                        GearCatalogRow(item: item, isOwned: ownedNames.contains(item.model),
+                                       onAdded: { ownedNames.insert(item.model) })
+                            .dsListRow()
                     }
                 }
-                .padding(.horizontal, DS.gutter)
-                .padding(.vertical, 6)
             }
-            .scrollBounceBehavior(.basedOnSize, axes: [.vertical])
-            .fixedSize(horizontal: false, vertical: true)
+        }
+        .dsPlainList()
+        .detailScrollEdge()
+        .overlay { stateOverlay }
+        .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always),
+                    prompt: "Brand, model, type or species")
+        .task { await load() }
+    }
 
-            if !didLoad && items.isEmpty {
-                // First open (catalog still syncing from the cloud).
-                FishLoader(message: "Loading the gear catalog")
-                    .frame(maxHeight: .infinity)
-            } else if filtered.isEmpty {
-                ContentUnavailableView(
-                    "No gear found",
-                    systemImage: "backpack",
-                    description: Text("Try a different search or category.")
-                )
-                .frame(maxHeight: .infinity)
-            } else {
-                List {
-                    ForEach(grouped, id: \.category) { group in
-                        Section {
-                            ForEach(group.items) { item in
-                                GearCatalogRow(
-                                    item: item,
-                                    isOwned: ownedNames.contains(item.model),
-                                    onAdded: { ownedNames.insert(item.model) }
-                                )
-                            }
-                        } header: {
-                            HStack {
-                                Label("\(group.category.rawValue)s", systemImage: GearItem.icon(for: group.category))
-                                Spacer()
-                                Text("\(group.items.count)")
-                                    .monospacedDigit()
-                            }
-                        }
-                        .pfRows()
+    private var chips: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                Chip("All", isSelected: selectedCategory == nil) {
+                    selectedCategory = nil
+                }
+                ForEach(GearItem.GearCategory.allCases, id: \.self) { cat in
+                    Chip(cat.plural, isSelected: selectedCategory == cat) {
+                        selectedCategory = selectedCategory == cat ? nil : cat
                     }
                 }
-                .listStyle(.insetGrouped)
-                .scrollContentBackground(.hidden)
-                .detailScrollEdge()
-                .task {
-                    // Pull the latest published catalog in the background; once
-                    // synced it's stored locally, so browsing works offline.
-                    await GearCatalogSync.syncIfDue(db: appState.db)
-                    items = (try? appState.gearCatalogRepository.fetchAll()) ?? []
-                }
+            }
+            .padding(.horizontal, DS.gutter)
+            .padding(.vertical, DS.Space.s1)
+        }
+        .scrollBounceBehavior(.basedOnSize, axes: [.horizontal])
+    }
+
+    @ViewBuilder
+    private var stateOverlay: some View {
+        if !didLoad {
+            // First open, catalog still downloading.
+            FishLoader(message: "Loading the gear catalog")
+        } else if items.isEmpty {
+            notDownloaded
+        } else if filtered.isEmpty {
+            if searchText.trimmingCharacters(in: .whitespaces).isEmpty {
+                ContentUnavailableView("Nothing in this category", systemImage: "line.3.horizontal.decrease",
+                                       description: Text("Pick another category."))
+            } else {
+                ContentUnavailableView.search(text: searchText)
             }
         }
-        .dsScreenBackground()
-        .searchable(text: $searchText, prompt: "Brand, model, type or species")
-        .task {
-            items = (try? appState.gearCatalogRepository.fetchAll()) ?? []
-            let owned = (try? appState.ownedGearRepository.fetchAll()) ?? []
-            ownedNames = Set(owned.map(\.name))
-            // If the catalog hasn't landed yet (first launch, still syncing),
-            // wait briefly and re-read so the loader gives way to real content.
-            if items.isEmpty {
-                await GearCatalogSync.syncIfDue(db: appState.db)
-                items = (try? appState.gearCatalogRepository.fetchAll()) ?? []
-            }
-            didLoad = true
+    }
+
+    private var notDownloaded: some View {
+        ContentUnavailableView {
+            Label("Catalog not downloaded yet", systemImage: "wifi.slash")
+        } description: {
+            Text("It downloads once when you have signal, then works offline.")
+        } actions: {
+            Button("Try again") { Task { await retry() } }
+                .buttonStyle(TonalButtonStyle(fullWidth: false))
+                .disabled(retrying)
         }
+    }
+
+    private func fetch() -> [GearItem] {
+        (try? appState.gearCatalogRepository.fetchAll()) ?? []
+    }
+
+    private func load() async {
+        items = fetch()
+        let owned = (try? appState.ownedGearRepository.fetchAll()) ?? []
+        ownedNames = Set(owned.map(\.name))
+        // Show the local copy straight away; pull new items in the background.
+        if !items.isEmpty { didLoad = true }
+        await GearCatalogSync.syncIfDue(db: appState.db)
+        items = fetch()
+        didLoad = true
+    }
+
+    private func retry() async {
+        retrying = true
+        await GearCatalogSync.syncIfDue(db: appState.db, force: true)
+        items = fetch()
+        retrying = false
     }
 }
 
@@ -767,84 +874,10 @@ extension GearItem {
         case .accessory: "backpack.fill"
         }
     }
-}
 
-struct GearCatalogRow: View {
-    @Environment(AppState.self) private var appState
-    let item: GearItem
-    let isOwned: Bool
-    var onAdded: (() -> Void)?
-
-    var body: some View {
-        HStack(spacing: 12) {
-            if item.category == .lure || item.category == .bait {
-                LureArtView(name: item.displayName, size: 44)
-                    .accessibilityHidden(true)
-            } else {
-                ThumbView(systemImage: GearItem.icon(for: item.category), tint: .orange, size: 44)
-            }
-
-            VStack(alignment: .leading, spacing: 3) {
-                Text(item.displayName)
-                    .font(.subheadline.bold())
-                    .lineLimit(2)
-
-                HStack(spacing: 0) {
-                    if let type = item.type {
-                        Text(type)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    if let specs = item.specs {
-                        Text(item.type != nil ? ", \(specs)" : specs)
-                            .font(.caption)
-                            .foregroundStyle(.tertiary)
-                            .lineLimit(1)
-                    }
-                }
-
-                HStack(spacing: 6) {
-                    if let target = item.targetSpecies {
-                        Text(target)
-                            .font(.caption2)
-                            .lineLimit(1)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(Color.dsFill2, in: Capsule())
-                            .foregroundStyle(.dsText)
-                    }
-                    if let price = item.priceRange {
-                        Text(price)
-                            .font(.caption2.bold())
-                            .foregroundStyle(.secondary)
-                    }
-                }
-            }
-
-            Spacer(minLength: 8)
-
-            if isOwned {
-                Image(systemName: "checkmark.circle.fill")
-                    .font(.title3)
-                    .foregroundStyle(.tint)
-                    .accessibilityLabel("In your tackle box")
-            } else {
-                Button {
-                    addToMyGear()
-                } label: {
-                    Image(systemName: "plus.circle.fill")
-                        .font(.title3)
-                        .foregroundStyle(.tint)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Add \(item.displayName) to your tackle box")
-            }
-        }
-        .padding(.vertical, 4)
-    }
-
-    private func addToMyGear() {
-        let category: OwnedGear.Category = switch item.category {
+    /// The tackle box category an item is added under.
+    var ownedCategory: OwnedGear.Category {
+        switch category {
         case .rod: .rod
         case .reel: .reel
         case .lure: .lure
@@ -853,8 +886,98 @@ struct GearCatalogRow: View {
         case .hook: .hook
         case .terminal, .accessory: .accessory
         }
+    }
+}
+
+extension GearItem.GearCategory {
+    /// Group and chip label, in sentence case.
+    var plural: String {
+        switch self {
+        case .rod: "Rods"
+        case .reel: "Reels"
+        case .lure: "Lures"
+        case .bait: "Bait"
+        case .line: "Line"
+        case .hook: "Hooks"
+        case .terminal: "Terminal tackle"
+        case .accessory: "Accessories"
+        }
+    }
+}
+
+/// A catalog item: its art, type and specs, the species it's for and the
+/// price band, with a button to add it to the tackle box.
+struct GearCatalogRow: View {
+    @Environment(AppState.self) private var appState
+    let item: GearItem
+    let isOwned: Bool
+    var onAdded: (() -> Void)?
+
+    /// Type and specs on the line above the name ("Spinning, 2-piece").
+    private var over: String? {
+        let type = item.type.map(Self.sentenceCase)
+        let parts = [type, item.specs].compactMap { $0 }.filter { !$0.isEmpty }
+        return parts.isEmpty ? nil : parts.joined(separator: ", ")
+    }
+
+    var body: some View {
+        HStack(spacing: 0) {
+            ArtRow(over: over, title: item.displayName, subtitle: item.targetSpecies,
+                   subtitleIcon: item.targetSpecies == nil ? nil : "fish") {
+                art
+            } trailing: {
+                if let price = item.priceRange {
+                    Text(price)
+                        .font(.subheadline)
+                        .foregroundStyle(.dsText2)
+                        .accessibilityLabel("Price band \(price.count) of 4")
+                }
+            }
+            addButton
+                .padding(.trailing, DS.gutter)
+        }
+    }
+
+    @ViewBuilder
+    private var art: some View {
+        switch item.category {
+        case .lure, .bait:
+            LureArtView(name: item.displayName, size: 52)
+        case .terminal:
+            ThumbView(systemImage: GearItem.icon(for: .terminal), tint: .gray, size: 52)
+        default:
+            GearThumbnail(photoPath: nil, category: item.ownedCategory, size: 52)
+        }
+    }
+
+    @ViewBuilder
+    private var addButton: some View {
+        if isOwned {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.title2)
+                .foregroundStyle(.dsScoreGood)
+                .frame(minWidth: 44, minHeight: 44)
+                .accessibilityLabel("In your tackle box")
+        } else {
+            Button(action: addToMyGear) {
+                Image(systemName: "plus.circle.fill")
+                    .font(.title2)
+                    .foregroundStyle(.tint)
+                    .frame(minWidth: 44, minHeight: 44)
+            }
+            .buttonStyle(.dim)
+            .accessibilityLabel("Add \(item.displayName) to your tackle box")
+        }
+    }
+
+    private static func sentenceCase(_ text: String) -> String {
+        guard let first = text.first else { return text }
+        return String(first) + text.dropFirst().lowercased()
+    }
+
+    private func addToMyGear() {
         var gear = OwnedGear(
-            category: category,
+            category: item.ownedCategory,
             name: item.model,
             brand: item.brand,
             specs: {
@@ -866,78 +989,91 @@ struct GearCatalogRow: View {
         ToastCenter.shared.show("Added to your tackle box")
         withAnimation { onAdded?() }
     }
-
 }
 
-// MARK: - Existing Support Views
+// MARK: - Preset form
 
+/// Create a new preset.
 struct AddGearSheet: View {
+    var body: some View { PresetSheet() }
+}
+
+/// Edit a saved preset.
+struct EditLoadoutSheet: View {
+    let loadout: GearLoadout
+    var body: some View { PresetSheet(editing: loadout) }
+}
+
+/// The one form for adding and editing presets: the lure's picture and name
+/// on top, then rod and reel, lure or bait and technique as labelled rows.
+/// Gear the angler owns is offered as a menu, with Custom for anything else.
+struct PresetSheet: View {
     @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss
 
-    @State private var name = ""
-    @State private var rod = ""
-    @State private var reel = ""
-    @State private var lineLb = ""
-    @State private var leaderLb = ""
-    @State private var lure = ""
-    @State private var lureColor = ""
-    @State private var lureWeightG = ""
-    @State private var technique = ""
+    let editing: GearLoadout?
+    @State private var name: String
+    @State private var rod: String
+    @State private var reel: String
+    @State private var lineLb: String
+    @State private var leaderLb: String
+    @State private var lure: String
+    @State private var lureColor: String
+    @State private var lureWeightG: String
+    @State private var technique: String
     @State private var ownedGear: [OwnedGear] = []
+
+    init(editing: GearLoadout? = nil) {
+        self.editing = editing
+        _name = State(initialValue: editing?.name ?? "")
+        _rod = State(initialValue: editing?.rod ?? "")
+        _reel = State(initialValue: editing?.reel ?? "")
+        _lineLb = State(initialValue: editing?.lineLb.map(Self.number) ?? "")
+        _leaderLb = State(initialValue: editing?.leaderLb.map(Self.number) ?? "")
+        _lure = State(initialValue: editing?.lure ?? "")
+        _lureColor = State(initialValue: editing?.lureColor ?? "")
+        _lureWeightG = State(initialValue: editing?.lureWeightG.map(Self.number) ?? "")
+        _technique = State(initialValue: editing?.technique ?? "")
+    }
+
+    /// "10" rather than "10.0" for whole numbers.
+    static func number(_ value: Double) -> String {
+        value.formatted(.number.precision(.fractionLength(0...2)).grouping(.never))
+    }
+
+    private var trimmedName: String { name.trimmingCharacters(in: .whitespaces) }
 
     var body: some View {
         NavigationStack {
-            Form {
+            List {
                 Section {
                     PresetDraftHeader(name: name, lure: lure)
-                        .listRowBackground(Color.clear)
-                        .listRowSeparator(.hidden)
+                        .gearFormBareRow()
                 }
-                Section("Name") {
-                    TextField("For example, bass finesse setup", text: $name)
-                }
-                .pfRows()
-                Section("Rod and reel") {
-                    loadoutGearPicker(category: .rod, selection: $rod, placeholder: "Rod")
-                    loadoutGearPicker(category: .reel, selection: $reel, placeholder: "Reel")
-                    HStack {
-                        TextField("Line", text: $lineLb)
-                            .keyboardType(.decimalPad)
-                        Text("lb").foregroundStyle(.secondary)
-                    }
-                    HStack {
-                        TextField("Leader", text: $leaderLb)
-                            .keyboardType(.decimalPad)
-                        Text("lb").foregroundStyle(.secondary)
-                    }
+                Section {
+                    GearFormField("Name", text: $name, prompt: "Bass finesse")
                 }
                 .pfRows()
-                Section("Lure or bait") {
-                    loadoutGearPicker(category: .lure, selection: $lure, placeholder: "Lure or bait")
-                    TextField("Colour", text: $lureColor)
-                    HStack {
-                        TextField("Weight", text: $lureWeightG)
-                            .keyboardType(.decimalPad)
-                        Text("g").foregroundStyle(.secondary)
-                    }
-                }
-                .pfRows()
-                Section("Technique") {
+                rodSection
+                lureSection
+                Section {
                     TechniquePicker(selection: $technique)
+                } header: {
+                    Text("Technique")
                 }
                 .pfRows()
             }
             .gearFormStyle()
-            .navigationTitle("New preset")
+            .navigationTitle(editing == nil ? "New preset" : "Edit preset")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") { save() }
-                        .disabled(name.isEmpty)
+                    Button(editing == nil ? "Add" : "Save", action: save)
+                        .bold()
+                        .disabled(trimmedName.isEmpty)
                 }
             }
             .task {
@@ -946,39 +1082,77 @@ struct AddGearSheet: View {
         }
     }
 
+    private var rodSection: some View {
+        Section {
+            gearPicker(.rod, selection: $rod, placeholder: "Rod")
+            gearPicker(.reel, selection: $reel, placeholder: "Reel")
+            GearFormField("Line", text: $lineLb, prompt: "Optional", keyboard: .decimalPad, unit: "lb")
+            GearFormField("Leader", text: $leaderLb, prompt: "Optional", keyboard: .decimalPad, unit: "lb")
+        } header: {
+            Text("Rod and reel")
+        }
+        .pfRows()
+    }
+
+    private var lureSection: some View {
+        Section {
+            gearPicker(.lure, selection: $lure, placeholder: "Lure or bait")
+            colourRow
+            GearFormField("Weight", text: $lureWeightG, prompt: "Optional", keyboard: .decimalPad, unit: "g")
+        } header: {
+            Text("Lure or bait")
+        }
+        .pfRows()
+    }
+
+    private var colourRow: some View {
+        LabeledContent("Colour") {
+            HStack(spacing: DS.Space.s2) {
+                TextField("Colour", text: $lureColor, prompt: Text("Green pumpkin"))
+                    .multilineTextAlignment(.trailing)
+                if LureColorSwatch.isKnown(lureColor) {
+                    LureColorSwatch(name: lureColor, size: 18)
+                }
+            }
+        }
+    }
+
+    /// Owned gear of that kind as a menu with Custom, or a plain labelled
+    /// field when the tackle box has none.
     @ViewBuilder
-    private func loadoutGearPicker(category: OwnedGear.Category, selection: Binding<String>, placeholder: String) -> some View {
+    private func gearPicker(_ category: OwnedGear.Category, selection: Binding<String>,
+                            placeholder: String) -> some View {
         let items = ownedGear.filter { $0.category == category }
         if items.isEmpty {
-            TextField(placeholder, text: selection)
+            GearFormField(placeholder, text: selection, prompt: "Optional")
         } else {
-            // Shared picker: custom mode is tracked separately from the
-            // value, so typing a custom name doesn't dismiss the field.
             GearFieldPicker(placeholder: placeholder, items: items, selection: selection)
         }
     }
 
+    private func clean(_ value: String) -> String? {
+        let trimmed = value.trimmingCharacters(in: .whitespaces)
+        return trimmed.isEmpty || trimmed == GearFieldPicker.customTag ? nil : trimmed
+    }
+
     private func save() {
-        let cleanRod = rod == "__custom__" ? "" : rod
-        let cleanReel = reel == "__custom__" ? "" : reel
-        let cleanLure = lure == "__custom__" ? "" : lure
-        let cleanTechnique = technique == "__custom__" ? "" : technique
-        var loadout = GearLoadout(
-            name: name,
-            rod: cleanRod.isEmpty ? nil : cleanRod,
-            reel: cleanReel.isEmpty ? nil : cleanReel,
-            lineLb: Double(lineLb),
-            leaderLb: Double(leaderLb),
-            lure: cleanLure.isEmpty ? nil : cleanLure,
-            lureColor: lureColor.isEmpty ? nil : lureColor,
-            lureWeightG: Double(lureWeightG),
-            technique: cleanTechnique.isEmpty ? nil : cleanTechnique
-        )
+        var loadout = editing ?? GearLoadout(name: trimmedName)
+        loadout.name = trimmedName
+        loadout.rod = clean(rod)
+        loadout.reel = clean(reel)
+        loadout.lineLb = lineLb.measurementValue
+        loadout.leaderLb = leaderLb.measurementValue
+        loadout.lure = clean(lure)
+        loadout.lureColor = clean(lureColor)
+        loadout.lureWeightG = lureWeightG.measurementValue
+        loadout.technique = clean(technique)
         try? appState.gearRepository.save(&loadout)
-        ToastCenter.shared.show("Preset saved")
+        ToastCenter.shared.show(editing == nil ? "Preset added" : "Preset updated")
         dismiss()
     }
 }
+
+// MARK: - Preset detail
 
 struct GearDetailSheet: View {
     @Environment(AppState.self) private var appState
@@ -992,12 +1166,12 @@ struct GearDetailSheet: View {
         var result: [(String, String)] = []
         if let rod = loadout.rod { result.append(("Rod", rod)) }
         if let reel = loadout.reel { result.append(("Reel", reel)) }
-        if let line = loadout.lineLb { result.append(("Line", "\(Int(line)) lb")) }
-        if let leader = loadout.leaderLb { result.append(("Leader", "\(Int(leader)) lb")) }
+        if let line = loadout.lineLb { result.append(("Line", "\(PresetSheet.number(line)) lb")) }
+        if let leader = loadout.leaderLb { result.append(("Leader", "\(PresetSheet.number(leader)) lb")) }
         if let lure = loadout.lure { result.append(("Lure", lure)) }
         if let color = loadout.lureColor { result.append(("Colour", color)) }
-        if let weight = loadout.lureWeightG { result.append(("Lure weight", "\(Int(weight)) g")) }
-        if let technique = loadout.technique { result.append(("Technique", technique)) }
+        if let weight = loadout.lureWeightG { result.append(("Lure weight", "\(PresetSheet.number(weight)) g")) }
+        if let technique = loadout.technique { result.append(("Technique", FishingTechniques.label(for: technique))) }
         return result
     }
 
@@ -1005,40 +1179,11 @@ struct GearDetailSheet: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: DS.Space.s5) {
-                    VStack(alignment: .leading, spacing: DS.Space.s4) {
-                        if let lure = loadout.lure, !lure.isEmpty {
-                            LureArtView(name: lure, size: 96)
-                                .padding(.horizontal, DS.gutter)
-                                .accessibilityHidden(true)
-                        }
-                        DetailHeader(over: "Preset", title: loadout.name, subtitle: caughtLine)
-                    }
-
+                    header
                     if onEdit != nil || onDelete != nil {
-                        ActionTriple {
-                            if let onEdit {
-                                Button { onEdit(loadout) } label: {
-                                    Label("Edit", systemImage: "pencil")
-                                }
-                                .buttonStyle(ActionTileStyle(.primary))
-                            }
-                            if let onDelete {
-                                Button { onDelete(loadout) } label: {
-                                    Label("Delete", systemImage: "trash")
-                                }
-                                .buttonStyle(ActionTileStyle(.destructive))
-                            }
-                        }
+                        actions
                     }
-
-                    VStack(alignment: .leading, spacing: 0) {
-                        SectionTitle("Setup")
-                        if rows.isEmpty {
-                            PFFootnote("Nothing in this preset yet. Edit it to add a rod, reel and lure.")
-                        } else {
-                            KeyValueList(rows: rows)
-                        }
-                    }
+                    setup
                 }
                 .padding(.vertical, DS.Space.s4)
                 .pageWidth()
@@ -1056,6 +1201,51 @@ struct GearDetailSheet: View {
         }
     }
 
+    private var header: some View {
+        VStack(alignment: .leading, spacing: DS.Space.s4) {
+            if let lure = loadout.lure, !lure.isEmpty {
+                LureArtView(name: lure, size: 96)
+                    .padding(.horizontal, DS.gutter)
+                    .accessibilityHidden(true)
+            }
+            DetailHeader(over: "Preset", title: loadout.name, subtitle: caughtLine)
+        }
+    }
+
+    private var actions: some View {
+        ActionTriple {
+            if let onEdit {
+                Button { onEdit(loadout) } label: {
+                    Label("Edit", systemImage: "pencil")
+                }
+                .buttonStyle(ActionTileStyle(.primary))
+            }
+            if let onDelete {
+                Button { onDelete(loadout) } label: {
+                    Label("Delete", systemImage: "trash")
+                }
+                .buttonStyle(ActionTileStyle(.destructive))
+            }
+        }
+    }
+
+    private var setup: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            SectionTitle("Setup")
+            if rows.isEmpty {
+                if let onEdit {
+                    InlineEmpty(systemImage: "square.stack.3d.up",
+                                text: "Nothing in this preset yet. Add a rod, reel and lure.",
+                                actionTitle: "Edit preset") { onEdit(loadout) }
+                } else {
+                    InlineEmpty(systemImage: "square.stack.3d.up", text: "Nothing in this preset yet.")
+                }
+            } else {
+                KeyValueList(rows: rows)
+            }
+        }
+    }
+
     private var caughtLine: String? {
         let n = GearStats.catchCount(for: loadout, in: catches)
         guard n > 0 else { return nil }
@@ -1063,244 +1253,20 @@ struct GearDetailSheet: View {
     }
 }
 
-// MARK: - Edit Owned Gear Sheet
-
-struct EditOwnedGearSheet: View {
-    @Environment(AppState.self) private var appState
-    @Environment(\.dismiss) private var dismiss
-
-    let gear: OwnedGear
-    @State private var category: OwnedGear.Category
-    @State private var name: String
-    @State private var brand: String
-    @State private var specs: String
-    @State private var stock: Int
-    @State private var lowStockThreshold: Int
-    @State private var photo: UIImage?
-
-    init(gear: OwnedGear) {
-        self.gear = gear
-        _category = State(initialValue: gear.category)
-        _name = State(initialValue: gear.name)
-        _brand = State(initialValue: gear.brand ?? "")
-        _specs = State(initialValue: gear.specs ?? "")
-        _stock = State(initialValue: gear.stock ?? 0)
-        _lowStockThreshold = State(initialValue: gear.lowStockThreshold ?? 2)
-        _photo = State(initialValue: gear.photoPath.flatMap { PhotoManager.load($0) })
-    }
-
-    var body: some View {
-        NavigationStack {
-            Form {
-                Section {
-                    GearPhotoField(image: $photo)
-                        .listRowInsets(EdgeInsets())
-                        .listRowBackground(Color.clear)
-                }
-                Section {
-                    GearCategoryChips(selection: $category, inset: 0)
-                        .gearFormBareRow()
-                } header: {
-                    Text("Type")
-                }
-                Section("Details") {
-                    TextField("Name", text: $name)
-                    TextField("Brand (optional)", text: $brand)
-                    TextField("Specs or notes (optional)", text: $specs)
-                }
-                .pfRows()
-                if category.isConsumable {
-                    Section("Stock") {
-                        GearStockRow(title: "In stock", value: $stock, range: 0...999)
-                        GearStockRow(title: "Remind me at", value: $lowStockThreshold, range: 0...99)
-                    }
-                    .pfRows()
-                }
-                if let code = gear.barcode {
-                    Section("Barcode") {
-                        Label(code, systemImage: "barcode")
-                            .font(.subheadline.monospaced())
-                            .textSelection(.enabled)
-                    }
-                    .pfRows()
-                }
-            }
-            .gearFormStyle()
-            .navigationTitle("Edit gear")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
-                        var updated = gear
-                        updated.category = category
-                        updated.name = name
-                        updated.brand = brand.isEmpty ? nil : brand
-                        updated.specs = specs.isEmpty ? nil : specs
-                        let consumable = category.isConsumable
-                        updated.stock = consumable ? stock : nil
-                        updated.lowStockThreshold = consumable ? lowStockThreshold : nil
-                        // Delete first even when replacing: it clears the
-                        // cached thumbnail, otherwise the row would keep
-                        // showing the old picture at the same filename.
-                        if let old = gear.photoPath { PhotoManager.delete(old) }
-                        updated.photoPath = photo.flatMap {
-                            try? PhotoManager.save($0, id: "gear_\(gear.id)")
-                        }
-                        try? appState.ownedGearRepository.save(&updated)
-                        if updated.isLowStock {
-                            Task { await NotificationManager.shared.scheduleLowStockAlert(item: updated) }
-                        } else {
-                            NotificationManager.shared.cancelLowStockAlert(itemId: updated.id)
-                        }
-                        ToastCenter.shared.show("Gear updated")
-                        dismiss()
-                    }
-                    .disabled(name.isEmpty)
-                }
-            }
-        }
-    }
-}
-
-// MARK: - Edit Loadout Preset Sheet
-
-struct EditLoadoutSheet: View {
-    @Environment(AppState.self) private var appState
-    @Environment(\.dismiss) private var dismiss
-
-    let loadout: GearLoadout
-    @State private var name: String
-    @State private var rod: String
-    @State private var reel: String
-    @State private var lineLb: String
-    @State private var leaderLb: String
-    @State private var lure: String
-    @State private var lureColor: String
-    @State private var lureWeightG: String
-    @State private var technique: String
-    @State private var ownedGear: [OwnedGear] = []
-
-    init(loadout: GearLoadout) {
-        self.loadout = loadout
-        _name = State(initialValue: loadout.name)
-        _rod = State(initialValue: loadout.rod ?? "")
-        _reel = State(initialValue: loadout.reel ?? "")
-        _lineLb = State(initialValue: loadout.lineLb.map { String($0) } ?? "")
-        _leaderLb = State(initialValue: loadout.leaderLb.map { String($0) } ?? "")
-        _lure = State(initialValue: loadout.lure ?? "")
-        _lureColor = State(initialValue: loadout.lureColor ?? "")
-        _lureWeightG = State(initialValue: loadout.lureWeightG.map { String($0) } ?? "")
-        _technique = State(initialValue: loadout.technique ?? "")
-    }
-
-    var body: some View {
-        NavigationStack {
-            Form {
-                Section {
-                    PresetDraftHeader(name: name, lure: lure)
-                        .listRowBackground(Color.clear)
-                        .listRowSeparator(.hidden)
-                }
-                Section("Name") {
-                    TextField("Preset name", text: $name)
-                }
-                .pfRows()
-                Section("Rod and reel") {
-                    loadoutGearPicker(category: .rod, selection: $rod, placeholder: "Rod")
-                    loadoutGearPicker(category: .reel, selection: $reel, placeholder: "Reel")
-                    HStack {
-                        TextField("Line", text: $lineLb)
-                            .keyboardType(.decimalPad)
-                        Text("lb").foregroundStyle(.secondary)
-                    }
-                    HStack {
-                        TextField("Leader", text: $leaderLb)
-                            .keyboardType(.decimalPad)
-                        Text("lb").foregroundStyle(.secondary)
-                    }
-                }
-                .pfRows()
-                Section("Lure or bait") {
-                    loadoutGearPicker(category: .lure, selection: $lure, placeholder: "Lure or bait")
-                    TextField("Colour", text: $lureColor)
-                    HStack {
-                        TextField("Weight", text: $lureWeightG)
-                            .keyboardType(.decimalPad)
-                        Text("g").foregroundStyle(.secondary)
-                    }
-                }
-                .pfRows()
-                Section("Technique") {
-                    TechniquePicker(selection: $technique)
-                }
-                .pfRows()
-            }
-            .gearFormStyle()
-            .navigationTitle("Edit preset")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
-                        var updated = loadout
-                        updated.name = name
-                        let cleanRod = rod == "__custom__" ? "" : rod
-                        let cleanReel = reel == "__custom__" ? "" : reel
-                        let cleanLure = lure == "__custom__" ? "" : lure
-                        let cleanTechnique = technique == "__custom__" ? "" : technique
-                        updated.rod = cleanRod.isEmpty ? nil : cleanRod
-                        updated.reel = cleanReel.isEmpty ? nil : cleanReel
-                        updated.lineLb = Double(lineLb)
-                        updated.leaderLb = Double(leaderLb)
-                        updated.lure = cleanLure.isEmpty ? nil : cleanLure
-                        updated.lureColor = lureColor.isEmpty ? nil : lureColor
-                        updated.lureWeightG = Double(lureWeightG)
-                        updated.technique = cleanTechnique.isEmpty ? nil : cleanTechnique
-                        try? appState.gearRepository.save(&updated)
-                        ToastCenter.shared.show("Preset updated")
-                        dismiss()
-                    }
-                    .disabled(name.isEmpty)
-                }
-            }
-            .task {
-                ownedGear = (try? appState.ownedGearRepository.fetchAll()) ?? []
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func loadoutGearPicker(category: OwnedGear.Category, selection: Binding<String>, placeholder: String) -> some View {
-        let items = ownedGear.filter { $0.category == category }
-        if items.isEmpty {
-            TextField(placeholder, text: selection)
-        } else {
-            // Shared picker: custom mode is tracked separately from the
-            // value, so typing a custom name doesn't dismiss the field.
-            GearFieldPicker(placeholder: placeholder, items: items, selection: selection)
-        }
-    }
-}
-
-// MARK: - Sheet pieces
+// MARK: - Form pieces
 
 extension View {
-    /// The add and edit gear forms on the page background with `dsFill`
-    /// rows, like the settings pages, and a hard edge under the title.
+    /// The gear forms: an inset grouped list on the page background with
+    /// `dsFill` rows, like the settings pages, sentence case headers and a
+    /// hard edge under the title.
     func gearFormStyle() -> some View {
-        scrollContentBackground(.hidden)
-            .dsScreenBackground()
-            .detailScrollEdge()
+        pfGroupedList()
+            .textCase(nil)
+            .detailTint(nil)
     }
 
     /// A clear, full-width form row for content that brings its own
-    /// background (chips). It stays inside the row, so nothing pokes past
-    /// the screen edge.
+    /// background (the photo row, the preset preview).
     func gearFormBareRow() -> some View {
         listRowInsets(EdgeInsets())
             .listRowBackground(Color.clear)
@@ -1308,23 +1274,35 @@ extension View {
     }
 }
 
-/// The gear categories as chips, so the type is one tap instead of a menu.
-struct GearCategoryChips: View {
-    @Binding var selection: OwnedGear.Category
-    /// Leading and trailing space inside the scroller.
-    var inset: CGFloat = DS.gutter
+/// A labelled text row: the label on the left, the field on the right, an
+/// optional unit after it.
+struct GearFormField: View {
+    let label: String
+    @Binding var text: String
+    var prompt: String = ""
+    var keyboard: UIKeyboardType = .default
+    var unit: String? = nil
+
+    init(_ label: String, text: Binding<String>, prompt: String = "",
+         keyboard: UIKeyboardType = .default, unit: String? = nil) {
+        self.label = label
+        self._text = text
+        self.prompt = prompt
+        self.keyboard = keyboard
+        self.unit = unit
+    }
 
     var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 6) {
-                ForEach(OwnedGear.Category.allCases, id: \.self) { cat in
-                    Chip(cat.rawValue, isSelected: selection == cat) { selection = cat }
+        LabeledContent(label) {
+            HStack(spacing: DS.Space.s1) {
+                TextField(label, text: $text, prompt: Text(prompt))
+                    .multilineTextAlignment(.trailing)
+                    .keyboardType(keyboard)
+                if let unit {
+                    Text(unit).foregroundStyle(.dsText2)
                 }
             }
-            .padding(.horizontal, inset)
-            .padding(.vertical, DS.Space.s1)
         }
-        .scrollBounceBehavior(.basedOnSize, axes: [.horizontal])
     }
 }
 
@@ -1335,9 +1313,7 @@ struct GearStockRow: View {
     let range: ClosedRange<Int>
 
     var body: some View {
-        HStack {
-            Text(title).foregroundStyle(.dsText)
-            Spacer()
+        LabeledContent(title) {
             PFStepper(value: "\(value)", canDecrement: value > range.lowerBound, label: title) { delta in
                 value = min(max(value + delta, range.lowerBound), range.upperBound)
             }
@@ -1345,14 +1321,15 @@ struct GearStockRow: View {
     }
 }
 
-/// The top of the preset form: the lure's picture and the name as typed.
+/// The top of the preset form: the lure's picture and the name as typed,
+/// as the preset will look in the tackle box.
 struct PresetDraftHeader: View {
     let name: String
     let lure: String
 
     private var lureName: String? {
         let trimmed = lure.trimmingCharacters(in: .whitespaces)
-        return trimmed.isEmpty || trimmed == "__custom__" ? nil : trimmed
+        return trimmed.isEmpty || trimmed == GearFieldPicker.customTag ? nil : trimmed
     }
 
     var body: some View {
@@ -1367,22 +1344,22 @@ struct PresetDraftHeader: View {
                     .font(.title3.bold())
                     .foregroundStyle(name.isEmpty ? Color.dsText3 : Color.dsText)
                     .lineLimit(2)
-                Text(lureName ?? "Add a lure or bait below")
+                Text(lureName ?? "Pick a lure or bait below")
                     .font(.subheadline)
                     .foregroundStyle(.dsText2)
                     .lineLimit(1)
             }
             Spacer(minLength: 0)
         }
-        .padding(.vertical, DS.Space.s1)
+        .padding(.vertical, DS.Space.s2)
         .accessibilityElement(children: .combine)
     }
 }
 
 // MARK: - Technique picker (preset list + custom)
 
-/// Techniques are a catch attribute, not inventory. Offers the shared preset
-/// list plus a free-text "Custom…" option, storing the plain technique string.
+/// Techniques are a catch attribute, not inventory. A menu of the shared
+/// list plus Custom, which adds a text row; stores the plain technique.
 struct TechniquePicker: View {
     @Binding var selection: String
     @State private var custom: Bool
@@ -1394,21 +1371,42 @@ struct TechniquePicker: View {
     }
 
     var body: some View {
-        Picker("Technique", selection: Binding(
-            get: { custom ? "__custom__" : selection },
-            set: { newValue in
-                Haptics.selection()
-                if newValue == "__custom__" { custom = true; selection = "" }
-                else { custom = false; selection = newValue }
-            }
-        )) {
+        Picker("Technique", selection: choice) {
             Text("None").tag("")
-            ForEach(FishingTechniques.presets, id: \.self) { Text($0).tag($0) }
-            Text("Custom").tag("__custom__")
+            ForEach(FishingTechniques.presets, id: \.self) { technique in
+                Text(FishingTechniques.label(for: technique)).tag(technique)
+            }
+            Text("Custom").tag(GearFieldPicker.customTag)
         }
+        .pickerStyle(.menu)
         if custom {
-            TextField("Custom technique", text: $selection)
+            TextField("Technique", text: $selection, prompt: Text("Type the technique"))
                 .autocorrectionDisabled()
         }
+    }
+
+    private var choice: Binding<String> {
+        Binding(
+            get: { custom ? GearFieldPicker.customTag : selection },
+            set: { newValue in
+                Haptics.selection()
+                if newValue == GearFieldPicker.customTag {
+                    custom = true
+                    selection = ""
+                } else {
+                    custom = false
+                    selection = newValue
+                }
+            }
+        )
+    }
+}
+
+extension FishingTechniques {
+    /// A listed technique in sentence case for display ("Drop shot"). The
+    /// stored value is unchanged; custom techniques show as typed.
+    static func label(for technique: String) -> String {
+        guard presets.contains(technique), let first = technique.first else { return technique }
+        return String(first) + technique.dropFirst().lowercased()
     }
 }

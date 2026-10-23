@@ -31,19 +31,16 @@ extension OwnedGear.Category {
 }
 
 /// Rounded square gear thumbnail: the item's photo, the lure art for lures
-/// and bait, or its category symbol on the category tint.
+/// and bait, or its category glyph on the category tint.
 struct GearThumb: View {
     let item: OwnedGear
     var size: CGFloat = 56
 
     var body: some View {
-        if item.photoPath != nil {
-            GearThumbnail(photoPath: item.photoPath, category: item.category, size: size)
-                .clipShape(RoundedRectangle(cornerRadius: size < 48 ? size * 0.25 : DS.Radius.thumb, style: .continuous))
-        } else if item.category == .lure || item.category == .bait {
+        if item.photoPath == nil && (item.category == .lure || item.category == .bait) {
             LureArtView(name: item.name, size: size)
         } else {
-            ThumbView(systemImage: item.category.icon, tint: item.category.tint, size: size)
+            GearThumbnail(photoPath: item.photoPath, category: item.category, size: size)
         }
     }
 }
@@ -93,11 +90,17 @@ struct GearItemDetailView: View {
     @State private var editing: OwnedGear?
     @State private var confirmDelete = false
     @State private var titleShown = false
+    @State private var didLoad = false
 
     var body: some View {
         ScrollView {
             if let item {
                 content(item)
+                    .pageWidth()
+            } else if didLoad {
+                InlineEmpty(systemImage: "shippingbox",
+                            text: "This gear is no longer in your tackle box.")
+                    .padding(.top, DS.Space.s4)
                     .pageWidth()
             }
         }
@@ -115,79 +118,82 @@ struct GearItemDetailView: View {
         }
     }
 
-    @ViewBuilder
     private func content(_ item: OwnedGear) -> some View {
-        let mine = GearStats.matching(item, in: catches)
         VStack(alignment: .leading, spacing: DS.Space.s6) {
-            VStack(alignment: .leading, spacing: DS.Space.s4) {
-                GearThumb(item: item, size: 120)
-                    .padding(.horizontal, DS.gutter)
-                    .padding(.top, DS.Space.s2)
-                DetailHeader(over: item.category.rawValue, title: item.name, subtitle: item.brand)
-                ActionTriple {
-                    Button { editing = item } label: {
-                        Label("Edit", systemImage: "pencil")
-                    }
-                    .buttonStyle(ActionTileStyle(.primary))
-                    if let barcode = item.barcode {
-                        ShareLink(item: "\(item.displayName), barcode \(barcode)") {
-                            ActionTileLabel("Share", systemImage: "square.and.arrow.up")
-                        }
-                        .buttonStyle(.dim)
-                    }
-                    Button { confirmDelete = true } label: {
-                        Label("Delete", systemImage: "trash")
-                    }
-                    .buttonStyle(ActionTileStyle(.destructive))
-                }
-            }
-
+            header(item)
             if item.category.isConsumable {
-                VStack(alignment: .leading, spacing: 0) {
-                    SectionTitle("In the box")
-                    VStack(spacing: 0) {
-                        stockRow("In stock", value: item.stock ?? 0, low: item.isLowStock) { change(stockBy: $0) }
-                        Rectangle().fill(Color.dsSeparator).frame(height: 0.5).padding(.leading, DS.Space.s4)
-                        stockRow("Remind me at", value: item.lowStockThreshold ?? 1, low: false) { change(thresholdBy: $0) }
-                    }
-                    .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
-                    .padding(.horizontal, DS.gutter)
-                    PFFootnote(stockFootnote(item))
-                        .padding(.top, DS.Space.s2)
-                }
+                stockSection(item)
             }
-
             VStack(alignment: .leading, spacing: 0) {
                 SectionTitle("Details")
                 KeyValueList(rows: detailRows(item))
             }
-
-            VStack(alignment: .leading, spacing: 0) {
-                SectionTitle("On the water")
-                if mine.isEmpty {
-                    PFNotice(systemImage: "fish", tint: .dsText2, title: "No catches with this yet",
-                             message: "Pick it when you log a catch and it shows up here.")
-                } else {
-                    KeyValueList(rows: waterRows(mine))
-                    NavigationLink(value: GearEffectivenessRoute()) {
-                        HStack {
-                            Text("Compare with your other gear")
-                                .foregroundStyle(.tint)
-                            Spacer()
-                            Image(systemName: "chevron.right")
-                                .font(.footnote.weight(.semibold))
-                                .foregroundStyle(.dsText3)
-                        }
-                        .padding(DS.Space.s4)
-                        .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
-                        .padding(.horizontal, DS.gutter)
-                    }
-                    .buttonStyle(.dim)
-                    .padding(.top, DS.Space.s3)
-                }
-            }
+            waterSection(GearStats.matching(item, in: catches))
         }
         .padding(.bottom, DS.Space.s8)
+    }
+
+    private func header(_ item: OwnedGear) -> some View {
+        VStack(alignment: .leading, spacing: DS.Space.s4) {
+            GearThumb(item: item, size: 120)
+                .padding(.horizontal, DS.gutter)
+                .padding(.top, DS.Space.s2)
+            DetailHeader(over: item.category.rawValue, title: item.name, subtitle: item.brand)
+            actions(item)
+        }
+    }
+
+    private func actions(_ item: OwnedGear) -> some View {
+        ActionTriple {
+            Button { editing = item } label: {
+                Label("Edit", systemImage: "pencil")
+            }
+            .buttonStyle(ActionTileStyle(.primary))
+            if let barcode = item.barcode {
+                ShareLink(item: "\(item.displayName), barcode \(barcode)") {
+                    ActionTileLabel("Share", systemImage: "square.and.arrow.up")
+                }
+                .buttonStyle(.dim)
+            }
+            Button { confirmDelete = true } label: {
+                Label("Delete", systemImage: "trash")
+            }
+            .buttonStyle(ActionTileStyle(.destructive))
+        }
+    }
+
+    private func stockSection(_ item: OwnedGear) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            SectionTitle("In the box")
+            VStack(spacing: 0) {
+                stockRow("In stock", value: item.stock ?? 0, low: item.isLowStock) { change(stockBy: $0) }
+                PFDivider()
+                stockRow("Remind me at", value: item.lowStockThreshold ?? 1, low: false) { change(thresholdBy: $0) }
+            }
+            .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
+            .padding(.horizontal, DS.gutter)
+            SectionFootnote(stockFootnote(item))
+        }
+    }
+
+    private func waterSection(_ mine: [CatchDetail]) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            SectionTitle("On the water")
+            if mine.isEmpty {
+                InlineEmpty(systemImage: "fish",
+                            text: "No catches with this yet. Pick it when you log a catch and it shows up here.")
+            } else {
+                KeyValueList(rows: waterRows(mine))
+                NavigationLink(value: GearEffectivenessRoute()) {
+                    ArtRow(title: "Compare with your other gear", subtitle: "Which lures and presets catch",
+                           chevron: true) {
+                        ThumbView(systemImage: "chart.bar.fill", tint: .orange, size: 44)
+                    }
+                }
+                .buttonStyle(.dsRow)
+                .padding(.top, DS.Space.s3)
+            }
+        }
     }
 
     private func stockRow(_ title: String, value: Int, low: Bool, onChange: @escaping (Int) -> Void) -> some View {
@@ -239,6 +245,7 @@ struct GearItemDetailView: View {
     private func load() {
         item = ((try? appState.ownedGearRepository.fetchAll()) ?? []).first { $0.id == itemID }
         catches = (try? appState.catchRepository.fetchAll(limit: 10000)) ?? []
+        didLoad = true
     }
 
     private func change(stockBy delta: Int) {
@@ -301,13 +308,13 @@ struct GearEffectivenessView: View {
                              subtitle: didLoad ? (withGear.count == 1 ? "1 catch logged with gear" : "\(withGear.count) catches logged with gear") : nil)
 
                 if didLoad && withGear.isEmpty {
-                    ContentUnavailableView("No gear on your catches yet", systemImage: "chart.bar",
-                                           description: Text("Pick a preset or your gear when you log a catch and this fills in."))
+                    InlineEmpty(systemImage: "chart.bar",
+                                text: "No gear on your catches yet. Pick a preset or your gear when you log a catch and this fills in.")
                 } else {
                     bars("Catches by lure", tally { $0.lure }, tint: .orange, showsLureArt: true)
                     bars("Catches by preset", tally { $0.isAutoCreated ? nil : $0.name }, tint: .blue)
-                    bars("Technique breakdown", tally { $0.technique }, tint: .green)
-                    PFFootnote("Catches logged without gear are left out.")
+                    bars("Technique breakdown", tally { $0.technique.map(FishingTechniques.label(for:)) }, tint: .green)
+                    SectionFootnote("Catches logged without gear are left out.")
                 }
             }
             .padding(.bottom, DS.Space.s8)
