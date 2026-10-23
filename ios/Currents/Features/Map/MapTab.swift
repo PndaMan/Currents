@@ -388,6 +388,10 @@ struct MapTab: View {
                     centerCoordinate: CLLocationCoordinate2D(latitude: -34.275, longitude: 18.865),
                     distance: 90000
                 ))
+                if ScreenshotSupport.screen == .exploreNear {
+                    try? await Task.sleep(for: .seconds(2))
+                    inspector = InspectTarget(coord: ScreenshotSupport.demoCoordinate, isUserLocation: true)
+                }
             }
         }
         // Another tab asked to show a spot or a water here.

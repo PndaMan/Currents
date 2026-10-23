@@ -142,6 +142,12 @@ struct ContentView: View {
         }
         .task { checkPlannedSession() }
         .task {
+            // Screenshot mode: push the screen CI asked for once the tabs exist.
+            guard let tab = ScreenshotSupport.initialTab, let path = ScreenshotSupport.initialPath else { return }
+            try? await Task.sleep(for: .milliseconds(700))
+            paths[tab] = path
+        }
+        .task {
             // On cold launch (scenePhase .onChange doesn't fire for the initial
             // state), make sure APNs + CloudKit push subscriptions get set up for
             // an already-joined angler. Guarded by the flag so we don't touch
