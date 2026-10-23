@@ -30,7 +30,39 @@ be answered confidently, and so the marketing screenshots stay rights-clean.
   screen, so no externally-licensed photo is ever captured.
 
 ## App Store screenshots
-See `.github/workflows/screenshots.yml`. Captured in the iOS Simulator (no
-physical device needed) at iPhone 16 Pro Max / 6.9" (1320×2868). "Screenshot
-mode" (`SCREENSHOT_MODE=1`) seeds demo catches whose photos are rendered from
-the app's **own** fish artwork — every pixel shown is owned or public domain.
+See `.github/workflows/screenshots.yml`. Captured in the iOS Simulator at
+iPhone 16 Pro Max / 6.9" (1320×2868). Screenshot mode (`SCREENSHOT_MODE=1`)
+seeds demo data with fictional names. Catch, spot, crew and avatar photos come
+from `ios/AppStore/demo-photos/`, which the workflow copies into the
+simulator only; they are never bundled in the app. Without them the seed falls
+back to the app's own fish artwork.
+
+The Pexels License and the Unsplash License allow commercial use without
+attribution. Every photo shows hands or water only, no faces; EXIF is
+stripped and two were cropped to remove a logo.
+
+| File | Source | Photographer | Licence |
+|---|---|---|---|
+| bass-01.jpg | https://www.pexels.com/photo/person-s-hand-on-an-opened-mouth-of-a-freshwater-fish-4376190/ | Michal Dziekonski | Pexels License |
+| bass-02.jpg | https://www.pexels.com/photo/person-holding-a-largemouth-bass-4343735/ | Michal Dziekonski | Pexels License |
+| bass-03.jpg | https://www.pexels.com/photo/a-person-holding-a-fish-7454998/ | Michal Dziekonski | Pexels License |
+| bass-04.jpg | https://www.pexels.com/photo/fishing-in-greytown-south-africa-s-scenic-waters-31215332/ | Lukas Faust | Pexels License |
+| bass-05.jpg | https://unsplash.com/photos/person-holding-gray-and-black-fish-8jh4zljhyDg | Jeff Vanderspank | Unsplash License |
+| bass-06.jpg | https://unsplash.com/photos/largemouth-bass-held-over-water-hF02JtcaD4E | Derek Laliberte | Unsplash License (cropped) |
+| trout-01.jpg | https://www.pexels.com/photo/hands-holding-fish-3098642/ | Maël BALLAND | Pexels License |
+| trout-02.jpg | https://www.pexels.com/photo/close-up-of-brown-trout-in-hand-in-river-water-37096316/ | Patagonia Savage | Pexels License |
+| trout-04.jpg | https://www.pexels.com/photo/fisherman-holding-a-brown-trout-above-net-in-river-35437559/ | Giant Asparagus | Pexels License |
+| trout-05.jpg | https://www.pexels.com/photo/a-person-holding-a-brooke-trout-14438493/ | Juan Vargas | Pexels License |
+| carp-01.jpg | https://www.pexels.com/photo/a-person-holding-a-fish-5537866/ | Thirdman | Pexels License |
+| carp-02.jpg | https://www.pexels.com/photo/a-fish-in-a-net-10462564/ | Vladimír Sládek | Pexels License |
+| catfish-01.jpg | https://www.pexels.com/photo/close-up-of-a-person-holding-a-catfish-19040471/ | juliane Monari | Pexels License |
+| pike-01.jpg | https://www.pexels.com/photo/holding-a-caught-northern-pike-fish-17213802/ | Simon L. | Pexels License |
+| perch-01.jpg | https://www.pexels.com/photo/photo-of-a-yellow-perch-on-a-person-s-fingers-4272137/ | Michal Dziekonski | Pexels License |
+| tilapia-01.jpg | https://www.pexels.com/photo/hands-holding-a-freshly-caught-fish-outdoors-35901532/ | Saifee Art | Pexels License |
+| drum-01.jpg | https://www.pexels.com/photo/fisherman-holding-freshly-caught-red-drum-fish-32437034/ | Dalton Ringler | Pexels License |
+| yellowtail-01.jpg | https://unsplash.com/photos/person-holding-gray-fish-on-blue-and-white-boat-during-daytime-hApQr0GDDP8 | Cast & Spear | Unsplash License (cropped) |
+| scene-lake-dawn.jpg | https://www.pexels.com/photo/serene-lake-sunrise-with-misty-fog-35631351/ | Rino Adamo | Pexels License |
+| scene-dam-01.jpg | https://www.pexels.com/photo/scenic-view-of-dam-and-reservoir-in-lush-forest-39583550/ | Julius Weidenauer | Pexels License |
+| scene-river-dawn.jpg | https://www.pexels.com/photo/serene-river-at-sunrise-with-misty-reflections-33828127/ | The Visionary Vows | Pexels License |
+| scene-coast-01.jpg | https://www.pexels.com/photo/dramatic-rocky-coastline-of-south-africa-33641659/ | Zak H | Pexels License |
+| scene-coast-02.jpg | https://www.pexels.com/photo/rocky-ocean-coast-22873399/ | arnaud audoin | Pexels License |
