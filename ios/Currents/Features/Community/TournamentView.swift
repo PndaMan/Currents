@@ -4,15 +4,6 @@ import UIKit
 /// "12 points", "1 point".
 private func pointsText(_ n: Int) -> String { n == 1 ? "1 point" : "\(n) points" }
 
-/// "Ends in 3h 12m", "Ends in 4d 08:09", or "Overtime" once past due.
-private func countdownLabel(to end: Date, now: Date) -> String {
-    let s = Int(end.timeIntervalSince(now))
-    guard s > 0 else { return "Overtime" }
-    let d = s / 86400, h = s / 3600 % 24, m = s / 60 % 60
-    if d > 0 { return "Ends in \(d)d \(String(format: "%02d:%02d", h, m))" }
-    return h > 0 ? "Ends in \(h)h \(m)m" : "Ends in \(m)m"
-}
-
 /// The service's highlight details use a middle dot between parts.
 private func plainDetail(_ s: String) -> String {
     s.replacingOccurrences(of: " · ", with: ", ") // ui-lint: allow, strips the service's middle dots
@@ -229,9 +220,10 @@ struct TournamentSetupView: View {
 
 // MARK: - Tournament screen
 
-/// The tournament event page: cover, title, three actions, then the result
-/// or time left, your team, the podium and standings, your Live Activity,
-/// highlights and rules.
+/// The tournament event page, laid out like Luma's event page: cover, title
+/// with a ticking status line, three actions, then the result, your team,
+/// one ranked list of teams, highlights and rules, with End tournament at
+/// the foot for admins.
 struct TournamentView: View {
     let crew: CommunityService.Crew
 
@@ -317,33 +309,51 @@ struct TournamentView: View {
 
     private var content: some View {
         VStack(alignment: .leading, spacing: 0) {
-            EventCover(species: coverSpecies, systemImage: "trophy.fill", tint: DS.accent)
+            EventCover(species: coverSpecies, systemImage: "trophy.fill", tint: .dsScoreFair)
                 .padding(.top, DS.Space.s2)
             header
                 .padding(.top, DS.Space.s4)
             actions
                 .padding(.top, DS.Space.s5)
-            if offline {
-                offlineNotice
-                    .padding(.top, DS.Space.s4)
-            }
+            notices
             resultSection
-            countdownSection
             yourTeamSection
             standingsSection
-            if canAssign && !standings.isEmpty { assignSection }
-            if myTeam != nil && !tournament.isEnded { lockScreenSection }
             highlightsSection
+            if canAssign && !standings.isEmpty { assignSection }
             rulesSection
-            if role.canRunTournaments && !tournament.isEnded {
-                DangerButton(title: "End tournament", systemImage: "flag.checkered") {
-                    showingEnd = true
-                }
-                .padding(.top, DS.Space.s8)
-            }
+            footButton
         }
         .padding(.bottom, DS.Space.s8)
         .pageWidth()
+    }
+
+    /// Offline, then time's up: at most one line each, under the actions.
+    @ViewBuilder private var notices: some View {
+        if offline {
+            offlineNotice
+                .padding(.top, DS.Space.s4)
+        }
+        if isOvertime {
+            overtimeNotice
+                .padding(.top, DS.Space.s4)
+        }
+    }
+
+    /// End tournament while it runs (admins), Delete tournament once it has
+    /// ended (managers). Both confirm first.
+    @ViewBuilder private var footButton: some View {
+        if canEnd {
+            DangerButton(title: "End tournament", systemImage: "flag.checkered") {
+                showingEnd = true
+            }
+            .padding(.top, DS.Space.s8)
+        } else if tournament.isEnded && role.canManage {
+            DangerButton(title: "Delete tournament", systemImage: "trash") {
+                confirmingDelete = true
+            }
+            .padding(.top, DS.Space.s8)
+        }
     }
 
     @ViewBuilder private var shareSheet: some View {
@@ -481,8 +491,17 @@ struct TournamentView: View {
         } else {
             EventHeader(title: tournament.name, subtitle: hostLine) {
                 EventLiveTag()
-                Text(liveLine)
+                liveStatus
             }
+        }
+    }
+
+    /// "Ends in 3d 04:12:09", ticking, or when it started if it has no end.
+    private var liveStatus: some View {
+        TimelineView(.periodic(from: .now, by: 1)) { ctx in
+            Text(liveLine(now: ctx.date))
+                .monospacedDigit()
+                .contentTransition(.numericText(countsDown: true))
         }
     }
 
@@ -495,16 +514,33 @@ struct TournamentView: View {
         "Ended \((tournament.endedAt ?? .now).formatted(date: .abbreviated, time: .omitted))"
     }
 
-    private var liveLine: String {
+    private func liveLine(now: Date) -> String {
         guard let ends = tournament.endsAt else {
-            return "Started \(eventTimeText(tournament.createdAt))"
+            return "Started \(eventTimeText(tournament.createdAt, now: now))"
         }
-        return ends > .now ? "Ends \(eventTimeText(ends))" : "In overtime"
+        return ends > now ? "Ends in \(CrewText.clock(to: ends, now: now))" : "In overtime"
     }
 
     private var offlineNotice: some View {
         EventNotice(eventOfflineText("Standings", since: lastUpdated), systemImage: "wifi.slash") {
             Button("Try again") { Task { await refresh() } }
+        }
+    }
+
+    /// Past its end time and waiting for an admin. The page refreshes every
+    /// 20 seconds, so this shows within one refresh of the end.
+    private var isOvertime: Bool {
+        guard !tournament.isEnded, let ends = tournament.endsAt else { return false }
+        return ends <= .now
+    }
+
+    private var overtimeNotice: some View {
+        EventNotice(canEnd ? "Time's up. End it to confirm the winner."
+                           : "Time's up. An admin confirms the winner.",
+                    systemImage: "flag.checkered") {
+            if canEnd {
+                Button("End now") { showingEnd = true }
+            }
         }
     }
 
@@ -649,20 +685,13 @@ struct TournamentView: View {
         }
     }
 
-    // MARK: Time left and your team
-
-    @ViewBuilder private var countdownSection: some View {
-        if !tournament.isEnded, let ends = tournament.endsAt {
-            CrewSection(title: "Time left") {
-                EventCountdown(label: "Time left", target: ends)
-            }
-        }
-    }
+    // MARK: Your team
 
     @ViewBuilder private var yourTeamSection: some View {
         if !tournament.isEnded, let i = myIndex {
             CrewSection(title: "Your team", detail: pointsText(standings[i].points)) {
                 yourTeamRow(i)
+                SectionFootnote("Your score shows on the lock screen and in the Dynamic Island while you're on a team.")
             }
         }
     }
@@ -700,8 +729,7 @@ struct TournamentView: View {
             if standings.isEmpty {
                 standingsEmpty
             } else {
-                podium
-                rankRows
+                standingRows
                 if !tournament.isEnded && myTeam == nil {
                     SectionFootnote("Open a team to join it, or start your own.")
                 }
@@ -723,40 +751,25 @@ struct TournamentView: View {
         }
     }
 
-    private var podium: some View {
-        EventPodium(entries: standings.prefix(3).map(podiumEntry)) { e in
-            if let i = standings.firstIndex(where: { $0.id == e.id }) {
-                teamPage(standings[i], rank: i + 1)
-            }
-        }
-    }
-
-    private var rankRows: some View {
+    /// Every team in one ranked list, the leaderboard's rows: place, faces,
+    /// name, points. Teams slide to their new places when the order changes.
+    private var standingRows: some View {
         VStack(spacing: 0) {
-            ForEach(Array(standings.enumerated()).dropFirst(3), id: \.element.id) { i, s in
+            ForEach(Array(standings.enumerated()), id: \.element.id) { i, s in
                 NavigationLink {
                     teamPage(s, rank: i + 1)
                 } label: {
-                    EventRankRow(rank: i + 1,
-                                 name: teamLabel(s),
-                                 subtitle: teamSubtitle(s),
-                                 value: s.points == 1 ? "1 pt" : "\(s.points) pts",
-                                 images: teamImages(s),
-                                 isMe: s.memberCodes.contains(svc.friendCode))
+                    TeamRankRow(rank: i + 1,
+                                name: s.teamName,
+                                subtitle: teamSubtitle(s),
+                                points: s.points,
+                                images: teamImages(s),
+                                isMe: s.memberCodes.contains(svc.friendCode))
                 }
-                .buttonStyle(.dim)
+                .buttonStyle(.dsRow)
             }
         }
-        .padding(.top, DS.Space.s3)
-    }
-
-    private func podiumEntry(_ s: CommunityService.TeamStanding) -> EventPodiumEntry {
-        EventPodiumEntry(id: s.id, name: s.teamName, value: "\(s.points)", unit: "pts",
-                         images: teamImages(s), isMe: s.memberCodes.contains(svc.friendCode))
-    }
-
-    private func teamLabel(_ s: CommunityService.TeamStanding) -> String {
-        s.memberCodes.contains(svc.friendCode) ? "\(s.teamName) (you)" : s.teamName
+        .animation(reduceMotion ? nil : DS.Motion.softSpring, value: standings.map(\.id))
     }
 
     private func teamSubtitle(_ s: CommunityService.TeamStanding) -> String {
@@ -837,104 +850,6 @@ struct TournamentView: View {
         }
     }
 
-    // MARK: Lock screen preview
-
-    @ViewBuilder private var lockScreenSection: some View {
-        if let i = myIndex {
-            CrewSection(title: "On your lock screen") {
-                lockScreenPreview(i)
-                SectionFootnote("Shows on your lock screen and in the Dynamic Island while you're on a team.")
-            }
-        }
-    }
-
-    private func lockScreenPreview(_ i: Int) -> some View {
-        let me = standings[i]
-        let rival: CommunityService.TeamStanding? = i == 0
-            ? (standings.count > 1 ? standings[1] : nil)
-            : standings.first
-        return TimelineView(.periodic(from: .now, by: 30)) { ctx in
-            VStack(spacing: DS.Space.s1) {
-                Text(ctx.date, format: .dateTime.hour().minute())
-                    .font(.system(.largeTitle, design: .rounded, weight: .bold))
-                    .monospacedDigit()
-                    .foregroundStyle(Color.dsText)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.6)
-                Text(ctx.date, format: .dateTime.weekday(.wide).day().month(.wide))
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(Color.dsText2)
-                liveActivityCard(me: me, rank: i + 1, rival: rival, now: ctx.date)
-                    .padding(.top, DS.Space.s4)
-            }
-            .padding(DS.Space.s4)
-            .frame(maxWidth: .infinity)
-            .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
-        }
-        .padding(.horizontal, DS.gutter)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Live Activity preview: your team \(pointsText(me.points)), \(eventOrdinal(i + 1)) of \(standings.count)")
-    }
-
-    private func liveActivityCard(me: CommunityService.TeamStanding, rank: Int,
-                                  rival: CommunityService.TeamStanding?, now: Date) -> some View {
-        VStack(alignment: .leading, spacing: DS.Space.s2) {
-            HStack {
-                Label(tournament.name, systemImage: "trophy.fill")
-                    .labelStyle(TrophyLabelStyle())
-                    .font(.subheadline.weight(.semibold))
-                    .lineLimit(1)
-                Spacer(minLength: DS.Space.s2)
-                if let ends = tournament.endsAt {
-                    Text(countdownLabel(to: ends, now: now))
-                        .font(.footnote.monospacedDigit())
-                        .foregroundStyle(Color.dsText2)
-                }
-            }
-            liveActivityScores(me: me, rival: rival)
-            HStack {
-                Text(rank == 1 ? "Leading" : "\(eventOrdinal(rank)) of \(standings.count)")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(DS.accent)
-                Spacer()
-                if let bite = SharedStore.load()?.score() {
-                    Text("Bite \(bite)")
-                        .font(.subheadline.weight(.medium))
-                        .foregroundStyle(Color.dsText2)
-                }
-            }
-        }
-        .foregroundStyle(Color.dsText)
-        .padding(DS.Space.s4)
-        .background(Color.dsElevated, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
-    }
-
-    private func liveActivityScores(me: CommunityService.TeamStanding,
-                                    rival: CommunityService.TeamStanding?) -> some View {
-        HStack(alignment: .bottom) {
-            VStack(alignment: .leading, spacing: 0) {
-                Text("Your team").font(.footnote).foregroundStyle(Color.dsText2)
-                Text("\(me.points)")
-                    .font(.system(.largeTitle, design: .rounded, weight: .bold))
-                    .monospacedDigit()
-                    .contentTransition(.numericText())
-            }
-            Spacer()
-            if let rival {
-                Text("vs").font(.subheadline).foregroundStyle(Color.dsText2)
-                    .padding(.bottom, DS.Space.s3)
-                Spacer()
-                VStack(alignment: .trailing, spacing: 0) {
-                    Text(rival.teamName).font(.footnote).foregroundStyle(Color.dsText2).lineLimit(1)
-                    Text("\(rival.points)")
-                        .font(.system(.largeTitle, design: .rounded, weight: .bold))
-                        .monospacedDigit()
-                        .contentTransition(.numericText())
-                }
-            }
-        }
-    }
-
     // MARK: Highlights
 
     @ViewBuilder private var highlightsSection: some View {
@@ -989,12 +904,64 @@ struct TournamentView: View {
     }
 }
 
-/// Trophy icon in the score yellow, title in the text colour.
-private struct TrophyLabelStyle: LabelStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        HStack(spacing: 6) {
-            configuration.icon.foregroundStyle(Color.dsScoreFair)
-            configuration.title
+/// One team in the standings, in the leaderboard's row: the place (first,
+/// second and third on a gold, silver and bronze disc), the team's faces,
+/// name and haul, points on the right. Your team is tinted with the accent.
+private struct TeamRankRow: View {
+    let rank: Int
+    let name: String
+    let subtitle: String
+    let points: Int
+    let images: [UIImage?]
+    let isMe: Bool
+
+    @ScaledMetric(relativeTo: .headline) private var rankWidth: CGFloat = 30
+
+    var body: some View {
+        ArtRow(title: isMe ? "\(name) (you)" : name, subtitle: subtitle, chevron: true) {
+            HStack(spacing: DS.Space.s3) {
+                TeamRankMark(rank: rank)
+                    .frame(width: rankWidth)
+                EventAvatarStack(images: images, size: 48)
+            }
+        } trailing: {
+            Text(points == 1 ? "1 pt" : "\(points) pts")
+                .contentTransition(.numericText())
+        }
+        .background(isMe ? DS.accent.opacity(0.12) : Color.clear)
+        .accessibilityLabel("\(eventOrdinal(rank)), \(name), \(pointsText(points)), \(subtitle)")
+    }
+}
+
+private struct TeamRankMark: View {
+    let rank: Int
+    @ScaledMetric(relativeTo: .subheadline) private var disc: CGFloat = 28
+
+    var body: some View {
+        if let fill = medal {
+            Text("\(rank)")
+                .font(.subheadline.weight(.bold))
+                .monospacedDigit()
+                .foregroundStyle(.dsText)
+                .frame(width: disc, height: disc)
+                .background(fill, in: Circle())
+        } else {
+            Text("\(rank)")
+                .font(.headline)
+                .monospacedDigit()
+                .foregroundStyle(.dsText2)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .contentTransition(.numericText())
+        }
+    }
+
+    private var medal: Color? {
+        switch rank {
+        case 1: return Color.dsScoreFair.opacity(0.32)
+        case 2: return Color.dsFill2
+        case 3: return Color.dsScoreLow.opacity(0.28)
+        default: return nil
         }
     }
 }
