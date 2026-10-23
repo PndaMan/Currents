@@ -185,6 +185,159 @@ struct LureColourStrip: View {
     }
 }
 
+// MARK: - Which fish
+
+/// The fish a place's picks can be for. Starts on the fish you track when it
+/// is known here or can live in this water, otherwise the one you catch most
+/// here, then the first the water holds that has bait records.
+struct ThrowSpeciesChoice {
+    var tracked: Species?
+    /// Caught here, most caught first.
+    var caught: [Species] = []
+    /// Known in this water, with bait records.
+    var inWater: [Species] = []
+    /// Fresh or salt water; nil when the place does not say.
+    var freshwater: Bool?
+
+    struct FishGroup: Identifiable {
+        let title: String
+        let species: [Species]
+        var id: String { title }
+    }
+
+    /// Tracked, caught here, then the rest of the water's, each fish once.
+    var groups: [FishGroup] {
+        let trackedList: [Species] = tracked.map { [$0] } ?? []
+        let lists: [(String, [Species])] = [
+            ("Tracking", trackedList),
+            ("Caught here", caught),
+            ("In this water", inWater),
+        ]
+        var seen = Set<Int64>()
+        var result: [FishGroup] = []
+        for (title, list) in lists {
+            let unseen = list.filter { seen.insert($0.id).inserted }
+            if !unseen.isEmpty { result.append(FishGroup(title: title, species: unseen)) }
+        }
+        return result
+    }
+
+    var options: [Species] { groups.flatMap(\.species) }
+
+    /// The fish to start on.
+    var suggested: Species? {
+        if let tracked, isKnown(tracked) || Self.suits(tracked, freshwater: freshwater) {
+            return tracked
+        }
+        return caught.first ?? inWater.first
+    }
+
+    /// The fish picked from the menu while it is still listed, otherwise the
+    /// suggested one.
+    func species(chosen id: Int64?) -> Species? {
+        if let id, let match = options.first(where: { $0.id == id }) { return match }
+        return suggested
+    }
+
+    private func isKnown(_ species: Species) -> Bool {
+        caught.contains { $0.id == species.id } || inWater.contains { $0.id == species.id }
+    }
+
+    /// Only a sea fish in fresh water, or a freshwater fish in the sea, does
+    /// not fit. Unknown on either side counts as a fit.
+    static func suits(_ species: Species, freshwater: Bool?) -> Bool {
+        guard let freshwater, let habitat = species.habitat else { return true }
+        return freshwater ? habitat != .marine : habitat != .freshwater
+    }
+
+    /// Fresh inland, salt at sea, nil for estuaries and general spots.
+    static func isFreshwater(_ type: Spot.SpotType) -> Bool? {
+        switch type {
+        case .lake, .dam, .river, .creek, .pond, .canal: true
+        case .beach, .rocks, .pier, .harbour, .reef, .offshore: false
+        case .estuary, .general: nil
+        }
+    }
+}
+
+/// "What to throw" with a menu of the fish the picks can be for, the current
+/// one checked. The title keeps its space and a long name truncates; at
+/// accessibility sizes the menu drops below the title.
+struct ThrowSpeciesTitle: View {
+    let choice: ThrowSpeciesChoice
+    /// The fish picked from the menu; nil follows `choice.suggested`.
+    @Binding var chosenId: Int64?
+
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    var body: some View {
+        if let species = choice.species(chosen: chosenId) {
+            row(species)
+        } else {
+            SectionTitle("What to throw")
+        }
+    }
+
+    private func row(_ species: Species) -> some View {
+        let stacked = typeSize.isAccessibilitySize
+        let layout = stacked
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: DS.Space.s2))
+            : AnyLayout(HStackLayout(alignment: .center, spacing: DS.Space.s3))
+        return layout {
+            Text("What to throw")
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(.dsText)
+                .layoutPriority(1)
+                .accessibilityAddTraits(.isHeader)
+            if !stacked {
+                Spacer(minLength: 0)
+            }
+            menu(species, lines: stacked ? 2 : 1)
+        }
+        .padding(.horizontal, DS.gutter)
+        .padding(.bottom, DS.Space.s2)
+    }
+
+    private func menu(_ species: Species, lines: Int) -> some View {
+        Menu {
+            Picker("Fish", selection: selection(species)) {
+                ForEach(choice.groups) { group in
+                    Section(group.title) {
+                        ForEach(group.species) { sp in
+                            Text(sp.commonName).tag(sp.id)
+                        }
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 6) {
+                Text(species.commonName)
+                    .lineLimit(lines)
+                    .truncationMode(.tail)
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.dsText2)
+            }
+            .font(.subheadline.weight(.medium))
+            .foregroundStyle(.dsText)
+            .padding(.horizontal, DS.Space.s3)
+            .padding(.vertical, 6)
+            .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.button, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: DS.Radius.button, style: .continuous))
+        }
+        .accessibilityLabel("Fish")
+        .accessibilityValue(species.commonName)
+        .accessibilityHint("Changes which fish the picks are for")
+    }
+
+    /// Plays the selection haptic when the menu changes the fish.
+    private func selection(_ current: Species) -> Binding<Int64> {
+        Binding(get: { current.id }, set: { chosenId = $0 })
+            .haptic()
+            .animation(DS.Motion.easeOut)
+    }
+}
+
 // MARK: - Today section
 
 /// What to throw on Today: why, the clarity call, the top three picks and the

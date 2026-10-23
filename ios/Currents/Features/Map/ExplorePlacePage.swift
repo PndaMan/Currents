@@ -97,8 +97,10 @@ struct ExplorePlacePage: View {
         return waterbody != nil ? Color.exploreWater : DS.accent
     }
 
-    private var throwSpecies: Species? {
-        speciesHere.first?.species ?? allSpeciesWithBaits.first
+    /// Fresh or salt water, for whether the fish you track belongs here.
+    private var freshwater: Bool? {
+        if let w = waterbody { return ThrowSpeciesChoice.isFreshwater(SpotFormat.spotType(for: w.type)) }
+        return spot.flatMap { ThrowSpeciesChoice.isFreshwater($0.type) }
     }
 
     private var mapsURL: URL? {
@@ -136,7 +138,10 @@ struct ExplorePlacePage: View {
                 }
 
                 section {
-                    ExploreThrowSection(weather: weather, species: throwSpecies)
+                    ExploreThrowSection(weather: weather,
+                                        caught: speciesHere.map { $0.species },
+                                        inWater: allSpeciesWithBaits,
+                                        freshwater: freshwater)
                 }
 
                 if savedSpot != nil {

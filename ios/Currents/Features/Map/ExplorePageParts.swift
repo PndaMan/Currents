@@ -82,19 +82,34 @@ struct ExploreConditions: View {
 
 /// The top lure picks for this water right now, from the same engine as
 /// Today: water temperature, clarity, light, pressure, your tackle box and
-/// what has caught you fish.
+/// what has caught you fish. Picked for the fish you track when it belongs
+/// here; the menu by the title switches fish while the page is open.
 struct ExploreThrowSection: View {
     @Environment(AppState.self) private var appState
+    @AppStorage("targetSpeciesId") private var targetSpeciesId: Int = 0
     let weather: WeatherService.WeatherData?
-    let species: Species?
+    /// Fish caught here, most caught first.
+    var caught: [Species] = []
+    /// Fish the water is known to hold that have bait records.
+    var inWater: [Species] = []
+    /// Fresh or salt water; nil when the place does not say.
+    var freshwater: Bool? = nil
     var limit = 3
 
     @State private var ownedGear: [OwnedGear] = []
     @State private var history: [CatchDetail] = []
+    @State private var tracked: Species?
+    /// The fish picked from the menu. Not saved: next time the page opens
+    /// on the fish you track again.
+    @State private var chosenId: Int64?
 
     private var clarity: WaterClarity { WaterClarity.inferred(precipMm: weather?.precipMm) }
 
-    private var picks: [LureEngine.Suggestion] {
+    private var choice: ThrowSpeciesChoice {
+        ThrowSpeciesChoice(tracked: tracked, caught: caught, inWater: inWater, freshwater: freshwater)
+    }
+
+    private func picks(for species: Species?) -> [LureEngine.Suggestion] {
         let conditions = LureEngine.Conditions(
             waterTempC: weather?.waterTempC,
             clarity: clarity,
@@ -107,9 +122,10 @@ struct ExploreThrowSection: View {
     }
 
     var body: some View {
+        let choice = self.choice
         VStack(alignment: .leading, spacing: 0) {
-            SectionTitle("What to throw", detail: species.map { "for \($0.commonName)" })
-            ForEach(picks) { pick in
+            ThrowSpeciesTitle(choice: choice, chosenId: $chosenId)
+            ForEach(picks(for: choice.species(chosen: chosenId))) { pick in
                 pickRow(pick)
             }
             ExploreFootnote(footnote)
@@ -117,6 +133,10 @@ struct ExploreThrowSection: View {
         .task {
             ownedGear = (try? appState.ownedGearRepository.fetchAll()) ?? []
             history = (try? appState.catchRepository.fetchAll(limit: 200)) ?? []
+        }
+        .task(id: targetSpeciesId) {
+            let id = Int64(targetSpeciesId)
+            tracked = id == 0 ? nil : (try? appState.speciesRepository.fetch(id: id)) ?? nil
         }
     }
 
