@@ -570,6 +570,13 @@ final class CommunityService: ObservableObject {
         return loaded
     }
 
+    /// Screenshot mode only: stores a demo crewmate's profile and avatar the
+    /// way a fetched one is cached, so every screen shows it offline.
+    func seedScreenshotProfile(_ p: Profile, avatarData: Data?) {
+        guard ScreenshotSupport.isActive else { return }
+        cache(profile: p, code: p.id, avatarData: avatarData)
+    }
+
     private func cache(profile p: Profile, code: String, avatarData: Data?) {
         let key = code.uppercased()
         let dto = ProfileDTO(p, avatarData: avatarData)
@@ -1089,7 +1096,7 @@ final class CommunityService: ObservableObject {
     /// Whether a given angler has shared their catches with me. The result is
     /// remembered so screens can render the last-known answer instantly.
     func hasCatchAccess(to code: String) async -> Bool {
-        if code == Self.demoCode { return true }
+        if code == Self.demoCode || ScreenshotSupport.isActive { return true }
         let id = CKRecord.ID(recordName: "catchgrant-\(code)-\(friendCode)")
         let granted = (try? await db.record(for: id)) != nil
         UserDefaults.standard.set(granted, forKey: "catchaccess-\(code.uppercased())")
@@ -1098,12 +1105,14 @@ final class CommunityService: ObservableObject {
 
     /// Last-known grant answer, for instant rendering while the check refreshes.
     func cachedCatchAccess(_ code: String) -> Bool {
-        code == Self.demoCode || UserDefaults.standard.bool(forKey: "catchaccess-\(code.uppercased())")
+        code == Self.demoCode || ScreenshotSupport.isActive
+            || UserDefaults.standard.bool(forKey: "catchaccess-\(code.uppercased())")
     }
 
     /// Grant checks for MANY anglers in one round trip (grant record ids are
     /// deterministic, so a single batched fetch replaces N sequential ones).
     func catchAccess(for codes: [String]) async -> [String: Bool] {
+        if ScreenshotSupport.isActive { return Dictionary(uniqueKeysWithValues: Set(codes).map { ($0, true) }) }
         var out: [String: Bool] = [:]
         var ids: [CKRecord.ID] = []
         for code in Set(codes) {
@@ -1524,6 +1533,7 @@ final class CommunityService: ObservableObject {
     }
 
     func fetchCrew(code: String) async -> Crew? {
+        if ScreenshotSupport.isActive { return crew(withCode: code) }
         let id = CKRecord.ID(recordName: "crew-\(code)")
         guard let r = try? await db.record(for: id) else { return nil }
         let existing = crew(withCode: code)
@@ -1553,6 +1563,7 @@ final class CommunityService: ObservableObject {
     }
 
     func crewMembers(code: String) async -> [GroupMember] {
+        if ScreenshotSupport.isActive { return ScreenshotSupport.demoCrewMembers(code: code) }
         let query = CKQuery(recordType: crewMemberType,
                             predicate: NSPredicate(format: "crewCode == %@", code))
         guard let results = try? await db.records(matching: query, resultsLimit: 300) else {
@@ -2034,6 +2045,7 @@ final class CommunityService: ObservableObject {
     /// knows trips this device joined, so crewmates who hadn't joined yet never
     /// saw the "live" banner — the whole join-mid-trip flow was invisible.
     func liveCrewTrip(crewCode: String) async -> GroupTrip? {
+        if ScreenshotSupport.isActive { return ScreenshotSupport.demoLiveTrips(crewCode: crewCode).first }
         let q = CKQuery(recordType: groupTripType,
                         predicate: NSPredicate(format: "crewCode == %@", crewCode))
         guard let res = try? await db.records(matching: q, resultsLimit: 25) else { return nil }

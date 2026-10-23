@@ -519,7 +519,9 @@ struct CommunityView: View {
     /// Each crew's tournament (with standings, for the rank pill) and live
     /// trips. Crews are few, so one crew at a time keeps this simple.
     private func loadLive() async {
-        guard canSync, !ScreenshotSupport.isActive else { return }
+        // Screenshot mode reads the demo tournament and live trip seeded by
+        // ScreenshotSupport, so "Happening now" photographs populated.
+        guard canSync else { return }
         var next: [String: CrewLive] = [:]
         for crew in svc.myCrews {
             async let tourney = svc.activeTournament(crewCode: crew.code)

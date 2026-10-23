@@ -797,6 +797,7 @@ extension CommunityService {
     /// All the tournament's teams with live points. One query for the teams,
     /// then their catches concurrently.
     func teamStandings(tournament: Tournament) async -> [TeamStanding] {
+        if ScreenshotSupport.isActive { return ScreenshotSupport.demoStandings(tournament: tournament) }
         let q = CKQuery(recordType: groupTripType,
                         predicate: NSPredicate(format: "tournamentCode == %@", tournament.id))
         guard let res = try? await db.records(matching: q, resultsLimit: 50) else { return [] }
@@ -896,6 +897,7 @@ extension CommunityService {
     /// from "can't reach the server" so callers don't misreport offline as
     /// deleted.
     func tournamentExists(code: String) async -> RecordProbe {
+        if ScreenshotSupport.isActive { return .exists }
         await probeRecord(name: "tournament-\(code)")
     }
 
@@ -920,6 +922,7 @@ extension CommunityService {
     /// All live, NON-tournament sessions in a crew — multiple can run at once;
     /// tournament team sessions live under the tournament hero instead.
     func liveCrewTrips(crewCode: String) async -> [GroupTrip] {
+        if ScreenshotSupport.isActive { return ScreenshotSupport.demoLiveTrips(crewCode: crewCode) }
         let q = CKQuery(recordType: groupTripType,
                         predicate: NSPredicate(format: "crewCode == %@", crewCode))
         guard let res = try? await db.records(matching: q, resultsLimit: 50) else { return [] }
