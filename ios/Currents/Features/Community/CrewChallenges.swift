@@ -191,15 +191,17 @@ struct CrewChallengeRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Space.s2) {
-            HStack(alignment: .firstTextBaseline) {
-                Label(challenge.title, systemImage: challenge.done ? "checkmark.circle.fill" : challenge.icon)
-                    .font(.headline)
-                    .foregroundStyle(.dsText)
-                    .labelStyle(CrewChallengeLabelStyle(tint: tint))
-                Spacer(minLength: DS.Space.s2)
-                Text(weekLabel)
-                    .font(.footnote)
-                    .foregroundStyle(.dsText2)
+            HStack(spacing: DS.Space.s3) {
+                ThumbView(systemImage: challenge.done ? "checkmark" : challenge.icon, tint: tint, size: 40)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(challenge.title)
+                        .font(.headline)
+                        .foregroundStyle(.dsText)
+                    Text(weekLabel)
+                        .font(.footnote)
+                        .foregroundStyle(.dsText2)
+                }
+                Spacer(minLength: 0)
             }
             Text(challenge.detail)
                 .font(.subheadline)
@@ -227,16 +229,6 @@ struct CrewChallengeRow: View {
         .accessibilityElement(children: .combine)
         .onAppear {
             if reduceMotion { shown = true } else { withAnimation(DS.Motion.softSpring.delay(0.15)) { shown = true } }
-        }
-    }
-}
-
-private struct CrewChallengeLabelStyle: LabelStyle {
-    let tint: Color
-    func makeBody(configuration: Configuration) -> some View {
-        HStack(spacing: 6) {
-            configuration.icon.foregroundStyle(tint)
-            configuration.title
         }
     }
 }
