@@ -143,7 +143,7 @@ struct OfflineMapsView: View {
         } header: {
             Text("Download a map")
         } footer: {
-            PFFootnote("Provinces and countries come as an overview with close-ups around their lakes, rivers and coast, and your own spots.")
+            PFFootnote("Close-ups around water and your spots.")
         }
         .pfRows()
     }
@@ -175,16 +175,21 @@ struct OfflineMapsView: View {
     private var cacheSection: some View {
         Section {
             PFToggleRow(title: "Cache maps as I browse",
-                        detail: "Keeps satellite tiles around you for no signal",
+                        detail: "Keeps tiles around you for no signal",
+                        systemImage: "square.stack.3d.down.right.fill", color: .cyan,
                         isOn: Binding(get: { manager.autoCacheEnabled },
                                       set: { manager.autoCacheEnabled = $0 }))
             PFToggleRow(title: "Download on mobile data",
-                        detail: "When off, map downloads wait for Wi-Fi",
+                        detail: "Off waits for Wi-Fi",
+                        systemImage: "antenna.radiowaves.left.and.right", color: .green,
                         isOn: Binding(get: { manager.downloadOnCellular },
                                       set: { manager.downloadOnCellular = $0 }))
-            LabeledContent("Cached as you browse", value: OfflineFormat.bytes(cacheBytes))
-            Button("Clear map cache", role: .destructive) { confirmClearCache = true }
-                .disabled(cacheBytes == 0)
+            PFRowLabel(title: "Cached as you browse", systemImage: "internaldrive.fill", color: .blue,
+                       value: OfflineFormat.bytes(cacheBytes))
+            Button(role: .destructive) { confirmClearCache = true } label: {
+                PFRowLabel(title: "Clear map cache", systemImage: "trash.fill", color: .red)
+            }
+            .disabled(cacheBytes == 0)
         } header: {
             Text("Cache and downloads")
         }
@@ -211,7 +216,7 @@ struct OfflineMapsView: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("No offline maps yet")
                             .foregroundStyle(.dsText)
-                        Text("Download your waters before you head out of signal.")
+                        Text("Download your waters before you lose signal.")
                             .font(.subheadline)
                             .foregroundStyle(.dsText2)
                     }
@@ -259,7 +264,7 @@ struct OfflineMapsView: View {
             Text("Your maps")
         } footer: {
             if !manager.packs.isEmpty {
-                PFFootnote("Swipe right to update or pause, left to delete. Maps show on the Offline map style in Explore.")
+                PFFootnote("Swipe to update, pause or delete.")
             }
         }
         .pfRows()
@@ -269,7 +274,7 @@ struct OfflineMapsView: View {
         Section {
             ForEach(manager.legacyMaps) { region in
                 HStack(spacing: 14) {
-                    ThumbView(systemImage: "photo", tint: .gray, size: 44)
+                    ThumbView(systemImage: "photo", tint: .orange, size: 44)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(region.name).foregroundStyle(.dsText)
                         Text("\(region.formattedSize), saved \(OfflineFormat.date(region.downloadedAt))")
@@ -289,7 +294,7 @@ struct OfflineMapsView: View {
         } header: {
             Text("Older saved regions")
         } footer: {
-            PFFootnote("Earlier versions saved a flat picture of each region, which the map can't use. Download the area again for a map that works with no signal.")
+            PFFootnote("These can't be used with no signal. Download the area again.")
         }
         .pfRows()
     }
