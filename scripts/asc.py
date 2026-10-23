@@ -25,6 +25,8 @@ import argparse
 import calendar
 import datetime as dt
 import hashlib
+import threading
+from concurrent.futures import ThreadPoolExecutor
 import json
 import os
 import sys
@@ -127,16 +129,19 @@ class Client:
         self._token_exp = 0.0
         self._fake = 0
         self.writes = 0
+        # Uploads run on worker threads; this guards the token and counters.
+        self._lock = threading.Lock()
 
     @property
     def online(self) -> bool:
         return self.creds is not None
 
     def _auth(self) -> str:
-        if time.time() > self._token_exp - 60:
-            self._token = make_token(self.creds)
-            self._token_exp = time.time() + 600
-        return self._token
+        with self._lock:
+            if time.time() > self._token_exp - 60:
+                self._token = make_token(self.creds)
+                self._token_exp = time.time() + 600
+            return self._token
 
     def request(self, method: str, path: str, *, params=None, body=None) -> dict:
         if not self.online:
@@ -146,14 +151,17 @@ class Client:
         for attempt in range(6):
             try:
                 resp = self.session.request(
-                    method, url, params=params, json=body, timeout=60,
+                    method, url, params=params, json=body, timeout=(10, 120),
                     headers={"Authorization": f"Bearer {self._auth()}"},
                 )
             except (requests.ConnectionError, requests.Timeout) as exc:
                 # A POST that timed out may still have created something, so
                 # only reads and idempotent writes are sent again.
                 timed_out = isinstance(exc, requests.Timeout) and not isinstance(exc, requests.ConnectTimeout)
-                if attempt == 5 or (timed_out and method == "POST"):
+                if timed_out and method == "POST":
+                    raise ASCError(f"{method} {path}: Apple did not answer in time. Run the command again; "
+                                   "it skips whatever was already created.") from exc
+                if attempt == 5:
                     raise ASCError(f"{method} {path}: {exc}") from exc
                 time.sleep(delay)
                 delay *= 2
@@ -188,12 +196,14 @@ class Client:
 
     def write(self, method: str, path: str, body: dict | None, summary: str) -> dict:
         """A write. Dry run prints it and returns a placeholder resource."""
-        self.writes += 1
+        with self._lock:
+            self.writes += 1
+            self._fake += 1
+            fake = self._fake
         if not self.apply:
             print(f"  would {summary}")
-            self._fake += 1
             data_type = (body or {}).get("data", {}).get("type", "resource") if isinstance((body or {}).get("data"), dict) else "resource"
-            return {"data": {"id": f"(new-{self._fake})", "type": data_type, "attributes": {}}}
+            return {"data": {"id": f"(new-{fake})", "type": data_type, "attributes": {}}}
         print(f"  {summary}")
         return self.request(method, path, body=body)
 
@@ -239,17 +249,41 @@ def upload_asset(api: Client, create_path: str, body: dict, file: Path, patch_ty
     if checksum:
         attrs["sourceFileChecksum"] = md5(file)
     api.request("PATCH", f"{create_path}/{asset['id']}", body={"data": {"type": patch_type, "id": asset["id"], "attributes": attrs}})
-    # Wait briefly for Apple to process it so failures show up here.
-    for _ in range(30):
-        state = api.get(f"{create_path}/{asset['id']}")["data"]["attributes"].get("assetDeliveryState") or {}
-        if state.get("state") == "COMPLETE":
-            break
-        if state.get("state") == "FAILED":
-            raise ASCError(f"Apple rejected {file.name}: {json.dumps(state.get('errors'))}")
-        time.sleep(2)
-    else:
-        print(f"  {file.name} is still processing; check App Store Connect later")
     return asset["id"]
+
+
+UPLOAD_WORKERS = 6
+
+
+def upload_assets(api: Client, create_path: str, jobs: list[tuple[dict, Path]], patch_type: str, checksum: bool) -> list[str]:
+    """Uploads several files at once, then waits for Apple to process them
+    together. Returns the asset ids in the order of `jobs`."""
+    if not jobs:
+        return []
+    with ThreadPoolExecutor(max_workers=UPLOAD_WORKERS) as pool:
+        ids = list(pool.map(lambda job: upload_asset(api, create_path, job[0], job[1], patch_type, checksum), jobs))
+    if api.apply:
+        wait_for_assets(api, create_path, [(i, path.name) for i, (_, path) in zip(ids, jobs)])
+    return ids
+
+
+def wait_for_assets(api: Client, create_path: str, assets: list[tuple[str, str]], timeout: float = 90) -> None:
+    """Polls until Apple has processed every asset, so a rejected file shows up here."""
+    pending = dict(assets)
+    deadline = time.time() + timeout
+    while pending and time.time() < deadline:
+        with ThreadPoolExecutor(max_workers=UPLOAD_WORKERS) as pool:
+            states = dict(zip(pending, pool.map(
+                lambda i: api.get(f"{create_path}/{i}")["data"]["attributes"].get("assetDeliveryState") or {}, pending)))
+        for asset_id, state in states.items():
+            if state.get("state") == "FAILED":
+                raise ASCError(f"Apple rejected {pending[asset_id]}: {json.dumps(state.get('errors'))}")
+            if state.get("state") == "COMPLETE":
+                del pending[asset_id]
+        if pending:
+            time.sleep(3)
+    for name in pending.values():
+        print(f"  {name} is still processing; check App Store Connect later")
 
 
 def ensure_screenshot_branch() -> Path:
@@ -556,6 +590,7 @@ def sync_event_locale(api: Client, event_id: str, spec: "EventSpec", locale: str
     shots = []
     if not is_placeholder(loc_id) and api.online:
         shots = api.get_all(f"/v1/appEventLocalizations/{loc_id}/appEventScreenshots")
+    jobs = []
     for asset_type, path in spec.media.items():
         if path is None:
             continue
@@ -568,13 +603,13 @@ def sync_event_locale(api: Client, event_id: str, spec: "EventSpec", locale: str
         for old in have:
             api.write("DELETE", f"/v1/appEventScreenshots/{old['id']}", None,
                       f"remove the old {asset_type} {old['attributes'].get('fileName')}")
-        upload_asset(
-            api, "/v1/appEventScreenshots",
+        jobs.append((
             {"data": {"type": "appEventScreenshots",
                       "attributes": {"fileName": path.name, "fileSize": path.stat().st_size, "appEventAssetType": asset_type},
                       "relationships": {"appEventLocalization": {"data": {"type": "appEventLocalizations", "id": loc_id}}}}},
-            path, "appEventScreenshots", checksum=False,
-        )
+            path,
+        ))
+    upload_assets(api, "/v1/appEventScreenshots", jobs, "appEventScreenshots", checksum=False)
 
 
 # ---------------------------------------------------------------- custom product pages
@@ -738,16 +773,15 @@ def sync_page_screenshots(api: Client, loc_id: str, spec: PageSpec) -> None:
         set_id = created["data"]["id"]
     print(f"  screenshots: {' '.join(p.stem for p in spec.screenshots)}"
           + (f" (replacing {' '.join(s['attributes'].get('fileName', '?') for s in current)})" if current else ""))
-    for old in current:
-        api.write("DELETE", f"/v1/appScreenshots/{old['id']}", None, f"remove {old['attributes'].get('fileName')}")
-    ids = []
-    for path in spec.screenshots:
-        ids.append(upload_asset(
-            api, "/v1/appScreenshots",
-            {"data": {"type": "appScreenshots", "attributes": {"fileName": path.name, "fileSize": path.stat().st_size},
-                      "relationships": {"appScreenshotSet": {"data": {"type": "appScreenshotSets", "id": set_id}}}}},
-            path, "appScreenshots", checksum=True,
-        ))
+    with ThreadPoolExecutor(max_workers=UPLOAD_WORKERS) as pool:
+        list(pool.map(lambda old: api.write("DELETE", f"/v1/appScreenshots/{old['id']}", None,
+                                            f"remove {old['attributes'].get('fileName')}"), current))
+    ids = upload_assets(api, "/v1/appScreenshots", [
+        ({"data": {"type": "appScreenshots", "attributes": {"fileName": path.name, "fileSize": path.stat().st_size},
+                   "relationships": {"appScreenshotSet": {"data": {"type": "appScreenshotSets", "id": set_id}}}}},
+         path)
+        for path in spec.screenshots
+    ], "appScreenshots", checksum=True)
     if ids:
         api.write(
             "PATCH", f"/v1/appScreenshotSets/{set_id}/relationships/appScreenshots",
