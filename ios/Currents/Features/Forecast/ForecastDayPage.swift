@@ -116,9 +116,20 @@ struct ForecastDayPage: View {
     // MARK: - Hero
 
     private func hero(_ day: ForecastDay) -> some View {
-        let reason = day.result.reasons.first.map(ForecastFormat.clean) ?? ForecastFormat.guidance(day.peakScore)
+        // The ring is the day's peak, so the label says when it falls and the
+        // callout gives the peak hour's reason rather than this hour's.
+        let nowHour = Calendar.current.component(.hour, from: .now)
+        let peak = day.isToday && day.bestHour == nowHour
+            ? day.result : store.hourDetail(day: day.offset, hour: day.bestHour)
+        let reason = peak.reasons.first.map(ForecastFormat.clean) ?? ForecastFormat.guidance(day.peakScore)
+        let label: String
+        if let best = day.bestWindow {
+            label = (day.bestWindowPassed ? "Peaked " : "Best ") + ForecastFormat.range(best, use24: use24)
+        } else {
+            label = "Best hour " + ForecastFormat.hour(day.bestHour, use24: use24)
+        }
         // Today's hero layout: the ring drops under the text at accessibility sizes.
-        return PageHero(label: ForecastFormat.longDate(day.date), value: ForecastFormat.grade(day.peakScore),
+        return PageHero(label: label, value: ForecastFormat.grade(day.peakScore),
                         callout: reason) {
             ScoreRing(score: day.peakScore, size: 96, caption: "of 100")
         }

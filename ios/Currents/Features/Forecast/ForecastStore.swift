@@ -76,6 +76,16 @@ struct ForecastDay {
 
     var bestWindow: BiteWindows.Window? { windows.max { $0.peakScore < $1.peakScore } }
 
+    /// True once today's best window is over. Always false on later days.
+    var bestWindowPassed: Bool { isToday && (bestWindow?.hasPassed() ?? false) }
+
+    /// The best window still to come: today's from those not yet over, nil
+    /// once every one has passed; the day's best on later days.
+    var nextBestWindow: BiteWindows.Window? {
+        guard isToday else { return bestWindow }
+        return windows.filter { !$0.hasPassed() }.max { $0.peakScore < $1.peakScore }
+    }
+
     var bestHour: Int {
         result.hourlyScores.max { $0.score < $1.score }?.hour ?? 6
     }
