@@ -1164,14 +1164,24 @@ struct PrivacySettingsView: View {
     @ObservedObject private var community = CommunityService.shared
 
     private var svc: CommunityService { .shared }
+    /// Crew and sync need the iCloud entitlement. Screenshot mode seeds a
+    /// joined account without CloudKit, so the page is captured as a user
+    /// sees it.
+    private var cloudAvailable: Bool { CrewCloud.buildHasCloudKit || ScreenshotSupport.isActive }
     /// Sharing only reaches anyone once this phone is on Crew.
-    private var canShare: Bool { CrewCloud.buildHasCloudKit && community.joined }
+    private var canShare: Bool { cloudAvailable && community.joined }
+    /// Whether catch locations go out, as the switch shows it.
+    private var sharesCatchLocations: Bool { canShare && shareCatchLocations }
 
     var body: some View {
         TodayPage("Privacy", subtitle: "Everything stays on this phone until you share it.") {
             sharingSection
-            blurSection
-            syncSection
+            // The blur and sync only work through iCloud, so without it
+            // they are hidden rather than shown as dead switches.
+            if cloudAvailable {
+                blurSection
+                syncSection
+            }
             CardSection("Your data") {
                 NavigationLink(value: SettingsRoute.storage) {
                     CardRow("Export or back up", systemImage: "square.and.arrow.up.fill", tint: .green, chevron: true)
@@ -1184,20 +1194,21 @@ struct PrivacySettingsView: View {
     private var sharingSection: some View {
         VStack(alignment: .leading, spacing: 0) {
             SectionTitle("Crew and friends")
-            if !CrewCloud.buildHasCloudKit {
-                InlineEmpty(systemImage: "icloud.slash", text: "Sharing needs Crew, which this build can't use.")
+            if !cloudAvailable {
+                InlineEmpty(systemImage: "icloud.slash", text: "Crew isn't available on this iPhone")
+            } else {
+                if !community.joined {
+                    InlineEmpty(systemImage: "person.2", text: "Join Crew to share catches and spots",
+                                actionTitle: "Open Crew") {
+                        appState.pendingDeepLink = URL(string: "currents://community")
+                    }
                     .padding(.bottom, DS.Space.s3)
-            } else if !community.joined {
-                InlineEmpty(systemImage: "person.2", text: "Join Crew to share catches and spots",
-                            actionTitle: "Open Crew") {
-                    appState.pendingDeepLink = URL(string: "currents://community")
                 }
-                .padding(.bottom, DS.Space.s3)
+                sharingToggles
+                    .disabled(!canShare)
+                    .opacity(canShare ? 1 : 0.5)
+                SectionFootnote("Measured catches still rank on your crew leaderboards and in Game Center.")
             }
-            sharingToggles
-                .disabled(!canShare)
-                .opacity(canShare ? 1 : 0.5)
-            SectionFootnote("Measured catches still rank on your crew leaderboards and in Game Center.")
         }
         .onChange(of: shareCatches) { _, _ in reapplySharing() }
         .onChange(of: shareSpots) { _, _ in reapplySharing() }
@@ -1212,22 +1223,29 @@ struct PrivacySettingsView: View {
     private var sharingToggles: some View {
         CardGroup {
             CardToggleRow("Share my catches", subtitle: "Species, size and photo",
-                          systemImage: "fish.fill", tint: .blue, isOn: $shareCatches)
+                          systemImage: "fish.fill", tint: .blue, isOn: shown($shareCatches))
             CardToggleRow("Share my spots", subtitle: "Private until you turn this on",
-                          systemImage: "mappin.circle.fill", tint: .red, isOn: $shareSpots)
-            if shareSpots {
+                          systemImage: "mappin.circle.fill", tint: .red, isOn: shown($shareSpots))
+            if canShare && shareSpots {
                 CardToggleRow("Exact spot locations", subtitle: "Off moves shared spots about 4 km",
-                              systemImage: "scope", tint: .orange, isOn: $shareSpotExact)
+                              systemImage: "scope", tint: .orange, isOn: shown($shareSpotExact))
             }
             CardToggleRow("Share catch locations", subtitle: "Off keeps where you caught it private",
-                          systemImage: "location.fill", tint: .green, isOn: $shareCatchLocations)
+                          systemImage: "location.fill", tint: .green, isOn: shown($shareCatchLocations))
         }
+    }
+
+    /// A sharing switch reads off while sharing can't reach anyone, without
+    /// changing the stored choice, so it comes back on joining Crew.
+    private func shown(_ choice: Binding<Bool>) -> Binding<Bool> {
+        Binding(get: { canShare && choice.wrappedValue },
+                set: { choice.wrappedValue = $0 })
     }
 
     private var blurSection: some View {
         CardSection("Honey-hole blur",
-                    note: shareCatchLocations ? "Friends see an area this wide, never the exact rock."
-                                              : "Turn on Share catch locations to use this.") {
+                    note: sharesCatchLocations ? "Friends see an area this wide, never the exact rock."
+                                               : "Turn on Share catch locations to use this.") {
             HStack(spacing: 14) {
                 BlurRadiusPreview(radiusKm: privacyRadius, tint: .blue)
                 VStack(alignment: .leading, spacing: DS.Space.s2) {
@@ -1247,30 +1265,23 @@ struct PrivacySettingsView: View {
                 }
             }
             .padding(DS.Space.s4)
-            .disabled(!shareCatchLocations)
-            .opacity(shareCatchLocations ? 1 : 0.5)
+            .disabled(!sharesCatchLocations)
+            .opacity(sharesCatchLocations ? 1 : 0.5)
             .haptic(.selection, trigger: privacyRadius)
         }
     }
 
-    /// Builds without the iCloud entitlement (the sideload build) cannot
-    /// sync, so the toggle would do nothing there.
-    @ViewBuilder
+    /// Shown only where iCloud can be used (see `cloudAvailable`); without the
+    /// entitlement the switch would do nothing.
     private var syncSection: some View {
-        if CrewCloud.buildHasCloudKit {
-            CardSection("Sync", note: "Nobody else can see your iCloud data.") {
-                CardToggleRow("Sync across my devices", subtitle: "Your own private iCloud",
-                              systemImage: "icloud.fill", tint: .cyan, isOn: $cloudSyncEnabled)
-            }
-            .onChange(of: cloudSyncEnabled) { _, on in
-                CloudSyncEngine.shared.setEnabled(on)
-                ToastCenter.shared.show(on ? "Syncing with your iCloud" : "Sync is off. Your data stays on this phone.",
-                                        style: .info)
-            }
-        } else {
-            CardSection("Sync") {
-                CardRow("Not available in this build", systemImage: "icloud.slash.fill", tint: .cyan)
-            }
+        CardSection("Sync", note: "Nobody else can see your iCloud data.") {
+            CardToggleRow("Sync across my devices", subtitle: "Your own private iCloud",
+                          systemImage: "icloud.fill", tint: .cyan, isOn: $cloudSyncEnabled)
+        }
+        .onChange(of: cloudSyncEnabled) { _, on in
+            CloudSyncEngine.shared.setEnabled(on)
+            ToastCenter.shared.show(on ? "Syncing with your iCloud" : "Sync is off. Your data stays on this phone.",
+                                    style: .info)
         }
     }
 
