@@ -1984,7 +1984,7 @@ struct TeamTournamentDetailView: View {
                 CommunityCatchThumb(row: row, size: 56)
             } trailing: {
                 Text("+\(points)")
-                    .foregroundStyle(Color.dsScoreGood)
+                    .foregroundStyle(DS.ink(Color.dsScoreGood))
             }
         }
         .buttonStyle(.dim)
