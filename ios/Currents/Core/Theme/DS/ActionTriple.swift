@@ -138,11 +138,15 @@ private struct ActionTileLabelStyle: LabelStyle {
 }
 
 /// Icon over label in a tile; icon beside a wrapping label at accessibility
-/// sizes, where the tiles are full-width rows.
+/// sizes, where the tiles are full-width rows. The icon sits in a box of one
+/// fixed height, so symbols of different shapes leave every label in a row
+/// on the same baseline.
 private struct ActionTileLabelLayout: View {
     let icon: LabelStyleConfiguration.Icon
     let title: LabelStyleConfiguration.Title
     @Environment(\.dynamicTypeSize) private var typeSize
+    @ScaledMetric(relativeTo: .body) private var iconSize: CGFloat = 19
+    @ScaledMetric(relativeTo: .body) private var iconHeight: CGFloat = 24
 
     var body: some View {
         if typeSize.isAccessibilitySize {
@@ -159,8 +163,9 @@ private struct ActionTileLabelLayout: View {
         } else {
             VStack(spacing: 4) {
                 icon
-                    .font(.system(size: 19, weight: .medium))
+                    .font(.system(size: iconSize, weight: .medium))
                     .imageScale(.medium)
+                    .frame(height: iconHeight)
                 title
                     .font(.footnote.weight(.semibold))
                     .lineLimit(1)
