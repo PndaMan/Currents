@@ -1701,7 +1701,7 @@ struct AboutView: View {
                 .foregroundStyle(.dsText2)
             Text(version)
                 .font(.footnote)
-                .foregroundStyle(.dsText3)
+                .foregroundStyle(.dsText2)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, DS.Space.s4)
