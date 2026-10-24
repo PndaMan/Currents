@@ -670,8 +670,8 @@ struct BadgeMetrics {
 // MARK: - Badge views
 
 /// A round medal in its rarity colour: a solid rim, a fine inner ring and
-/// the badge's symbol. A locked medal is an empty dashed slot with a small
-/// lock.
+/// the badge's symbol. A locked medal is a dashed slot with its symbol
+/// faint in the rarity colour and a small lock, so it reads as a goal.
 struct BadgeMedal: View {
     let badge: BadgeDefinition
     var size: CGFloat = 64
@@ -689,7 +689,7 @@ struct BadgeMedal: View {
             Image(systemName: badge.icon)
                 .font(.system(size: size * 0.4, weight: .semibold)) // ui-lint: allow, symbol sized to the medal
                 .symbolRenderingMode(.hierarchical)
-                .foregroundStyle(badge.earned ? tint : Color.dsText3)
+                .foregroundStyle(badge.earned ? tint : DS.ink(tint).opacity(0.35))
                 .brightness(inkShift)
         }
         .frame(width: size, height: size)
