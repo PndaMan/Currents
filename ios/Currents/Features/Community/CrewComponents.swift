@@ -356,7 +356,7 @@ struct CrewFeedRow: View {
                 HStack(spacing: 4) {
                     Image(systemName: CrewReactionStyle.symbol(top))
                         .font(.subheadline)
-                        .foregroundStyle(CrewReactionStyle.tint(top))
+                        .foregroundStyle(DS.ink(CrewReactionStyle.tint(top)))
                     Text("\(total)")
                         .font(.subheadline.weight(.medium))
                         .foregroundStyle(.dsText2)

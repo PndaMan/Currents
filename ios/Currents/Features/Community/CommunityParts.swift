@@ -50,9 +50,9 @@ struct StatTileGrid<Content: View>: View {
 
 // MARK: - Reaction tile
 
-/// One reaction on a crew catch: the symbol in its own colour on a faint
-/// tile of the same colour, with the count under it. Yours fills stronger
-/// and gets a ring in the colour.
+/// One reaction on a crew catch: the symbol in its own colour (inked, so
+/// yellow reads on white) on a faint tile of the same colour, with the count
+/// under it. Yours fills stronger and gets a ring in the colour.
 struct CrewReactionTile: View {
     let emoji: String
     let count: Int
@@ -73,7 +73,7 @@ struct CrewReactionTile: View {
             VStack(spacing: 4) {
                 Image(systemName: CrewReactionStyle.symbol(emoji))
                     .font(.title3.weight(.semibold))
-                    .foregroundStyle(tint)
+                    .foregroundStyle(DS.ink(tint))
                     .symbolEffect(.bounce, value: selected)
                 Text(count > 0 ? "\(count)" : " ")
                     .font(.footnote.weight(.semibold))
