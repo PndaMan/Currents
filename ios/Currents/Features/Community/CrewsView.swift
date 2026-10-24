@@ -96,12 +96,17 @@ struct CrewSetupView: View {
         _mode = State(initialValue: joining ? .join : .start)
     }
 
+    private var trimmedName: String { name.trimmingCharacters(in: .whitespaces) }
+    private var codeReady: Bool { joinCode.trimmingCharacters(in: .whitespaces).count == 6 }
+    /// Typed input a swipe would throw away.
+    private var hasChanges: Bool { !trimmedName.isEmpty || !joinCode.isEmpty }
+
     var body: some View {
         NavigationStack {
             CrewCloudGate(closeButton: true) { form }
         }
-        .presentationDetents([.medium, .large])
-        .presentationDragIndicator(.visible)
+        .interactiveDismissDisabled(hasChanges || busy)
+        .dsSheet([.large])
     }
 
     private var form: some View {
@@ -127,6 +132,19 @@ struct CrewSetupView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+            ToolbarItem(placement: .confirmationAction) {
+                if busy {
+                    ProgressView()
+                } else if mode == .start {
+                    Button("Create") { create() }
+                        .bold()
+                        .disabled(trimmedName.isEmpty)
+                } else {
+                    Button("Join") { join() }
+                        .bold()
+                        .disabled(!codeReady)
+                }
+            }
         }
     }
 
@@ -151,30 +169,6 @@ struct CrewSetupView: View {
                     .foregroundStyle(.dsText2)
                 CrewArtPicker(selection: $art)
             }
-            Button {
-                Task {
-                    busy = true
-                    let crew = await svc.createCrew(name: name.trimmingCharacters(in: .whitespaces),
-                                                    emoji: CrewArt.legacyEmoji)
-                    // The art rides on the crew's icon photo, which every
-                    // build shows.
-                    if let crew, let art, let icon = CrewArt.image(for: art) {
-                        _ = await svc.updateCrewIdentity(crew, iconPhoto: icon)
-                    }
-                    busy = false
-                    if crew != nil {
-                        Haptics.success()
-                        ToastCenter.shared.show("Crew created", style: .success, haptic: false)
-                        dismiss()
-                    } else {
-                        ToastCenter.shared.show("Couldn't create the crew", style: .error)
-                    }
-                }
-            } label: {
-                if busy { ProgressView() } else { Text("Create crew") }
-            }
-            .buttonStyle(.dsPrimary)
-            .disabled(busy || name.trimmingCharacters(in: .whitespaces).isEmpty)
             Text("Invite friends once it's made.")
                 .font(.footnote)
                 .foregroundStyle(.dsText2)
@@ -204,20 +198,34 @@ struct CrewSetupView: View {
                     .buttonStyle(.dsTonal)
                     .disabled(busy)
             }
-            Button {
-                join()
-            } label: {
-                if busy { ProgressView() } else { Text("Join crew") }
+        }
+    }
+
+    /// Creates the crew, then puts the chosen art on its icon photo, which
+    /// every build shows.
+    private func create() {
+        guard !busy, !trimmedName.isEmpty else { return }
+        busy = true
+        Task {
+            let crew = await svc.createCrew(name: trimmedName, emoji: CrewArt.legacyEmoji)
+            if let crew, let art, let icon = CrewArt.image(for: art) {
+                _ = await svc.updateCrewIdentity(crew, iconPhoto: icon)
             }
-            .buttonStyle(.dsPrimary)
-            .disabled(busy || joinCode.trimmingCharacters(in: .whitespaces).count != 6)
+            busy = false
+            if crew != nil {
+                Haptics.success()
+                ToastCenter.shared.show("Crew created", style: .success, haptic: false)
+                dismiss()
+            } else {
+                ToastCenter.shared.show("Couldn't create the crew", style: .error)
+            }
         }
     }
 
     /// Joins by code. A code no crew holds and a server that can't be
     /// reached get different messages, so a right code is never retyped.
     private func join() {
-        guard !busy else { return }
+        guard !busy, codeReady else { return }
         let code = joinCode.trimmingCharacters(in: .whitespaces).uppercased()
         busy = true
         joinError = nil
