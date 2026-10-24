@@ -1719,6 +1719,7 @@ struct CrewPostSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(AppState.self) private var appState
     @Environment(\.dynamicTypeSize) private var typeSize
+    @AppStorage("units") private var units = "metric"
     private var svc: CommunityService { .shared }
     @State private var photo: UIImage?
     /// True once the photo couldn't be fetched, so the hero stops spinning.
@@ -1879,11 +1880,11 @@ struct CrewPostSheet: View {
         if post.weightKg != nil || post.lengthCm != nil {
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible())], spacing: 10) {
                 if let w = post.weightKg {
-                    let p = Units.weightParts(kg: w)
+                    let p = Units.weightParts(kg: w, imperial: units == "imperial")
                     StatTile("Weight", systemImage: "scalemass.fill", tint: CrewTint.weight, value: p.0, unit: p.1, width: nil)
                 }
                 if let l = post.lengthCm {
-                    let p = Units.lengthParts(cm: l)
+                    let p = Units.lengthParts(cm: l, imperial: units == "imperial")
                     StatTile("Length", systemImage: "ruler.fill", tint: CrewTint.length, value: p.0, unit: p.1, width: nil)
                 }
             }
