@@ -23,39 +23,36 @@ struct AnalyticsView: View {
     private var imperial: Bool { units == "imperial" }
 
     var body: some View {
-        Group {
-            if !loaded {
-                ProgressView()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if totalCatches == 0 {
-                ContentUnavailableView("No stats yet", systemImage: "chart.bar",
-                                       description: Text("Log a few catches to see your patterns and personal bests."))
-            } else {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 0) {
-                        DetailHeader(over: dateRange, title: "Stats",
-                                     subtitle: "From \(totalCatches) \(totalCatches == 1 ? "catch" : "catches")")
-                        totalsTiles
-                        patternsSection
-                        monthSection
-                        speciesSection
-                        gearSection
-                        hoursSection
-                        weekdaySection
-                        biteScoreSection
-                        spotsSection
-                        weightTrendSection
-                        personalBestsSection
-                    }
-                    .padding(.bottom, DS.Space.s8)
-                    .pageWidth()
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                DetailHeader(title: "Stats", subtitle: headerSubtitle)
+                if !loaded {
+                    ProgressView()
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, 80)
+                } else if totalCatches == 0 {
+                    ContentUnavailableView("No stats yet", systemImage: "chart.bar",
+                                           description: Text("Log a few catches to see your patterns and personal bests."))
+                } else {
+                    totalsTiles
+                    patternsSection
+                    monthSection
+                    speciesSection
+                    gearSection
+                    hoursSection
+                    weekdaySection
+                    biteScoreSection
+                    spotsSection
+                    weightTrendSection
+                    personalBestsSection
                 }
-                .detailScrollEdge()
             }
+            .padding(.bottom, DS.Space.s8)
+            .pageWidth()
         }
+        .detailScrollEdge()
         .dsScreenBackground()
-        .navigationTitle("Stats")
-        .navigationBarTitleDisplayMode(.inline)
+        .logbookPageTitle("Stats")
         // Ticks while scrubbing the month chart, not when the finger lifts.
         .haptic(.selection, trigger: selectedMonth) { _, new in new != nil }
         .task { await loadData() }
@@ -67,6 +64,13 @@ struct AnalyticsView: View {
         guard let first = allCatches.map(\.catchRecord.caughtAt).min() else { return nil }
         let f = Date.FormatStyle.dateTime.month(.abbreviated).year()
         return "\(first.formatted(f)) to \(Date.now.formatted(f))"
+    }
+
+    /// "Oct 2025 to Oct 2026, 41 catches", once there is something to count.
+    private var headerSubtitle: String? {
+        guard loaded, totalCatches > 0 else { return nil }
+        let count = "\(totalCatches) \(totalCatches == 1 ? "catch" : "catches")"
+        return dateRange.map { "\($0), \(count)" } ?? count
     }
 
     private var totalsTiles: some View {

@@ -157,8 +157,7 @@ private struct AchievementsPage: View {
             .pageWidth()
         }
         .detailTint(nil)
-        .navigationTitle("Achievements")
-        .navigationBarTitleDisplayMode(.inline)
+        .logbookPageTitle("Badges")
         .sheet(item: $selected) { badge in
             BadgeDetailView(badge: badge, progress: summary.metrics.progress(for: badge.title))
         }
@@ -175,7 +174,8 @@ private struct AchievementsPage: View {
             }
             .padding(.vertical, DS.Space.s4)
         } else {
-            DetailHeader(title: "\(summary.earnedCount) of \(summary.visibleCount) earned",
+            DetailHeader(over: "Badges",
+                         title: "\(summary.earnedCount) of \(summary.visibleCount) earned",
                          subtitle: summary.closest == nil ? "You have earned every badge." : nil)
         }
     }

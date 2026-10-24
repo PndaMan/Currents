@@ -133,8 +133,7 @@ struct StreakView: View {
             .pageWidth()
         }
         .detailTint(nil)
-        .navigationTitle("Streak")
-        .navigationBarTitleDisplayMode(.inline)
+        .logbookPageTitle("Streak")
         .sheet(isPresented: $showingPlanner) { PlanSessionSheet() }
         .sheet(item: $selected) { badge in
             BadgeDetailView(badge: badge, progress: metrics.progress(for: badge.title))
