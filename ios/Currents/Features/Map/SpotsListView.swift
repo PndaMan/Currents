@@ -177,9 +177,9 @@ struct SpotsListView: View {
                 coordinate: c,
                 currentPressureHpa: w?.pressureHpa,
                 pressureChange6h: w?.pressureChange6h,
-                waterTempC: w?.waterTempC,
-                windSpeedKmh: w?.windSpeedKmh,
-                windDirection: w?.windDirectionDeg,
+                waterTempC: w?.measured?.waterTempC,
+                windSpeedKmh: w?.measured?.windSpeedKmh,
+                windDirection: w?.measured?.windDirectionDeg,
                 species: nil,
                 isInSpawningZone: false
             ).score

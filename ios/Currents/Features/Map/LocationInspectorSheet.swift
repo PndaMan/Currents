@@ -339,9 +339,9 @@ struct LocationInspectorSheet: View {
             coordinate: coordinate,
             currentPressureHpa: w?.pressureHpa,
             pressureChange6h: w?.pressureChange6h,
-            waterTempC: w?.waterTempC,
-            windSpeedKmh: w?.windSpeedKmh,
-            windDirection: w?.windDirectionDeg,
+            waterTempC: w?.measured?.waterTempC,
+            windSpeedKmh: w?.measured?.windSpeedKmh,
+            windDirection: w?.measured?.windDirectionDeg,
             species: species,
             isInSpawningZone: false
         )

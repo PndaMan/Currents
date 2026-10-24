@@ -753,8 +753,8 @@ struct ActiveSessionView: View {
         let f = ForecastEngine.forecast(
             coordinate: coord,
             currentPressureHpa: w?.pressureHpa, pressureChange6h: w?.pressureChange6h,
-            waterTempC: w?.waterTempC, windSpeedKmh: w?.windSpeedKmh,
-            windDirection: w?.windDirectionDeg, species: nil, isInSpawningZone: false
+            waterTempC: w?.measured?.waterTempC, windSpeedKmh: w?.measured?.windSpeedKmh,
+            windDirection: w?.measured?.windDirectionDeg, species: nil, isInSpawningZone: false
         )
         biteScore = f.score
         biteHours = f.hourlyScores

@@ -463,8 +463,8 @@ struct MapTab: View {
                 radarOverlay: layerRadar ? radarOverlay : nil,
                 showWind: layerWind,
                 showCurrent: layerCurrent,
-                windSpeedKmh: weather?.windSpeedKmh,
-                windFromDeg: weather?.windDirectionDeg ?? 0,
+                windSpeedKmh: weather?.measured?.windSpeedKmh,
+                windFromDeg: weather?.measured?.windDirectionDeg ?? 0,
                 flyTo: $flyToCoordinate,
                 onTap: { coord in mapTapped(at: coord) },
                 onRegionChange: { handleRegionChange($0) },
@@ -1392,9 +1392,9 @@ struct MapTab: View {
                 coordinate: spotCoord,
                 currentPressureHpa: w?.pressureHpa,
                 pressureChange6h: w?.pressureChange6h,
-                waterTempC: w?.waterTempC,
-                windSpeedKmh: w?.windSpeedKmh,
-                windDirection: w?.windDirectionDeg,
+                waterTempC: w?.measured?.waterTempC,
+                windSpeedKmh: w?.measured?.windSpeedKmh,
+                windDirection: w?.measured?.windDirectionDeg,
                 species: nil,
                 isInSpawningZone: false
             )
@@ -1490,9 +1490,9 @@ struct MapTab: View {
             coordinate: center,
             currentPressureHpa: w?.pressureHpa,
             pressureChange6h: w?.pressureChange6h,
-            waterTempC: w?.waterTempC,
-            windSpeedKmh: w?.windSpeedKmh,
-            windDirection: w?.windDirectionDeg,
+            waterTempC: w?.measured?.waterTempC,
+            windSpeedKmh: w?.measured?.windSpeedKmh,
+            windDirection: w?.measured?.windDirectionDeg,
             species: nil,
             isInSpawningZone: false
         )
