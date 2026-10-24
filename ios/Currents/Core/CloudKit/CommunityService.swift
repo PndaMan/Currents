@@ -400,8 +400,10 @@ final class CommunityService: ObservableObject {
     /// Flair title picked from earned achievements; empty shows no flair.
     var myTitle: String { UserDefaults.standard.string(forKey: "communityTitle") ?? "" }
 
-    func updateProfile(name: String, bio: String, homeWater: String, region: String,
-                       avatar: UIImage?, stats: MyStats?, title: String? = nil) async {
+    /// Saves the profile locally first, then publishes it. True when the
+    /// published copy was saved.
+    @discardableResult
+    func updateProfile(name: String, bio: String, homeWater: String, region: String, avatar: UIImage?, stats: MyStats?, title: String? = nil) async -> Bool {
         UserDefaults.standard.set(name, forKey: "communityName")
         UserDefaults.standard.set(bio, forKey: "communityBio")
         UserDefaults.standard.set(homeWater, forKey: "communityHomeWater")
@@ -409,7 +411,7 @@ final class CommunityService: ObservableObject {
         if let title { UserDefaults.standard.set(title, forKey: "communityTitle") }
         if let avatar { saveAvatar(avatar) }
         bumpRevision()
-        await saveMyProfile(stats: stats)
+        return await saveMyProfile(stats: stats)
     }
 
     // MARK: - Avatar persistence
@@ -460,7 +462,11 @@ final class CommunityService: ObservableObject {
         return image
     }
 
-    private func saveMyProfile(stats: MyStats?) async {
+    /// True when the profile record was saved. Screenshot mode never reaches
+    /// CloudKit and counts as saved.
+    @discardableResult
+    private func saveMyProfile(stats: MyStats?) async -> Bool {
+        if ScreenshotSupport.isActive { return true }
         let id = CKRecord.ID(recordName: "profile-\(friendCode)")
         let record = (try? await db.record(for: id)) ?? CKRecord(recordType: profileType, recordID: id)
         record["displayName"] = myName as CKRecordValue
@@ -485,8 +491,9 @@ final class CommunityService: ObservableObject {
             // Production rejects undeclared fields until the schema import
             // deploys `title` — retry without it so profile saves never break.
             record["title"] = nil
-            _ = try? await db.save(record)
+            do { _ = try await db.save(record) } catch { return false }
         }
+        return true
     }
 
     func fetchProfile(code: String) async -> Profile? {
@@ -1557,12 +1564,24 @@ final class CommunityService: ObservableObject {
         return (try? JSONDecoder().decode([String].self, from: data)) ?? []
     }
 
-    func leaveCrew(code: String) async {
-        let id = CKRecord.ID(recordName: "crewmember-\(code)-\(friendCode)")
-        _ = try? await db.deleteRecord(withID: id)
+    /// True once my membership record is gone. On false the crew stays in
+    /// my list, so the angler can try again.
+    @discardableResult
+    func leaveCrew(code: String) async -> Bool {
+        if !ScreenshotSupport.isActive {
+            let id = CKRecord.ID(recordName: "crewmember-\(code)-\(friendCode)")
+            do {
+                _ = try await db.deleteRecord(withID: id)
+            } catch let e as CKError where e.code == .unknownItem {
+                // Already gone, which is what leaving needs.
+            } catch {
+                return false
+            }
+        }
         crewFeedCache[code] = nil
         crewMemberCacheStore[code] = nil
         forgetCrew(code: code)
+        return true
     }
 
     func crewMembers(code: String) async -> [GroupMember] {
@@ -1650,9 +1669,11 @@ final class CommunityService: ObservableObject {
     }
 
     /// Create/update a crew post for a catch (used by auto-post and manual share).
-    func postCatch(_ c: Catch, speciesName: String, toCrew code: String, caption: String, tripName: String = "") async {
+    /// True when the post was saved.
+    @discardableResult
+    func postCatch(_ c: Catch, speciesName: String, toCrew code: String, caption: String, tripName: String = "") async -> Bool {
         defer { noteFeedWrite() }
-        guard cloudAllowed else { return }
+        guard cloudAllowed else { return ScreenshotSupport.isActive }
         let id = CKRecord.ID(recordName: "crewpost-\(code)-\(c.id)")
         let record = (try? await db.record(for: id)) ?? CKRecord(recordType: crewPostType, recordID: id)
         record["crewCode"] = code as CKRecordValue
@@ -1665,32 +1686,41 @@ final class CommunityService: ObservableObject {
         record["caption"] = caption as CKRecordValue
         if !tripName.isEmpty { record["tripName"] = tripName as CKRecordValue }
         await attachPhoto(c.photoPath, to: record)
-        _ = try? await db.save(record)
+        do { _ = try await db.save(record) } catch { return false }
+        return true
     }
 
-    /// Set/clear the one-line caption on a post I authored.
-    func setCrewCaption(_ caption: String, postId: String) async {
+    /// Set/clear the one-line caption on a post I authored. True when saved.
+    @discardableResult
+    func setCrewCaption(_ caption: String, postId: String) async -> Bool {
         defer { noteFeedWrite() }
+        if ScreenshotSupport.isActive { return true }
         let id = CKRecord.ID(recordName: postId)
-        guard let r = try? await db.record(for: id) else { return }
-        r["caption"] = caption as CKRecordValue
-        _ = try? await db.save(r)
+        do {
+            let r = try await db.record(for: id)
+            r["caption"] = caption as CKRecordValue
+            _ = try await db.save(r)
+            return true
+        } catch {
+            return false
+        }
     }
 
     /// Toggle my reaction on a post: same emoji removes it, a different emoji
-    /// replaces it (one reaction per member per post).
-    func toggleCrewReaction(emoji: String, postId: String, crewCode: String,
-                            postAuthorCode: String) async {
+    /// replaces it (one reaction per member per post). True when saved.
+    @discardableResult
+    func toggleCrewReaction(emoji: String, postId: String, crewCode: String, postAuthorCode: String) async -> Bool {
         defer { noteFeedWrite() }
+        if ScreenshotSupport.isActive { return true }
         let id = CKRecord.ID(recordName: "crewreact-\(postId)-\(friendCode)")
         if let existing = try? await db.record(for: id) {
             if (existing["emoji"] as? String) == emoji {
-                _ = try? await db.deleteRecord(withID: id)
-                return
+                do { _ = try await db.deleteRecord(withID: id) } catch { return false }
+                return true
             }
             existing["emoji"] = emoji as CKRecordValue
-            _ = try? await db.save(existing)
-            return
+            do { _ = try await db.save(existing) } catch { return false }
+            return true
         }
         let record = CKRecord(recordType: crewReactionType, recordID: id)
         record["postId"] = postId as CKRecordValue
@@ -1713,8 +1743,9 @@ final class CommunityService: ObservableObject {
             // deploys postAuthorCode — retry without it so reacting still
             // works today (only the reaction *push* needs the new field).
             record["postAuthorCode"] = nil
-            _ = try? await db.save(record)
+            do { _ = try await db.save(record) } catch { return false }
         }
+        return true
     }
 
     func crewInviteLink(code: String, name: String) -> URL {
@@ -1959,13 +1990,17 @@ final class CommunityService: ObservableObject {
     /// Host-only: end the shared trip for everyone. Marks the group record ended
     /// so members see it as finished on their next poll. Does NOT stop anyone's
     /// personal GPS session — each angler ends their own. No-op for non-hosts.
-    func endGroupTrip(code: String) async {
+    /// True when the ended trip was saved; false for a non-host or a failure.
+    @discardableResult
+    func endGroupTrip(code: String) async -> Bool {
+        if ScreenshotSupport.isActive { return true }
         let id = CKRecord.ID(recordName: "grouptrip-\(code)")
         guard let r = try? await db.record(for: id),
-              (r["hostCode"] as? String) == friendCode else { return }
+              (r["hostCode"] as? String) == friendCode else { return false }
         r["endedAt"] = Date() as CKRecordValue
-        _ = try? await db.save(r)
+        do { _ = try await db.save(r) } catch { return false }
         markGroupEnded(code: code, at: Date())
+        return true
     }
 
     /// Update the locally-cached group ref so the list shows it as ended.
@@ -2023,18 +2058,34 @@ final class CommunityService: ObservableObject {
         return catches
     }
 
-    func leaveGroupTrip(code: String, tripId: String?) async {
+    /// True once my membership is gone and, for the host, the trip is ended.
+    /// On false the trip stays in my list, so the angler can try again.
+    @discardableResult
+    func leaveGroupTrip(code: String, tripId: String?) async -> Bool {
         let wasHost = myGroups.first(where: { $0.code == code })?.isHost ?? false
-        let id = CKRecord.ID(recordName: "member-\(code)-\(friendCode)")
-        _ = try? await db.deleteRecord(withID: id)
-        // When the HOST leaves, END the trip rather than deleting it. A
-        // deleted record left members staring at a live-looking trip that no
-        // longer existed and could never resolve (endedAt was only ever set
-        // on a record that still exists).
-        if wasHost {
-            if let r = try? await db.record(for: CKRecord.ID(recordName: "grouptrip-\(code)")) {
-                r["endedAt"] = Date() as CKRecordValue
-                _ = try? await db.save(r)
+        if !ScreenshotSupport.isActive {
+            let id = CKRecord.ID(recordName: "member-\(code)-\(friendCode)")
+            do {
+                _ = try await db.deleteRecord(withID: id)
+            } catch let e as CKError where e.code == .unknownItem {
+                // Already gone, which is what leaving needs.
+            } catch {
+                return false
+            }
+            // When the HOST leaves, END the trip rather than deleting it. A
+            // deleted record left members staring at a live-looking trip that no
+            // longer existed and could never resolve (endedAt was only ever set
+            // on a record that still exists).
+            if wasHost {
+                do {
+                    let r = try await db.record(for: CKRecord.ID(recordName: "grouptrip-\(code)"))
+                    r["endedAt"] = Date() as CKRecordValue
+                    _ = try await db.save(r)
+                } catch let e as CKError where e.code == .unknownItem {
+                    // The trip record is gone, so there is nothing to end.
+                } catch {
+                    return false
+                }
             }
         }
         groupCatchCache[code] = nil
@@ -2042,6 +2093,7 @@ final class CommunityService: ObservableObject {
         let linked = tripId ?? self.tripId(forGroupCode: code)
         if let linked { setGroupCode(nil, forTripId: linked) }
         forgetGroup(code: code)
+        return true
     }
 
     /// The crew's live trip as the SERVER sees it. `activeTrip(forCrew:)` only
@@ -2150,7 +2202,10 @@ final class CommunityService: ObservableObject {
 
     /// Invite one of my friends to a group trip. Creates an invite record the
     /// friend's app picks up (and a local notification when they next open it).
-    func inviteFriend(_ toCode: String, toGroup groupCode: String, tripName: String) async {
+    /// True when the invite was saved.
+    @discardableResult
+    func inviteFriend(_ toCode: String, toGroup groupCode: String, tripName: String) async -> Bool {
+        if ScreenshotSupport.isActive { return true }
         let id = CKRecord.ID(recordName: "invite-\(groupCode)-\(toCode)")
         let record = (try? await db.record(for: id)) ?? CKRecord(recordType: inviteType, recordID: id)
         record["groupCode"] = groupCode as CKRecordValue
@@ -2159,7 +2214,8 @@ final class CommunityService: ObservableObject {
         record["fromName"] = myName as CKRecordValue
         record["toCode"] = toCode as CKRecordValue
         record["createdAt"] = Date() as CKRecordValue
-        _ = try? await db.save(record)
+        do { _ = try await db.save(record) } catch { return false }
+        return true
     }
 
     /// Trip invites addressed to me. (Client-side filter so no custom CloudKit
@@ -2221,9 +2277,12 @@ final class CommunityService: ObservableObject {
         return live.sorted { $0.date > $1.date }
     }
 
-    func acceptInvite(_ invite: TripInvite) async {
-        _ = await joinGroupTrip(code: invite.groupCode)
+    /// The joined trip, or nil when joining failed.
+    @discardableResult
+    func acceptInvite(_ invite: TripInvite) async -> GroupTrip? {
+        let trip = await joinGroupTrip(code: invite.groupCode)
         _ = try? await db.deleteRecord(withID: CKRecord.ID(recordName: invite.id))
+        return trip
     }
 
     func declineInvite(_ invite: TripInvite) async {
@@ -2296,20 +2355,41 @@ final class CommunityService: ObservableObject {
         }
     }
 
-    func acceptFriendRequest(_ req: FriendRequest) async {
+    /// Adds the friend locally first. True when the request was marked
+    /// accepted, or no longer exists.
+    @discardableResult
+    func acceptFriendRequest(_ req: FriendRequest) async -> Bool {
         if !friends.contains(req.fromCode) { friends.append(req.fromCode) }
         // Apply my sharing prefs (global, or this friend's override) to them.
         await updateCatchGrant(for: req.fromCode, share: privacy(for: req.fromCode).shareCatches)
+        if ScreenshotSupport.isActive { return true }
         // Mark accepted so the sender's app adds me back and cleans up.
         let id = CKRecord.ID(recordName: "friendreq-\(req.fromCode)-\(friendCode)")
-        if let rec = try? await db.record(for: id) {
+        do {
+            let rec = try await db.record(for: id)
             rec["status"] = "accepted" as CKRecordValue
-            _ = try? await db.save(rec)
+            _ = try await db.save(rec)
+            return true
+        } catch let e as CKError where e.code == .unknownItem {
+            // The request is gone, so there is nothing left to mark.
+            return true
+        } catch {
+            return false
         }
     }
 
-    func declineFriendRequest(_ req: FriendRequest) async {
-        _ = try? await db.deleteRecord(withID: CKRecord.ID(recordName: req.id))
+    /// True when the request was deleted, or was already gone.
+    @discardableResult
+    func declineFriendRequest(_ req: FriendRequest) async -> Bool {
+        if ScreenshotSupport.isActive { return true }
+        do {
+            _ = try await db.deleteRecord(withID: CKRecord.ID(recordName: req.id))
+        } catch let e as CKError where e.code == .unknownItem {
+            // Already gone, which is what declining needs.
+        } catch {
+            return false
+        }
+        return true
     }
 
     /// Add friends who accepted a request I sent, then delete those records.
