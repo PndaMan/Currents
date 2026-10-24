@@ -203,17 +203,9 @@ struct ExploreThrowSection: View {
         HStack(alignment: .top, spacing: 14) {
             LureArtView(name: pick.lure, size: 56)
             VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 6) {
-                    Text(pick.lure)
-                        .font(.body.weight(.medium))
-                        .foregroundStyle(.dsText)
-                    if pick.isOwned {
-                        Image(systemName: "checkmark.seal.fill")
-                            .font(.subheadline)
-                            .foregroundStyle(Color.dsScoreGood)
-                            .accessibilityLabel("In your tackle box")
-                    }
-                }
+                Text(pick.lure)
+                    .font(.body.weight(.medium))
+                    .foregroundStyle(.dsText)
                 Text(pick.color)
                     .font(.subheadline)
                     .foregroundStyle(.dsText2)
@@ -222,6 +214,14 @@ struct ExploreThrowSection: View {
                     .foregroundStyle(.dsText2)
                     .lineLimit(3)
                     .fixedSize(horizontal: false, vertical: true)
+                // The seal says what it means, rather than leaving it to VoiceOver.
+                if pick.isOwned {
+                    Label("In your tackle box", systemImage: "checkmark.seal.fill")
+                        .font(.footnote)
+                        .foregroundStyle(.dsText2)
+                        .labelStyle(TintedIconLabelStyle(tint: DS.ink(.dsScoreGood)))
+                        .padding(.top, 2)
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
