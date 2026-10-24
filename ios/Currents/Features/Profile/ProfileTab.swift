@@ -1320,11 +1320,17 @@ private struct BlurRadiusPreview: View {
 // MARK: - Widgets and Siri
 
 /// What Currents puts on the Home Screen, Lock Screen and Dynamic Island, and
-/// what you can say to Siri. The previews read the same snapshot the widgets do,
-/// so they show today's real bite and sessions.
+/// what you can say to Siri. The bite preview reads the same snapshot the
+/// widgets do; the session preview reads the live session and the plans, as
+/// Today does, so both show today's real bite and sessions.
 struct WidgetsSiriView: View {
+    @Environment(AppState.self) private var appState
     @State private var titleShown = false
     @State private var snapshot: CurrentsSnapshot?
+    /// The next plan, read from the trips the same way Today reads it. The
+    /// shared snapshot only gets it at launch and when a plan is saved, so it
+    /// can lag behind (and screenshot mode never writes it).
+    @State private var nextPlan: Trip?
     @AppStorage("use24HourTime") private var use24 = true
     @Environment(\.dynamicTypeSize) private var typeSize
 
@@ -1399,7 +1405,12 @@ struct WidgetsSiriView: View {
         .detailTint(nil)
         .pfTrackScroll($titleShown, threshold: 60)
         .pfScrollTitle("Widgets and Siri", shown: titleShown)
-        .task { snapshot = SharedStore.load() }
+        .task {
+            snapshot = SharedStore.load()
+            nextPlan = ((try? appState.tripRepository.fetchPlanned()) ?? [])
+                .filter { ($0.plannedDate ?? .distantPast) > .now.addingTimeInterval(-3 * 3600) }
+                .min { ($0.plannedDate ?? .distantFuture) < ($1.plannedDate ?? .distantFuture) }
+        }
     }
 
     // MARK: Widget previews
@@ -1460,28 +1471,28 @@ struct WidgetsSiriView: View {
 
     @ViewBuilder
     private var sessionWidget: some View {
-        if let snapshot, let start = snapshot.activeSessionStart {
+        if let trip = appState.tripTracker.activeTrip {
             VStack(alignment: .leading, spacing: 2) {
                 Label("Live session", systemImage: "record.circle")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.dsScoreSlow)
                 Spacer(minLength: DS.Space.s1)
-                Text(snapshot.activeSessionName ?? "Session")
+                Text(trip.name)
                     .font(.headline)
                     .foregroundStyle(.dsText)
                     .lineLimit(2)
-                Text(start, style: .timer)
+                Text(trip.startDate, style: .timer)
                     .font(.subheadline.weight(.semibold))
                     .monospacedDigit()
                     .foregroundStyle(.dsText2)
             }
-        } else if let snapshot, let name = snapshot.nextSessionName, let date = snapshot.nextSessionDate {
+        } else if let plan = nextPlan, let date = plan.plannedDate {
             VStack(alignment: .leading, spacing: 2) {
                 Label("Next session", systemImage: "calendar")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(DS.ink(DS.accent))
                 Spacer(minLength: DS.Space.s1)
-                Text(name)
+                Text(plan.name)
                     .font(.headline)
                     .foregroundStyle(.dsText)
                     .lineLimit(2)
