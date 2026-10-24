@@ -18,6 +18,9 @@ struct StatTile: View {
     var footnote: String? = nil
     var width: CGFloat? = 148
     @ScaledMetric(relativeTo: .title) private var valueSize: CGFloat = 28
+    /// One box height for the head glyph, so tiles with symbols of different
+    /// shapes keep their numbers on one line, as ActionTriple does.
+    @ScaledMetric(relativeTo: .footnote) private var headIconHeight: CGFloat = 16
     @Environment(\.dynamicTypeSize) private var typeSize
 
     init(_ label: String, systemImage: String, tint: Color = DS.accent,
@@ -38,6 +41,7 @@ struct StatTile: View {
                 Image(systemName: systemImage)
                     .font(.footnote.weight(.semibold))
                     .foregroundStyle(DS.ink(tint))
+                    .frame(height: headIconHeight)
                 Text(label)
                     .font(.footnote.weight(.medium))
                     .foregroundStyle(.dsText2)
