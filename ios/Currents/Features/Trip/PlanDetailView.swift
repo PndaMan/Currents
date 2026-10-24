@@ -22,6 +22,7 @@ struct PlanDetailView: View {
     @State private var showingEdit = false
     @State private var confirmingStart = false
     @State private var confirmingDelete = false
+    @State private var titleShown = false
     @FocusState private var addingItem: Bool
 
     private var tracker: TripTracker { appState.tripTracker }
@@ -40,8 +41,8 @@ struct PlanDetailView: View {
         }
         .dsScreenBackground()
         .detailScrollEdge()
-        .navigationTitle(trip?.name ?? "Plan")
-        .navigationBarTitleDisplayMode(.inline)
+        .pfTrackScroll($titleShown, threshold: 60)
+        .pfScrollTitle(trip?.name ?? "Plan", shown: titleShown)
         .sheet(isPresented: $showingEdit, onDismiss: load) {
             if let trip { PlanSessionSheet(editingTrip: trip) }
         }
@@ -125,13 +126,8 @@ struct PlanDetailView: View {
 
                 whereSection(trip)
 
-                Button(role: .destructive) { confirmingDelete = true } label: {
-                    Label("Delete plan", systemImage: "trash")
-                        .foregroundStyle(Color.dsScoreSlow)
-                }
-                .buttonStyle(.dsTonal)
-                .padding(.horizontal, DS.gutter)
-                .padding(.top, DS.Space.s8)
+                DangerButton(title: "Delete plan", systemImage: "trash") { confirmingDelete = true }
+                    .padding(.top, DS.Space.s8)
             }
             .padding(.bottom, DS.Space.s8)
             .pageWidth()
@@ -188,7 +184,7 @@ struct PlanDetailView: View {
             .padding(.top, DS.Space.s4)
         } else {
             ArtRow(title: "No forecast yet", subtitle: "Turn on location or edit the plan to pick a place") {
-                ThumbView(systemImage: "location.slash", tint: .dsText2, size: 44)
+                ThumbView(systemImage: "location.slash", tint: DS.accent, size: 44)
             }
         }
     }
