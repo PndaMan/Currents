@@ -64,29 +64,6 @@ struct ExploreDestination: View {
 // MARK: - Formatting
 
 enum ExploreFormat {
-    static func hour(_ h: Int, use24Hour: Bool) -> String {
-        let hh = ((h % 24) + 24) % 24
-        if use24Hour { return String(format: "%02d:00", hh) }
-        let suffix = hh < 12 ? "am" : "pm"
-        let display = hh % 12 == 0 ? 12 : hh % 12
-        return "\(display) \(suffix)"
-    }
-
-    static func window(_ w: BiteWindows.Window?, use24Hour: Bool) -> String {
-        guard let w else { return "No strong window" }
-        return "\(hour(w.startHour, use24Hour: use24Hour)) to \(hour(w.endHour + 1, use24Hour: use24Hour))"
-    }
-
-    /// Luma-style verdict for a bite score, matching Today.
-    static func verdict(_ score: Int) -> String {
-        switch score {
-        case 80...: "Excellent, go now"
-        case 65..<80: "Good"
-        case 50..<65: "Fair, work for them"
-        default: "Slow, finesse it"
-        }
-    }
-
     static func distance(from origin: CLLocationCoordinate2D?, to target: CLLocationCoordinate2D) -> String? {
         guard let origin else { return nil }
         let m = CLLocation(latitude: origin.latitude, longitude: origin.longitude)
@@ -126,7 +103,7 @@ enum ExploreFormat {
         switch h {
         case .freshwater: "Freshwater"
         case .marine: "Saltwater"
-        case .brackish: "Brackish"
+        case .brackish: "Estuary"
         case nil: "Fish"
         }
     }
@@ -175,17 +152,43 @@ enum ExploreFormat {
 
 // MARK: - Bite snapshot
 
-/// Today's bite at a coordinate: the score right now, the day's peak, the
-/// hourly curve and its best windows. Worked out on the phone from cached
-/// weather, so it works offline.
+/// Today's bite at a coordinate: the score for this hour, the day's peak,
+/// the hourly curve and its best windows. Worked out on the phone from
+/// cached weather, so it works offline.
 struct BiteSnapshot {
     let now: Int
     let day: Int
     let hourly: [(hour: Int, score: Int)]
     let windows: [BiteWindows.Window]
     let reasons: [String]
+    /// Tomorrow's best window, for when every window today is over. Filled
+    /// in by `load(at:)`.
+    var tomorrow: BiteWindows.Window? = nil
+    /// The date of `tomorrow`, for its day name.
+    var tomorrowDate: Date? = nil
 
-    var best: BiteWindows.Window? { windows.max { $0.peakScore < $1.peakScore } }
+    /// The best window that has not passed yet. On a tie the earlier one
+    /// wins, so a window under way beats an equal one later.
+    var best: BiteWindows.Window? {
+        windows.filter { !$0.hasPassed() }.max { $0.peakScore < $1.peakScore }
+    }
+
+    /// True when today had windows and every one of them is over.
+    var allPassed: Bool { !windows.isEmpty && best == nil }
+
+    /// "Best 06:00 to 09:00, peaking at 81", or "No more windows today.
+    /// Tomorrow 05:00 to 08:00, peaking at 74" once today's are over.
+    func bestLine(use24: Bool) -> String? {
+        if let best {
+            let when = best.isNow() ? "Now until \(ForecastFormat.hour(best.endHour + 1, use24: use24))"
+                                     : "Best \(ForecastFormat.range(best, use24: use24))"
+            return "\(when), peaking at \(best.peakScore)"
+        }
+        guard allPassed else { return nil }
+        guard let tomorrow else { return "No more windows today" }
+        let day = ForecastFormat.dayName(1, date: tomorrowDate ?? .now)
+        return "No more windows today. \(day) \(ForecastFormat.range(tomorrow, use24: use24)), peaking at \(tomorrow.peakScore)"
+    }
 
     init(_ f: ForecastEngine.ForecastResult) {
         now = f.score
@@ -207,7 +210,16 @@ struct BiteSnapshot {
             species: nil,
             isInSpawningZone: false
         )
-        return (BiteSnapshot(f), w)
+        var snapshot = BiteSnapshot(f)
+        if snapshot.allPassed {
+            // The same day forecast Today shows for tomorrow, from the cached
+            // outlook when there is one.
+            let outlook = await WeatherService.shared.forecastDays(for: coord)
+            let next = ForecastEngine.day(1, coordinate: coord, current: w, outlook: outlook, species: nil)
+            snapshot.tomorrow = BiteWindows.best(from: next.result.hourlyScores).max { $0.peakScore < $1.peakScore }
+            snapshot.tomorrowDate = next.date
+        }
+        return (snapshot, w)
     }
 }
 

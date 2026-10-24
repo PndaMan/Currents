@@ -55,6 +55,7 @@ struct MapTab: View {
     @AppStorage("showCatchPins") private var showCatchPins = true
     @AppStorage("mapLayer_spots") private var showSpots = true
     @AppStorage("mapLayer_water") private var showWaterbodies = true
+    @AppStorage("use24HourTime") private var use24 = true
     @State private var flyToCoordinate: CLLocationCoordinate2D?
     @State private var weather: WeatherService.WeatherData?
     @State private var nearBite: BiteSnapshot?
@@ -1101,15 +1102,18 @@ struct MapTab: View {
 
     private var nearSubtitle: String {
         guard let nearBite else { return "Working out the bite" }
-        let use24 = UserDefaults.standard.object(forKey: "use24HourTime") as? Bool ?? true
         if let best = spots.filter({ spotScores[$0.id] != nil })
             .max(by: { (spotScores[$0.id] ?? 0) < (spotScores[$1.id] ?? 0) }) {
             return "Best spot now \(best.name)"
         }
+        let grade = "\(ForecastFormat.grade(nearBite.now)) now"
         if let window = nearBite.best {
-            return "\(ExploreFormat.verdict(nearBite.now)), best \(ExploreFormat.window(window, use24Hour: use24))"
+            let when = window.isNow()
+                ? "until \(ForecastFormat.hour(window.endHour + 1, use24: use24))"
+                : "best \(ForecastFormat.range(window, use24: use24))"
+            return "\(grade), \(when)"
         }
-        return ExploreFormat.verdict(nearBite.now)
+        return nearBite.allPassed ? "\(grade), no more windows today" : grade
     }
 
     // MARK: - Species filter

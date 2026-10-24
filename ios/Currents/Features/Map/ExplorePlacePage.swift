@@ -273,7 +273,11 @@ struct ExplorePlacePage: View {
             DetailHeader(
                 over: overLine,
                 title: name,
-                subtitle: bite.map { "\(ExploreFormat.verdict($0.day)), best \(ExploreFormat.window($0.best, use24Hour: use24HourTime))" }
+                subtitle: bite.map { (bite: BiteSnapshot) -> String in
+                    let grade = "\(ForecastFormat.grade(bite.day)) today"
+                    guard let line = bite.bestLine(use24: use24HourTime) else { return grade + ", no strong window" }
+                    return "\(grade). \(line)"
+                }
             )
             if let bite {
                 ScoreRing(score: bite.day, size: 88, caption: "today")

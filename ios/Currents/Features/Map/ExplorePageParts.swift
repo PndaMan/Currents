@@ -103,7 +103,7 @@ struct ExploreConditions: View {
 
 // MARK: - What to throw
 
-/// The top lure picks for this water right now, from the same engine as
+/// The top lure picks for this water at this hour, from the same engine as
 /// Today: water temperature, clarity, light, pressure, your tackle box and
 /// what has caught you fish. Picked for the fish you track when it belongs
 /// here; the menu by the title switches fish while the page is open.

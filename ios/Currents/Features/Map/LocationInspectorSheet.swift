@@ -104,9 +104,9 @@ struct LocationInspectorSheet: View {
         if let bite {
             BiteBlock(
                 score: bite.now,
-                title: "\(ExploreFormat.verdict(bite.now)) right now",
-                detail: bite.best.map { "Best \(ExploreFormat.window($0, use24Hour: use24HourTime)), peaking at \($0.peakScore)." }
-                    ?? (bite.reasons.first ?? "No strong window left today.")
+                title: "\(ForecastFormat.grade(bite.now)) now",
+                detail: bite.bestLine(use24: use24HourTime).map { $0 + "." }
+                    ?? bite.reasons.first.map(ExploreFormat.sentence) ?? "No strong window left today."
             )
             .padding(.top, DS.Space.s4)
         }
