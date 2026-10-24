@@ -380,7 +380,8 @@ struct EventPodiumColumn: View {
     static func medal(_ place: Int) -> Color {
         switch place {
         case 1: return .dsScoreFair
-        case 2: return .dsText3 // ui-lint: allow, silver medal
+        // Opaque, so the ring reads as a ring over the photo, not a haze.
+        case 2: return .gray
         default: return .dsScoreLow
         }
     }
@@ -408,7 +409,7 @@ struct EventPodiumColumn: View {
     private var valueLine: some View {
         HStack(alignment: .firstTextBaseline, spacing: 3) {
             Text(entry.value)
-                .font(.system(size: valueSize, weight: .bold, design: .rounded)) // ui-lint: allow, podium numeral scaled with @ScaledMetric
+                .font(.system(size: valueSize, weight: .bold)) // ui-lint: allow, podium numeral scaled with @ScaledMetric
                 .monospacedDigit()
                 .contentTransition(.numericText())
             if let unit = entry.unit {
