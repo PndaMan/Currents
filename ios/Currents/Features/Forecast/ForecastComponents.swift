@@ -746,12 +746,14 @@ struct CompassDial: View {
                     .rotationEffect(.degrees(Double(i) * 10))
             }
             if showsLabels {
+                // Placed round the dial rather than rotated, so E and W stay
+                // upright.
                 ForEach(Array(["N", "E", "S", "W"].enumerated()), id: \.offset) { i, t in
+                    let angle = Double(i) * .pi / 2
                     Text(t)
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.dsText2)
-                        .offset(y: -size * 0.3)
-                        .rotationEffect(.degrees(Double(i) * 90))
+                        .offset(x: size * 0.3 * CGFloat(sin(angle)), y: -size * 0.3 * CGFloat(cos(angle)))
                 }
             }
             Image(systemName: "location.north.fill")
