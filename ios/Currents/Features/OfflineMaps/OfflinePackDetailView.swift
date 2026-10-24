@@ -54,11 +54,12 @@ struct OfflinePackDetailView: View {
 
                 actions(pack)
 
+                // Every tile has a footnote, so each row stays one height.
                 LazyVGrid(columns: [GridItem(.flexible(), spacing: DS.Space.s2), GridItem(.flexible())],
                           spacing: DS.Space.s2) {
                     StatTile("Size", systemImage: "internaldrive", tint: .green,
                              value: OfflineFormat.bytes(live?.bytes ?? pack.bytes),
-                             footnote: pack.status == .complete ? nil : "So far", width: nil)
+                             footnote: pack.status == .complete ? "On this phone" : "So far", width: nil)
                     StatTile("Detail", systemImage: "square.3.layers.3d", tint: .blue,
                              value: pack.detail.title,
                              footnote: detailNote(pack.detail), width: nil)
@@ -199,12 +200,15 @@ struct OfflinePackDetailView: View {
         return "\(pack.watersIncluded + pack.placesIncluded)"
     }
 
-    private func closeUpFootnote(_ pack: OfflinePack) -> String? {
-        guard pack.kind == .region, pack.closeUpZoom > pack.overviewZoom else { return nil }
+    /// What the close-ups hold: the square's size for an area, the waters
+    /// and places for a region, or that it is an overview.
+    private func closeUpFootnote(_ pack: OfflinePack) -> String {
+        if pack.kind == .area { return OfflineFormat.side(pack.bounds) }
+        guard pack.closeUpZoom > pack.overviewZoom else { return "Overview only" }
         var parts: [String] = []
         if pack.watersIncluded > 0 { parts.append(OfflineFormat.waters(pack.watersIncluded)) }
         if pack.placesIncluded > 0 { parts.append(OfflineFormat.places(pack.placesIncluded)) }
-        return parts.isEmpty ? nil : parts.joined(separator: ", ")
+        return parts.isEmpty ? "No known waters" : parts.joined(separator: ", ")
     }
 
     private func corners(_ r: GeoRect) -> [CLLocationCoordinate2D] {
