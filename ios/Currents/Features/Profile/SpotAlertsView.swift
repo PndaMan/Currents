@@ -13,6 +13,9 @@ struct SpotAlertsView: View {
     @AppStorage("primeWindowAlerts") private var primeWindowAlerts = false
     @AppStorage("alertThreshold") private var defaultThreshold = 75.0
     @AppStorage("targetSpeciesId") private var targetSpeciesId: Int = 0
+    @AppStorage("use24HourTime") private var use24 = true
+    /// A window card's width, growing with the text size.
+    @ScaledMetric(relativeTo: .footnote) private var windowCardWidth: CGFloat = 112
 
     @State private var choice: SpotAlert
     /// What is stored, so loading it is not mistaken for a change to save.
@@ -43,7 +46,7 @@ struct SpotAlertsView: View {
             }
             CardSection("Score") {
                 CardRow("Alert at", systemImage: "gauge.with.dots.needle.67percent",
-                        tint: DS.scoreColor(threshold)) {
+                        tint: DS.scoreColor(threshold), combinesChildren: false) {
                     Picker("Alert at", selection: $choice.threshold.haptic()) {
                         Text("Default (\(Int(defaultThreshold)))").tag(Int?.none)
                         ForEach(Self.thresholds, id: \.self) { value in
@@ -109,22 +112,22 @@ struct SpotAlertsView: View {
                 .foregroundStyle(.dsText)
                 .lineLimit(1)
             ScoreRing(score: window.peakScore, size: 52)
-            Text(Self.span(window))
+            Text(span(window))
                 .font(.footnote)
                 .foregroundStyle(.dsText2)
                 .monospacedDigit()
                 .lineLimit(2)
         }
-        .frame(width: 112, alignment: .leading)
+        .frame(width: windowCardWidth, alignment: .leading)
         .padding(14)
         .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(Self.dayName(window.start)), up to \(window.peakScore)")
     }
 
-    private static func span(_ window: BiteWindows.Upcoming) -> String {
-        let start = ForecastFormat.time(window.start)
-        let end = ForecastFormat.time(window.end)
+    private func span(_ window: BiteWindows.Upcoming) -> String {
+        let start = ForecastFormat.time(window.start, use24: use24)
+        let end = ForecastFormat.time(window.end, use24: use24)
         return "\(start) to \(end)"
     }
 
