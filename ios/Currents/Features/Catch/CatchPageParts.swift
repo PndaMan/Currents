@@ -313,75 +313,54 @@ private struct CatchStatCell: View {
     }
 }
 
+// MARK: - Lure thumbnail
+
+/// A lure's art when the app has it, otherwise its family's symbol on the
+/// tackle box's lure tint, so a lure without art never sits on a grey tile.
+struct LureThumb: View {
+    let name: String
+    var size: CGFloat = 56
+    var tint: Color = OwnedGear.Category.lure.tint
+
+    var body: some View {
+        let key = LureArt.key(for: name)
+        if let key, LureArt.hasArt(for: key) {
+            LureArtView(name: name, size: size)
+        } else {
+            ThumbView(systemImage: LureArt.symbol(for: key), tint: tint, size: size)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(Text(name))
+                .accessibilityAddTraits(.isImage)
+        }
+    }
+}
+
 // MARK: - Map render
 
-/// A wide still of the map around a catch, from the same renderer and cache
-/// as the place thumbnails, with a pin in the species colour. Offline with no
-/// render cached, it says so instead of showing blank tiles.
+/// The map around a catch, drawn the way the plan and session pages draw
+/// theirs: a still MapKit map in the chosen map style, with a pin in the
+/// species colour. MapKit shows the tiles it has cached when offline.
 struct CatchMapRender: View {
     static let height: CGFloat = 180
 
-    let id: String
     let coordinate: CLLocationCoordinate2D
     let tint: Color
-    /// Metres across the full render; about half of that shows top to bottom.
-    var span: CLLocationDistance = 1200
+    /// Camera distance in metres; about this much ground shows across the card.
+    var distance: CLLocationDistance = 1200
 
-    @Environment(\.colorScheme) private var scheme
-    @Environment(\.displayScale) private var displayScale
     @AppStorage("mapStyleOption") private var mapStyleRaw = MapTab.MapStyleOption.standard.rawValue
-    @State private var width: CGFloat = 0
-    @State private var image: UIImage?
-    @State private var finished = false
-
-    /// Satellite when the map shows imagery, the plain map otherwise.
-    private var satellite: Bool {
-        switch MapTab.MapStyleOption(rawValue: mapStyleRaw) ?? .standard {
-        case .standard, .fishing: false
-        case .offline, .imagery, .hybrid: true
-        }
-    }
-
-    /// A square render as wide as the card; the card shows its middle band.
-    private var request: PlaceSnapshots.Request {
-        PlaceSnapshots.Request(id: id, coordinate: coordinate, span: span, satellite: satellite,
-                               dark: scheme == .dark, size: width, scale: displayScale)
-    }
 
     var body: some View {
-        ZStack {
-            Color.dsFill
-            if let image {
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFill()
-                    .transition(.opacity)
-                pin
-            } else if finished {
-                offline
-            }
+        Map(initialPosition: .camera(MapCamera(centerCoordinate: coordinate, distance: distance))) {
+            Annotation("", coordinate: coordinate) { pin }
         }
+        .mapStyle(SessionMapLook.style(mapStyleRaw))
+        // A new place after an edit starts a fresh camera on it.
+        .id("\(coordinate.latitude),\(coordinate.longitude)")
         .frame(maxWidth: .infinity)
         .frame(height: Self.height)
         .clipShape(RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
-        .contentShape(RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
-        .animation(.easeOut(duration: DS.Motion.fast), value: image != nil)
-        .onGeometryChange(for: CGFloat.self) { proxy in
-            proxy.size.width.rounded()
-        } action: { new in
-            width = new
-        }
-        .task(id: width > 0 ? request.key : "") { await load() }
-    }
-
-    private func load() async {
-        guard width > 0 else { return }
-        let req = self.request
-        image = PlaceSnapshots.cached(req.key)
-        if image == nil {
-            image = await PlaceSnapshots.image(for: req)
-        }
-        finished = true
+        .allowsHitTesting(false)
     }
 
     private var pin: some View {
@@ -390,18 +369,5 @@ struct CatchMapRender: View {
             .frame(width: 16, height: 16)
             .overlay(Circle().stroke(.white, lineWidth: 2.5))
             .mapPinShadow()
-    }
-
-    private var offline: some View {
-        VStack(spacing: DS.Space.s2) {
-            Image(systemName: "map")
-                .font(.title2)
-                .foregroundStyle(.dsText3)
-            Text("The map shows next time you're online.")
-                .font(.footnote)
-                .foregroundStyle(.dsText2)
-                .multilineTextAlignment(.center)
-        }
-        .padding(.horizontal, DS.Space.s4)
     }
 }

@@ -254,6 +254,8 @@ struct CatchDetailView: View {
         } label: {
             Image(systemName: "ellipsis")
         }
+        // The text colour, as the back button beside it.
+        .tint(Color.dsText)
         .accessibilityLabel("More")
     }
 
@@ -436,7 +438,7 @@ struct CatchDetailView: View {
             SectionTitle("Where")
                 .padding(.top, DS.Space.s8)
             Button { openOnMap(place) } label: {
-                CatchMapRender(id: "catch-\(record.id)", coordinate: place, tint: tint)
+                CatchMapRender(coordinate: place, tint: tint)
             }
             .buttonStyle(.dim)
             .accessibilityLabel("Map of where it was caught")
@@ -484,14 +486,16 @@ struct CatchDetailView: View {
         if lureName != nil || !rows.isEmpty {
             SectionTitle("Gear", detail: gearSetName)
                 .padding(.top, DS.Space.s8)
-            if let lureName {
-                ArtRow(over: "Lure", title: lureName, subtitle: lureDetail) {
-                    LureArtView(name: lureName, size: 56)
+            // One card, as the tackle box lists the same rod and reel: the
+            // lure with its art, then each item on its category's tile.
+            CardGroup {
+                if let lureName {
+                    GearLureRow(name: lureName, detail: lureDetail)
                 }
-            }
-            if !rows.isEmpty {
-                KeyValueList(rows: rows)
-                    .padding(.top, lureName == nil ? 0 : DS.Space.s2)
+                ForEach(rows) { row in
+                    CardRow(row.title, subtitle: row.subtitle, systemImage: row.systemImage,
+                            tint: row.tint, value: row.value)
+                }
             }
         }
     }
@@ -510,14 +514,31 @@ struct CatchDetailView: View {
         return parts.isEmpty ? nil : parts.joined(separator: ", ")
     }
 
-    private var gearRows: [(String, String)] {
-        var rows: [(String, String)] = []
-        if let g = detail.gearLoadout {
-            if let rod = g.rod, !rod.isEmpty { rows.append(("Rod", rod)) }
-            if let reel = g.reel, !reel.isEmpty { rows.append(("Reel", reel)) }
-            if let line = g.lineLb { rows.append(("Line", "\(Int(line)) lb")) }
-            if let leader = g.leaderLb { rows.append(("Leader", "\(Int(leader)) lb")) }
-            if let technique = g.technique, !technique.isEmpty { rows.append(("Technique", technique)) }
+    /// Rod, reel, line and technique: what it is, with the item under it. Line
+    /// strength stays in lb, the industry rating.
+    private var gearRows: [GearLine] {
+        guard let g = detail.gearLoadout else { return [] }
+        var rows: [GearLine] = []
+        if let rod = g.rod, !rod.isEmpty {
+            rows.append(GearLine(title: "Rod", subtitle: rod, systemImage: OwnedGear.Category.rod.icon,
+                                 tint: OwnedGear.Category.rod.tint))
+        }
+        if let reel = g.reel, !reel.isEmpty {
+            rows.append(GearLine(title: "Reel", subtitle: reel, systemImage: OwnedGear.Category.reel.icon,
+                                 tint: OwnedGear.Category.reel.tint))
+        }
+        if let line = g.lineLb {
+            rows.append(GearLine(title: "Line",
+                                 subtitle: g.leaderLb.map { "\(PresetSheet.number($0)) lb leader" },
+                                 systemImage: OwnedGear.Category.line.icon, tint: OwnedGear.Category.line.tint,
+                                 value: "\(PresetSheet.number(line)) lb"))
+        } else if let leader = g.leaderLb {
+            rows.append(GearLine(title: "Leader", systemImage: OwnedGear.Category.line.icon,
+                                 tint: OwnedGear.Category.line.tint, value: "\(PresetSheet.number(leader)) lb"))
+        }
+        if let technique = g.technique, !technique.isEmpty {
+            rows.append(GearLine(title: "Technique", subtitle: FishingTechniques.label(for: technique),
+                                 systemImage: "hand.draw.fill", tint: .teal))
         }
         return rows
     }
@@ -531,73 +552,98 @@ struct CatchDetailView: View {
 
     /// The conditions saved with the catch, plus the tide and moon predicted
     /// for its place and time. Only what is known; nothing is padded out.
+    /// Each fact keeps Today's colour and small visual.
     private var conditionItems: [ConditionItem] {
         let wx = weather
         var items: [ConditionItem] = []
         if let water = wx?.waterTempC {
-            items.append(ConditionItem(label: "Water", systemImage: "drop.fill", iconTint: .exploreWater,
+            let range = speciesRange
+            items.append(ConditionItem(label: "Water", systemImage: "drop.fill",
+                                       iconTint: ForecastCondition.water.tint,
                                        value: Units.temperature(water, imperial: imperial),
-                                       footnote: waterFootnote(water)))
+                                       footnote: waterFootnote(water),
+                                       visual: .range(domain: 5...32, band: range, value: water,
+                                                      tint: ForecastCondition.water.tint)))
         }
         if let air = wx?.temperatureC {
             let sky = wx?.condition.flatMap { $0.isEmpty ? nil : $0 }
-            items.append(ConditionItem(label: "Air",
-                                       systemImage: sky.map { WeatherIcon(condition: $0).systemName } ?? "thermometer.medium",
+            let symbol = sky.map { WeatherIcon(condition: $0).systemName } ?? "thermometer.medium"
+            // The sun in the sun's orange, cloud and rain in the sky's blue.
+            let tint = sky == nil ? ForecastCondition.air.tint
+                : (symbol.hasPrefix("sun") ? ForecastCondition.sun.tint : ForecastCondition.sky.tint)
+            items.append(ConditionItem(label: "Air", systemImage: symbol, iconTint: tint,
                                        value: Units.temperature(air, imperial: imperial),
-                                       footnote: sky.map { Self.sentenceCase($0) }))
+                                       footnote: sky.map { Self.sentenceCase($0) },
+                                       visual: .range(domain: 0...40, band: nil, value: air,
+                                                      tint: ForecastCondition.air.tint)))
         }
         if let wind = wx?.windSpeedKmh {
             let speed = CatchStat("Wind", measured: Units.speed(kmh: wind, imperial: imperial))
-            items.append(ConditionItem(label: "Wind", systemImage: "wind",
+            let from = wx?.windDirectionDeg
+            items.append(ConditionItem(label: "Wind", systemImage: "wind", iconTint: ForecastCondition.wind.tint,
                                        value: speed.value, unit: speed.unit,
-                                       footnote: wx?.windDirectionDeg.map { "From the \(Self.compassName($0))" }))
+                                       footnote: from.map { "From the \(Self.compassName($0))" },
+                                       visual: from.map { ConditionVisual.compass(degrees: $0) } ?? .empty))
         }
         if let pressure = wx?.pressureHpa {
             let level = pressure < 1009 ? "Low" : (pressure > 1022 ? "High" : "Normal")
             let reading = Units.pressureParts(hpa: pressure, imperial: imperial)
             items.append(ConditionItem(label: "Pressure", systemImage: "gauge.with.dots.needle.33percent",
-                                       value: reading.0, unit: reading.1, footnote: level))
+                                       iconTint: ForecastCondition.pressure.tint,
+                                       value: reading.0, unit: reading.1, footnote: level,
+                                       visual: .range(domain: 990...1045, band: nil, value: pressure,
+                                                      tint: ForecastCondition.pressure.tint)))
         }
-        if let rising = tideRising {
+        if let tide = tideDay, let rising = tideRising(tide) {
             items.append(ConditionItem(label: "Tide",
                                        systemImage: rising ? "water.waves.and.arrow.up" : "water.waves.and.arrow.down",
-                                       iconTint: .exploreWater,
-                                       value: rising ? "Rising" : "Falling", footnote: "Predicted"))
+                                       iconTint: ForecastCondition.tide.tint,
+                                       value: rising ? "Rising" : "Falling", footnote: "Predicted",
+                                       visual: .curve(values: tide.points.map(\.height),
+                                                      dotAt: ConditionText.dayFraction(record.caughtAt))))
         }
         if let solunar {
             items.append(lightItem(solunar))
             items.append(biteItem(solunar))
         }
         if let clarity = record.clarity {
-            items.append(ConditionItem(label: "Water clarity", systemImage: "eye", value: clarity.label))
+            items.append(ConditionItem(label: "Water clarity", systemImage: "eye", iconTint: .exploreWater,
+                                       value: clarity.label, footnote: "As you logged it"))
         }
         return items
     }
 
+    /// The species' range, the same one the water footnote judges by.
+    private var speciesRange: ClosedRange<Double>? {
+        guard let lo = detail.species?.minTempC, let hi = detail.species?.maxTempC, hi > lo else { return nil }
+        return lo...hi
+    }
+
     /// Dawn, daylight, dusk or night at the catch time, with the sun time it
-    /// was nearest.
+    /// was nearest. The arc marks the sun at the catch time in daylight.
     private func lightItem(_ day: SolunarEngine.SolunarDay) -> ConditionItem {
         let at = record.caughtAt
         let clock = use24
         let time: (Date) -> String = { ForecastFormat.time($0, use24: clock) }
+        let arc = ConditionVisual.sun(sunrise: day.sunrise, sunset: day.sunset, at: at)
         if day.dawnGoldenHour.contains(at) {
             return ConditionItem(label: "Light", systemImage: "sunrise.fill", iconTint: .orange,
-                                 value: "Dawn", footnote: "Sunrise \(time(day.sunrise))")
+                                 value: "Dawn", footnote: "Sunrise \(time(day.sunrise))", visual: arc)
         }
         if day.duskGoldenHour.contains(at) {
             return ConditionItem(label: "Light", systemImage: "sunset.fill", iconTint: .orange,
-                                 value: "Dusk", footnote: "Sunset \(time(day.sunset))")
+                                 value: "Dusk", footnote: "Sunset \(time(day.sunset))", visual: arc)
         }
         if at > day.sunrise && at < day.sunset {
             return ConditionItem(label: "Light", systemImage: "sun.max.fill", iconTint: .dsScoreFair,
-                                 value: "Daylight", footnote: "Sunset \(time(day.sunset))")
+                                 value: "Daylight", footnote: "Sunset \(time(day.sunset))", visual: arc)
         }
         return ConditionItem(label: "Light", systemImage: "moon.stars.fill", iconTint: .indigo,
-                             value: "Night", footnote: "Sunrise \(time(day.sunrise))")
+                             value: "Night", footnote: "Sunrise \(time(day.sunrise))", visual: arc)
     }
 
-    /// Whether the catch landed in a solunar feeding period, or how far it
-    /// was from the nearest one.
+    /// Whether the catch landed in a solunar feeding period, or how long
+    /// before or after the nearest one.
     private func biteItem(_ day: SolunarEngine.SolunarDay) -> ConditionItem {
         let at = record.caughtAt
         if let major = day.majorPeriods.first(where: { ($0.start...$0.end).contains(at) }) {
@@ -608,14 +654,18 @@ struct CatchDetailView: View {
             return ConditionItem(label: "Bite period", systemImage: "fish.fill", iconTint: .teal,
                                  value: "Minor", footnote: Self.sentenceCase(minor.kind.rawValue))
         }
-        let all = day.majorPeriods + day.minorPeriods
-        let gap = all.map { min(abs($0.start.timeIntervalSince(at)), abs($0.end.timeIntervalSince(at))) }.min()
-        let footnote = gap.map { g -> String in
-            let minutes = Int((g / 60).rounded())
-            return minutes < 90 ? "\(minutes) min off a bite period" : "\(Int((g / 3600).rounded())) h off a bite period"
+        // Signed: positive when the period was still to come.
+        let gaps = (day.majorPeriods + day.minorPeriods).map { period -> TimeInterval in
+            period.start > at ? period.start.timeIntervalSince(at) : -at.timeIntervalSince(period.end)
         }
-        return ConditionItem(label: "Bite period", systemImage: "fish", iconTint: .dsText2,
-                             value: "Between", footnote: footnote)
+        let footnote = gaps.min(by: { abs($0) < abs($1) }).map { gap -> String in
+            let side = gap > 0 ? "before" : "after"
+            let minutes = Int((abs(gap) / 60).rounded())
+            let span = minutes < 90 ? "\(minutes) min" : "\(Int((abs(gap) / 3600).rounded())) h"
+            return "\(span) \(side) a bite period"
+        }
+        return ConditionItem(label: "Bite period", systemImage: "fish", iconTint: .teal,
+                             value: "Off peak", footnote: footnote)
     }
 
     /// A catch saved without weather (logged offline, imported, or logged
@@ -640,11 +690,15 @@ struct CatchDetailView: View {
         hasCoordinate ? SolunarEngine.compute(date: record.caughtAt, coordinate: catchCoordinate) : nil
     }
 
-    /// Rising or falling at the catch time, predicted for coastal species only.
-    private var tideRising: Bool? {
+    /// The predicted tide for the catch day, for coastal species only.
+    private var tideDay: TideEngine.TideDay? {
         let coastal = detail.species?.habitat == .marine || detail.species?.habitat == .brackish
         guard hasCoordinate, coastal else { return nil }
-        let tide = TideEngine.predict(date: record.caughtAt, coordinate: catchCoordinate)
+        return TideEngine.predict(date: record.caughtAt, coordinate: catchCoordinate)
+    }
+
+    /// Rising or falling at the catch time.
+    private func tideRising(_ tide: TideEngine.TideDay) -> Bool? {
         let at = record.caughtAt
         let point = tide.points.min { abs($0.time.timeIntervalSince(at)) < abs($1.time.timeIntervalSince(at)) }
         return point?.isRising
@@ -657,8 +711,31 @@ struct CatchDetailView: View {
             SectionTitle("Conditions at the time")
                 .padding(.top, DS.Space.s8)
             CatchConditionGrid(items: items)
-            SectionFootnote("Weather is from the hour you caught it. Light, bite period and tide are worked out for the spot.")
+            let note = conditionsNote(items)
+            if !note.isEmpty {
+                SectionFootnote(note)
+            }
         }
+    }
+
+    /// Says where each kind of tile shown came from, and nothing about the
+    /// tiles that are not there.
+    private func conditionsNote(_ items: [ConditionItem]) -> String {
+        let labels = Set(items.map { $0.label })
+        var sentences: [String] = []
+        if !labels.isDisjoint(with: ["Water", "Air", "Wind", "Pressure"]) {
+            sentences.append("Weather is from the hour you caught it.")
+        }
+        let worked = [("Light", "light"), ("Bite period", "bite period"), ("Tide", "tide")]
+            .filter { labels.contains($0.0) }
+            .map { $0.1 }
+        if let first = worked.first {
+            let list = worked.count == 1 ? first
+                : worked.dropLast().joined(separator: ", ") + " and " + (worked.last ?? "")
+            let verb = worked.count == 1 ? "is" : "are"
+            sentences.append("\(Self.sentenceCase(list)) \(verb) worked out for the spot.")
+        }
+        return sentences.joined(separator: " ")
     }
 
     private func waterFootnote(_ water: Double) -> String? {
@@ -771,6 +848,48 @@ struct CatchDetailView: View {
     }
 }
 
+// MARK: - Gear rows
+
+/// One gear row: what it is, the item in the subtitle, its category's tile.
+private struct GearLine: Identifiable {
+    let title: String
+    var subtitle: String? = nil
+    let systemImage: String
+    let tint: Color
+    var value: String? = nil
+    var id: String { title }
+}
+
+/// The lure leading the gear card: its art in the icon slot, then its name
+/// and colour and weight, on CardRow's spacing.
+private struct GearLureRow: View {
+    let name: String
+    let detail: String?
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    var body: some View {
+        HStack(alignment: typeSize.isAccessibilitySize ? .top : .center, spacing: 14) {
+            LureThumb(name: name, size: 34)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(name)
+                    .font(.body)
+                    .foregroundStyle(.dsText)
+                    .lineLimit(typeSize.isAccessibilitySize ? nil : 2)
+                Text(detail ?? "Lure")
+                    .font(.subheadline)
+                    .foregroundStyle(.dsText2)
+                    .lineLimit(typeSize.isAccessibilitySize ? nil : 2)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.horizontal, DS.Space.s4)
+        .padding(.vertical, 10)
+        .frame(minHeight: 54)
+        .accessibilityElement(children: .combine)
+    }
+}
+
 // MARK: - Conditions grid
 
 /// One condition tile's content.
@@ -781,28 +900,97 @@ private struct ConditionItem: Identifiable {
     let value: String
     var unit: String? = nil
     var footnote: String? = nil
+    var visual: ConditionVisual = .empty
     var id: String { label }
 }
 
+/// The small picture under a tile's value, as Today draws it.
+private enum ConditionVisual {
+    case empty
+    case range(domain: ClosedRange<Double>, band: ClosedRange<Double>?, value: Double, tint: Color)
+    case compass(degrees: Double)
+    case sun(sunrise: Date, sunset: Date, at: Date)
+    case curve(values: [Double], dotAt: Double)
+}
+
 /// The conditions as the app's condition tiles, two across (one at
-/// accessibility sizes), as on Today and the spot pages.
+/// accessibility sizes), as on Today. Tiles in a row share one height and
+/// every footnote sits at the foot of its tile.
 private struct CatchConditionGrid: View {
     let items: [ConditionItem]
     @Environment(\.dynamicTypeSize) private var typeSize
 
-    private var columns: [GridItem] {
-        Array(repeating: GridItem(.flexible(), spacing: DS.Space.s3),
-              count: typeSize.isAccessibilitySize ? 1 : 2)
+    private var rows: [[ConditionItem]] {
+        stride(from: 0, to: items.count, by: 2).map { Array(items[$0..<min($0 + 2, items.count)]) }
     }
 
     var body: some View {
-        LazyVGrid(columns: columns, spacing: DS.Space.s3) {
-            ForEach(items) { item in
-                ConditionTile(item.label, systemImage: item.systemImage, iconTint: item.iconTint,
-                              value: item.value, unit: item.unit, footnote: item.footnote)
+        let stacked = typeSize.isAccessibilitySize
+        let pair = stacked
+            ? AnyLayout(VStackLayout(spacing: DS.Space.s3))
+            : AnyLayout(HStackLayout(alignment: .top, spacing: DS.Space.s3))
+        VStack(spacing: DS.Space.s3) {
+            ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                pair {
+                    ForEach(row) { item in
+                        ConditionTile(item.label, systemImage: item.systemImage, iconTint: item.iconTint,
+                                      value: item.value, unit: item.unit, footnote: item.footnote) {
+                            CatchTileVisual(visual: item.visual)
+                        }
+                        .frame(maxHeight: .infinity)
+                    }
+                    // A last tile on its own keeps half the width.
+                    if row.count == 1 && !stacked {
+                        Color.clear
+                            .frame(maxWidth: .infinity)
+                            .accessibilityHidden(true)
+                    }
+                }
+                .fixedSize(horizontal: false, vertical: true)
             }
         }
         .padding(.horizontal, DS.gutter)
+    }
+}
+
+/// A tile's visual slot at Today's height, just above the footnote. With no
+/// picture the slot is empty and only stretches, so a tile beside a taller
+/// one still has its footnote at the foot.
+private struct CatchTileVisual: View {
+    let visual: ConditionVisual
+    @ScaledMetric(relativeTo: .body) private var height: CGFloat = 36
+
+    private var isEmpty: Bool {
+        if case .empty = visual { return true }
+        return false
+    }
+
+    var body: some View {
+        if isEmpty {
+            Color.clear
+        } else {
+            picture
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(height: height)
+                .padding(.vertical, 6)
+                .frame(maxHeight: .infinity, alignment: .bottom)
+        }
+    }
+
+    @ViewBuilder
+    private var picture: some View {
+        switch visual {
+        case .empty:
+            EmptyView()
+        case let .range(domain, band, value, tint):
+            RangeBar(domain: domain, band: band, value: value, tint: tint)
+        case let .compass(degrees):
+            CompassDial(degrees: degrees, size: 36)
+        case let .sun(sunrise, sunset, at):
+            SunArc(sunrise: sunrise, sunset: sunset, now: at, tint: ForecastCondition.sun.ink)
+        case let .curve(values, dotAt):
+            Sparkline(values: values, tint: ForecastCondition.tide.ink, dotAt: dotAt)
+        }
     }
 }
 
