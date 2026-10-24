@@ -1270,20 +1270,24 @@ struct LogCatchView: View {
         }
         lastWeather = wx
         lastWeatherKey = key
+        // An offline estimate has only the barometer: its wind is a
+        // placeholder, so it is left out rather than shown.
+        let windKmh: Double? = wx.isEstimated ? nil : wx.windSpeedKmh
+        let windDeg: Double? = wx.isEstimated ? nil : wx.windDirectionDeg
         let forecast = ForecastEngine.forecast(
             date: caughtAt,
             coordinate: coord,
             currentPressureHpa: wx.pressureHpa,
             pressureChange6h: wx.pressureChange6h,
             waterTempC: wx.waterTempC,
-            windSpeedKmh: wx.windSpeedKmh,
-            windDirection: wx.windDirectionDeg,
+            windSpeedKmh: windKmh,
+            windDirection: windDeg,
             species: selectedSpecies,
             isInSpawningZone: false
         )
         withAnimation(DS.Motion.easeOut) {
-            conditions = Conditions(waterC: wx.waterTempC, windKmh: wx.windSpeedKmh,
-                                    windDeg: wx.windDirectionDeg, pressureHpa: wx.pressureHpa,
+            conditions = Conditions(waterC: wx.waterTempC, windKmh: windKmh,
+                                    windDeg: windDeg, pressureHpa: wx.pressureHpa,
                                     pressureTrend: wx.pressureChange6h, score: forecast.score)
         }
     }
@@ -1979,6 +1983,9 @@ struct LogCatchView: View {
             wx = await Self.quickWeather(for: coord, seconds: 3)
         }
         let species = allSpecies.first(where: { $0.id == selectedSpeciesId })
+        // An offline estimate has only the barometer: its air temperature,
+        // wind and sky are placeholders, so none of them is saved or scored.
+        let estimated = wx?.isEstimated == true
         let score: Int? = coord.map { coord in
             ForecastEngine.forecast(
                 date: caughtAt,
@@ -1986,16 +1993,17 @@ struct LogCatchView: View {
                 currentPressureHpa: wx?.pressureHpa,
                 pressureChange6h: wx?.pressureChange6h,
                 waterTempC: wx?.waterTempC,
-                windSpeedKmh: wx?.windSpeedKmh,
-                windDirection: wx?.windDirectionDeg,
+                windSpeedKmh: estimated ? nil : wx?.windSpeedKmh,
+                windDirection: estimated ? nil : wx?.windDirectionDeg,
                 species: species,
                 isInSpawningZone: false
             ).score
         }
         let weatherJSON: String? = wx.flatMap {
-            let snap = WxSnap(temperatureC: $0.temperatureC, waterTempC: $0.waterTempC,
-                              windSpeedKmh: $0.windSpeedKmh, windDirectionDeg: $0.windDirectionDeg,
-                              pressureHpa: $0.pressureHpa, condition: $0.condition,
+            let snap = WxSnap(temperatureC: estimated ? nil : $0.temperatureC, waterTempC: $0.waterTempC,
+                              windSpeedKmh: estimated ? nil : $0.windSpeedKmh,
+                              windDirectionDeg: estimated ? nil : $0.windDirectionDeg,
+                              pressureHpa: $0.pressureHpa, condition: estimated ? nil : $0.condition,
                               pressureChange6h: $0.pressureChange6h)
             return (try? JSONEncoder().encode(snap)).flatMap { String(data: $0, encoding: .utf8) }
         }
