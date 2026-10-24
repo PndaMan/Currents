@@ -28,6 +28,10 @@ struct SpeciesBrowserView: View {
     @State private var southern = SpeciesSeason.isSouthern(latitude: nil)
     /// The hemisphere `scoresById` was worked out for.
     @State private var scoredSouthern: Bool?
+    /// Best match tie-breaks: fish on record at the waters of the angler's
+    /// spots, and at waters near the forecast's place.
+    @State private var spotSpeciesIds: Set<Int64> = []
+    @State private var nearbySpeciesIds: Set<Int64> = []
 
     // Cached so filtering 1,500 species doesn't re-run on every frame.
     @State private var scoresById: [Int64: [Int]] = [:]
@@ -224,8 +228,43 @@ struct SpeciesBrowserView: View {
         }
         southern = isSouth
         caughtIds = (try? appState.speciesRepository.caughtSpeciesIds()) ?? []
+        spotSpeciesIds = speciesAtSpots()
+        nearbySpeciesIds = place.map { speciesNear($0) } ?? []
         recompute()
         loaded = true
+    }
+
+    /// Fish on record at the waters the angler's spots are on.
+    private func speciesAtSpots() -> Set<Int64> {
+        let spots = (try? appState.spotRepository.fetchAll()) ?? []
+        var ids: Set<Int64> = []
+        for waterId in Set(spots.compactMap(\.waterbodyId)) {
+            if let water = (try? appState.waterbodyRepository.fetch(id: waterId)) ?? nil {
+                ids.formUnion(water.decodedFishSpeciesIds)
+            }
+        }
+        return ids
+    }
+
+    /// Fish on record at waters within about 100 km of the forecast's place:
+    /// the bundled GBIF list and any records downloaded since.
+    private func speciesNear(_ place: CLLocationCoordinate2D) -> Set<Int64> {
+        let latDelta = 100 / 111.0
+        let lonDelta = 100 / (111.0 * max(cos(place.latitude * .pi / 180), 0.1))
+        let waters = (try? appState.waterbodyRepository.fetchForRegion(
+            minLat: place.latitude - latDelta, maxLat: place.latitude + latDelta,
+            minLon: place.longitude - lonDelta, maxLon: place.longitude + lonDelta,
+            limit: 2000)) ?? []
+        return Set(waters.flatMap(\.decodedFishSpeciesIds))
+    }
+
+    /// Breaks a best match tie toward the fish nearest the angler: caught
+    /// first, then on record at their spots, then near the forecast's place.
+    private func localRank(_ sp: Species) -> Int {
+        if caughtIds.contains(sp.id) { return 0 }
+        if spotSpeciesIds.contains(sp.id) { return 1 }
+        if nearbySpeciesIds.contains(sp.id) { return 2 }
+        return 3
     }
 
     /// Recompute the in and out of season lists. Runs only when an input
@@ -251,7 +290,13 @@ struct SpeciesBrowserView: View {
         let sorted: [Species]
         switch sortOrder {
         case .match:
-            sorted = result.sorted { score($0) > score($1) }
+            sorted = result.sorted {
+                let a = score($0), b = score($1)
+                if a != b { return a > b }
+                let rankA = localRank($0), rankB = localRank($1)
+                if rankA != rankB { return rankA < rankB }
+                return $0.commonName < $1.commonName
+            }
         case .name:
             sorted = result.sorted { $0.commonName < $1.commonName }
         case .temp:
