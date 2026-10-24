@@ -343,20 +343,24 @@ struct CommunityView: View {
             TournamentView(tournament: item.tournament, crew: item.crew)
         } label: {
             CrewEventRow(isLive: true,
-                         over: item.rank.map { "\(item.crew.name), you're \(CrewText.ordinal($0))" } ?? item.crew.name,
+                         over: item.crew.name,
                          title: item.tournament.name,
-                         endsAt: item.tournament.endsAt) {
-                ThumbView(systemImage: "trophy.fill", tint: .dsScoreFair)
+                         endsAt: item.tournament.endsAt,
+                         pill: item.rank.map { CrewText.ordinal($0) }) {
+                ThumbView(systemImage: "trophy.fill", tint: CrewTint.trophy)
             }
         }
         .buttonStyle(.dsRow)
     }
 
+    /// The same pill as on the crew page: Join until you're in the trip.
     private func liveTripRow(_ item: LiveTrip) -> some View {
-        NavigationLink(value: CrewRoute.trip(code: item.trip.id, name: item.trip.name)) {
+        let amIn = svc.myGroups.contains { $0.code == item.trip.id }
+        return NavigationLink(value: CrewRoute.trip(code: item.trip.id, name: item.trip.name)) {
             CrewEventRow(isLive: true, over: item.crew.name, title: item.trip.name,
                          subtitle: item.trip.hostCode == svc.friendCode
-                            ? "You're hosting" : "Hosted by \(item.trip.hostName)") {
+                            ? "You're hosting" : "Hosted by \(item.trip.hostName)",
+                         pill: amIn ? nil : "Join") {
                 ThumbView(systemImage: "dot.radiowaves.left.and.right", tint: CrewTint.live)
             }
         }
