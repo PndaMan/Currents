@@ -591,8 +591,8 @@ struct CatchDetailView: View {
             items.append(ConditionItem(label: "Pressure", systemImage: "gauge.with.dots.needle.33percent",
                                        iconTint: ForecastCondition.pressure.tint,
                                        value: reading.0, unit: reading.1, footnote: level,
-                                       visual: .range(domain: 990...1045, band: nil, value: pressure,
-                                                      tint: ForecastCondition.pressure.tint)))
+                                       visual: .range(domain: 990...1045, band: ConditionText.pressureSweetSpot,
+                                                      value: pressure, tint: ForecastCondition.pressure.tint)))
         }
         if let tide = tideDay, let rising = tideRising(tide) {
             items.append(ConditionItem(label: "Tide",
