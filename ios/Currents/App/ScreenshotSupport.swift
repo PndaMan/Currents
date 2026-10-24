@@ -472,6 +472,7 @@ enum ScreenshotSupport {
         let spots = seedSpots(appState, picker: picker)
         let loadouts = seedGear(appState)
         seedCatches(appState, allSpecies: allSpecies, spots: spots, loadouts: loadouts, picker: picker)
+        seedLicences(appState)
         if let bass = allSpecies.first(where: { $0.commonName == "Largemouth Bass" }) {
             UserDefaults.standard.set(Int(bass.id), forKey: "targetSpeciesId")
         }
@@ -655,6 +656,26 @@ enum ScreenshotSupport {
             var plan = Trip(name: "Bass at first light", startDate: at, spotId: spot.id,
                             plannedDate: at, plannedLatitude: spot.latitude, plannedLongitude: spot.longitude)
             try? appState.tripRepository.save(&plan)
+        }
+    }
+
+    /// Two licences for the wallet: one valid for months, one that runs out
+    /// within 30 days, so the expiry warning shows. Details only, no
+    /// document, as if typed in by hand.
+    @MainActor
+    private static func seedLicences(_ appState: AppState) {
+        let calendar = Calendar.current
+        func day(_ offset: Int) -> Date? { calendar.date(byAdding: .day, value: offset, to: .now) }
+        var licences = [
+            FishingLicense(title: "Freshwater angling licence", licenseType: "Freshwater",
+                           holderName: me.name, licenseNumber: "WC-FW-204318", region: "Western Cape",
+                           issueDate: day(-245), expiryDate: day(120)),
+            FishingLicense(title: "Recreational fishing permit", licenseType: "Marine",
+                           holderName: me.name, licenseNumber: "RF-5531907", region: "South Africa",
+                           issueDate: day(-347), expiryDate: day(18)),
+        ]
+        for i in licences.indices {
+            try? appState.licenseRepository.save(&licences[i])
         }
     }
 
