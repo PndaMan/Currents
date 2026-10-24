@@ -87,7 +87,8 @@ struct StreakView: View {
                 Button {
                     showingPlanner = true
                 } label: {
-                    Label("Plan this week's session", systemImage: "calendar.badge.plus")
+                    Label(stats.fishedThisWeek ? "Plan next week's session" : "Plan this week's session",
+                          systemImage: "calendar.badge.plus")
                 }
                 .buttonStyle(.dsPrimary)
                 .padding(.horizontal, DS.gutter)
@@ -109,8 +110,8 @@ struct StreakView: View {
                         selected = next
                     } label: {
                         VStack(spacing: 0) {
-                            ArtRow(title: next.displayName,
-                                   subtitle: "\(Int(progress.target)) weeks in a row, \(next.rarity.label.lowercased())") {
+                            ArtRow(over: next.rarity.label, title: next.displayName,
+                                   subtitle: "\(Int(progress.target)) weeks in a row") {
                                 BadgeMedal(badge: next, size: 52)
                             } trailing: {
                                 Text("\(min(stats.current, Int(progress.target))) of \(Int(progress.target))")
@@ -150,8 +151,8 @@ struct StreakView: View {
         Image(systemName: "flame.fill")
             .font(.largeTitle.weight(.semibold))
             .imageScale(.large)
-            .foregroundStyle(Color.dsScoreLow)
-            .symbolEffect(.pulse, options: .repeating, isActive: !reduceMotion)
+            .foregroundStyle(DS.ink(.dsScoreLow))
+            .symbolEffect(.bounce, value: reduceMotion ? false : appeared)
             .frame(width: 84, height: 84)
             .background(Color.dsScoreLow.opacity(0.2), in: Circle())
             .accessibilityHidden(true)
@@ -220,27 +221,61 @@ struct StreakView: View {
         }
     }
 
-    /// Current and longest streak, and this week, as three equal tiles.
+    /// Current streak, longest streak (or weeks fished when the current run
+    /// is the longest) and this week, as three equal tiles. Every tile has a
+    /// footnote, so the row keeps one height; each fits one line at a third
+    /// of a phone's width.
     private func statTiles(_ stats: StreakStats) -> some View {
-        let since = stats.current > 0 ? stats.currentStart.map { "Since \(LogbookFormat.shortDay($0))" } : nil
-        var longestRun: String?
-        if let s = stats.bestStart, stats.best > 1 {
-            longestRun = "From \(LogbookFormat.shortDay(s))"
+        let dates = catches.map(\.catchRecord.caughtAt)
+        let cal = BadgeDefinition.weekCalendar
+        let currentNote: String
+        if stats.current > 0 && stats.current == stats.best {
+            currentNote = "Longest yet"
+        } else if stats.current > 0, let start = stats.currentStart {
+            currentNote = "Since \(LogbookFormat.shortDay(start))"
+        } else if let lastWeek = stats.weeks.max(),
+                  let sunday = BadgeDefinition.adjacentWeek(1, to: lastWeek, calendar: cal)?.addingTimeInterval(-1) {
+            // The last week of the run ended that Sunday.
+            currentNote = "Ended \(LogbookFormat.shortDay(sunday))"
+        } else {
+            currentNote = "None yet"
         }
+        let thisWeekCount = dates.filter { $0 >= Self.thisWeek }.count
         // Stacked at accessibility sizes, where three across would squash.
         let row = typeSize.isAccessibilitySize
             ? AnyLayout(VStackLayout(spacing: 10))
             : AnyLayout(HStackLayout(spacing: 10))
         return row {
-            StatTile("Current", systemImage: "flame.fill", tint: .dsScoreLow,
+            StatTile("Current", systemImage: "flame.fill", tint: DS.ink(.dsScoreLow),
                      value: "\(stats.current)", unit: stats.current == 1 ? "week" : "weeks",
-                     footnote: since ?? "None yet", width: nil)
-            StatTile("Longest", systemImage: "trophy.fill", tint: DS.ink(.dsScoreFair),
-                     value: "\(stats.best)", unit: stats.best == 1 ? "week" : "weeks",
-                     footnote: longestRun, width: nil)
+                     footnote: currentNote, width: nil)
+            if stats.current == stats.best {
+                // Longest would only repeat Current, so show the strip's tally.
+                let recent = Self.recentWeeks
+                let fished = recent.filter { stats.weeks.contains($0) }.count
+                let caught = recent.first.map { start in dates.filter { $0 >= start }.count } ?? 0
+                // The strip above is titled "Last 16 weeks", so "Weeks 3 of 16" reads on.
+                StatTile("Weeks", systemImage: "calendar", tint: .teal,
+                         value: "\(fished)", unit: "of \(Self.shown)",
+                         footnote: caught > 0 ? Self.catchCount(caught) : "No catches",
+                         width: nil)
+            } else {
+                StatTile("Longest", systemImage: "trophy.fill", tint: DS.ink(.dsScoreFair),
+                         value: "\(stats.best)", unit: stats.best == 1 ? "week" : "weeks",
+                         footnote: stats.bestStart.map { "From \(LogbookFormat.shortDay($0))" } ?? "Your best run",
+                         width: nil)
+            }
             StatTile("This week", systemImage: stats.fishedThisWeek ? "checkmark.circle.fill" : "circle.dashed",
-                     tint: stats.fishedThisWeek ? .dsScoreGood : .dsText3,
-                     value: stats.fishedThisWeek ? "Fished" : "Not yet", width: nil)
+                     tint: stats.fishedThisWeek ? .dsScoreGood : DS.accent,
+                     value: stats.fishedThisWeek ? "Fished" : "Not yet",
+                     footnote: stats.fishedThisWeek
+                        ? Self.catchCount(thisWeekCount)
+                        : "Ends \(LogbookFormat.shortDay(Self.weekEnd))",
+                     width: nil)
         }
+    }
+
+    private static func catchCount(_ n: Int) -> String {
+        n == 1 ? "1 catch" : "\(n) catches"
     }
 }
