@@ -73,15 +73,6 @@ struct PFToggleRow: View {
 // MARK: - Grouped list styling
 
 extension View {
-    /// An inset grouped List on the page background with `dsFill` rows, so it
-    /// reads the same in light and dark.
-    func pfGroupedList() -> some View {
-        listStyle(.insetGrouped)
-            .scrollContentBackground(.hidden)
-            .listSectionSpacing(20)
-            .contentMargins(.horizontal, DS.gutter, for: .scrollContent)
-    }
-
     /// One settings row on its own `dsFill` card, in the gutter (a toggle
     /// under a section title on a scroll page).
     func pfCard() -> some View {
@@ -91,7 +82,7 @@ extension View {
             .padding(.horizontal, DS.gutter)
     }
 
-    /// Row fill for a Section in a `pfGroupedList`.
+    /// Row fill for a Section in a List.
     func pfRows() -> some View {
         listRowBackground(Color.dsFill)
     }
