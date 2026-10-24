@@ -3,114 +3,133 @@ import CoreLocation
 
 // MARK: - Conditions
 
-/// Conditions on a spot or water page, as Today shows them: four tiles, each
-/// saying what the number means for the fishing.
+/// Conditions on a spot or water page, as Today shows them: four tiles, two
+/// to a row and one height per row (one to a row at accessibility sizes),
+/// each with a value, a small picture of where it sits and a line on what it
+/// means for the fishing. The water band is the comfort range of the fish
+/// you track, as on Today. The tiles do not open Today's condition pages,
+/// which are about where you are, not this place.
 struct ExploreConditions: View {
+    @Environment(AppState.self) private var appState
+    @Environment(\.dynamicTypeSize) private var typeSize
+    @AppStorage("units") private var units = "metric"
+    @AppStorage("targetSpeciesId") private var targetSpeciesId: Int = 0
+    @ScaledMetric(relativeTo: .body) private var visualHeight: CGFloat = 36
     let weather: WeatherService.WeatherData?
     var isLoading = false
-
-    private let columns = [
-        GridItem(.flexible(), spacing: DS.Space.s3),
-        GridItem(.flexible(), spacing: DS.Space.s3),
-    ]
+    @State private var target: Species?
 
     var body: some View {
-        if let w = weather {
-            // Today's tiles: a value and a small picture of where it sits,
-            // no sentence under each one. An offline estimate only has a
-            // real barometer, so sky, air and wind show the missing mark.
-            let m = w.measured
-            LazyVGrid(columns: columns, spacing: DS.Space.s3) {
+        Group {
+            if let w = weather {
+                grid(w)
+            } else if isLoading {
+                FishLoader(message: "Loading conditions")
+                    .frame(minHeight: 90)
+                    .frame(maxWidth: .infinity)
+            } else {
+                InlineEmpty(systemImage: "cloud.sun",
+                            text: "No weather yet. It loads next time you are online.")
+            }
+        }
+        .task(id: targetSpeciesId) {
+            let id = Int64(targetSpeciesId)
+            target = id == 0 ? nil : (try? appState.speciesRepository.fetch(id: id)) ?? nil
+        }
+    }
+
+    private func grid(_ w: WeatherService.WeatherData) -> some View {
+        // An offline estimate only has a real barometer, so water, sky, air
+        // and wind show the missing mark and say so.
+        let m = w.measured
+        let imperial = units == "imperial"
+        let none = "No weather offline"
+        let pair = typeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(spacing: 10))
+            : AnyLayout(HStackLayout(alignment: .top, spacing: 10))
+        return VStack(spacing: 10) {
+            pair {
                 if let water = m?.waterTempC {
-                    ConditionTile("Water", systemImage: "drop.fill", iconTint: ForecastCondition.water.tint,
-                                  value: Units.temperature(water)) {
-                        visual { RangeBar(domain: 5...32, band: 16...25, value: water, tint: ForecastCondition.water.ink) }
+                    ConditionTile("Water", systemImage: "thermometer.medium", iconTint: ForecastCondition.water.tint,
+                                  value: ConditionText.temperature(water, imperial: imperial),
+                                  footnote: ConditionText.waterMeaning(water, species: target)) {
+                        visual {
+                            RangeBar(domain: 5...32, band: ConditionText.comfort(for: target),
+                                     value: water, tint: ForecastCondition.water.tint)
+                        }
                     }
+                    .frame(maxHeight: .infinity)
                 } else {
                     ConditionTile("Sky", systemImage: WeatherIcon(condition: m?.condition ?? "").systemName,
                                   iconTint: ForecastCondition.sky.tint,
                                   value: m.map { "\($0.cloudCoverPct)" } ?? ConditionText.missing,
-                                  unit: m == nil ? nil : "% cloud") {
+                                  unit: "% cloud",
+                                  footnote: m.map { Self.skyMeaning($0) } ?? none) {
                         visual {
                             if let m {
-                                RangeBar(domain: 0...100, value: Double(m.cloudCoverPct), tint: ForecastCondition.sky.ink)
+                                RangeBar(domain: 0...100, value: Double(m.cloudCoverPct), tint: ForecastCondition.sky.tint)
                             }
                         }
                     }
+                    .frame(maxHeight: .infinity)
                 }
-                ConditionTile("Air", systemImage: "thermometer.medium", iconTint: ForecastCondition.air.tint,
-                              value: m.map { Units.temperature($0.temperatureC) } ?? ConditionText.missing) {
+                ConditionTile("Air", systemImage: "thermometer.sun", iconTint: ForecastCondition.air.tint,
+                              value: ConditionText.temperature(m?.temperatureC, imperial: imperial),
+                              footnote: m.map { ForecastFormat.condition($0.condition) } ?? none) {
                     visual {
                         if let m {
-                            RangeBar(domain: 0...40, value: m.temperatureC, tint: ForecastCondition.air.ink)
+                            RangeBar(domain: 0...40, value: m.temperatureC, tint: ForecastCondition.air.tint)
                         }
                     }
                 }
+                .frame(maxHeight: .infinity)
+            }
+            .fixedSize(horizontal: false, vertical: true)
+            pair {
+                let speed = ConditionText.speedParts(m?.windSpeedKmh, imperial: imperial)
                 ConditionTile("Wind", systemImage: "wind", iconTint: ForecastCondition.wind.tint,
-                              value: m.map { Units.speed(kmh: $0.windSpeedKmh) } ?? ConditionText.missing,
-                              unit: m.map { ExploreFormat.compass($0.windDirectionDeg) }) {
+                              value: speed.value,
+                              unit: m.map { speed.unit + " " + ForecastFormat.compass($0.windDirectionDeg) } ?? speed.unit,
+                              footnote: m.map { ConditionText.windMeaning($0.windSpeedKmh) } ?? none) {
                     visual {
                         if let m {
-                            CompassDial(degrees: m.windDirectionDeg, size: 36)
+                            CompassDial(degrees: m.windDirectionDeg, size: 36, tint: ForecastCondition.wind.ink)
                         }
                     }
                 }
-                let pressure = Units.pressureParts(hpa: w.pressureHpa)
+                .frame(maxHeight: .infinity)
+                let pressure = Units.pressureParts(hpa: w.pressureHpa, imperial: imperial)
                 ConditionTile("Pressure", systemImage: "gauge.with.dots.needle.33percent",
                               iconTint: ForecastCondition.pressure.tint,
-                              value: pressure.0, unit: pressure.1) {
+                              value: pressure.0, unit: pressure.1,
+                              footnote: ConditionText.pressureMeaning(w)) {
                     visual {
                         RangeBar(domain: 990...1045, band: ConditionText.pressureSweetSpot,
                                  value: w.pressureHpa, tint: ForecastCondition.pressure.tint)
                     }
                 }
+                .frame(maxHeight: .infinity)
             }
-            .padding(.horizontal, DS.gutter)
-        } else if isLoading {
-            FishLoader(message: "Loading conditions")
-                .frame(minHeight: 90)
-                .frame(maxWidth: .infinity)
-        } else {
-            InlineEmpty(systemImage: "cloud.sun",
-                        text: "No weather yet. It loads next time you are online.")
+            .fixedSize(horizontal: false, vertical: true)
         }
+        .padding(.horizontal, DS.gutter)
     }
 
-    /// The picture slot, the same height as Today's, sitting at the foot.
+    /// The picture slot, Today's height, sitting just above the line of meaning.
     private func visual<V: View>(@ViewBuilder _ content: () -> V) -> some View {
         content()
             .frame(maxWidth: .infinity, alignment: .leading)
-            .frame(height: 36)
-            .padding(.top, DS.Space.s3)
+            .frame(height: visualHeight, alignment: .center)
+            .padding(.vertical, 6)
             .frame(maxHeight: .infinity, alignment: .bottom)
     }
 
-    static func waterNote(_ c: Double) -> String {
-        switch c {
-        case ..<10: "Cold. Fish slow and deep."
-        case ..<16: "Cool. Slow the retrieve."
-        case ..<25: "Prime range for most fish."
-        default: "Warm. Fish early and late."
-        }
-    }
-
-    static func lightNote(_ cloud: Int) -> String {
-        if cloud >= 60 { return "Overcast. Fish roam shallower." }
-        if cloud <= 25 { return "Bright. Fish hold to cover." }
-        return "Broken cloud."
-    }
-
-    static func windNote(speed: Double, from degrees: Double) -> String {
-        let dir = ExploreFormat.compass(degrees)
-        if speed >= 30 { return "From the \(dir). Hard to fish." }
-        if speed >= 10 { return "From the \(dir). Fish the windward bank." }
-        return "Light, from the \(dir)."
-    }
-
-    static func pressureNote(_ change: Double) -> String {
-        if change <= -1 { return "Falling. Fish often feed before a front." }
-        if change >= 1 { return "Rising. The bite can slow." }
-        return "Steady."
+    /// Today's sky line, from the reading alone (there is no hourly here).
+    private static func skyMeaning(_ w: WeatherService.WeatherData) -> String {
+        if w.precipMm >= 5 { return "Heavy rain. Water will colour" }
+        if w.cloudCoverPct >= 70 { return "Overcast. Fish roam and feed longer" }
+        if w.cloudCoverPct <= 25 { return "Bright. Fish hold deep or in shade" }
+        return "Some cloud. Good light for fishing"
     }
 }
 
