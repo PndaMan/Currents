@@ -141,7 +141,9 @@ struct LureColorSwatch: View {
         .frame(width: size, height: size)
         .clipShape(Circle())
         .overlay {
-            Circle().strokeBorder(Color.dsSeparator, lineWidth: 0.5)
+            // Strong enough that a white or pearl lure still reads as a
+            // filled swatch on a white page, not an empty radio button.
+            Circle().strokeBorder(Color.dsText3, lineWidth: 1)
         }
         .accessibilityHidden(true)
     }
