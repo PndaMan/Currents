@@ -434,8 +434,16 @@ struct PlanSessionSheet: View {
         trip.plannedLatitude = forecastPin?.latitude
         trip.plannedLongitude = forecastPin?.longitude
         trip.checklist = Trip.encodeChecklist(checklist)
-        try? appState.tripRepository.save(&trip)
-        Task { await NotificationManager.shared.schedulePlannedSessionAlert(trip: trip) }
+        do {
+            try appState.tripRepository.save(&trip)
+        } catch {
+            isSaving = false
+            ToastCenter.shared.show("Could not save this plan", style: .error)
+            return
+        }
+        PlanWidget.refresh(appState.tripRepository)
+        let saved = trip
+        Task { await NotificationManager.shared.schedulePlannedSessionAlert(trip: saved) }
         ToastCenter.shared.show(editingTrip == nil ? "Session planned" : "Plan updated", icon: "calendar.badge.checkmark")
         onSaved?(trip.id)
         dismiss()

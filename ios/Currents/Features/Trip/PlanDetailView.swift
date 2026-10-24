@@ -420,8 +420,15 @@ struct PlanDetailView: View {
 
     private func delete() {
         guard let trip else { return }
+        do {
+            try appState.tripRepository.delete(trip)
+        } catch {
+            ToastCenter.shared.show("Could not delete this plan", style: .error)
+            return
+        }
         Haptics.warning()
-        try? appState.tripRepository.delete(trip)
+        NotificationManager.shared.cancelPlannedSessionAlert(tripId: trip.id)
+        PlanWidget.refresh(appState.tripRepository)
         ToastCenter.shared.show("Plan deleted", style: .info, haptic: false, icon: "trash")
         dismiss()
     }

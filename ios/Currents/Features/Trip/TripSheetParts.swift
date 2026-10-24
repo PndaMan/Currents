@@ -258,3 +258,16 @@ struct BiteWindowTiles: View {
         }
     }
 }
+
+/// Keeps the "Next session" widget in step with the saved plans. Call it
+/// after a plan is saved, deleted or started.
+@MainActor
+enum PlanWidget {
+    static func refresh(_ repository: TripRepository) {
+        let planned = (try? repository.fetchPlanned()) ?? []
+        let upcoming = planned
+            .filter { ($0.plannedDate ?? .distantPast) > .now }
+            .min { ($0.plannedDate ?? .distantFuture) < ($1.plannedDate ?? .distantFuture) }
+        WidgetSnapshotWriter.writeNextSession(name: upcoming?.name, date: upcoming?.plannedDate)
+    }
+}

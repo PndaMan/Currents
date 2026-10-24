@@ -113,10 +113,7 @@ struct SessionsView: View {
             presenting: tripToDelete
         ) { trip in
             Button(trip.isPlanned ? "Delete plan" : "Delete session", role: .destructive) {
-                Haptics.warning()
-                try? appState.tripRepository.delete(trip); tripToDelete = nil; reload()
-                ToastCenter.shared.show(trip.isPlanned ? "Plan deleted" : "Session deleted",
-                                        style: .info, haptic: false, icon: "trash")
+                delete(trip)
             }
             Button("Cancel", role: .cancel) { tripToDelete = nil }
         } message: { trip in
@@ -145,6 +142,25 @@ struct SessionsView: View {
         _ = tracker.startPlanned(trip)
         reload()
         ToastCenter.shared.show("Session started", icon: "play.fill")
+    }
+
+    private func delete(_ trip: Trip) {
+        tripToDelete = nil
+        do {
+            try appState.tripRepository.delete(trip)
+        } catch {
+            ToastCenter.shared.show(trip.isPlanned ? "Could not delete this plan" : "Could not delete this session",
+                                    style: .error)
+            return
+        }
+        Haptics.warning()
+        if trip.isPlanned {
+            NotificationManager.shared.cancelPlannedSessionAlert(tripId: trip.id)
+            PlanWidget.refresh(appState.tripRepository)
+        }
+        reload()
+        ToastCenter.shared.show(trip.isPlanned ? "Plan deleted" : "Session deleted",
+                                style: .info, haptic: false, icon: "trash")
     }
 
     private func reload() {
