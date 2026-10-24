@@ -70,15 +70,8 @@ struct CatchDetailView: View {
             Text("\(speciesName), \(LogbookFormat.shortDay(record.caughtAt)). Its photos go too, including from shared feeds. This can't be undone.")
         }
         .fullScreenCover(isPresented: $showingEdit) {
-            LogCatchView(editing: detail) { updated in
-                if let saved = CatchActions.saveEditChecked(updated, appState: appState) {
-                    reload(with: saved)
-                } else {
-                    // The composer confirms the edit straight after this
-                    // returns, so the failure is shown once it has.
-                    Task { @MainActor in ToastCenter.shared.show("Couldn't save the changes", style: .error) }
-                }
-            }
+            // The composer saves the edit and shows its own toast.
+            LogCatchView(editing: detail) { saved in reload(with: saved) }
         }
         .fullScreenCover(isPresented: $showingPhotoViewer) {
             FullscreenPhotoViewer(

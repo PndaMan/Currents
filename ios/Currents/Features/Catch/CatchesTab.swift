@@ -211,13 +211,9 @@ struct CatchesTab: View {
             }
         }
         .fullScreenCover(item: $catchToEdit, onDismiss: reload) { detail in
-            LogCatchView(editing: detail) { updated in
-                if CatchActions.saveEditChecked(updated, appState: appState) == nil {
-                    // The composer confirms the edit straight after this
-                    // returns, so the failure is shown once it has.
-                    Task { @MainActor in ToastCenter.shared.show("Couldn't save the changes", style: .error) }
-                }
-            }
+            // The composer saves the edit and shows its own toast; the list
+            // reloads on dismiss.
+            LogCatchView(editing: detail) { _ in }
         }
         .sheet(item: $shareItem) { item in
             // The system share sheet's own heights.

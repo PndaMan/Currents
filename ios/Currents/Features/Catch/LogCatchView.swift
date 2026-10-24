@@ -57,8 +57,8 @@ struct LogCatchView: View {
         }
     }
 
-    /// Edit an existing catch. `onSave` receives the updated record to persist
-    /// and re-publish, as EditCatchSheet did.
+    /// Edit an existing catch. The composer saves it; `onSave` receives the
+    /// saved record so the caller can refresh.
     init(editing detail: CatchDetail, onSave: @escaping (Catch) -> Void) {
         self.groupCodeOverride = nil
         self.presetSpecies = nil
