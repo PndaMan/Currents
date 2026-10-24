@@ -1376,6 +1376,7 @@ struct WidgetsSiriView: View {
     @State private var nextPlan: Trip?
     @AppStorage("use24HourTime") private var use24 = true
     @Environment(\.dynamicTypeSize) private var typeSize
+    @Environment(\.colorScheme) private var colorScheme
 
     private let shortcuts: [(String, String, String, Color)] = [
         ("Bite score", "What's the bite score in Currents", "cloud.sun.fill", .cyan),
@@ -1410,7 +1411,7 @@ struct WidgetsSiriView: View {
                         widgetTile("Bite score") { biteWidget }
                         widgetTile("Next session") { sessionWidget }
                         widgetTile("Log a catch") { logWidget }
-                        widgetTile("Lock Screen", fill: .dsFill2) { lockWidget }
+                        widgetTile("Lock Screen", fill: .dsFill2, alwaysDark: true) { lockWidget }
                     }
                     .padding(.horizontal, DS.gutter)
                     PFFootnote("Touch and hold the Home Screen, tap Edit, then Add widget.")
@@ -1460,8 +1461,9 @@ struct WidgetsSiriView: View {
 
     /// A square widget-shaped tile with its name underneath, as in the widget
     /// gallery. At accessibility sizes the tile grows to fit its text instead
-    /// of clipping it to a square.
-    private func widgetTile<Content: View>(_ caption: String, fill: Color = .dsFill,
+    /// of clipping it to a square. `alwaysDark` draws the tile dark in both
+    /// modes, as the Lock Screen is; the caption keeps the page's colours.
+    private func widgetTile<Content: View>(_ caption: String, fill: Color = .dsFill, alwaysDark: Bool = false,
                                            @ViewBuilder content: () -> Content) -> some View {
         let inner = content().padding(DS.Space.s4)
         return VStack(spacing: DS.Space.s2) {
@@ -1479,6 +1481,7 @@ struct WidgetsSiriView: View {
                 }
             }
             .clipShape(RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
+            .environment(\.colorScheme, alwaysDark ? .dark : colorScheme)
             Text(caption)
                 .font(.footnote)
                 .foregroundStyle(.dsText2)
