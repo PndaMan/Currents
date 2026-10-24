@@ -24,6 +24,7 @@ struct GearTab: View {
     @State private var viewMode: ViewMode = .items
     @State private var filter: GearFilter = .all
     @State private var didLoad = false
+    @State private var loadFailed = false
     @State private var titleShown = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -71,7 +72,7 @@ struct GearTab: View {
     private var page: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: DS.Space.s4) {
-                DetailHeader(title: "Tackle box", subtitle: didLoad ? subtitle : nil)
+                DetailHeader(title: "Tackle box", subtitle: didLoad && !loadFailed ? subtitle : nil)
 
                 FilterChips(ViewMode.allCases, selection: $viewMode) { $0.rawValue }
 
@@ -217,6 +218,8 @@ struct GearTab: View {
     private var ownedGearContent: some View {
         if !didLoad {
             loading
+        } else if loadFailed {
+            loadError
         } else if ownedGear.isEmpty {
             emptyGear
         } else {
@@ -240,6 +243,12 @@ struct GearTab: View {
         ProgressView()
             .frame(maxWidth: .infinity)
             .padding(.top, DS.Space.s8)
+    }
+
+    private var loadError: some View {
+        InlineEmpty(systemImage: "exclamationmark.triangle",
+                    text: "Your tackle box could not be read. Nothing is lost.",
+                    actionTitle: "Try again") { reload() }
     }
 
     private var emptyGear: some View {
@@ -417,6 +426,8 @@ struct GearTab: View {
     private var presetContent: some View {
         if !didLoad {
             loading
+        } else if loadFailed {
+            loadError
         } else if loadouts.isEmpty {
             InlineEmpty(systemImage: "square.stack.3d.up",
                         text: "No presets yet. Save a rod, reel and lure combo so logging a catch takes one tap.",
@@ -459,9 +470,16 @@ struct GearTab: View {
     }
 
     private func refresh() async {
-        loadouts = (try? appState.gearRepository.fetchPresets()) ?? []
-        ownedGear = (try? appState.ownedGearRepository.fetchAll()) ?? []
+        do {
+            loadouts = try appState.gearRepository.fetchPresets()
+            ownedGear = try appState.ownedGearRepository.fetchAll()
+            loadFailed = false
+        } catch {
+            // An empty tackle box here would read as lost gear.
+            loadFailed = true
+        }
         if case .category(let cat) = filter, !ownedCategories.contains(cat) { filter = .all }
+        // Catches only feed the per-item counts, so a failed read drops them.
         catches = (try? appState.catchRepository.fetchAll(limit: 10000)) ?? []
         didLoad = true
     }
