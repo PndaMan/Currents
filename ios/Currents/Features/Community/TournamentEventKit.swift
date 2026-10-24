@@ -508,12 +508,15 @@ struct EventRankRow: View {
 
 // MARK: - Notice
 
-/// A one-line notice with an optional inline text action, in the same box
-/// as Today's location notice ("Offline. Standings as of 10:42.  Try again").
+/// A one-line notice with an optional action, in the same box as Today's
+/// location notice ("Offline. Standings as of 10:42." and Try again). The
+/// action is a small tonal button, so it reads as a button; at
+/// accessibility sizes it moves under the text.
 struct EventNotice<Action: View>: View {
     let text: String
     let systemImage: String
     private let action: Action
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     init(_ text: String, systemImage: String, @ViewBuilder action: () -> Action) {
         self.text = text
@@ -522,18 +525,21 @@ struct EventNotice<Action: View>: View {
     }
 
     var body: some View {
-        HStack(spacing: DS.Space.s3) {
-            Image(systemName: systemImage)
-                .foregroundStyle(.dsText2)
-            Text(text)
-                .font(.subheadline)
-                .foregroundStyle(.dsText2)
-                .fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 0)
+        let layout = typeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: DS.Space.s3))
+            : AnyLayout(HStackLayout(spacing: DS.Space.s3))
+        layout {
+            HStack(spacing: DS.Space.s3) {
+                Image(systemName: systemImage)
+                    .foregroundStyle(.dsText2)
+                Text(text)
+                    .font(.subheadline)
+                    .foregroundStyle(.dsText2)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
+            }
             action
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(DS.accent)
-                .buttonStyle(.dim)
+                .buttonStyle(TonalButtonStyle(fullWidth: false))
         }
         .padding(14)
         .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.button, style: .continuous))

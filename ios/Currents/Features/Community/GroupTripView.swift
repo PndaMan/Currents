@@ -962,7 +962,7 @@ struct GroupTripView: View {
     @ViewBuilder private var secondTile: some View {
         if showsInvites {
             Button { showingInvite = true } label: {
-                Label("Invite", systemImage: "person.badge.plus")
+                Label("Invite", systemImage: "square.and.arrow.up")
             }
             .buttonStyle(ActionTileStyle(.tonal))
         } else if amMember, let code {
