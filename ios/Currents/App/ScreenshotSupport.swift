@@ -294,10 +294,14 @@ enum ScreenshotSupport {
         return spots.first { $0.name == demoSpots[0].name }
     }
 
-    /// A waterbody near the demo coordinate, else any waterbody.
+    /// The seeded Steenbras Dam, found by name so every run opens the same
+    /// place: the bundled map rows load in the background and can outrank it
+    /// by size. Else a waterbody near the demo coordinate, else any.
     @MainActor
     private static func demoWaterbody(_ appState: AppState) -> Waterbody? {
         let repository = appState.waterbodyRepository
+        let named = ((try? repository.fetchAll()) ?? []).filter { $0.name == "Steenbras Dam" }
+        if let seeded = named.first(where: { $0.osmId == nil }) ?? named.first { return seeded }
         let near = (try? repository.fetchNearby(latitude: demoCoordinate.latitude,
                                                 longitude: demoCoordinate.longitude,
                                                 radiusKm: 30)) ?? []
@@ -1002,7 +1006,7 @@ enum ScreenshotSupport {
     /// Dam and lake waterbodies near the demo map camera.
     private static let demoWaterbodiesJSON = """
     [
-      {"name":"Steenbras Dam","type":"dam","latitude":-34.190,"longitude":18.885,"surfaceAreaKm2":6.6,"maxDepthM":42,"isPublic":true},
+      {"name":"Steenbras Dam","type":"dam","latitude":-34.185,"longitude":18.864,"surfaceAreaKm2":6.6,"maxDepthM":42,"isPublic":true},
       {"name":"Kogelberg Dam","type":"dam","latitude":-34.278,"longitude":18.902,"surfaceAreaKm2":2.1,"maxDepthM":18,"isPublic":true},
       {"name":"Rooiels Vlei","type":"lake","latitude":-34.302,"longitude":18.822,"surfaceAreaKm2":0.8,"maxDepthM":6,"isPublic":true},
       {"name":"Palmiet Reservoir","type":"dam","latitude":-34.334,"longitude":18.861,"surfaceAreaKm2":3.4,"maxDepthM":22,"isPublic":true},
