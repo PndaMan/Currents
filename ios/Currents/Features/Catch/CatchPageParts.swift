@@ -154,8 +154,9 @@ private struct CatchHeroPhoto: View {
 // MARK: - Chrome
 
 /// The navigation bar over the hero: clear while the hero is under it, then
-/// the hard edge and the inline title once the hero and the title block have
-/// scrolled away. Apply to the page's ScrollView after `detailTint`.
+/// the bar backdrop and hard edge once the hero has scrolled away, and the
+/// inline title with its hairline once the title block has too. Apply to the
+/// page's ScrollView after `detailTint`.
 struct CatchHeroChrome: ViewModifier {
     let title: String
     /// `CatchHero.factor(hasPhoto:)` for the hero on the page.
@@ -176,18 +177,10 @@ struct CatchHeroChrome: ViewModifier {
             }
             // Keeps the clock legible over a bright photo, as on the map.
             .statusBarScrim()
-            .navigationTitle(title)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .principal) {
-                    Text(title)
-                        .font(.headline)
-                        .lineLimit(1)
-                        .opacity(stage == 2 ? 1 : 0)
-                        .animation(.easeOut(duration: DS.Motion.fast), value: stage)
-                        .accessibilityHidden(stage != 2)
-                }
-            }
+            // The scrim turns the bar backdrop off so the hero shows under
+            // the bar; it comes back once the hero has scrolled away.
+            .pageBarBackdrop(stage >= 1)
+            .pageInlineTitle(title, shown: stage == 2)
     }
 }
 
