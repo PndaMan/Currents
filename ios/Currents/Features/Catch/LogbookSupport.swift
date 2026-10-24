@@ -17,19 +17,20 @@ enum LogbookRoute: Hashable {
 // MARK: - Formatting
 
 enum LogbookFormat {
-    /// "Today", "Yesterday", a weekday within the last week, else "12 Oct".
+    /// "Today", "Yesterday", a weekday within the last week, else "12 Oct",
+    /// or "12 Oct 2025" for an earlier year. Day before month, as on Today.
     static func relativeDay(_ date: Date, now: Date = .now) -> String {
         let cal = Calendar.current
         if cal.isDateInToday(date) { return "Today" }
         if cal.isDateInYesterday(date) { return "Yesterday" }
         let days = cal.dateComponents([.day], from: cal.startOfDay(for: date), to: cal.startOfDay(for: now)).day ?? 99
         if days > 0 && days < 7 {
-            return date.formatted(.dateTime.weekday(.wide))
+            return format(date, "EEEE")
         }
         if cal.component(.year, from: date) == cal.component(.year, from: now) {
-            return date.formatted(.dateTime.day().month(.abbreviated))
+            return format(date, "d MMM")
         }
-        return date.formatted(.dateTime.day().month(.abbreviated).year())
+        return format(date, "d MMM yyyy")
     }
 
     /// "Saturday 12 October"
@@ -39,12 +40,25 @@ enum LogbookFormat {
 
     /// "12 Oct"
     static func shortDay(_ date: Date) -> String {
-        date.formatted(.dateTime.day().month(.abbreviated))
+        format(date, "d MMM")
     }
 
-    /// "06:40" or "6:40 am", following the 24-hour setting.
-    static func time(_ date: Date) -> String {
-        ForecastFormat.time(date)
+    /// "12 October 2026", for when a badge was earned and on the share card.
+    static func fullDate(_ date: Date) -> String {
+        format(date, "d MMMM yyyy")
+    }
+
+    /// "06:40" or "6:40 am", following the 24-hour setting. Views pass their
+    /// own `@AppStorage("use24HourTime")` value so they redraw when it changes.
+    static func time(_ date: Date, use24: Bool = ForecastFormat.use24) -> String {
+        ForecastFormat.time(date, use24: use24)
+    }
+
+    /// Fixed day-first patterns, the same way `ForecastFormat` writes dates.
+    private static func format(_ date: Date, _ pattern: String) -> String {
+        let f = DateFormatter()
+        f.dateFormat = pattern
+        return f.string(from: date)
     }
 
     /// "62 cm, 3.4 kg" from whatever was measured, or nil.

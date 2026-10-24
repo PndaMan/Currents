@@ -26,7 +26,7 @@ private struct CatchShareCardView: View {
 
     /// "12 October 2026, Blue Lagoon, released"
     private var overLine: String {
-        var parts = [record.caughtAt.formatted(date: .long, time: .omitted)]
+        var parts = [LogbookFormat.fullDate(record.caughtAt)]
         if let spot = detail.spot { parts.append(spot.name) }
         if record.released { parts.append(parts.count == 1 ? "Released" : "released") }
         return parts.joined(separator: ", ")

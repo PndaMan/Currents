@@ -9,6 +9,7 @@ import MapKit
 struct CatchDetailView: View {
     @Environment(AppState.self) private var appState
     @AppStorage("units") private var units = "metric"
+    @AppStorage("use24HourTime") private var use24 = true
     private var imperial: Bool { units == "imperial" }
     @Environment(\.dismiss) private var dismiss
     @State private var detail: CatchDetail
@@ -122,7 +123,7 @@ struct CatchDetailView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 0) {
-            DetailHeader(over: "\(LogbookFormat.longDay(record.caughtAt)), \(LogbookFormat.time(record.caughtAt))",
+            DetailHeader(over: "\(LogbookFormat.longDay(record.caughtAt)), \(LogbookFormat.time(record.caughtAt, use24: use24))",
                          title: speciesName,
                          subtitle: detail.species?.scientificName)
             CatchFactsLine(facts: facts)
@@ -523,7 +524,8 @@ struct CatchDetailView: View {
     /// was nearest.
     private func lightItem(_ day: SolunarEngine.SolunarDay) -> ConditionItem {
         let at = record.caughtAt
-        let time: (Date) -> String = { ForecastFormat.time($0) }
+        let clock = use24
+        let time: (Date) -> String = { ForecastFormat.time($0, use24: clock) }
         if day.dawnGoldenHour.contains(at) {
             return ConditionItem(label: "Light", systemImage: "sunrise.fill", iconTint: .orange,
                                  value: "Dawn", footnote: "Sunrise \(time(day.sunrise))")

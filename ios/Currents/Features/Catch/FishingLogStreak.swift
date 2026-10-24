@@ -219,7 +219,7 @@ struct BadgeDefinition: Identifiable {
     var accessibilityLabel: String {
         let state: String
         if let earnedAt {
-            state = "earned \(earnedAt.formatted(date: .long, time: .omitted))"
+            state = "earned \(LogbookFormat.fullDate(earnedAt))"
         } else {
             state = earned ? "earned" : "not earned yet"
         }
@@ -947,6 +947,6 @@ struct BadgeDetailView: View {
 
     private var earnedText: String {
         guard let earnedAt = badge.earnedAt else { return "Earned" }
-        return "Earned on \(earnedAt.formatted(.dateTime.day().month(.wide).year()))"
+        return "Earned on \(LogbookFormat.fullDate(earnedAt))"
     }
 }

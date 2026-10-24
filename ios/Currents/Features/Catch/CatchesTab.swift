@@ -638,7 +638,7 @@ struct CatchesTab: View {
                 ActiveSessionView()
             } label: {
                 ArtRow(over: "Session running", title: active.name,
-                       subtitle: "Started \(LogbookFormat.time(active.startDate))", chevron: true) {
+                       subtitle: "Started \(LogbookFormat.time(active.startDate, use24: use24))", chevron: true) {
                     ThumbView(systemImage: "dot.radiowaves.left.and.right", tint: .dsScoreSlow)
                 } trailing: {
                     let n = summary.catchesByTrip[active.id] ?? 0
@@ -770,7 +770,7 @@ struct CatchesTab: View {
             return "Best \(best.peakScore) from \(ForecastFormat.hour(best.startHour, use24: use24))"
         }()
         return NavigationLink(value: LogbookRoute.plan(trip.id)) {
-            ArtRow(over: "\(LogbookFormat.time(date)), \(relativePlan(date))",
+            ArtRow(over: "\(LogbookFormat.time(date, use24: use24)), \(relativePlan(date))",
                    title: trip.name,
                    subtitle: subtitle,
                    chevron: outlook == nil) {
