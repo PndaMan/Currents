@@ -8,20 +8,23 @@ import Charts
 // MARK: - Sessions (list, start, plan)
 
 /// Every session: the one running now, plans coming up, and past sessions.
-/// Pushed from Profile and the `sessions` route; the Logbook's Sessions and
-/// Plans segments show the same records inline.
+/// Reached from the `sessions` route; the Logbook's Sessions and Plans
+/// segments show the same records with the same rows.
 struct SessionsView: View {
     @Environment(AppState.self) private var appState
     @State private var sessions: [Trip] = []
     @State private var planned: [Trip] = []
     @State private var catchCounts: [String: Int] = [:]
     @State private var catchPhotos: [String: String] = [:]
+    @State private var bestScores: [String: Int] = [:]
+    @State private var outlooks: [String: PlanRowOutlook] = [:]
     @State private var loaded = false
     @State private var showingNew = false
     @State private var showingPlanner = false
     @State private var editingTrip: Trip?
     @State private var editingPlanned: Trip?
     @State private var tripToDelete: Trip?
+    @State private var titleShown = false
 
     private var tracker: TripTracker { appState.tripTracker }
     private var pastSessions: [Trip] { sessions.filter { $0.isCompleted } }
@@ -38,9 +41,9 @@ struct SessionsView: View {
             VStack(alignment: .leading, spacing: 0) {
                 DetailHeader(title: "Sessions", subtitle: headerSubtitle)
 
-                HStack(spacing: DS.Space.s2) {
+                ActionTriple {
                     Button { showingNew = true } label: {
-                        Label("Start a session", systemImage: "play.fill")
+                        Label("Start session", systemImage: "play.fill")
                     }
                     .buttonStyle(ActionTileStyle(.primary))
                     .disabled(tracker.isTracking)
@@ -50,14 +53,13 @@ struct SessionsView: View {
                     }
                     .buttonStyle(ActionTileStyle(.tonal))
                 }
-                .padding(.horizontal, DS.gutter)
                 .padding(.top, DS.Space.s5)
 
                 if let active = tracker.activeTrip {
                     SectionTitle("Now")
                         .padding(.top, DS.Space.s8)
                     NavigationLink { ActiveSessionView() } label: {
-                        ActiveSessionRow(trip: active)
+                        ActiveSessionRow(trip: active, catchCount: catchCounts[active.id] ?? 0)
                     }
                     .buttonStyle(.dsRow)
                 }
@@ -66,9 +68,12 @@ struct SessionsView: View {
                     SectionTitle("Upcoming", detail: "\(planned.count)")
                         .padding(.top, DS.Space.s8)
                     ForEach(planned) { trip in
-                        PlannedRow(trip: trip, canStart: !tracker.isTracking, onStart: {
-                            start(trip)
-                        }, onEdit: { editingPlanned = trip })
+                        NavigationLink {
+                            PlanDetailView(tripId: trip.id)
+                        } label: {
+                            PlannedRow(trip: trip, outlook: outlooks[trip.id])
+                        }
+                        .buttonStyle(.dsRow)
                         .contextMenu { rowMenu(trip) }
                     }
                 }
@@ -81,12 +86,11 @@ struct SessionsView: View {
                             SessionDetailView(trip: trip)
                         } label: {
                             SessionRow(trip: trip, catchCount: catchCounts[trip.id] ?? 0,
-                                       photoPath: catchPhotos[trip.id])
+                                       photoPath: catchPhotos[trip.id], bestScore: bestScores[trip.id])
                         }
                         .buttonStyle(.dsRow)
                         .contextMenu { rowMenu(trip) }
                     }
-                    SectionFoot("Long-press a session to edit or delete it.")
                 }
 
                 if loaded && pastSessions.isEmpty && planned.isEmpty && tracker.activeTrip == nil {
@@ -100,8 +104,8 @@ struct SessionsView: View {
         }
         .dsScreenBackground()
         .detailScrollEdge()
-        .navigationTitle("Sessions")
-        .navigationBarTitleDisplayMode(.inline)
+        .pfTrackScroll($titleShown, threshold: 60)
+        .pfScrollTitle("Sessions", shown: titleShown)
         .sheet(isPresented: $showingNew, onDismiss: reload) { NewSessionSheet() }
         .sheet(isPresented: $showingPlanner, onDismiss: reload) { PlanSessionSheet() }
         .sheet(item: $editingPlanned, onDismiss: reload) { PlanSessionSheet(editingTrip: $0) }
@@ -125,14 +129,16 @@ struct SessionsView: View {
     }
 
     @ViewBuilder private func rowMenu(_ trip: Trip) -> some View {
-        // Planned sessions open the full planner (checklist, location, outlook);
-        // completed ones use the lightweight editor.
-        if trip.isPlanned && !tracker.isTracking {
+        // Plans open the full planner (checklist, location, outlook); past
+        // sessions use the light editor.
+        if trip.isPlanned {
             Button { start(trip) } label: { Label("Start now", systemImage: "play.fill") }
+                .disabled(tracker.isTracking)
         }
         Button {
             if trip.isPlanned { editingPlanned = trip } else { editingTrip = trip }
-        } label: { Label(trip.isPlanned ? "Edit plan" : "Edit session", systemImage: "pencil") }
+        } label: { Label("Edit", systemImage: "pencil") }
+        Divider()
         Button(role: .destructive) { tripToDelete = trip } label: {
             Label(trip.isPlanned ? "Delete plan" : "Delete session", systemImage: "trash")
         }
@@ -170,44 +176,75 @@ struct SessionsView: View {
             let tripCatches = (try? appState.tripRepository.catches(tripId: trip.id)) ?? []
             catchCounts[trip.id] = tripCatches.count
             catchPhotos[trip.id] = tripCatches.lazy.compactMap { $0.catchRecord.allPhotoPaths.first }.first
+            bestScores[trip.id] = tripCatches.compactMap { $0.catchRecord.forecastScoreAtCapture }.max()
         }
+        let here = appState.locationManager.currentLocation?.coordinate
+        var next: [String: PlanRowOutlook] = [:]
+        for plan in planned { next[plan.id] = PlanRowOutlook.make(for: plan, fallback: here) }
+        outlooks = next
         loaded = true
     }
 }
 
-/// A plan in a list: a date thumb, name and time, and a Start button. Tapping
-/// the row opens the plan.
+/// The bite at a plan's start time and its best window, for the plan's pin
+/// or else where you are now. Moon, sun, tide and season only: live weather
+/// is not known days ahead.
+struct PlanRowOutlook {
+    let score: Int
+    let best: BiteWindows.Window?
+
+    static func make(for plan: Trip, fallback: CLLocationCoordinate2D?) -> PlanRowOutlook? {
+        guard let coord = plan.plannedCoordinate ?? fallback else { return nil }
+        let date = plan.plannedDate ?? plan.startDate
+        let hour = Calendar.current.component(.hour, from: date)
+        let f = ForecastEngine.forecast(
+            date: date, coordinate: coord,
+            currentPressureHpa: nil, pressureChange6h: nil, waterTempC: nil,
+            windSpeedKmh: nil, windDirection: nil, species: nil, isInSpawningZone: false
+        )
+        return PlanRowOutlook(score: f.hourlyScores.first { $0.hour == hour }?.score ?? f.score,
+                              best: BiteWindows.best(from: f.hourlyScores).max { $0.peakScore < $1.peakScore })
+    }
+}
+
+/// A plan in a list, as on the Logbook's Plans pane: a date thumb, the time
+/// and day over the name, the best window, and the bite at the start time.
+/// The caller wraps it in the link to the plan.
 struct PlannedRow: View {
     let trip: Trip
-    let canStart: Bool
-    let onStart: () -> Void
-    let onEdit: () -> Void
+    var outlook: PlanRowOutlook? = nil
+    @AppStorage("use24HourTime") private var use24 = true
 
     private var date: Date { trip.plannedDate ?? trip.startDate }
 
-    var body: some View {
-        HStack(spacing: 0) {
-            NavigationLink {
-                PlanDetailView(tripId: trip.id)
-            } label: {
-                ArtRow(title: trip.name,
-                       subtitle: "\(LogbookFormat.relativeDay(date)), \(LogbookFormat.time(date))") {
-                    PlanDateThumb(date: date, size: 52)
-                }
-            }
-            .buttonStyle(.dsRow)
+    private var subtitle: String {
+        guard let outlook else { return "Turn on location to see the bite" }
+        guard let best = outlook.best else { return "No strong windows that day" }
+        return "Best \(best.peakScore) from \(ForecastFormat.hour(best.startHour, use24: use24))"
+    }
 
-            Button("Start", action: onStart)
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.dsText)
-                .padding(.horizontal, 14)
-                .frame(minHeight: 34)
-                .background(Color.dsTonal, in: Capsule())
-                .buttonStyle(.dim)
-                .disabled(!canStart)
-                .opacity(canStart ? 1 : 0.4)
-                .accessibilityLabel("Start \(trip.name)")
-                .padding(.trailing, DS.gutter)
+    private var relative: String {
+        let cal = Calendar.current
+        let days = cal.dateComponents([.day], from: cal.startOfDay(for: .now), to: cal.startOfDay(for: date)).day ?? 0
+        switch days {
+        case ..<0: return "overdue"
+        case 0: return "today"
+        case 1: return "tomorrow"
+        default: return "in \(days) days"
+        }
+    }
+
+    var body: some View {
+        ArtRow(over: "\(ForecastFormat.time(date, use24: use24)), \(relative)",
+               title: trip.name,
+               subtitle: subtitle,
+               chevron: outlook == nil) {
+            PlanDateThumb(date: date, size: 64)
+        } trailing: {
+            if let outlook {
+                ScoreRing(score: outlook.score, size: 44)
+                    .accessibilityLabel("Bite \(outlook.score) at the planned time")
+            }
         }
     }
 }
@@ -233,8 +270,8 @@ struct PlanDateThumb: View {
     }
 }
 
-/// Edit a session's name, spot and notes, or a plan's time too. Plans with
-/// a checklist and outlook use PlanSessionSheet; this is the light editor.
+/// Edit a past session's name, spot and notes. Plans are edited in
+/// PlanSessionSheet, which has the time, checklist and outlook.
 struct EditSessionSheet: View {
     @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss
@@ -251,22 +288,6 @@ struct EditSessionSheet: View {
                     TripNameField("Name this session", text: $trip.name)
                         .focused($focus, equals: .name)
                         .padding(.top, DS.Space.s4)
-
-                    if trip.isPlanned {
-                        SectionTitle("When")
-                            .padding(.top, DS.Space.s8)
-                        HStack(spacing: 14) {
-                            ThumbView(systemImage: "calendar", tint: DS.accent, size: 44)
-                            DatePicker("Starts", selection: Binding(
-                                get: { trip.plannedDate ?? .now },
-                                set: { trip.plannedDate = $0; trip.startDate = $0 }
-                            ), displayedComponents: [.date, .hourAndMinute])
-                                .font(.body.weight(.medium))
-                                .foregroundStyle(.dsText)
-                        }
-                        .padding(.horizontal, DS.gutter)
-                        .padding(.vertical, 4)
-                    }
 
                     SectionTitle("Spot")
                         .padding(.top, DS.Space.s8)
@@ -290,7 +311,7 @@ struct EditSessionSheet: View {
             .scrollDismissesKeyboard(.interactively)
             .detailScrollEdge()
             .dsScreenBackground()
-            .navigationTitle(trip.isPlanned ? "Edit plan" : "Edit session")
+            .navigationTitle("Edit session")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
@@ -300,52 +321,61 @@ struct EditSessionSheet: View {
                 }
             }
             .safeAreaInset(edge: .bottom) {
-                SheetActionBar(trip.isPlanned ? "Save plan" : "Save session", systemImage: "checkmark",
+                SheetActionBar("Save", systemImage: "checkmark",
                                disabled: trip.name.trimmingCharacters(in: .whitespaces).isEmpty) {
                     save()
                 }
             }
             .task { spots = (try? appState.spotRepository.fetchAll()) ?? [] }
         }
-        .presentationDetents([.large])
-        .presentationDragIndicator(.visible)
+        .dsSheet([.large])
     }
 
     private func save() {
         var t = trip
-        try? appState.tripRepository.save(&t)
-        if t.isPlanned { Task { await NotificationManager.shared.schedulePlannedSessionAlert(trip: t) } }
-        ToastCenter.shared.show(t.isPlanned ? "Plan updated" : "Session updated")
+        t.name = t.name.trimmingCharacters(in: .whitespaces)
+        do {
+            try appState.tripRepository.save(&t)
+        } catch {
+            ToastCenter.shared.show("Could not save this session", style: .error)
+            return
+        }
+        ToastCenter.shared.show("Session updated")
         dismiss()
     }
 }
 
-/// The running session in a list, with a pulsing record dot.
+/// The running session in a list, as on the Logbook's Sessions pane.
 struct ActiveSessionRow: View {
     let trip: Trip
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    var catchCount: Int? = nil
+    @AppStorage("use24HourTime") private var use24 = true
 
     var body: some View {
-        ArtRow(over: "Recording", title: trip.name,
-               subtitle: "Started \(LogbookFormat.time(trip.startDate))",
+        ArtRow(over: "Session running", title: trip.name,
+               subtitle: "Started \(ForecastFormat.time(trip.startDate, use24: use24))",
                chevron: true) {
-            ThumbView(tint: .dsScoreSlow, size: 52) {
-                Image(systemName: "record.circle")
-                    .font(.title2)
-                    .foregroundStyle(Color.dsScoreSlow)
-                    .symbolEffect(.pulse, isActive: !reduceMotion)
+            ThumbView(systemImage: "dot.radiowaves.left.and.right", tint: .dsScoreSlow)
+        } trailing: {
+            if let n = catchCount {
+                Text("\(n) \(n == 1 ? "catch" : "catches")")
+                    .font(.subheadline)
+                    .foregroundStyle(.dsText2)
             }
         }
     }
 }
 
-/// A past session in a list: drawn track, name, date, length and catches,
-/// and which kind of shared trip it was.
+/// A past session in a list, as on the Logbook's Sessions pane: drawn
+/// track, the day and which kind of shared trip it was, name, length and
+/// catches, and the best bite score it was fished in.
 struct SessionRow: View {
     let trip: Trip
     let catchCount: Int
     /// The newest catch photo, shown when the session has no track.
     var photoPath: String? = nil
+    /// The best bite score among its catches.
+    var bestScore: Int? = nil
 
     /// The shared-trip identity of this local session, if any, so the list
     /// says which session was a tournament team, a crew trip, or a plain
@@ -355,25 +385,26 @@ struct SessionRow: View {
         return CommunityService.shared.myGroups.first { $0.code == code }
     }
 
-    private var subtitle: String {
-        var parts = [LogbookFormat.relativeDay(trip.startDate),
-                     LogbookFormat.duration(trip.totalDurationSeconds),
-                     "\(catchCount) \(catchCount == 1 ? "catch" : "catches")"]
-        if let ref = sharedRef {
-            if let team = ref.teamName {
-                parts.append("team \(team)")
-            } else if ref.crewCode != nil {
-                parts.append("crew trip")
-            } else {
-                parts.append("shared")
-            }
-        }
-        return parts.joined(separator: ", ")
+    private var over: String {
+        let day = LogbookFormat.longDay(trip.startDate)
+        guard let ref = sharedRef else { return day }
+        if let team = ref.teamName { return "\(day), team \(team)" }
+        if ref.crewCode != nil { return "\(day), crew trip" }
+        return "\(day), shared"
     }
 
     var body: some View {
-        ArtRow(title: trip.name, subtitle: subtitle, chevron: true) {
-            TrackThumb(points: trip.allTrackPoints, size: 52, photoPath: photoPath)
+        ArtRow(over: over, title: trip.name,
+               subtitle: "\(LogbookFormat.duration(trip.totalDurationSeconds)), \(catchCount) \(catchCount == 1 ? "catch" : "catches")",
+               chevron: bestScore == nil) {
+            TrackThumb(points: trip.allTrackPoints, tint: bestScore.map { DS.scoreColor($0) } ?? DS.accent,
+                       photoPath: photoPath)
+        } trailing: {
+            if let bestScore {
+                Text("\(bestScore)")
+                    .foregroundStyle(DS.scoreInk(bestScore))
+                    .accessibilityLabel("Best bite score \(bestScore)")
+            }
         }
     }
 }
@@ -398,7 +429,7 @@ struct NewSessionSheet: View {
                     SectionTitle("Spot")
                         .padding(.top, DS.Space.s8)
                     SpotChoices(spotId: $spotId, spots: spots)
-                    SectionFoot("Records your track, catches and bag limits until you end it.")
+                    SectionFootnote("Records your track, catches and bag limits until you end it.")
                 }
                 .padding(.bottom, DS.Space.s6)
                 .pageWidth()
@@ -751,10 +782,11 @@ struct ActiveSessionView: View {
 /// A catch inside a session: thumb, species, time and size.
 struct SessionCatchRow: View {
     let detail: CatchDetail
+    @AppStorage("use24HourTime") private var use24 = true
 
     var body: some View {
         let r = detail.catchRecord
-        let subtitle = [LogbookFormat.time(r.caughtAt), LogbookFormat.size(r), r.released ? "released" : nil]
+        let subtitle = [ForecastFormat.time(r.caughtAt, use24: use24), LogbookFormat.size(r), r.released ? "released" : nil]
             .compactMap { $0 }.joined(separator: ", ")
         ArtRow(title: detail.species?.commonName ?? "Unknown species", subtitle: subtitle, chevron: true) {
             CatchThumb(detail: detail, size: 52)
@@ -778,6 +810,8 @@ struct SessionDetailView: View {
     @State private var showingShare = false
     @State private var generatingRecap = false
     @State private var replayToken = 0
+    @State private var titleShown = false
+    @AppStorage("use24HourTime") private var use24 = true
 
     struct CoordItem: Identifiable {
         let id = UUID()
@@ -790,8 +824,8 @@ struct SessionDetailView: View {
         if trip.isMultiDay {
             return "\(trip.dayCount) days, \(LogbookFormat.shortDay(trip.startDate)) to \(LogbookFormat.shortDay(trip.endDate ?? trip.startDate))"
         }
-        guard let end = trip.endDate else { return "Started \(LogbookFormat.time(trip.startDate))" }
-        return "\(LogbookFormat.time(trip.startDate)) to \(LogbookFormat.time(end))"
+        guard let end = trip.endDate else { return "Started \(ForecastFormat.time(trip.startDate, use24: use24))" }
+        return "\(ForecastFormat.time(trip.startDate, use24: use24)) to \(ForecastFormat.time(end, use24: use24))"
     }
 
     var body: some View {
@@ -901,13 +935,8 @@ struct SessionDetailView: View {
                             .padding(.horizontal, DS.gutter)
                     }
 
-                    Button(role: .destructive) { showingDeleteConfirm = true } label: {
-                        Label("Delete session", systemImage: "trash")
-                            .foregroundStyle(Color.dsScoreSlow)
-                    }
-                    .buttonStyle(.dsTonal)
-                    .padding(.horizontal, DS.gutter)
-                    .padding(.top, DS.Space.s8)
+                    DangerButton(title: "Delete session", systemImage: "trash") { showingDeleteConfirm = true }
+                        .padding(.top, DS.Space.s8)
                 }
                 .padding(.bottom, DS.Space.s8)
                 .pageWidth()
@@ -915,20 +944,15 @@ struct SessionDetailView: View {
         }
         .dsScreenBackground()
         .detailScrollEdge()
-        .navigationTitle(trip.name)
-        .navigationBarTitleDisplayMode(.inline)
+        .pfTrackScroll($titleShown, threshold: 60)
+        .pfScrollTitle(trip.name, shown: titleShown)
         .sheet(isPresented: $showingEdit, onDismiss: {
             trip = (try? appState.tripRepository.fetch(trip.id)) ?? trip
         }) {
             EditSessionSheet(trip: trip)
         }
         .confirmationDialog("Delete this session?", isPresented: $showingDeleteConfirm, titleVisibility: .visible) {
-            Button("Delete session", role: .destructive) {
-                Haptics.warning()
-                try? appState.tripRepository.delete(trip)
-                ToastCenter.shared.show("Session deleted", style: .info, haptic: false, icon: "trash")
-                dismiss()
-            }
+            Button("Delete session", role: .destructive) { delete() }
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("Catches you logged are kept. Only the session and its track are removed.")
@@ -943,6 +967,18 @@ struct SessionDetailView: View {
             }
         }
         .task { load() }
+    }
+
+    private func delete() {
+        do {
+            try appState.tripRepository.delete(trip)
+        } catch {
+            ToastCenter.shared.show("Could not delete this session", style: .error)
+            return
+        }
+        Haptics.warning()
+        ToastCenter.shared.show("Session deleted", style: .info, haptic: false, icon: "trash")
+        dismiss()
     }
 
     private func shareRecap() {
@@ -1005,12 +1041,7 @@ struct SessionDetailView: View {
             .buttonStyle(.dsRow)
 
             Button("Save spot") { spotToAdd = item }
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.dsText)
-                .padding(.horizontal, 14)
-                .frame(minHeight: 34)
-                .background(Color.dsTonal, in: Capsule())
-                .buttonStyle(.dim)
+                .buttonStyle(TonalButtonStyle(fullWidth: false))
                 .accessibilityLabel("Save \(title) as a spot")
                 .padding(.trailing, DS.gutter)
         }
@@ -1067,6 +1098,7 @@ struct SessionBiteChart: View {
     let trip: Trip
     let catches: [CatchDetail]
     @State private var hours: [HourScore] = []
+    @AppStorage("use24HourTime") private var use24 = true
 
     struct HourScore: Identifiable {
         let hour: Int
@@ -1101,17 +1133,18 @@ struct SessionBiteChart: View {
                     .chartYScale(domain: 0...110)
                     .chartYAxis(.hidden)
                     .chartXAxis {
-                        AxisMarks(values: hours.map(\.hour)) { value in
+                        // Every third hour from the start, so the labels never crowd.
+                        AxisMarks(values: axisHours) { value in
                             AxisValueLabel {
-                                if let h = value.as(Int.self) { Text(Self.hourLabel(h)) }
+                                if let h = value.as(Int.self) { Text(hourLabel(h)) }
                             }
                         }
                     }
                     .frame(height: 150)
                     .padding(.horizontal, DS.gutter)
                     .accessibilityLabel("Bite score by hour")
-                    .accessibilityValue(hours.map { "\(Self.hourLabel($0.hour)) \($0.score)" }.joined(separator: ", "))
-                    SectionFoot("Peaked at \(peak.score) around \(Self.hourLabel(peak.hour)). Fish marks the hours you caught.")
+                    .accessibilityValue(hours.map { "\(hourLabel($0.hour)) \($0.score)" }.joined(separator: ", "))
+                    SectionFootnote("Peaked at \(peak.score) around \(hourLabel(peak.hour)). Fish marks the hours you caught.")
                 }
             }
         }
@@ -1137,11 +1170,13 @@ struct SessionBiteChart: View {
             .map { HourScore(hour: $0.hour, score: $0.score) }
     }
 
-    static func hourLabel(_ hour: Int) -> String {
-        var c = DateComponents()
-        c.hour = hour
-        let date = Calendar.current.date(from: c) ?? .now
-        return date.formatted(.dateTime.hour())
+    private var axisHours: [Int] {
+        guard let first = hours.first?.hour else { return [] }
+        return hours.map(\.hour).filter { ($0 - first) % 3 == 0 }
+    }
+
+    private func hourLabel(_ hour: Int) -> String {
+        ForecastFormat.hour(hour, use24: use24)
     }
 }
 
@@ -1160,6 +1195,7 @@ struct TripScrubberCard: View {
     /// Playing when the drag began, so letting go carries on playing.
     @State private var resumeAfterDrag = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @AppStorage("use24HourTime") private var use24 = true
 
     private var track: [Trip.TrackPoint] { trip.allTrackPoints }
 
@@ -1209,7 +1245,7 @@ struct TripScrubberCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            SectionTitle("Replay", detail: currentTime.map { LogbookFormat.time($0) })
+            SectionTitle("Replay", detail: currentTime.map { ForecastFormat.time($0, use24: use24) })
                 .padding(.top, DS.Space.s8)
 
             Map(initialPosition: initialPosition) {
@@ -1264,14 +1300,14 @@ struct TripScrubberCard: View {
                        in: 0...1, onEditingChanged: dragging)
                     .tint(DS.accent)
                     .accessibilityLabel("Replay time")
-                    .accessibilityValue(currentTime.map { LogbookFormat.time($0) } ?? "")
+                    .accessibilityValue(currentTime.map { ForecastFormat.time($0, use24: use24) } ?? "")
             }
             .padding(.horizontal, DS.gutter)
             .padding(.top, DS.Space.s3)
 
             if let c = nearbyCatch {
                 NavigationLink { CatchDetailView(detail: c) } label: {
-                    ArtRow(over: "Caught \(LogbookFormat.time(c.catchRecord.caughtAt))",
+                    ArtRow(over: "Caught \(ForecastFormat.time(c.catchRecord.caughtAt, use24: use24))",
                            title: c.species?.commonName ?? "Catch",
                            chevron: true) {
                         CatchThumb(detail: c, size: 44)
@@ -1457,7 +1493,7 @@ struct CatchLimitBar: View {
                         }
                     }
                 }
-                SectionFoot("Check local rules before you keep a fish.")
+                SectionFootnote("Check local rules before you keep a fish.")
             }
         }
     }
