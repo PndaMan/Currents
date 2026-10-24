@@ -448,7 +448,9 @@ struct TodayTab: View {
                 }
             }
             ScoreRing(score: d.peakScore, size: 52)
-            Text(d.bestWindow.map { ForecastFormat.hour($0.startHour, use24: use24) } ?? "No standout window")
+            // The ring is the day's peak; once today's has passed, say so.
+            Text(d.bestWindow.map { (d.bestWindowPassed ? "Peaked " : "") + ForecastFormat.hour($0.startHour, use24: use24) }
+                 ?? "No standout window")
                 .font(.footnote)
                 .foregroundStyle(.dsText2)
                 .monospacedDigit()
@@ -459,7 +461,7 @@ struct TodayTab: View {
         .padding(14)
         .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(ForecastFormat.dayName(d.offset, date: d.date)), best score \(d.peakScore)\(d.bestWindow.map { ", from \(ForecastFormat.hour($0.startHour, use24: use24))" } ?? "")")
+        .accessibilityLabel("\(ForecastFormat.dayName(d.offset, date: d.date)), best score \(d.peakScore)\(d.bestWindow.map { ", \(d.bestWindowPassed ? "peaked at" : "from") \(ForecastFormat.hour($0.startHour, use24: use24))" } ?? "")")
     }
 
     // MARK: - Conditions

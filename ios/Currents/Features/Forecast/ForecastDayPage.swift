@@ -275,7 +275,10 @@ struct ForecastWeekPage: View {
                 if let w = d.weather, !w.isEstimated {
                     weather(w)
                 }
-                Text(d.bestWindow.map { "Best \(ForecastFormat.range($0, use24: use24))" } ?? "No standout window")
+                // The row's number is the day's peak; once today's has
+                // passed, the line says so.
+                Text(d.bestWindow.map { "\(d.bestWindowPassed ? "Peaked" : "Best") \(ForecastFormat.range($0, use24: use24))" }
+                     ?? "No standout window")
                     .font(.subheadline)
                     .foregroundStyle(.dsText2)
                     .monospacedDigit()
