@@ -832,14 +832,16 @@ struct MapTab: View {
                         Image(systemName: "magnifyingglass")
                             .font(.body.weight(.semibold))
                             .foregroundStyle(.dsText2)
-                        Text("Spots, water, ramps, species")
+                        // The full list does not fit at accessibility sizes.
+                        Text(typeSize.isAccessibilitySize ? "Search" : "Spots, water, ramps, species")
                             .font(.body)
                             .foregroundStyle(.dsText2)
                             .lineLimit(1)
                         Spacer(minLength: 0)
                     }
                     .padding(.horizontal, 16)
-                    .frame(height: 46)
+                    .padding(.vertical, 12)
+                    .frame(minHeight: 46)
                     .contentShape(Capsule())
                     .glassEffect(.regular.interactive(), in: Capsule())
                 }
@@ -868,7 +870,8 @@ struct MapTab: View {
                         .font(.footnote.weight(.semibold))
                         .foregroundStyle(.dsText2)
                         .padding(.horizontal, 12)
-                        .frame(height: 32)
+                        .padding(.vertical, 6)
+                        .frame(minHeight: 32)
                         .glassEffect(.regular, in: Capsule())
                         .transition(.opacity)
                     }
@@ -884,6 +887,9 @@ struct MapTab: View {
         // A little air under the status bar so the clock and the search
         // field never read as one row.
         .padding(.top, DS.Space.s3)
+        // Controls over the map stop growing at the first accessibility
+        // size, as the scroll title does, so they leave the map visible.
+        .dynamicTypeSize(...DynamicTypeSize.accessibility1)
         .animation(reduceMotion ? nil : DS.Motion.easeOut, value: isLoadingWaterbodies)
     }
 
@@ -951,7 +957,8 @@ struct MapTab: View {
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(.dsText)
                 .padding(.horizontal, 14)
-                .frame(height: 36)
+                .padding(.vertical, 8)
+                .frame(minHeight: 36)
                 .glassEffect(.regular.interactive(), in: Capsule())
         }
         .buttonStyle(.dim)
