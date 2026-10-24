@@ -70,8 +70,8 @@ struct StreakView: View {
         let stats = StreakStats(catches: catches)
         let badges = BadgeDefinition.compute(from: catches, streakWeeks: stats.current)
         let metrics = BadgeMetrics(catches: catches, streakWeeks: stats.current)
-        let streakTitles = ["Hot Streak", "On Fire", "Relentless", "Unstoppable", "Eternal Flame"]
-        let next = badges.first { streakTitles.contains($0.title) && !$0.earned }
+        // Streak badges come cheapest first, so this is the next one to earn.
+        let next = badges.first { $0.spec?.metric == .streakWeeks && !$0.earned }
 
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
@@ -108,7 +108,7 @@ struct StreakView: View {
                         selected = next
                     } label: {
                         VStack(spacing: 0) {
-                            ArtRow(title: next.title,
+                            ArtRow(title: next.displayName,
                                    subtitle: "\(Int(progress.target)) weeks in a row, \(next.rarity.label.lowercased())") {
                                 BadgeMedal(badge: next, size: 52)
                             } trailing: {

@@ -949,7 +949,7 @@ struct LogbookSummary {
         let badges = BadgeDefinition.compute(from: catches, streakWeeks: streak)
         badgesEarned = badges.filter(\.earned).count
         badgesVisible = badges.filter { $0.earned || !$0.hidden }.count
-        nextBadge = BadgeMetrics(catches: catches, streakWeeks: streak).closest(in: badges)?.title
+        nextBadge = BadgeMetrics(catches: catches, streakWeeks: streak).closest(in: badges)?.displayName
         let year = cal.component(.year, from: .now)
         thisYear = catches.filter { cal.component(.year, from: $0.catchRecord.caughtAt) == year }.count
         for c in catches {

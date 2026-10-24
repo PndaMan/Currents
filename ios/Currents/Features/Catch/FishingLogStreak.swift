@@ -55,7 +55,7 @@ struct TitleFlair: Identifiable {
     /// The line under a worn title; nothing when the title is the
     /// achievement's own name.
     var unlockLine: String? {
-        name == achievement ? nil : "Unlocked by \(achievement)"
+        name == achievement ? nil : "Unlocked by \(BadgeDefinition.displayName(for: achievement))"
     }
 
     /// The unlocking badge, for BadgeDetailView. `earned: true` because a worn
@@ -201,6 +201,9 @@ struct BadgeSpec {
     let rarity: BadgeRarity
     let metric: BadgeMetric
     let target: Double
+
+    /// The name people read. `title` stays the key.
+    var displayName: String { BadgeDefinition.displayName(for: title) }
 }
 
 struct BadgeDefinition: Identifiable {
@@ -218,6 +221,27 @@ struct BadgeDefinition: Identifiable {
 
     var id: String { title }
 
+    /// The name people read: sentence case and British spelling ("Metre
+    /// monster"). `title` is left as it was, because it is the key that
+    /// TitleFlair, Game Center and stored profile titles look badges up by.
+    var displayName: String { Self.displayName(for: title) }
+
+    /// The display name for a badge title, also for titles held elsewhere
+    /// (a worn title's unlocking badge, a friend's badge).
+    static func displayName(for title: String) -> String {
+        if let fixed = displayNameOverrides[title] { return fixed }
+        guard let first = title.first else { return title }
+        return String(first) + title.dropFirst().lowercased()
+    }
+
+    private static let displayNameOverrides: [String: String] = [
+        "Meter Class": "Metre class",
+        "Meter Monster": "Metre monster",
+        "World Traveler": "World traveller",
+        // A persona's name, not a phrase.
+        "Bass Daddy": "Bass Daddy",
+    ]
+
     /// The rule this badge follows, nil for a title BadgeDefinition does not know.
     var spec: BadgeSpec? { Self.specsByTitle[title] }
 
@@ -231,7 +255,7 @@ struct BadgeDefinition: Identifiable {
         } else {
             state = earned ? "earned" : "not earned yet"
         }
-        return "\(title), \(rarity.label.lowercased()), \(state)"
+        return "\(displayName), \(rarity.label.lowercased()), \(state)"
     }
 
     /// The secret Bass Daddy unlock — typing 90210 into the friend-code box.
@@ -749,7 +773,7 @@ struct BadgeMedalGrid: View {
     private func cell(_ badge: BadgeDefinition) -> some View {
         VStack(spacing: DS.Space.s2) {
             BadgeMedal(badge: badge)
-            Text(badge.title)
+            Text(badge.displayName)
                 .font(.caption.weight(.medium))
                 .foregroundStyle(badge.earned ? Color.dsText : Color.dsText2)
                 .multilineTextAlignment(.center)
@@ -807,7 +831,7 @@ private struct AchievementsCardContent: View {
                 medals
             }
 
-            NavigationLink("Show all achievements") {
+            NavigationLink("Show all badges") {
                 AchievementsView(catches: catches)
             }
             .buttonStyle(.dsTonal)
@@ -857,7 +881,7 @@ struct BadgeDetailView: View {
             VStack(spacing: 0) {
                 medal
                     .padding(.top, DS.Space.s6)
-                Text(badge.title)
+                Text(badge.displayName)
                     .font(.title2.bold())
                     .foregroundStyle(.dsText)
                     .padding(.top, DS.Space.s4)

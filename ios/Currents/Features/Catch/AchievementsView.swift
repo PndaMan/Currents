@@ -208,7 +208,7 @@ private struct ClosestBadgeRow: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            ArtRow(over: badge.rarity.label, title: badge.title, subtitle: progress.text, chevron: true) {
+            ArtRow(over: badge.rarity.label, title: badge.displayName, subtitle: progress.text, chevron: true) {
                 BadgeMedal(badge: badge, size: medalSize)
             }
             if !progress.isYesNo {
