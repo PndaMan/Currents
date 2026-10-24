@@ -62,7 +62,8 @@ enum CurrentsTheme {
     static var accent: Color { ThemeOption.current.primary }
     static let danger = Color.red
 
-    /// Score color ramp: red (0) → orange (25) → yellow (50) → green (75) → accent (90).
+    /// Score color ramp on the grade breakpoints: red (0) → orange (25) →
+    /// yellow (50) → green (65) → accent (80).
     /// Delegates to the design system so old and new screens agree.
     static func scoreColor(_ score: Int) -> Color { DS.scoreColor(score) }
 
