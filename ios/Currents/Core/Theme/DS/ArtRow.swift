@@ -43,7 +43,9 @@ struct ArtRow<Leading: View, Trailing: View>: View {
                     .foregroundStyle(.dsText)
                     .lineLimit(isLarge ? 4 : 2)
                 if let subtitle, !subtitle.isEmpty {
-                    HStack(spacing: 5) {
+                    // Baseline-aligned so the icon stays by the first line
+                    // when the subtitle wraps.
+                    HStack(alignment: .firstTextBaseline, spacing: 5) {
                         if let subtitleIcon {
                             Image(systemName: subtitleIcon)
                                 .font(.footnote)
