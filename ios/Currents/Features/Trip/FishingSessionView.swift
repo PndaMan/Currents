@@ -870,15 +870,17 @@ struct SessionDetailView: View {
                         .disabled(generatingRecap)
 
                         // Scrolls to the replay and plays it from its playhead,
-                        // the same as its own play button.
-                        Button {
-                            withAnimation(DS.Motion.softSpring) { proxy.scrollTo("replay", anchor: .top) }
-                            replayToken += 1
-                        } label: {
-                            Label("Replay", systemImage: "play.circle")
+                        // the same as its own play button. Left out when there
+                        // is no track to replay, rather than shown greyed.
+                        if canReplay {
+                            Button {
+                                withAnimation(DS.Motion.softSpring) { proxy.scrollTo("replay", anchor: .top) }
+                                replayToken += 1
+                            } label: {
+                                Label("Replay", systemImage: "play.circle")
+                            }
+                            .buttonStyle(ActionTileStyle(.tonal))
                         }
-                        .buttonStyle(ActionTileStyle(.tonal))
-                        .disabled(!canReplay)
 
                         Button { showingEdit = true } label: {
                             Label("Edit", systemImage: "pencil")
