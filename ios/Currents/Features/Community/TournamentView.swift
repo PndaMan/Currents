@@ -58,8 +58,7 @@ struct TournamentSetupView: View {
                     if runHours > 0, end != presetEnd { runHours = Self.customHours }
                 }
         }
-        .presentationDetents([.large])
-        .presentationDragIndicator(.visible)
+        .dsSheet([.large])
     }
 
     private var form: some View {
@@ -1231,8 +1230,8 @@ private struct TeamRankMark: View {
 
 // MARK: - New team
 
-/// Start a team: the name at title size, as on the start screen, then the
-/// team's live session starts from the button at the foot.
+/// Start a team: the name at title size, as on the start screen. Start at
+/// the top right begins the team's live session.
 private struct NewTeamSheet: View {
     let hasTeams: Bool
     /// The name of a session already running that no group trip uses.
@@ -1251,8 +1250,18 @@ private struct NewTeamSheet: View {
     var body: some View {
         NavigationStack {
             form
-                .safeAreaInset(edge: .bottom, spacing: 0) { startBar }
                 .eventSheetTitle("New team", close: "Cancel")
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        if busy {
+                            ProgressView()
+                        } else {
+                            Button("Start", action: start)
+                                .bold()
+                                .disabled(trimmed.isEmpty)
+                        }
+                    }
+                }
                 .onAppear { nameFocused = true }
                 .confirmationDialog("Use your current session for this team?",
                                     isPresented: $confirmingSession, titleVisibility: .visible) {
@@ -1261,8 +1270,8 @@ private struct NewTeamSheet: View {
                     Text("\(runningSession ?? "Your session") keeps recording as the team's session. Catches you log in it score for the team.")
                 }
         }
-        .presentationDetents([.medium, .large])
-        .presentationDragIndicator(.visible)
+        .interactiveDismissDisabled(busy || !trimmed.isEmpty)
+        .dsSheet([.large])
     }
 
     private var form: some View {
@@ -1290,22 +1299,6 @@ private struct NewTeamSheet: View {
         }
         .detailTint(nil)
         .scrollDismissesKeyboard(.interactively)
-    }
-
-    private var startBar: some View {
-        Button(action: start) {
-            if busy {
-                ProgressView().tint(Color.dsOnPrimary)
-            } else {
-                Text("Start team")
-            }
-        }
-        .buttonStyle(.dsPrimary)
-        .disabled(busy || trimmed.isEmpty)
-        .padding(.horizontal, DS.gutter)
-        .padding(.top, DS.Space.s3)
-        .padding(.bottom, DS.Space.s2)
-        .background(Color.dsBackground)
     }
 
     private func start() {
@@ -1358,8 +1351,7 @@ private struct TournamentScoringSheet: View {
             .detailTint(nil)
             .eventSheetTitle("How points work")
         }
-        .presentationDetents([.medium, .large])
-        .presentationDragIndicator(.visible)
+        .dsSheet([.medium, .large])
     }
 
     private var ratesSection: some View {
@@ -1429,8 +1421,8 @@ private struct EndTournamentSheet: View {
                     if selected == nil { selected = standings.first?.teamName }
                 }
         }
-        .presentationDetents([.medium, .large])
-        .presentationDragIndicator(.visible)
+        .interactiveDismissDisabled(busy)
+        .dsSheet([.medium, .large])
     }
 
     private var list: some View {
