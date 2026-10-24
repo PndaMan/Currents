@@ -815,46 +815,6 @@ private struct ConfidenceBar: View {
     }
 }
 
-// MARK: - Gear grid
-
-struct GearDetailGrid: View {
-    let loadout: GearLoadout
-
-    var items: [(String, String)] {
-        var result: [(String, String)] = []
-        if let rod = loadout.rod { result.append(("Rod", rod)) }
-        if let reel = loadout.reel { result.append(("Reel", reel)) }
-        if let line = loadout.lineLb { result.append(("Line", "\(Int(line)) lb")) }
-        if let leader = loadout.leaderLb { result.append(("Leader", "\(Int(leader)) lb")) }
-        if let lure = loadout.lure {
-            var text = lure
-            if let color = loadout.lureColor { text += " (\(color))" }
-            if let weight = loadout.lureWeightG { text += " \(Int(weight))g" }
-            result.append(("Lure", text))
-        }
-        if let technique = loadout.technique { result.append(("Technique", technique)) }
-        return result
-    }
-
-    var body: some View {
-        LazyVGrid(columns: [
-            GridItem(.flexible()),
-            GridItem(.flexible()),
-        ], spacing: 8) {
-            ForEach(items, id: \.0) { label, value in
-                VStack(alignment: .leading) {
-                    Text(label)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Text(value)
-                        .font(.subheadline)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-        }
-    }
-}
-
 // MARK: - Weather Snapshot (for decoding weatherSnapshot JSON)
 
 private struct WeatherSnapshot: Codable {

@@ -721,31 +721,6 @@ struct BadgeMedal: View {
     }
 }
 
-struct FishingStreakView: View {
-    let catches: [CatchDetail]
-
-    private var streakWeeks: Int {
-        BadgeDefinition.streakWeeks(from: catches)
-    }
-
-    var body: some View {
-        if streakWeeks > 0 {
-            HStack(spacing: 8) {
-                Image(systemName: "flame.fill")
-                    .foregroundStyle(Color.dsScoreLow)
-                    .font(.title3)
-                VStack(alignment: .leading) {
-                    Text("\(streakWeeks)-week streak")
-                        .font(.subheadline.weight(.semibold))
-                    Text(streakWeeks == 1 ? "Fish again next week to keep it" : "Keep it going")
-                        .font(.footnote)
-                        .foregroundStyle(.dsText2)
-                }
-            }
-        }
-    }
-}
-
 /// Medals with their names under them, as many across as fit: four on a
 /// phone at the default text size, fewer at large sizes. Every name gets two
 /// lines of room, so a row's medals line up whether the names wrap or not.

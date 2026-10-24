@@ -335,32 +335,13 @@ struct TrackShape: Shape {
 
 // MARK: - Key-value rows
 
-/// Plain label and value rows with hairlines between, padded to the gutter.
+/// Label and value rows. Kept for its callers (species and session pages);
+/// it draws the DS `KeyValueList`, so every list of facts looks the same.
 struct LogbookKeyValueList: View {
     let rows: [(String, String)]
 
     var body: some View {
-        VStack(spacing: 0) {
-            ForEach(Array(rows.enumerated()), id: \.offset) { i, row in
-                HStack(alignment: .firstTextBaseline) {
-                    Text(row.0)
-                        .foregroundStyle(.dsText2)
-                    Spacer(minLength: 12)
-                    Text(row.1)
-                        .foregroundStyle(.dsText)
-                        .multilineTextAlignment(.trailing)
-                }
-                .font(.body)
-                .padding(.vertical, 12)
-                .accessibilityElement(children: .combine)
-                if i < rows.count - 1 {
-                    Rectangle()
-                        .fill(Color.dsSeparator)
-                        .frame(height: 0.5)
-                }
-            }
-        }
-        .padding(.horizontal, DS.gutter)
+        KeyValueList(rows: rows)
     }
 }
 
