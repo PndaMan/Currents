@@ -13,16 +13,22 @@ struct GameCenterSection: View {
                         tint: .green) {
                     ProgressView()
                 }
-            case .signedOut:
+            case .signedOut where gameCenter.canSignIn:
                 Button { gameCenter.signIn() } label: {
                     CardRow("Sign in to Game Center",
                             subtitle: "Earn your badges as achievements and climb the catch leaderboards",
                             systemImage: "gamecontroller.fill", tint: .green, chevron: true)
                 }
                 .buttonStyle(.dsCardRow)
+            case .signedOut:
+                // GameKit has no sign-in sheet to show, so the note says
+                // where to sign in instead of a row that goes nowhere.
+                CardRow("Not signed in to Game Center",
+                        subtitle: "Earn your badges as achievements and climb the catch leaderboards",
+                        systemImage: "gamecontroller.fill", tint: .green)
             case .signedIn:
                 Button { gameCenter.openAchievements() } label: {
-                    CardRow("Achievements", systemImage: "medal.fill", tint: .orange, chevron: true)
+                    CardRow("Game Center achievements", systemImage: "medal.fill", tint: .orange, chevron: true)
                 }
                 .buttonStyle(.dsCardRow)
                 Button { gameCenter.openLeaderboards() } label: {
@@ -32,7 +38,7 @@ struct GameCenterSection: View {
                 .buttonStyle(.dsCardRow)
             case .restricted:
                 CardRow("Game Center is off", subtitle: "Screen Time limits Game Center on this iPhone",
-                        systemImage: "gamecontroller.fill", tint: .gray)
+                        systemImage: "gamecontroller.fill", tint: .green)
             }
         }
     }
