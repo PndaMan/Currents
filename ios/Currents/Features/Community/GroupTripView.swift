@@ -1086,14 +1086,11 @@ struct GroupTripView: View {
         let row = leaderRow(from: c)
         let who = c.friendCode == service.friendCode ? "You" : c.anglerName
         return NavigationLink { CommunityCatchDetailView(row: row) } label: {
+            // The over-line gives the clock time; the row opens the catch.
             ArtRow(over: "\(who), \(ForecastFormat.time(c.date, use24: use24))",
-                   title: feedTitle(c)) {
+                   title: feedTitle(c), chevron: true) {
                 CommunityCatchThumb(row: row, size: 64)
                     .clipShape(RoundedRectangle(cornerRadius: DS.Radius.thumb, style: .continuous))
-            } trailing: {
-                Text(c.date, style: .relative)
-                    .font(.footnote)
-                    .foregroundStyle(.dsText3)
             }
         }
         .buttonStyle(.dim)
