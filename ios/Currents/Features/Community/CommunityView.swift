@@ -1815,22 +1815,25 @@ struct FriendProfileView: View {
     }
 
     /// Your own medals when it is you; otherwise the badges their public
-    /// numbers and shared catches earn.
+    /// numbers and shared catches earn, counted in the title as Shared
+    /// catches is.
     @ViewBuilder private var achievementsSection: some View {
         if let p = profile {
-            CrewSection(title: "Badges") {
-                Group {
-                    if isSelf {
-                        AchievementsCard(catches: ownDetails)
-                    } else {
-                        FriendBadgesCard(badges: BadgeDefinition.computeFriend(
-                            totalCatches: p.totalCatches, speciesCount: p.speciesCount,
-                            bestWeightKg: p.bestWeightKg, bestLengthCm: p.bestLengthCm,
-                            rows: catches))
-                    }
+            if isSelf {
+                CrewSection(title: "Badges") {
+                    AchievementsCard(catches: ownDetails)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, DS.gutter)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, DS.gutter)
+            } else {
+                let badges = BadgeDefinition.computeFriend(
+                    totalCatches: p.totalCatches, speciesCount: p.speciesCount,
+                    bestWeightKg: p.bestWeightKg, bestLengthCm: p.bestLengthCm,
+                    rows: catches)
+                let earned = badges.filter(\.earned).count
+                CrewSection(title: "Badges", detail: earned > 0 ? "\(earned)" : nil) {
+                    FriendBadgesCard(badges: badges)
+                }
             }
         }
     }
@@ -2002,9 +2005,10 @@ struct FriendProfileView: View {
 }
 
 /// A friend's achievements, computed from their public stats and published
-/// catches, laid out like your own: the count, the earned medals rarest
-/// first on the page background, and a full-width button to every badge.
-/// Each medal opens the same explainer your own badges use.
+/// catches: the earned medals rarest first on the page background (or the
+/// empty state), and a full-width button to every badge. The count sits in
+/// the section title. Each medal opens the same explainer your own badges
+/// use. It pads itself to the gutter.
 struct FriendBadgesCard: View {
     let badges: [BadgeDefinition]
     var topCount = 5
@@ -2020,25 +2024,20 @@ struct FriendBadgesCard: View {
         visible.filter { !$0.earned }.sorted { $0.rarity.rawValue < $1.rarity.rawValue }
     }
 
-    /// "14 badges", "1 badge"; the locked ones wait behind Show all badges.
-    private var countLine: String {
-        switch earned.count {
-        case 0: return "No badges yet"
-        case 1: return "1 badge"
-        default: return "\(earned.count) badges"
-        }
-    }
-
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Space.s3) {
-            Text(countLine)
-                .font(.subheadline)
-                .monospacedDigit()
-                .foregroundStyle(.dsText2)
-            if !earned.isEmpty { medals }
+            if earned.isEmpty {
+                InlineEmpty(systemImage: "medal", text: "No badges yet.")
+            } else {
+                medals
+                    .padding(.horizontal, DS.gutter)
+            }
+            // The locked ones wait behind this.
             Button("Show all badges") { showingAll = true }
                 .buttonStyle(.dsTonal)
+                .padding(.horizontal, DS.gutter)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .sheet(item: $selected) { badge in
             BadgeDetailView(badge: badge)
         }
