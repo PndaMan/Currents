@@ -668,9 +668,9 @@ struct CommunityView: View {
 
 // MARK: - My profile
 
-/// Your own angler page, in Luma's profile structure: photo, name and code,
-/// title, bio and facts, a line of counts, the three actions, then your
-/// badges and the switch that turns Crew off.
+/// Your own angler page, in the Profile tab's header layout: photo, name and
+/// code, title, bio, counts and facts, your best fish, the three actions,
+/// then your badges and the switch that turns Crew off.
 struct MyProfileView: View {
     let stats: CommunityService.MyStats
     let catches: [CatchDetail]
@@ -691,12 +691,15 @@ struct MyProfileView: View {
                     handle: "Angler code \(svc.friendCode)",
                     title: svc.myTitle.isEmpty ? nil : svc.myTitle,
                     bio: svc.myBio,
+                    counts: (catches: stats.totalCatches, species: stats.speciesCount),
                     facts: AnglerProfileHeader.facts(homeWater: svc.myHomeWater, region: svc.myRegion,
                                                      favourite: stats.favoriteSpecies, since: svc.memberSince))
-                AnglerStatsLine(AnglerStatsLine.items(
-                    catches: stats.totalCatches, species: stats.speciesCount,
-                    bestWeightKg: stats.bestWeightKg, bestLengthCm: stats.bestLengthCm, imperial: imperial))
-                    .padding(.top, DS.Space.s4)
+                let best = AnglerStatsLine.items(bestWeightKg: stats.bestWeightKg,
+                                                 bestLengthCm: stats.bestLengthCm, imperial: imperial)
+                if !best.isEmpty {
+                    AnglerStatsLine(best)
+                        .padding(.top, DS.Space.s4)
+                }
                 actions
                     .padding(.top, DS.Space.s5)
                 CrewSection(title: "Badges") {
@@ -749,45 +752,81 @@ struct MyProfileView: View {
 }
 // MARK: - Profile parts
 
-/// The top of an angler's page in Today's hero shape: their code (or your
-/// nickname for them) over the name, the bio as the one line, the round
-/// photo on the right. Under it the title they wear as a badge, and their
-/// facts with coloured icons.
+/// The top of an angler's page in the Profile tab's layout: the round photo
+/// top left, the name with the angler code under it (your nickname for them
+/// folded in), the title they wear as a badge, the bio, catches and species
+/// as one line of counts, then their facts with coloured icons.
 private struct AnglerProfileHeader: View {
     let avatar: UIImage?
     let name: String
-    /// The nickname you gave them, over the name.
+    /// The nickname you gave them, folded into the code line.
     var over: String? = nil
     var handle: String? = nil
     var title: String? = nil
     var bio: String = ""
+    /// Catches and species; nil while the profile has not loaded.
+    var counts: (catches: Int, species: Int)? = nil
     var facts: [(String, String)] = []
 
+    @Environment(\.dynamicTypeSize) private var typeSize
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            PageHero(label: heroLabel, value: name, callout: bio.isEmpty ? nil : bio) {
-                CrewAvatar(image: avatar, name: name, size: 92)
-                    .zoomableOnTap(avatar)
-            }
-            .accessibilityAddTraits(.isHeader)
-            .padding(.top, DS.Space.s2)
+        VStack(alignment: .leading, spacing: DS.Space.s3) {
+            CrewAvatar(image: avatar, name: name, size: 88)
+                .zoomableOnTap(avatar)
+                .padding(.bottom, DS.Space.s1)
+            DetailHeader(title: name, subtitle: codeLine)
+                .padding(.horizontal, -DS.gutter)
             if let title {
                 TitleFlairChip(title: title)
-                    .padding(.horizontal, DS.gutter)
-                    .padding(.top, DS.Space.s5)
+            }
+            if !bio.isEmpty {
+                Text(bio)
+                    .font(.body)
+                    .foregroundStyle(.dsText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if let counts {
+                countsLine(counts)
             }
             if facts.contains(where: { !$0.1.isEmpty }) {
                 AnglerFactsLine(facts: facts)
-                    .padding(.top, DS.Space.s4)
+                    .padding(.top, DS.Space.s1)
             }
         }
+        .padding(.horizontal, DS.gutter)
+        .padding(.top, DS.Space.s2)
     }
 
     /// "Nickname, angler code ABC123" or just the code line.
-    private var heroLabel: String {
+    private var codeLine: String {
         let code = handle ?? "Angler"
         guard let over, !over.isEmpty else { return code }
         return "\(over), \(code.prefix(1).lowercased())\(code.dropFirst())"
+    }
+
+    /// "12 catches  5 species", stacked at accessibility sizes.
+    private func countsLine(_ counts: (catches: Int, species: Int)) -> some View {
+        let layout = typeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: DS.Space.s1))
+            : AnyLayout(HStackLayout(spacing: DS.Space.s5))
+        return layout {
+            countText(counts.catches, counts.catches == 1 ? "catch" : "catches")
+            countText(counts.species, "species")
+        }
+        .font(.callout)
+        .accessibilityElement(children: .combine)
+    }
+
+    private func countText(_ value: Int, _ label: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 4) {
+            Text("\(value)")
+                .fontWeight(.semibold)
+                .monospacedDigit()
+                .foregroundStyle(.dsText)
+            Text(label)
+                .foregroundStyle(.dsText2)
+        }
     }
 
     /// Home water, region, favourite species and joining month, as icon
@@ -800,10 +839,13 @@ private struct AnglerProfileHeader: View {
     }
 }
 
-/// An angler's facts as a scrolling row of filled chips, each icon in its
-/// own colour: water cyan, region orange, fish blue, calendar in the accent.
+/// An angler's facts as filled chips that wrap onto a new line rather than
+/// running off the edge, each icon in its own colour: water cyan, region
+/// orange, fish blue, calendar in the accent.
 private struct AnglerFactsLine: View {
     let facts: [(String, String)]
+
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     private var shown: [(String, String)] { facts.filter { !$0.1.isEmpty } }
 
@@ -818,15 +860,11 @@ private struct AnglerFactsLine: View {
     }
 
     var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: DS.Space.s2) {
-                ForEach(shown.indices, id: \.self) { i in
-                    chip(shown[i].0, shown[i].1)
-                }
+        AnglerFactsFlow(spacing: DS.Space.s2) {
+            ForEach(shown.indices, id: \.self) { i in
+                chip(shown[i].0, shown[i].1)
             }
-            .padding(.horizontal, DS.gutter)
         }
-        .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
         .accessibilityElement(children: .combine)
     }
 
@@ -838,16 +876,57 @@ private struct AnglerFactsLine: View {
             Text(text)
                 .font(.subheadline.weight(.medium))
                 .foregroundStyle(.dsText)
-                .lineLimit(1)
+                .lineLimit(typeSize.isAccessibilitySize ? 3 : 2)
         }
         .padding(.horizontal, DS.Space.s3)
+        .padding(.vertical, 6)
         .frame(minHeight: 34)
         .background(tint(symbol).opacity(0.14), in: Capsule())
     }
 }
 
-/// An angler's counts as Logbook stat tiles in a scrolling strip: catches,
-/// species, and their heaviest and longest once there is one.
+/// Chips left to right, wrapping to a new row when the next one would not
+/// fit. A chip wider than the whole row is offered the row's width, so its
+/// text wraps instead of being cut off.
+private struct AnglerFactsFlow: Layout {
+    var spacing: CGFloat = 8
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let width = proposal.width ?? .infinity
+        var x: CGFloat = 0, y: CGFloat = 0, rowHeight: CGFloat = 0, maxX: CGFloat = 0
+        for subview in subviews {
+            let size = fitted(subview, width)
+            if x > 0 && x + size.width > width { x = 0; y += rowHeight + spacing; rowHeight = 0 }
+            x += size.width + spacing
+            rowHeight = max(rowHeight, size.height)
+            maxX = max(maxX, x - spacing)
+        }
+        return CGSize(width: maxX, height: y + rowHeight)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var x = bounds.minX, y = bounds.minY, rowHeight: CGFloat = 0
+        for subview in subviews {
+            let size = fitted(subview, bounds.width)
+            if x > bounds.minX && x + size.width > bounds.maxX {
+                x = bounds.minX; y += rowHeight + spacing; rowHeight = 0
+            }
+            subview.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
+            x += size.width + spacing
+            rowHeight = max(rowHeight, size.height)
+        }
+    }
+
+    /// A chip's natural size, or its size at the row's width when wider.
+    private func fitted(_ subview: LayoutSubview, _ width: CGFloat) -> CGSize {
+        let natural = subview.sizeThatFits(.unspecified)
+        guard natural.width > width, width.isFinite else { return natural }
+        return subview.sizeThatFits(ProposedViewSize(width: width, height: nil))
+    }
+}
+
+/// An angler's best fish as Logbook stat tiles filling the row: heaviest
+/// and longest, once there is one. Catches and species sit in the header.
 private struct AnglerStatsLine: View {
     struct Item: Identifiable {
         let label: String
@@ -862,19 +941,17 @@ private struct AnglerStatsLine: View {
     init(_ items: [Item]) { self.items = items }
 
     var body: some View {
-        StatStrip {
+        StatTileGrid(count: items.count) {
             ForEach(items) { item in
                 StatTile(item.label, systemImage: item.systemImage, tint: item.tint,
-                         value: item.value, unit: item.unit, width: 128)
+                         value: item.value, unit: item.unit, width: nil)
             }
         }
     }
 
-    /// Catches and species always; heaviest and longest once there is one.
-    static func items(catches: Int, species: Int, bestWeightKg: Double, bestLengthCm: Double,
-                      imperial: Bool) -> [Item] {
-        var out = [Item(label: "Catches", systemImage: "fish.fill", tint: CrewTint.fish, value: "\(catches)"),
-                   Item(label: "Species", systemImage: "leaf.fill", tint: CrewTint.species, value: "\(species)")]
+    /// Heaviest and longest, each once there is one.
+    static func items(bestWeightKg: Double, bestLengthCm: Double, imperial: Bool) -> [Item] {
+        var out: [Item] = []
         if bestWeightKg > 0 {
             let p = Units.weightParts(kg: bestWeightKg, imperial: imperial)
             out.append(Item(label: "Heaviest", systemImage: "scalemass.fill", tint: CrewTint.weight,
@@ -1537,20 +1614,23 @@ struct FriendProfileView: View {
             handle: "Angler code \(code)",
             title: flairTitle,
             bio: profile?.bio ?? "",
+            counts: profile.map { (catches: $0.totalCatches, species: $0.speciesCount) },
             facts: AnglerProfileHeader.facts(homeWater: profile?.homeWater ?? "",
                                              region: profile?.region ?? "",
                                              favourite: profile?.favoriteSpecies ?? "",
                                              since: profile?.memberSince))
     }
 
-    /// Their counts on one line, or the loading and failed states while the
-    /// profile record is missing.
+    /// Their best fish as tiles (the counts sit in the header), or the
+    /// loading and failed states while the profile record is missing.
     @ViewBuilder private var statsBlock: some View {
         if let p = profile {
-            AnglerStatsLine(AnglerStatsLine.items(
-                catches: p.totalCatches, species: p.speciesCount,
-                bestWeightKg: p.bestWeightKg, bestLengthCm: p.bestLengthCm, imperial: imperial))
-                .padding(.top, DS.Space.s4)
+            let best = AnglerStatsLine.items(bestWeightKg: p.bestWeightKg, bestLengthCm: p.bestLengthCm,
+                                             imperial: imperial)
+            if !best.isEmpty {
+                AnglerStatsLine(best)
+                    .padding(.top, DS.Space.s4)
+            }
         } else if profileLoading {
             FishLoader(message: "Loading profile")
                 .frame(height: 90)
@@ -2386,12 +2466,15 @@ struct AddFriendConfirmView: View {
             handle: "Angler code \(p.id)",
             title: p.title.isEmpty ? nil : p.title,
             bio: p.bio,
+            counts: (catches: p.totalCatches, species: p.speciesCount),
             facts: AnglerProfileHeader.facts(homeWater: p.homeWater, region: p.region,
                                              favourite: p.favoriteSpecies, since: p.memberSince))
-        AnglerStatsLine(AnglerStatsLine.items(
-            catches: p.totalCatches, species: p.speciesCount,
-            bestWeightKg: p.bestWeightKg, bestLengthCm: p.bestLengthCm, imperial: imperial))
-            .padding(.top, DS.Space.s4)
+        let best = AnglerStatsLine.items(bestWeightKg: p.bestWeightKg, bestLengthCm: p.bestLengthCm,
+                                         imperial: imperial)
+        if !best.isEmpty {
+            AnglerStatsLine(best)
+                .padding(.top, DS.Space.s4)
+        }
 
         if isFriend {
             CardGroup {

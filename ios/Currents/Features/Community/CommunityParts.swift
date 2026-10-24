@@ -1,6 +1,6 @@
 import SwiftUI
 
-// Parts the Crew pages share: a horizontal strip of stat tiles, the
+// Parts the Crew pages share: a strip and a grid of stat tiles, the
 // reaction tiles, the Crew colours and the art for wearable titles.
 
 // MARK: - Stat strip
@@ -19,6 +19,32 @@ struct StatStrip<Content: View>: View {
                 .padding(.horizontal, DS.gutter)
         }
         .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
+    }
+}
+
+/// A short, fixed set of `StatTile`s (pass `width: nil`) filling the row
+/// in the gutter: up to three across, four as two by two, one column at
+/// accessibility sizes. For a set that fits, where a strip would leave the
+/// row half empty or cut the last tile off.
+struct StatTileGrid<Content: View>: View {
+    private let columns: Int
+    private let content: Content
+
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    init(count: Int, @ViewBuilder content: () -> Content) {
+        self.columns = count == 4 ? 2 : max(1, min(count, 3))
+        self.content = content()
+    }
+
+    var body: some View {
+        let count = typeSize.isAccessibilitySize ? 1 : columns
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: DS.Space.s2, alignment: .top),
+                                 count: count),
+                  spacing: DS.Space.s2) {
+            content
+        }
+        .padding(.horizontal, DS.gutter)
     }
 }
 
