@@ -67,6 +67,8 @@ struct SpeciesThumbArt: View {
     }
 }
 
+/// The glyph goes through `DS.ink`, so pale tints (yellow, light blue)
+/// still read on the light-mode tile; dark mode keeps the tint as it is.
 struct ThumbSymbol: View {
     let systemImage: String
     let tint: Color
@@ -75,7 +77,7 @@ struct ThumbSymbol: View {
     var body: some View {
         Image(systemName: systemImage)
             .font(.system(size: size * 0.4, weight: .medium))
-            .foregroundStyle(tint)
+            .foregroundStyle(DS.ink(tint))
     }
 }
 
