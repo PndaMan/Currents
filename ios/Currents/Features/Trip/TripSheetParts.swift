@@ -239,8 +239,9 @@ struct SheetActionBar: View {
     }
 }
 
-/// A day's best bite windows as equal tiles: time of day, peak score and
-/// range. The tile holding `hour` is outlined. With `onSelect` each tile is a
+/// A day's best bite windows as equal tiles, drawn as Today's window tiles
+/// are (`WindowTiles`): time of day, "Peak" and the score, then the range.
+/// The tile holding `hour` is outlined. With `onSelect` each tile is a
 /// button that passes the window's first hour.
 struct BiteWindowTiles: View {
     let windows: [BiteWindows.Window]
@@ -264,9 +265,10 @@ struct BiteWindowTiles: View {
                 HStack(spacing: 10) {
                     Image(systemName: "moon.zzz")
                         .foregroundStyle(.dsText2)
-                    Text("No strong windows. The best hour is \(ForecastFormat.hour(bestHour, use24: use24)).")
+                    Text("No standout window. Fish the best hour, \(ForecastFormat.hour(bestHour, use24: use24)).")
                         .font(.subheadline)
                         .foregroundStyle(.dsText2)
+                        .fixedSize(horizontal: false, vertical: true)
                     Spacer(minLength: 0)
                 }
             }
@@ -282,15 +284,20 @@ struct BiteWindowTiles: View {
                                 .foregroundStyle(.dsText2)
                                 .labelStyle(TintedIconLabelStyle(tint: DS.scoreInk(w.peakScore)))
                                 .lineLimit(typeSize.isAccessibilitySize ? 2 : 1)
-                            Text("\(w.peakScore)")
-                                .font(.title.bold())
-                                .monospacedDigit()
-                                .foregroundStyle(DS.scoreInk(w.peakScore))
+                            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                                Text("Peak")
+                                    .font(.footnote)
+                                    .foregroundStyle(.dsText2)
+                                Text("\(w.peakScore)")
+                                    .font(.title.bold())
+                                    .monospacedDigit()
+                                    .foregroundStyle(DS.scoreInk(w.peakScore))
+                            }
                             Text(ForecastFormat.range(w, use24: use24))
                                 .font(.footnote)
                                 .monospacedDigit()
                                 .foregroundStyle(.dsText2)
-                                .lineLimit(typeSize.isAccessibilitySize ? 2 : 1)
+                                .lineLimit(typeSize.isAccessibilitySize ? 3 : 1)
                                 .minimumScaleFactor(0.75)
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
