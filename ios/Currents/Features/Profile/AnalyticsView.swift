@@ -113,14 +113,14 @@ struct AnalyticsView: View {
                          value: "\(totalCatches)", footnote: "\(thisYear.count) this year", width: nil)
                 StatTile("Species", systemImage: "leaf.fill", tint: .dsScoreGood,
                          value: "\(personalBests.count)", footnote: "\(speciesThisYear) this year", width: nil)
-                StatTile("Released", systemImage: "arrow.uturn.backward", tint: DS.ink(.dsScoreLow),
+                StatTile("Released", systemImage: "arrow.uturn.backward", tint: .dsScoreLow,
                          value: "\(rate)", unit: "%", footnote: "\(released) of \(allCatches.count)", width: nil)
             }
             if heaviest != nil || avgWeight != nil || longest != nil {
                 tileRow {
                     if let heaviest, let kg = heaviest.heaviestKg {
                         let p = Units.weightParts(kg: kg, imperial: imperial)
-                        StatTile("Heaviest", systemImage: "trophy.fill", tint: DS.ink(.dsScoreFair),
+                        StatTile("Heaviest", systemImage: "trophy.fill", tint: .dsScoreFair,
                                  value: p.0, unit: p.1, footnote: heaviest.commonName, width: nil)
                     }
                     if let avgWeight {

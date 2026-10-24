@@ -318,7 +318,7 @@ struct CatchesTab: View {
     @ViewBuilder
     private func topCardLinks(width: CGFloat?) -> some View {
         NavigationLink(value: LogbookRoute.streak) {
-            StatTile("Streak", systemImage: "flame.fill", tint: DS.ink(.dsScoreLow),
+            StatTile("Streak", systemImage: "flame.fill", tint: .dsScoreLow,
                      value: "\(summary.streak)",
                      unit: summary.streak == 1 ? "week" : "weeks",
                      footnote: summary.fishedThisWeek ? "Fished this week" : "Fish by Sunday",
@@ -336,7 +336,7 @@ struct CatchesTab: View {
         .buttonStyle(.dim)
 
         NavigationLink(value: LogbookRoute.achievements) {
-            StatTile("Badges", systemImage: "medal.fill", tint: DS.ink(.dsScoreFair),
+            StatTile("Badges", systemImage: "medal.fill", tint: .dsScoreFair,
                      value: "\(summary.badgesEarned)",
                      unit: "of \(summary.badgesVisible)",
                      footnote: summary.nextBadge.map { "\($0) next" },

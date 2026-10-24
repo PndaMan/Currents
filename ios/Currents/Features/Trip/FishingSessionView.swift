@@ -728,7 +728,7 @@ struct ActiveSessionView: View {
                 StatTile(trip.isMultiDay ? "Total time" : "Time", systemImage: "clock", tint: DS.accent,
                          value: SessionFormat.duration(priorDur + curDur), width: nil)
                 StatTile("Distance", systemImage: "point.topleft.down.to.point.bottomright.curvepath",
-                         tint: DS.ink(.dsScoreFair),
+                         tint: .dsScoreFair,
                          value: SessionFormat.distance(priorDist + trackDistance()), width: nil)
                 StatTile("Catches", systemImage: "fish.fill", tint: .dsScoreGood,
                          value: "\(catches.count)", width: nil)
@@ -911,7 +911,7 @@ struct SessionDetailView: View {
                         // No track, no distance: "0 m" only read as a fault.
                         if pointCount > 1 {
                             StatTile("Distance", systemImage: "point.topleft.down.to.point.bottomright.curvepath",
-                                     tint: DS.ink(.dsScoreFair),
+                                     tint: .dsScoreFair,
                                      value: SessionFormat.distance(trip.totalTrackDistanceMeters), width: nil)
                         }
                         StatTile("Catches", systemImage: "fish.fill", tint: .dsScoreGood,

@@ -1224,7 +1224,7 @@ struct LogCatchView: View {
                                        footnote: c.pressureTrend.map(pressureNote)))
         }
         if let score = c.score {
-            cells.append(ConditionCell(label: "Bite score", systemImage: "fish.fill", iconTint: DS.scoreInk(score),
+            cells.append(ConditionCell(label: "Bite score", systemImage: "fish.fill", iconTint: DS.scoreColor(score),
                                        value: "\(score)", unit: "of 100", footnote: ForecastFormat.grade(score)))
         }
         return cells

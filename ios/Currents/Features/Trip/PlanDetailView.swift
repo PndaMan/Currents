@@ -177,10 +177,10 @@ struct PlanDetailView: View {
                               value: planned.max().map { "\($0)" } ?? "\(forecast.score)", unit: "best",
                               footnote: "\(ForecastFormat.hour(window.lowerBound, use24: use24)) to \(ForecastFormat.hour(window.upperBound + 1, use24: use24))")
                 if let solunar {
-                    ConditionTile("Sunrise", systemImage: "sunrise.fill", iconTint: DS.ink(.dsScoreLow),
+                    ConditionTile("Sunrise", systemImage: "sunrise.fill", iconTint: .dsScoreLow,
                                   value: ForecastFormat.time(solunar.sunrise, use24: use24),
                                   footnote: "Sunset \(ForecastFormat.time(solunar.sunset, use24: use24))")
-                    ConditionTile("Moon", systemImage: "moon.fill", iconTint: DS.ink(.dsScoreFair),
+                    ConditionTile("Moon", systemImage: "moon.fill", iconTint: .dsScoreFair,
                                   value: "\(Int((solunar.moonIllumination * 100).rounded()))", unit: "%",
                                   footnote: CatchDetailView.sentenceCase(solunar.moonPhase.displayName)) {
                         Image(systemName: solunar.moonPhase.symbolName)

@@ -246,7 +246,7 @@ struct StreakView: View {
             ? AnyLayout(VStackLayout(spacing: 10))
             : AnyLayout(HStackLayout(spacing: 10))
         return row {
-            StatTile("Current", systemImage: "flame.fill", tint: DS.ink(.dsScoreLow),
+            StatTile("Current", systemImage: "flame.fill", tint: .dsScoreLow,
                      value: "\(stats.current)", unit: stats.current == 1 ? "week" : "weeks",
                      footnote: currentNote, width: nil)
             if stats.current == stats.best {
@@ -260,7 +260,7 @@ struct StreakView: View {
                          footnote: caught > 0 ? Self.catchCount(caught) : "No catches",
                          width: nil)
             } else {
-                StatTile("Longest", systemImage: "trophy.fill", tint: DS.ink(.dsScoreFair),
+                StatTile("Longest", systemImage: "trophy.fill", tint: .dsScoreFair,
                          value: "\(stats.best)", unit: stats.best == 1 ? "week" : "weeks",
                          footnote: stats.bestStart.map { "From \(LogbookFormat.shortDay($0))" } ?? "Your best run",
                          width: nil)
