@@ -865,7 +865,6 @@ struct BadgeDetailView: View {
     let badge: BadgeDefinition
     /// How far along a locked badge is, when the caller knows the catches.
     var progress: BadgeProgress? = nil
-    @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     // The rule's sizes and hours redraw when either setting changes.
     @AppStorage("units") private var units = "metric"
@@ -877,10 +876,24 @@ struct BadgeDetailView: View {
     }
 
     var body: some View {
+        // Its own stack so Done sits in the toolbar, visible at the medium
+        // height. Every caller presents it bare in a sheet.
+        NavigationStack {
+            content
+                .detailScrollEdge()
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) { SheetDoneButton() }
+                }
+        }
+        .dsSheet([.medium, .large])
+    }
+
+    private var content: some View {
         ScrollView {
             VStack(spacing: 0) {
                 medal
-                    .padding(.top, DS.Space.s6)
+                    .padding(.top, DS.Space.s2)
                 Text(badge.displayName)
                     .font(.title2.bold())
                     .foregroundStyle(.dsText)
@@ -899,18 +912,14 @@ struct BadgeDetailView: View {
                         .foregroundStyle(.dsText2)
                         .padding(.top, DS.Space.s4)
                 }
-                Button("Done") { dismiss() }
-                    .buttonStyle(.dsTonal)
-                    .padding(.top, DS.Space.s6)
             }
             .multilineTextAlignment(.center)
             .frame(maxWidth: .infinity)
             .padding(.horizontal, DS.gutter)
-            .padding(.bottom, DS.Space.s4)
+            .padding(.bottom, DS.Space.s6)
         }
         .scrollBounceBehavior(.basedOnSize)
-        .presentationDetents([.medium, .large])
-        .presentationDragIndicator(.visible)
+        .dsScreenBackground()
     }
 
     /// An earned medal turns once per tap, like flipping it over in the hand.
@@ -965,8 +974,7 @@ struct BadgeDetailView: View {
             .foregroundStyle(.dsText)
         } else if let progress, !progress.isYesNo {
             VStack(spacing: DS.Space.s2) {
-                ProgressView(value: progress.fraction)
-                    .tint(badge.rarity.color)
+                LogbookProgressBar(fraction: progress.fraction, tint: badge.rarity.color)
                 Text(progress.text)
                     .font(.footnote)
                     .monospacedDigit()
