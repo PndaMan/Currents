@@ -1801,16 +1801,12 @@ struct FriendProfileView: View {
         .disabled(requestSent || sendingRequest)
     }
 
+    /// Only what has no other route: Edit sharing is the first tile and
+    /// Remove friend the button at the foot of the page.
     private var moreMenu: some View {
         Menu {
-            Button { showingSettings = true } label: {
-                Label("Nickname and sharing", systemImage: "pencil")
-            }
             Button { GameCenter.shared.addFriend() } label: {
                 Label("Add on Game Center", systemImage: "gamecontroller")
-            }
-            Button(role: .destructive) { confirmRemove = true } label: {
-                Label("Remove friend", systemImage: "person.badge.minus")
             }
         } label: {
             ActionTileLabel("More", systemImage: "ellipsis")
