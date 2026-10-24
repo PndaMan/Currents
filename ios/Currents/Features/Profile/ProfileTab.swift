@@ -1296,7 +1296,8 @@ struct PrivacySettingsView: View {
 }
 
 /// What a friend sees for a shared catch: the pin itself, or a circle that
-/// grows with the blur distance.
+/// grows with the blur distance. A tinted tile like the other icon tiles,
+/// one size at every distance so the slider beside it never moves.
 private struct BlurRadiusPreview: View {
     let radiusKm: Double
     let tint: Color
@@ -1306,8 +1307,7 @@ private struct BlurRadiusPreview: View {
 
     var body: some View {
         let diameter = 14 + (size - 18) * CGFloat(min(max(radiusKm, 0), 20) / 20)
-        ZStack {
-            Color.dsFill2
+        ThumbView(tint: tint, size: size) {
             if radiusKm == 0 {
                 Image(systemName: "mappin")
                     .font(.title3.weight(.semibold))
@@ -1321,8 +1321,6 @@ private struct BlurRadiusPreview: View {
                     .transition(.opacity)
             }
         }
-        .frame(width: size, height: size)
-        .clipShape(RoundedRectangle(cornerRadius: DS.Radius.thumb, style: .continuous))
         .animation(reduceMotion ? nil : DS.Motion.softSpring, value: radiusKm)
         .accessibilityHidden(true)
     }
