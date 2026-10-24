@@ -38,18 +38,15 @@ struct CrewLeaderboardView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 header
-                Picker("Rank by", selection: $metric.haptic().animation(reduceMotion ? nil : DS.Motion.softSpring)) {
-                    Text("Most fish").tag(CommunityService.Metric.count)
-                    Text("Heaviest").tag(CommunityService.Metric.weight)
-                    Text("Longest").tag(CommunityService.Metric.length)
-                }
-                .pickerStyle(.segmented)
-                .padding(.horizontal, DS.gutter)
-                .padding(.top, DS.Space.s5)
+                // The chips play their own selection haptic.
+                FilterChips([CommunityService.Metric.count, .weight, .length],
+                            selection: $metric.animation(reduceMotion ? nil : DS.Motion.softSpring),
+                            title: metricTitle)
+                    .padding(.top, DS.Space.s5)
 
                 Group {
                     if loading && rows.isEmpty {
-                        FishLoader(message: "Reeling in the leaderboard…")
+                        FishLoader(message: "Reeling in the leaderboard")
                             .frame(maxWidth: .infinity)
                             .padding(.top, DS.Space.s8)
                     } else if rows.isEmpty {
@@ -83,7 +80,13 @@ struct CrewLeaderboardView: View {
             }
             await reload()
         }
-        .onChange(of: metric) { _, _ in Task { await reload() } }
+        .onChange(of: metric) { _, _ in
+            // Clear the old ranking so a new metric never shows under it.
+            rows = []
+            myStanding = nil
+            loading = true
+            Task { await reload() }
+        }
         .onChange(of: svc.revision) { _, _ in
             // A burst of pushes bumps the revision several times; reload once.
             reloadGen &+= 1
@@ -109,11 +112,24 @@ struct CrewLeaderboardView: View {
         .padding(.top, DS.Space.s3)
     }
 
+    private func metricTitle(_ m: CommunityService.Metric) -> String {
+        switch m {
+        case .count: return "Most fish"
+        case .weight: return "Heaviest"
+        case .length: return "Longest"
+        }
+    }
+
     private var emptyState: some View {
-        ContentUnavailableView("No entries yet", systemImage: "trophy",
-            description: Text("When the crew logs measured catches, the board fills up."))
-        .frame(maxWidth: .infinity)
-        .padding(.top, DS.Space.s4)
+        InlineEmpty(systemImage: "trophy", text: emptyText)
+    }
+
+    private var emptyText: String {
+        switch metric {
+        case .count: return "No catches from the crew yet. Log one to start the board."
+        case .weight: return "No weighed catches yet. Weigh a catch to get on the board."
+        case .length: return "No measured catches yet. Measure a catch to get on the board."
+        }
     }
 
     // MARK: Most fish: podium and ranked rows
@@ -248,11 +264,14 @@ struct CrewLeaderboardView: View {
     }
 
     private func reload() async {
+        let requested = metric
         if rows.isEmpty { loading = true }
         // The board is exactly the crew's roster.
         let among = await CrewBoardData.memberCodes(code)
         let myRows = await myLocalRows()
-        let result = await svc.board(metric: metric, myRows: myRows, among: among)
+        let result = await svc.board(metric: requested, myRows: myRows, among: among)
+        // A newer metric was picked while this one loaded; its reload wins.
+        guard requested == metric else { return }
         withAnimation(reduceMotion ? nil : DS.Motion.softSpring) {
             rows = result.rows
             myStanding = result.mine
