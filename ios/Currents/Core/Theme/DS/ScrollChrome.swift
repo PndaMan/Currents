@@ -2,11 +2,14 @@ import SwiftUI
 
 extension View {
     /// For a tab root whose ScrollView starts with `LargeTitleHeader`. Hides
-    /// the system navigation bar and, as soon as content scrolls, puts an
-    /// opaque backdrop behind the status bar; once the large title has
-    /// scrolled away, a centred inline `title` slides in under it, like
-    /// Luma and the App Store Today tab. Apply to the root ScrollView itself,
-    /// in place of `.toolbar(.hidden, for: .navigationBar)`.
+    /// the system navigation bar and keeps an opaque backdrop behind the
+    /// status bar, so content that scrolls up is hidden under the clock;
+    /// once the large title has scrolled away, a centred inline `title`
+    /// slides in under it, like Luma and the App Store Today tab. Apply to
+    /// the root ScrollView itself, in place of
+    /// `.toolbar(.hidden, for: .navigationBar)`. The page needs the plain
+    /// background at its top (`dsScreenBackground`), as the backdrop is that
+    /// colour.
     func largeTitleChrome(_ title: String) -> some View {
         modifier(LargeTitleChrome(title: title))
     }
@@ -53,7 +56,9 @@ extension View {
 private struct LargeTitleChrome: ViewModifier {
     let title: String
     /// 0 at rest, 1 once content is under the status bar, 2 once the large
-    /// title has scrolled out of view.
+    /// title has scrolled out of view. Only the inline title follows it. The
+    /// backdrop is always on, because the action only runs when the value
+    /// changes: a page that opens already scrolled and never moves stays at 0.
     @State private var stage = 0
     @ScaledMetric(relativeTo: .largeTitle) private var headerHeight: CGFloat = 52
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -92,7 +97,9 @@ private struct ReviewScrollAnchor: ViewModifier {
 
 /// A zero-height bar at the top safe-area edge: its background reaches up
 /// under the status bar, and its overlay draws the inline title below it, so
-/// showing either never moves the content.
+/// showing the title never moves the content. The background is the page's
+/// own colour, so it is always on: nothing changes at rest, and whatever
+/// scrolls under the clock is covered.
 private struct StatusBarBackdrop: View {
     let title: String
     let stage: Int
@@ -105,7 +112,6 @@ private struct StatusBarBackdrop: View {
             .background {
                 Color.dsBackground
                     .ignoresSafeArea(edges: .top)
-                    .opacity(stage >= 1 ? 1 : 0)
             }
             .overlay(alignment: .top) {
                 Text(title)
