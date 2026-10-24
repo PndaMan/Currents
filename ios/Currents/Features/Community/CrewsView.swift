@@ -773,23 +773,36 @@ struct CrewDetailView: View {
                 TournamentHistoryView(crew: crew)
             } label: {
                 ArtRow(title: "All tournaments", subtitle: tournamentHint, chevron: true) {
-                    ThumbView(systemImage: "clock.arrow.circlepath", tint: .dsScoreFair)
+                    ThumbView(systemImage: "trophy.fill", tint: CrewTint.trophy)
                 }
             }
             .buttonStyle(.dsRow)
         }
     }
 
-    private var tournamentHint: String? {
-        liveTournament == nil ? "None running" : nil
+    private var tournamentHint: String {
+        liveTournament == nil ? "None running" : "1 running"
     }
 
     // MARK: Settings
 
     private func settingsSection(_ crew: CommunityService.Crew) -> some View {
         CardSection("Settings") {
+            // The copy glyph after the code says the row copies it, as the
+            // Copy code tiles do.
             Button { copyCode() } label: {
-                CardRow("Crew code", systemImage: "number", tint: .blue, value: crew.code)
+                CardRow("Crew code", systemImage: "number", tint: .blue) {
+                    HStack(spacing: DS.Space.s2) {
+                        Text(crew.code)
+                            .font(.body)
+                            .monospacedDigit()
+                            .foregroundStyle(.dsText2)
+                        Image(systemName: "doc.on.doc")
+                            .font(.subheadline)
+                            .foregroundStyle(.dsText2)
+                            .accessibilityHidden(true)
+                    }
+                }
             }
             .buttonStyle(.dsCardRow)
             .accessibilityHint("Copies the crew code")
