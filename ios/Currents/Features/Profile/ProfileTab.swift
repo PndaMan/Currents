@@ -1479,24 +1479,23 @@ struct WidgetsSiriView: View {
                         widgetTile("Lock Screen", fill: .dsFill2, alwaysDark: true) { lockWidget }
                     }
                     .padding(.horizontal, DS.gutter)
-                    PFFootnote("Touch and hold the Home Screen, tap Edit, then Add widget.")
-                        .padding(.top, DS.Space.s3)
+                    SectionFootnote("Touch and hold the Home Screen, tap Edit, then Add widget.")
+                        .padding(.top, DS.Space.s1)
+                }
+
+                CardSection("Live Activities", note: "They start on their own.") {
+                    CardRow("Live session", subtitle: "Timer, catches and the bite",
+                            systemImage: "record.circle", tint: .red)
+                    CardRow("Tournaments", subtitle: "Your points against the leader",
+                            systemImage: "trophy.fill", tint: .yellow)
                 }
 
                 VStack(alignment: .leading, spacing: 0) {
-                    SectionTitle("Live Activities")
-                    row("Live session", "Timer, catches and the bite",
-                        "record.circle", .red)
-                    row("Tournaments", "Your points against the leader",
-                        "trophy.fill", .yellow)
-                    PFFootnote("They start on their own.")
-                        .padding(.top, DS.Space.s2)
-                }
-
-                VStack(alignment: .leading, spacing: 0) {
-                    SectionTitle("Siri and Shortcuts")
-                    ForEach(shortcuts, id: \.0) { item in
-                        row(item.0, "\u{201C}\(item.1)\u{201D}", item.2, item.3)
+                    CardSection("Siri and Shortcuts") {
+                        ForEach(shortcuts, id: \.0) { item in
+                            CardRow(item.0, subtitle: "\u{201C}\(item.1)\u{201D}",
+                                    systemImage: item.2, tint: item.3)
+                        }
                     }
                     if let url = URL(string: "shortcuts://") {
                         Link(destination: url) {
@@ -1667,25 +1666,6 @@ struct WidgetsSiriView: View {
             .accessibilityLabel(score.map { "Bite score \($0) out of 100" } ?? "No forecast yet")
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    // MARK: Rows
-
-    private func row(_ title: String, _ detail: String, _ icon: String, _ tint: Color) -> some View {
-        HStack(spacing: 14) {
-            ThumbView(systemImage: icon, tint: tint, size: 44)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .foregroundStyle(.dsText)
-                Text(detail)
-                    .font(.subheadline)
-                    .foregroundStyle(.dsText2)
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, DS.gutter)
-        .padding(.vertical, DS.Space.s2)
-        .accessibilityElement(children: .combine)
     }
 }
 
