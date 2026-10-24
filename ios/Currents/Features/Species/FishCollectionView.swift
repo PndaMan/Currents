@@ -95,9 +95,8 @@ struct FishCollectionView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 if let header { header }
-                DetailHeader(over: "Fishdex",
-                             title: loaded ? "\(foundCount.formatted()) of \(species.count.formatted())" : "Fishdex",
-                             subtitle: loaded ? progressText : nil)
+                DetailHeader(title: "Fishdex",
+                             subtitle: loaded ? "\(foundCount.formatted()) of \(species.count.formatted()) found" : nil)
                     .contentTransition(.numericText())
 
                 if loaded && !species.isEmpty {
