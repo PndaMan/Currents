@@ -297,25 +297,19 @@ enum LureEngine {
         for a in archetypes {
             if saltwater && freshwaterOnly.contains(a.name) { continue }
             var score = 0.42
+            // Most specific first, since a page may show only the first: the
+            // species' own baits, then light, wind and pressure, then clarity.
+            // The water temperature reads the same for every lure in range, so
+            // it goes last.
             var reasons: [String] = []
             let color = familyColor(a.name, palette: palette, clarity: c.clarity, lowLight: c.isLowLight)
 
-            // Water temperature — the strongest gate on lure family.
-            if let t = c.waterTempC {
-                if t >= a.minTempC && t <= a.maxTempC {
-                    score += 0.20
-                    reasons.append("\(Units.temperature(t)) suits it")
-                } else {
-                    // Fall away smoothly rather than hard-excluding.
-                    let miss = t < a.minTempC ? a.minTempC - t : t - a.maxTempC
-                    score -= min(0.34, miss * 0.045)
-                }
+            // Does the species' own bait list back this up?
+            if !speciesBaits.isEmpty,
+               speciesBaits.contains(where: { b in a.keywords.contains(where: { b.contains($0) }) }) {
+                score += 0.16
+                if let name = species?.commonName { reasons.append("Known producer for \(name)") }
             }
-
-            // Water clarity — drives both family and colour.
-            let clarityFit = a.clarity[c.clarity] ?? 0.5
-            score += (clarityFit - 0.5) * 0.42
-            if clarityFit >= 0.85 { reasons.append(colorReason(c.clarity, color: color)) }
 
             // Light, wind, pressure.
             if c.isLowLight && a.lowLightBonus != 0 {
@@ -335,12 +329,10 @@ enum LureEngine {
                 if a.postFrontBonus > 0.15 { reasons.append("High pressure means slow down and finesse") }
             }
 
-            // Does the species' own bait list back this up?
-            if !speciesBaits.isEmpty,
-               speciesBaits.contains(where: { b in a.keywords.contains(where: { b.contains($0) }) }) {
-                score += 0.16
-                if let name = species?.commonName { reasons.append("Known producer for \(name)") }
-            }
+            // Water clarity — drives both family and colour.
+            let clarityFit = a.clarity[c.clarity] ?? 0.5
+            score += (clarityFit - 0.5) * 0.42
+            if clarityFit >= 0.85 { reasons.append(colorReason(c.clarity, color: color)) }
 
             // Personal history — has this actually caught this angler fish?
             let personal = history.filter { detail in
@@ -360,6 +352,18 @@ enum LureEngine {
             if owned != nil {
                 score += 0.10
                 reasons.append("In your tackle box")
+            }
+
+            // Water temperature — the strongest gate on lure family.
+            if let t = c.waterTempC {
+                if t >= a.minTempC && t <= a.maxTempC {
+                    score += 0.20
+                    reasons.append("\(Units.temperature(t)) suits it")
+                } else {
+                    // Fall away smoothly rather than hard-excluding.
+                    let miss = t < a.minTempC ? a.minTempC - t : t - a.maxTempC
+                    score -= min(0.34, miss * 0.045)
+                }
             }
 
             out.append(Suggestion(
