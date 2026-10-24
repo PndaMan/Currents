@@ -10,61 +10,13 @@ struct OfflineRegionBrowser: View {
     @State private var results: (countries: [OfflineCountry], regions: [OfflineAdminRegion]) = ([], [])
     @State private var here: OfflineAdminRegion?
     @State private var request: OfflineDownloadRequest?
-    @State private var titleShown = false
 
     var body: some View {
-        List {
-            Section {
-                DetailHeader(title: "Countries and regions",
-                             subtitle: "Every country, province and state, with close-ups around water.")
-                    .padding(.bottom, DS.Space.s2)
-                    .pfBareRow()
-                PFSearchField(prompt: "Search countries and provinces", text: $query)
-                    .padding(.bottom, DS.Space.s2)
-                    .pfBareRow()
-            }
-
-            if query.trimmingCharacters(in: .whitespaces).isEmpty {
-                if let here {
-                    Section("Where you are") {
-                        regionRow(here, showCountry: true)
-                        if let country = OfflineRegionCatalog.country(here.countryId) {
-                            countryLink(country)
-                        }
-                    }
-                    .pfRows()
-                }
-                Section("Countries") {
-                    if countries.isEmpty {
-                        HStack { Spacer(); ProgressView(); Spacer() }
-                    }
-                    ForEach(countries) { countryLink($0) }
-                }
-                .pfRows()
-            } else if results.countries.isEmpty && results.regions.isEmpty {
-                Section {
-                    ContentUnavailableView.search(text: query)
-                        .pfBareRow()
-                }
-            } else {
-                if !results.regions.isEmpty {
-                    Section("Provinces and states") {
-                        ForEach(results.regions) { regionRow($0, showCountry: true) }
-                    }
-                    .pfRows()
-                }
-                if !results.countries.isEmpty {
-                    Section("Countries") {
-                        ForEach(results.countries) { countryLink($0) }
-                    }
-                    .pfRows()
-                }
-            }
+        TodayPage("Countries and regions",
+                  subtitle: "Every country, province and state, with close-ups around water.") {
+            PFSearchField(prompt: "Search countries and provinces", text: $query)
+            content
         }
-        .pfGroupedList()
-        .detailTint(nil)
-        .pfTrackScroll($titleShown)
-        .pfScrollTitle("Countries and regions", shown: titleShown)
         .scrollDismissesKeyboard(.immediately)
         .task {
             // The bundled list decodes off the main thread the first time.
@@ -87,12 +39,53 @@ struct OfflineRegionBrowser: View {
         .sheet(item: $request) { OfflineDownloadSheet(target: $0.target) }
     }
 
+    @ViewBuilder
+    private var content: some View {
+        if query.trimmingCharacters(in: .whitespaces).isEmpty {
+            if let here {
+                CardSection("Where you are") {
+                    regionRow(here, showCountry: true)
+                    if let country = OfflineRegionCatalog.country(here.countryId) {
+                        countryLink(country)
+                    }
+                }
+            }
+            if countries.isEmpty {
+                VStack(alignment: .leading, spacing: 0) {
+                    SectionTitle("Countries")
+                    FishLoader(message: "Loading countries")
+                        .frame(minHeight: 90)
+                        .frame(maxWidth: .infinity)
+                }
+            } else {
+                CardSection("Countries") {
+                    ForEach(countries) { countryLink($0) }
+                }
+            }
+        } else if results.countries.isEmpty && results.regions.isEmpty {
+            InlineEmpty(systemImage: "magnifyingglass",
+                        text: "Nothing found for \(query). Try another spelling.")
+        } else {
+            if !results.regions.isEmpty {
+                CardSection("Provinces and states") {
+                    ForEach(results.regions) { regionRow($0, showCountry: true) }
+                }
+            }
+            if !results.countries.isEmpty {
+                CardSection("Countries") {
+                    ForEach(results.countries) { countryLink($0) }
+                }
+            }
+        }
+    }
+
     private func countryLink(_ country: OfflineCountry) -> some View {
         NavigationLink(value: OfflineMapsRoute.country(country)) {
             OfflinePlaceRow(title: OfflineRegionCatalog.displayName(country),
                             subtitle: countrySubtitle(country),
-                            isDownloaded: isDownloaded(country.id))
+                            isDownloaded: isDownloaded(country.id), chevron: true)
         }
+        .buttonStyle(.dsCardRow)
     }
 
     private func regionRow(_ region: OfflineAdminRegion, showCountry: Bool) -> some View {
@@ -100,8 +93,10 @@ struct OfflineRegionBrowser: View {
             request = OfflineDownloadRequest(target: .region(region))
         } label: {
             OfflinePlaceRow(title: region.name, subtitle: regionSubtitle(region, showCountry: showCountry),
+                            systemImage: "map.fill", tint: .teal,
                             isDownloaded: isDownloaded(region.id))
         }
+        .buttonStyle(.dsCardRow)
         .accessibilityHint("Opens the download options")
     }
 
@@ -125,7 +120,6 @@ struct OfflineCountryView: View {
     @Environment(AppState.self) private var appState
     @State private var query = ""
     @State private var request: OfflineDownloadRequest?
-    @State private var titleShown = false
 
     private var regions: [OfflineAdminRegion] {
         let all = OfflineRegionCatalog.regions(in: country.id)
@@ -139,20 +133,11 @@ struct OfflineCountryView: View {
     private var name: String { OfflineRegionCatalog.displayName(country) }
 
     var body: some View {
-        List {
-            Section {
-                DetailHeader(over: "Country", title: name,
-                             subtitle: "\(OfflineFormat.area(country.areaKm2)), \(country.regionCount == 1 ? "1 region" : "\(country.regionCount) regions")")
-                    .padding(.bottom, DS.Space.s2)
-                    .pfBareRow()
-                if country.regionCount > 12 {
-                    PFSearchField(prompt: "Search \(name)", text: $query)
-                        .padding(.bottom, DS.Space.s2)
-                        .pfBareRow()
-                }
+        TodayPage(name, subtitle: "\(OfflineFormat.area(country.areaKm2)), \(country.regionCount == 1 ? "1 region" : "\(country.regionCount) regions")") {
+            if country.regionCount > 12 {
+                PFSearchField(prompt: "Search \(name)", text: $query)
             }
-
-            Section {
+            CardGroup {
                 Button {
                     request = OfflineDownloadRequest(target: .country(country))
                 } label: {
@@ -160,33 +145,29 @@ struct OfflineCountryView: View {
                                     subtitle: "An overview, with close-ups of its biggest waters",
                                     isDownloaded: isDownloaded(country.id))
                 }
+                .buttonStyle(.dsCardRow)
+                .accessibilityHint("Opens the download options")
             }
-            .pfRows()
-
             if regions.isEmpty, !query.isEmpty {
-                Section {
-                    ContentUnavailableView.search(text: query)
-                        .pfBareRow()
-                }
+                InlineEmpty(systemImage: "magnifyingglass",
+                            text: "Nothing in \(name) matches \(query).")
             } else if !regions.isEmpty {
-                Section(regionsTitle) {
+                CardSection(regionsTitle) {
                     ForEach(regions) { region in
                         Button {
                             request = OfflineDownloadRequest(target: .region(region))
                         } label: {
                             OfflinePlaceRow(title: region.name,
                                             subtitle: "\(OfflineFormat.kind(region)), \(OfflineFormat.area(region.areaKm2))",
+                                            systemImage: "map.fill", tint: .teal,
                                             isDownloaded: isDownloaded(region.id))
                         }
+                        .buttonStyle(.dsCardRow)
+                        .accessibilityHint("Opens the download options")
                     }
                 }
-                .pfRows()
             }
         }
-        .pfGroupedList()
-        .detailTint(nil)
-        .pfTrackScroll($titleShown)
-        .pfScrollTitle(name, shown: titleShown)
         .scrollDismissesKeyboard(.immediately)
         .sheet(item: $request) { OfflineDownloadSheet(target: $0.target) }
     }
@@ -209,29 +190,23 @@ struct OfflineCountryView: View {
     }
 }
 
-/// A row in the region lists: name, a detail line, and a tick once downloaded.
+/// A row in the region lists: an icon tile, name, a detail line, and a
+/// tick once downloaded.
 struct OfflinePlaceRow: View {
     let title: String
     let subtitle: String
+    var systemImage = "globe.europe.africa.fill"
+    var tint: Color = .blue
     var isDownloaded = false
+    var chevron = false
 
     var body: some View {
-        HStack(spacing: 14) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .foregroundStyle(.dsText)
-                Text(subtitle)
-                    .font(.subheadline)
-                    .foregroundStyle(.dsText2)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
+        CardRow(title, subtitle: subtitle, systemImage: systemImage, tint: tint, chevron: chevron) {
             if isDownloaded {
                 Image(systemName: "checkmark.circle.fill")
                     .foregroundStyle(.dsScoreGood)
                     .accessibilityLabel("Downloaded")
             }
         }
-        .contentShape(Rectangle())
-        .accessibilityElement(children: .combine)
     }
 }
