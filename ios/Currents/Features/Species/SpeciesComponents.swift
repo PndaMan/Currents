@@ -164,26 +164,35 @@ struct SpeciesTagFlow: Layout {
     }
 }
 
-/// A species' comfortable band with a reading as a dot, for the visual slot
-/// of a condition tile. The same look as the water tile on a catch page.
+/// A species' temperature band on a short scale, for the visual slot of a
+/// condition tile: the band in green and, when given, a reading as a dot.
+/// The same look as the water tile on a catch page. Tiles side by side pass
+/// one `scale`, so their bands line up.
 struct SpeciesTempBar: View {
     let low: Double
     let high: Double
-    let value: Double
+    var value: Double? = nil
+    /// The stretch of temperature the bar spans. Defaults to the band and
+    /// the reading with 4 degrees either side.
+    var scale: ClosedRange<Double>? = nil
 
     var body: some View {
         GeometryReader { geo in
-            let minT = min(low, value) - 4, maxT = max(high, value) + 4
+            let reading = value ?? low
+            let minT = scale?.lowerBound ?? (min(low, reading) - 4)
+            let maxT = scale?.upperBound ?? (max(high, reading) + 4)
             let span = max(maxT - minT, 1)
-            let x: (Double) -> CGFloat = { CGFloat(($0 - minT) / span) * geo.size.width }
+            let x: (Double) -> CGFloat = { CGFloat((min(max($0, minT), maxT) - minT) / span) * geo.size.width }
             ZStack(alignment: .leading) {
                 Capsule().fill(Color.dsFill2).frame(height: 6)
                 Capsule().fill(Color.dsScoreGood.opacity(0.7))
                     .frame(width: max(4, x(high) - x(low)), height: 6)
                     .offset(x: x(low))
-                Circle().fill(Color.dsText)
-                    .frame(width: 12, height: 12)
-                    .offset(x: x(value) - 6)
+                if let value {
+                    Circle().fill(Color.dsText)
+                        .frame(width: 12, height: 12)
+                        .offset(x: x(value) - 6)
+                }
             }
             .frame(maxHeight: .infinity)
         }

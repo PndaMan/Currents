@@ -356,9 +356,10 @@ struct SpeciesDetailView: View {
         }
     }
 
-    /// Two condition tiles, as on Today: this month's typical water against
-    /// the species' range, and where it feeds best. Left out when the record
-    /// holds the seed's stand-in band rather than real temperatures.
+    /// Two condition tiles, as on Today: this month's estimated water against
+    /// the species' range, and the band it feeds best in, both bars on one
+    /// scale. Left out when the record holds the seed's stand-in band rather
+    /// than real temperatures.
     @ViewBuilder
     private var temperatureSection: some View {
         if SpeciesSeason.hasPlaceholderTemps(species) {
@@ -366,21 +367,24 @@ struct SpeciesDetailView: View {
         } else if let band = SpeciesSeason.band(species) {
             let monthWater = water.temp(month)
             let feeds = ConditionText.comfort(for: species)
+            let scale = (min(band.lower, monthWater) - 4)...(max(band.upper, monthWater) + 4)
             section("Water temperature") {
                 LazyVGrid(columns: tileColumns, spacing: 10) {
                     ConditionTile("Water in \(SpeciesSeason.fullMonths[month - 1])",
                                   systemImage: "thermometer.medium", iconTint: .dsScoreLow,
                                   value: degreesValue(monthWater), unit: imperial ? "°F" : "°C",
                                   footnote: waterFootnote(monthWater, band: band, feeds: feeds)) {
-                        SpeciesTempBar(low: band.lower, high: band.upper, value: monthWater)
+                        SpeciesTempBar(low: band.lower, high: band.upper, value: monthWater, scale: scale)
                     }
                     ConditionTile("Feeds best", systemImage: "fish.fill", iconTint: tint,
                                   value: "\(degreesValue(feeds.lowerBound)) to \(degreesValue(feeds.upperBound))",
                                   unit: imperial ? "°F" : "°C",
-                                  footnote: survivesText.map { "Survives \($0)" })
+                                  footnote: survivesText.map { "Survives \($0)" }) {
+                        SpeciesTempBar(low: feeds.lowerBound, high: feeds.upperBound, scale: scale)
+                    }
                 }
                 .padding(.horizontal, DS.gutter)
-                SectionFootnote("Typical surface water for the month, not a reading.")
+                SectionFootnote("An estimate for the month where you fish, not a live reading.")
             }
         } else if let survives = survivesText {
             section("Water temperature") {
@@ -395,8 +399,11 @@ struct SpeciesDetailView: View {
         return SpeciesSeason.rangeText(lo, hi, imperial: imperial)
     }
 
+    /// Whole degrees without the unit, rounded as `Units.temperature`
+    /// rounds them, so the band reads as Today's "Happiest in" line does.
     private func degreesValue(_ celsius: Double) -> String {
-        "\(Int((imperial ? celsius * 9 / 5 + 32 : celsius).rounded()))"
+        let text = String(format: "%.0f", imperial ? celsius * 9 / 5 + 32 : celsius)
+        return text == "-0" ? "0" : text
     }
 
     private func waterFootnote(_ water: Double, band: (lower: Double, optimal: Double, upper: Double),
