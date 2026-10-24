@@ -7,7 +7,15 @@ struct BiteStrip: View {
     let bite: BiteSnapshot
     @AppStorage("use24HourTime") private var use24HourTime = true
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var typeSize
     @State private var grown = false
+
+    /// Three tiles side by side, stacked at accessibility text sizes.
+    private var tileLayout: AnyLayout {
+        typeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(spacing: DS.Space.s2))
+            : AnyLayout(HStackLayout(spacing: 10))
+    }
 
     private var nowHour: Int { Calendar.current.component(.hour, from: .now) }
 
@@ -50,12 +58,19 @@ struct BiteStrip: View {
             .accessibilityHidden(true)
 
             if !bite.windows.isEmpty {
-                HStack(spacing: DS.Space.s2) {
+                tileLayout {
                     ForEach(bite.windows) { w in
                         WindowTile(window: w, use24Hour: use24HourTime)
                     }
                 }
                 .padding(.top, DS.Space.s1)
+            }
+
+            if bite.allPassed, let line = bite.bestLine(use24: use24HourTime) {
+                Text(line + ".")
+                    .font(.footnote)
+                    .foregroundStyle(.dsText2)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         .padding(.horizontal, DS.gutter)
@@ -72,59 +87,56 @@ struct BiteStrip: View {
     }
 
     private var accessibilitySummary: String {
-        if let best = bite.best {
-            return "Bite by hour. Best \(ExploreFormat.window(best, use24Hour: use24HourTime)), peaking at \(best.peakScore)."
+        if let line = bite.bestLine(use24: use24HourTime) {
+            return "Bite by hour. \(line)."
         }
         return "Bite by hour. No strong window today."
     }
 }
 
+/// One bite window, drawn like Today's window tiles: the time of day (or
+/// "Now"), the peak score, and the hours, "Until" while it runs or "Passed".
 private struct WindowTile: View {
     let window: BiteWindows.Window
     let use24Hour: Bool
-    @Environment(\.colorScheme) private var scheme
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     private var passed: Bool { window.hasPassed() }
     private var now: Bool { window.isNow() }
 
-    private var name: String {
-        if now { return "Now" }
-        switch window.startHour {
-        case ..<9: return "Dawn"
-        case 9..<16: return "Midday"
-        case 16..<20: return "Dusk"
-        default: return "Night"
-        }
-    }
-
-    private var icon: String {
-        switch window.startHour {
-        case ..<9: "sunrise"
-        case 9..<16: "sun.max"
-        case 16..<20: "sunset"
-        default: "moon.stars"
-        }
+    private var time: String {
+        if now { return "Until \(ForecastFormat.hour(window.endHour + 1, use24: use24Hour))" }
+        return passed ? "Passed" : ForecastFormat.range(window, use24: use24Hour)
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Label(name, systemImage: icon)
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(now ? Color.dsText : Color.dsText2)
+        VStack(alignment: .leading, spacing: 2) {
+            Label(now ? "Now" : ForecastFormat.windowName(window.startHour),
+                  systemImage: ForecastFormat.windowIcon(window.startHour))
+                .font(.subheadline)
+                .foregroundStyle(.dsText2)
+                .labelStyle(TintedIconLabelStyle(tint: DS.scoreInk(window.peakScore)))
             Text("\(window.peakScore)")
                 .font(.title.bold())
                 .monospacedDigit()
                 .foregroundStyle(DS.scoreInk(window.peakScore))
-            Text(passed ? "Passed" : ExploreFormat.window(window, use24Hour: use24Hour))
+            Text(time)
                 .font(.footnote)
+                .monospacedDigit()
                 .foregroundStyle(.dsText2)
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
+                .lineLimit(typeSize.isAccessibilitySize ? 3 : 1)
+                .minimumScaleFactor(0.75)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(12)
-        .background(now ? DS.scoreColor(window.peakScore).opacity(scheme == .dark ? 0.22 : 0.14) : Color.dsFill,
-                    in: RoundedRectangle(cornerRadius: DS.Radius.button, style: .continuous))
+        .padding(.horizontal, 12)
+        .padding(.vertical, 12)
+        .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
+        .overlay {
+            if now {
+                RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous)
+                    .strokeBorder(DS.scoreColor(window.peakScore), lineWidth: 1.5)
+            }
+        }
         .opacity(passed ? 0.5 : 1)
         .accessibilityElement(children: .combine)
     }
