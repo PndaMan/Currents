@@ -1735,11 +1735,7 @@ struct CrewPostSheet: View {
         }
         .alert("Caption", isPresented: $editingCaption) {
             TextField("Say something", text: $captionDraft)
-            Button("Save") {
-                let text = captionDraft
-                caption = text
-                Task { await svc.setCrewCaption(text, postId: post.id); await reload() }
-            }
+            Button("Save") { saveCaption(captionDraft) }
             Button("Cancel", role: .cancel) {}
         }
         .confirmationDialog("Delete this post?", isPresented: $confirmingDelete,
@@ -1905,11 +1901,33 @@ struct CrewPostSheet: View {
             rs.append(.init(id: "local-\(emoji)", reactorCode: svc.friendCode,
                             reactorName: svc.myName, emoji: emoji))
         }
+        let previous = localReactions
         withAnimation(DS.Motion.spring) { localReactions = rs }
         Task {
-            await svc.toggleCrewReaction(emoji: emoji, postId: post.id,
-                                         crewCode: post.crewCode, postAuthorCode: post.authorCode)
+            let saved = await svc.toggleCrewReaction(emoji: emoji, postId: post.id,
+                                                     crewCode: post.crewCode, postAuthorCode: post.authorCode)
+            guard saved else {
+                withAnimation(DS.Motion.spring) { localReactions = previous }
+                ToastCenter.shared.show("Couldn't save the reaction", style: .error)
+                return
+            }
             await reload()
+        }
+    }
+
+    /// Shows the new caption at once and puts the old one back if the save
+    /// fails.
+    private func saveCaption(_ text: String) {
+        let previous = caption
+        caption = text
+        Task {
+            if await svc.setCrewCaption(text, postId: post.id) {
+                ToastCenter.shared.show("Caption saved", style: .success)
+                await reload()
+            } else {
+                caption = previous
+                ToastCenter.shared.show("Couldn't save the caption", style: .error)
+            }
         }
     }
 
