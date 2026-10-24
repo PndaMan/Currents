@@ -40,11 +40,16 @@ struct ForecastDayPage: View {
                     VStack(alignment: .leading, spacing: 0) {
                         SectionTitle("Bite by hour")
                         VStack(spacing: 8) {
+                            // An hour is always chosen, so the box under the
+                            // chart has numbers in it from the start.
+                            let shown = shownHour(day)
                             BiteBars(hourly: day.result.hourlyScores, windows: day.windows,
                                      currentHour: day.isToday ? Calendar.current.component(.hour, from: .now) : nil,
-                                     selected: $selectedHour, height: 110, use24: use24)
+                                     selected: Binding(get: { shown }, set: { selectedHour = $0 }),
+                                     height: 110, use24: use24,
+                                     nowScore: day.isToday ? day.result.score : nil)
                             HourAxis(labels: use24 ? ["00:00", "06:00", "12:00", "18:00", "23:00"] : ["12 am", "6 am", "Noon", "6 pm", "11 pm"])
-                            HourInfoBox(store: store, day: day, hour: selectedHour, use24: use24)
+                            HourInfoBox(store: store, day: day, hour: shown, use24: use24)
                                 .padding(.top, 6)
                         }
                         .padding(.horizontal, DS.gutter)
@@ -96,6 +101,12 @@ struct ForecastDayPage: View {
         .navigationDestination(isPresented: $showAlerts) { AlertSettingsView() }
     }
 
+    /// The tapped hour, or the current hour today and the best hour on
+    /// other days.
+    private func shownHour(_ day: ForecastDay) -> Int {
+        selectedHour ?? (day.isToday ? Calendar.current.component(.hour, from: .now) : day.bestHour)
+    }
+
     // MARK: - Date strip
 
     private var dateStrip: some View {
@@ -106,8 +117,6 @@ struct ForecastDayPage: View {
 
     private func hero(_ day: ForecastDay) -> some View {
         let reason = day.result.reasons.first.map(ForecastFormat.clean) ?? ForecastFormat.guidance(day.peakScore)
-        let scoreNow = day.result.score
-        let sub = day.isToday ? "\(ForecastFormat.grade(scoreNow)) now, \(scoreNow) of 100. \(reason)" : reason
         return HStack(alignment: .center, spacing: 16) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(ForecastFormat.longDate(day.date))
@@ -118,7 +127,7 @@ struct ForecastDayPage: View {
                     .foregroundStyle(.dsText)
                     .fixedSize(horizontal: false, vertical: true)
                     .contentTransition(.opacity)
-                Text(sub)
+                Text(reason)
                     .font(.callout)
                     .foregroundStyle(.dsText2)
                     .fixedSize(horizontal: false, vertical: true)
@@ -164,14 +173,6 @@ struct ForecastDayPage: View {
     }
 }
 
-/// A short weather line for week rows and day cards.
-enum ForecastWeatherLine {
-    static func summary(_ w: WeatherService.WeatherData?, imperial: Bool = Units.isImperial) -> String? {
-        guard let w, !w.isEstimated else { return nil }
-        return "\(Units.temperature(w.temperatureC, imperial: imperial)), \(w.condition.lowercased()), wind \(Units.speed(kmh: w.windSpeedKmh, imperial: imperial))"
-    }
-}
-
 // MARK: - Week
 
 /// The next seven days: best day, a row per day and the all-week heatmap.
@@ -197,15 +198,12 @@ struct ForecastWeekPage: View {
 
                 bestDay(best)
 
-                VStack(spacing: 0) {
+                CardGroup(separatorInset: DS.Space.s4 + dateTile + 12) {
                     ForEach(days, id: \.offset) { d in
                         NavigationLink(value: ForecastRoute.day(offset: d.offset, hour: nil)) {
                             weekRow(d)
                         }
-                        .buttonStyle(.dsRow)
-                        if d.offset < 6 {
-                            Divider().overlay(Color.dsSeparator).padding(.leading, DS.gutter + 70)
-                        }
+                        .buttonStyle(.dsCardRow)
                     }
                 }
 
@@ -260,7 +258,7 @@ struct ForecastWeekPage: View {
     }
 
     private func weekRow(_ d: ForecastDay) -> some View {
-        HStack(spacing: 14) {
+        HStack(spacing: 12) {
             VStack(spacing: 0) {
                 Text(d.offset == 0 ? "Today" : ForecastFormat.shortDay(d.date))
                     .font(.footnote)
@@ -271,38 +269,64 @@ struct ForecastWeekPage: View {
                     .foregroundStyle(.dsText)
             }
             .frame(minWidth: dateTile, minHeight: dateTile)
-            .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.thumb, style: .continuous))
+            .background(Color.dsFill2, in: RoundedRectangle(cornerRadius: DS.Radius.thumb, style: .continuous))
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(ForecastFormat.grade(d.peakScore))
                     .font(.body.weight(.semibold))
                     .foregroundStyle(.dsText)
-                if let line = ForecastWeatherLine.summary(d.weather, imperial: units == "imperial") {
-                    Label(line, systemImage: WeatherIcon(condition: d.weather?.condition ?? "").systemName)
-                        .font(.subheadline)
-                        .foregroundStyle(.dsText2)
-                        .symbolRenderingMode(.hierarchical)
-                        .lineLimit(typeSize.isAccessibilitySize ? 3 : 1)
+                if let w = d.weather, !w.isEstimated {
+                    weather(w)
                 }
                 Text(d.bestWindow.map { "Best \(ForecastFormat.range($0, use24: use24))" } ?? "No standout window")
                     .font(.subheadline)
                     .foregroundStyle(.dsText2)
                     .monospacedDigit()
             }
-            Spacer(minLength: 4)
+            .frame(maxWidth: .infinity, alignment: .leading)
+
             VStack(alignment: .trailing, spacing: 4) {
                 Text("\(d.peakScore)")
                     .font(.title2.bold())
                     .monospacedDigit()
                     .foregroundStyle(DS.scoreInk(d.peakScore))
-                Sparkline(values: d.result.hourlyScores.map { Double($0.score) }, tint: DS.scoreColor(d.peakScore), lineWidth: 1.8)
+                Sparkline(values: d.result.hourlyScores.map { Double($0.score) }, tint: DS.scoreInk(d.peakScore), lineWidth: 1.8)
                     .frame(width: 64, height: 20)
             }
+            Image(systemName: "chevron.right")
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(.dsText3)
         }
-        .padding(.horizontal, DS.gutter)
+        .padding(.horizontal, DS.Space.s4)
         .padding(.vertical, 12)
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
+    }
+
+    /// The day's sky and temperature, then its wind, as two short labels side
+    /// by side, stacked when they do not fit.
+    private func weather(_ w: WeatherService.WeatherData) -> some View {
+        let imperial = units == "imperial"
+        let temperature = Units.temperature(w.temperatureC, imperial: imperial)
+        let wind = Units.speed(kmh: w.windSpeedKmh, imperial: imperial)
+        let sky = Label(temperature, systemImage: WeatherIcon(condition: w.condition).systemName)
+            .accessibilityLabel("\(w.condition), \(temperature)")
+        let breeze = Label(wind, systemImage: "wind")
+            .accessibilityLabel("Wind \(wind)")
+        return ViewThatFits(in: .horizontal) {
+            HStack(spacing: 12) {
+                sky
+                breeze
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                sky
+                breeze
+            }
+        }
+        .font(.subheadline)
+        .foregroundStyle(.dsText2)
+        .symbolRenderingMode(.hierarchical)
+        .monospacedDigit()
     }
 }
 
