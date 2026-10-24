@@ -59,6 +59,14 @@ struct SettingsView: View {
         }
     }
 
+    /// The subtitle under your name here. The title has its own badge below,
+    /// so only the home water shows.
+    private var headerSubtitle: String {
+        guard TitleFlair.resolve(storedTitle) != nil else { return subtitle }
+        let water = homeWater.trimmingCharacters(in: .whitespaces)
+        return water.isEmpty ? "" : "Fishing \(water)"
+    }
+
     private var theme: ThemeOption { ThemeOption(rawValue: selectedTheme) ?? .ocean }
 
     var body: some View {
@@ -191,8 +199,12 @@ struct SettingsView: View {
             .accessibilityLabel("Edit profile")
             .padding(.bottom, DS.Space.s1)
 
-            DetailHeader(title: displayName, subtitle: subtitle)
+            DetailHeader(title: displayName, subtitle: headerSubtitle)
                 .padding(.horizontal, -DS.gutter)
+
+            if TitleFlair.resolve(storedTitle) != nil {
+                TitleFlairChip(title: storedTitle)
+            }
 
             HStack(spacing: DS.Space.s5) {
                 statText(catches.count, "catches")
