@@ -1661,8 +1661,9 @@ struct FriendProfileView: View {
     }
 
     /// Online but the refresh failed: the catches below are the saved ones.
+    /// With none saved, the catches section offers the retry instead.
     @ViewBuilder private var refreshNotice: some View {
-        if catchesRefreshFailed && !connection.isOffline && !isSelf {
+        if catchesRefreshFailed && !connection.isOffline && !isSelf && !catches.isEmpty {
             EventNotice("Couldn't refresh catches", systemImage: "exclamationmark.icloud") {
                 Button("Try again") {
                     catchesRefreshFailed = false
@@ -1777,14 +1778,33 @@ struct FriendProfileView: View {
         showAllCatches ? catches : Array(catches.prefix(10))
     }
 
+    /// Offline, or the grant check couldn't reach iCloud: with nothing saved,
+    /// neither "not shared" nor "no catches" is known to be true.
+    private var catchesUnconfirmed: Bool {
+        !isSelf && (catchesRefreshFailed || connection.isOffline)
+    }
+
     private var catchesSection: some View {
         CrewSection(title: "Catches", detail: catchAccess && !catches.isEmpty ? "\(catches.count)" : nil) {
-            if !catchAccess && !catchesLoading {
-                InlineEmpty(systemImage: "lock",
-                                text: "\(isSelf ? "You haven't" : "This angler hasn't") shared their catch history with you.")
-            } else if catches.isEmpty && catchesLoading {
+            if catches.isEmpty && catchesLoading {
                 FishLoader(message: "Reeling in their catches")
                     .frame(height: 84).frame(maxWidth: .infinity)
+            } else if catches.isEmpty && catchesUnconfirmed {
+                if connection.isOffline {
+                    InlineEmpty(systemImage: "wifi.slash",
+                                text: "Offline. Their catches load when you're back online.")
+                } else {
+                    InlineEmpty(systemImage: "exclamationmark.icloud",
+                                text: "Couldn't load their catches.",
+                                actionTitle: "Try again") {
+                        catchesRefreshFailed = false
+                        catchesLoading = true
+                        Task { await load() }
+                    }
+                }
+            } else if !catchAccess {
+                InlineEmpty(systemImage: "lock",
+                                text: "\(isSelf ? "You haven't" : "This angler hasn't") shared their catch history with you.")
             } else if catches.isEmpty {
                 InlineEmpty(systemImage: "fish", text: "No catches shared yet.")
             } else {
