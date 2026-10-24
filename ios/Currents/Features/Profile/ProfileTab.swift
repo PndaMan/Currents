@@ -599,7 +599,10 @@ struct StorageSettingsView: View {
     @State private var dbSize: String?
     @State private var snapshots: [FileBackup.Snapshot] = []
     @State private var restoreSnapshot: FileBackup.Snapshot?
+    /// The snapshot confirmed in Backup history, restored once the sheet closes.
+    @State private var pendingRestore: FileBackup.Snapshot?
     @State private var showingHistory = false
+    @AppStorage("use24HourTime") private var use24 = true
 
     @State private var exportURL: URL?
     @State private var showingCSVImport = false
@@ -632,7 +635,7 @@ struct StorageSettingsView: View {
             }
         }
         .task { await load() }
-        .sheet(isPresented: $showingHistory) { historySheet }
+        .sheet(isPresented: $showingHistory, onDismiss: startPendingRestore) { historySheet }
         .sheet(item: $exportURL) { url in
             ShareSheet(url: url)
         }
@@ -652,19 +655,6 @@ struct StorageSettingsView: View {
             Button("Restore", role: .destructive) { Haptics.warning(); restoreFromCloud() }
         } message: {
             Text("Replaces everything on this phone with the iCloud backup. This cannot be undone.")
-        }
-        .confirmationDialog("Restore this backup?",
-                            isPresented: Binding(get: { restoreSnapshot != nil },
-                                                 set: { if !$0 { restoreSnapshot = nil } }),
-                            titleVisibility: .visible,
-                            presenting: restoreSnapshot) { snap in
-            Button("Restore", role: .destructive) {
-                Haptics.warning()
-                showingHistory = false
-                restoreFromSnapshot(snap)
-            }
-        } message: { snap in
-            Text("Replaces everything on this phone with the backup from \(ForecastFormat.longDate(snap.date)), \(ForecastFormat.time(snap.date)). This cannot be undone.")
         }
     }
 
@@ -713,8 +703,9 @@ struct StorageSettingsView: View {
             ScrollView {
                 CardSection(note: "The latest automatic backups on this phone.") {
                     ForEach(snapshots) { snap in
-                        CardRow("\(snap.date.formatted(.dateTime.day().month(.abbreviated))), \(ForecastFormat.time(snap.date))",
-                                subtitle: snap.formattedSize, systemImage: "externaldrive.fill", tint: .mint) {
+                        CardRow("\(snap.date.formatted(.dateTime.day().month(.abbreviated))), \(ForecastFormat.time(snap.date, use24: use24))",
+                                subtitle: snap.formattedSize, systemImage: "externaldrive.fill", tint: .mint,
+                                combinesChildren: false) {
                             Button("Restore") { restoreSnapshot = snap }
                                 .buttonStyle(TonalButtonStyle(fullWidth: false))
                                 .disabled(isBackingUp || isRestoring)
@@ -728,11 +719,26 @@ struct StorageSettingsView: View {
             .navigationTitle("Backup history")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .confirmationAction) { Button("Done") { showingHistory = false } }
+                ToolbarItem(placement: .confirmationAction) { SheetDoneButton() }
+            }
+            // The dialog lives inside the sheet so it can present over it.
+            // Restoring closes the sheet first; the restore itself starts
+            // once the sheet has gone, so its result alert can show.
+            .confirmationDialog("Restore this backup?",
+                                isPresented: Binding(get: { restoreSnapshot != nil },
+                                                     set: { if !$0 { restoreSnapshot = nil } }),
+                                titleVisibility: .visible,
+                                presenting: restoreSnapshot) { snap in
+                Button("Restore", role: .destructive) {
+                    Haptics.warning()
+                    pendingRestore = snap
+                    showingHistory = false
+                }
+            } message: { snap in
+                Text("Replaces everything on this phone with the backup from \(ForecastFormat.longDate(snap.date)), \(ForecastFormat.time(snap.date, use24: use24)). This cannot be undone.")
             }
         }
-        .presentationDetents([.medium, .large])
-        .presentationDragIndicator(.visible)
+        .dsSheet([.medium, .large])
     }
 
     // MARK: Actions
@@ -817,6 +823,12 @@ struct StorageSettingsView: View {
             }
             isBackingUp = false
         }
+    }
+
+    private func startPendingRestore() {
+        guard let snap = pendingRestore else { return }
+        pendingRestore = nil
+        restoreFromSnapshot(snap)
     }
 
     private func restoreFromSnapshot(_ snapshot: FileBackup.Snapshot) {
