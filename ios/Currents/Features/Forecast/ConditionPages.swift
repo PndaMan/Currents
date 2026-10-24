@@ -235,7 +235,7 @@ struct ConditionReading {
             let lit: Double = day.solunar.moonIllumination * 100
             let meaning: String = ConditionText.moonMeaning(day, use24: use24)
             return ConditionReading(label: "Moon", icon: "moon",
-                                    value: ConditionText.whole(lit), unit: "% lit", meaning: meaning)
+                                    value: ConditionText.whole(lit, suffix: "%"), unit: "lit", meaning: meaning)
         case .sun:
             let sun = ConditionText.sunEvent(day, store: store)
             // After sunset today the time is tomorrow's sunrise, so say so.
@@ -248,13 +248,15 @@ struct ConditionReading {
         case .sky:
             var icon = "cloud"
             var value = ConditionText.missing
+            var unit: String?
             var meaning = none
             if let w {
                 icon = WeatherIcon(condition: w.condition).systemName
-                value = "\(w.cloudCoverPct)"
+                value = "\(w.cloudCoverPct)%"
+                unit = "cloud"
                 meaning = ConditionText.skyMeaning(day, use24: use24)
             }
-            return ConditionReading(label: "Sky", icon: icon, value: value, unit: "% cloud", meaning: meaning)
+            return ConditionReading(label: "Sky", icon: icon, value: value, unit: unit, meaning: meaning)
         }
     }
 
@@ -913,7 +915,7 @@ struct ConditionPageModel {
         // The tile line falls back to the phase name; say it once.
         let subtitle = reading.meaning == name ? name : "\(name). \(reading.meaning)"
         return ConditionPageModel(
-            value: reading.value, unit: "% lit", subtitle: subtitle,
+            value: reading.value, unit: reading.unit, subtitle: subtitle,
             chartTitle: "Solunar pull through the day",
             chartCaption: "Darker shading marks the major periods, lighter shading the minor ones.",
             figures: figures, footnote: footnote
@@ -987,7 +989,7 @@ struct ConditionPageModel {
             }
         let caption: String? = wet ? (hourly ? "Solid bars are hours with rain." : "Solid bars are days with rain.") : nil
         return ConditionPageModel(
-            value: "\(w.cloudCoverPct)", unit: "% cloud", subtitle: reading.meaning,
+            value: reading.value, unit: reading.unit, subtitle: reading.meaning,
             chartTitle: chartTitle, chartCaption: caption,
             figures: figures, footnote: footnote
         )
