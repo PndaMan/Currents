@@ -666,7 +666,7 @@ struct CommunityView: View {
 
 /// Your own angler page, in Luma's profile structure: photo, name and code,
 /// title, bio and facts, a line of counts, the three actions, then your
-/// badges and the way out of Crew.
+/// badges and the switch that turns Crew off.
 struct MyProfileView: View {
     let stats: CommunityService.MyStats
     let catches: [CatchDetail]
@@ -699,7 +699,7 @@ struct MyProfileView: View {
                     AchievementsCard(catches: catches)
                         .padding(.horizontal, DS.gutter)
                 }
-                DangerButton(title: "Leave Crew", systemImage: "rectangle.portrait.and.arrow.right") {
+                DangerButton(title: "Turn off Crew", systemImage: "power") {
                     confirmLeave = true
                 }
                 .padding(.top, DS.Space.s8)
@@ -711,11 +711,11 @@ struct MyProfileView: View {
         .detailTint(nil)
         .eventPageTitle(svc.myName)
         .sheet(isPresented: $showingEdit) { ProfileEditView(stats: stats) }
-        .confirmationDialog("Leave Crew?", isPresented: $confirmLeave, titleVisibility: .visible) {
-            Button("Leave", role: .destructive) {
+        .confirmationDialog("Turn off Crew?", isPresented: $confirmLeave, titleVisibility: .visible) {
+            Button("Turn off Crew", role: .destructive) {
                 Haptics.warning()
                 svc.leave()
-                ToastCenter.shared.show("Left Crew", style: .info, haptic: false)
+                ToastCenter.shared.show("Crew turned off", style: .info, haptic: false)
                 dismiss()
             }
         } message: {
