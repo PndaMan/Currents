@@ -316,26 +316,11 @@ struct TodayTab: View {
         let reason = day.result.reasons.first.map(ForecastFormat.clean) ?? ForecastFormat.guidance(score)
         let currentHour = Calendar.current.component(.hour, from: .now)
         return VStack(alignment: .leading, spacing: 18) {
-            HStack(alignment: .center, spacing: 16) {
-                VStack(alignment: .leading, spacing: 4) {
-                    // The verdict already says "now", so the label names the hour.
-                    Text("This hour")
-                        .font(.subheadline)
-                        .foregroundStyle(.dsText2)
-                    Text(ForecastFormat.verdict(score))
-                        .font(.title.bold())
-                        .foregroundStyle(.dsText)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Text(reason)
-                        .font(.callout)
-                        .foregroundStyle(.dsText2)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                Spacer(minLength: 0)
+            // The verdict already says "now", so the label names the hour.
+            // PageHero puts the ring under the text at accessibility sizes.
+            PageHero(label: "This hour", value: ForecastFormat.verdict(score), callout: reason) {
                 ScoreRing(score: score, size: 100, caption: "of 100")
             }
-            .padding(.horizontal, DS.gutter)
-            .accessibilityElement(children: .combine)
 
             VStack(spacing: 8) {
                 BiteBars(hourly: day.result.hourlyScores, windows: day.windows,
