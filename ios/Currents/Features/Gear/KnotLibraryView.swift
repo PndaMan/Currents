@@ -101,7 +101,7 @@ struct KnotLibraryView: View {
             if saved {
                 Image(systemName: "star.fill")
                     .font(.footnote)
-                    .foregroundStyle(.yellow)
+                    .foregroundStyle(DS.ink(.dsScoreFair))
                     .accessibilityLabel("Saved")
             }
         }
@@ -136,19 +136,20 @@ enum KnotFavourites {
 }
 
 
-/// The knot's bundled illustration on white (the engravings are drawn on
-/// white paper), or its category symbol.
+/// The knot's bundled line art drawn in the text colour on the cyan tint,
+/// or its category symbol.
 struct KnotThumb: View {
     let knot: KnotEntry
     var size: CGFloat = 56
 
     var body: some View {
-        if let img = KnotImageStore.image(knot.imageName) {
+        if let art = KnotImageStore.lineArt(knot.imageName) {
             ThumbView(tint: .cyan, size: size) {
-                Image(uiImage: img)
+                Image(uiImage: art)
+                    .renderingMode(.template)
                     .resizable().scaledToFill()
+                    .foregroundStyle(Color.dsText)
                     .frame(width: size, height: size)
-                    .background(Color.white)
             }
             .accessibilityHidden(true)
         } else {
@@ -171,7 +172,7 @@ struct KnotDetailView: View {
     }
 
     private var isFavourite: Bool { KnotFavourites.contains(knot, in: KnotFavourites.decode(favouritesRaw)) }
-    private var diagram: UIImage? { KnotImageStore.image(knot.imageName) }
+    private var diagram: UIImage? { KnotImageStore.lineArt(knot.imageName) }
 
     private var shareText: String {
         let steps = knot.steps.enumerated().map { "\($0.offset + 1). \($0.element)" }.joined(separator: "\n")
@@ -200,10 +201,12 @@ struct KnotDetailView: View {
                     VStack(alignment: .leading, spacing: DS.Space.s2) {
                         Button { showsDiagram = true } label: {
                             Image(uiImage: img)
+                                .renderingMode(.template)
                                 .resizable().scaledToFit()
+                                .foregroundStyle(Color.dsText)
                                 .frame(maxWidth: .infinity)
                                 .padding(DS.Space.s3)
-                                .background(Color.white, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
+                                .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
                         }
                         .buttonStyle(.dim)
                         .accessibilityLabel("Diagram of the \(knot.name.lowercased())")
@@ -245,8 +248,8 @@ struct KnotDetailView: View {
                 .dsSheet(stepDetents)
         }
         .fullScreenCover(isPresented: $showsDiagram) {
-            if let img = diagram {
-                KnotDiagramViewer(title: knot.name, image: img)
+            if diagram != nil {
+                KnotDiagramViewer(title: knot.name, imageName: knot.imageName)
             }
         }
     }
@@ -361,13 +364,15 @@ private struct KnotStepSheet: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: DS.Space.s4) {
-                    if let img = KnotImageStore.image(knot.imageName) {
-                        Image(uiImage: img)
+                    if let art = KnotImageStore.lineArt(knot.imageName) {
+                        Image(uiImage: art)
+                            .renderingMode(.template)
                             .resizable().scaledToFit()
+                            .foregroundStyle(Color.dsText)
                             .frame(maxHeight: 180)
                             .padding(DS.Space.s3)
                             .frame(maxWidth: .infinity)
-                            .background(Color.white, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
+                            .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
                             .accessibilityHidden(true)
                     }
                     HStack(spacing: 6) {
@@ -433,16 +438,25 @@ private struct KnotStepSheet: View {
 }
 
 /// The diagram on its own, pinch or double-tap to zoom, for reading the
-/// wraps at the water. Zooming reuses the photo viewer's `ZoomableImage`.
+/// wraps at the water. Zooming reuses the photo viewer's `ZoomableImage`,
+/// a UIKit view that ignores SwiftUI's foreground style, so it gets the line
+/// art already drawn in the text colour for the current appearance.
 private struct KnotDiagramViewer: View {
     let title: String
-    let image: UIImage
+    let imageName: String?
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var scheme
 
     var body: some View {
         NavigationStack {
-            ZoomableImage(image: image)
-                .background(Color.white)
+            Group {
+                if let art = KnotImageStore.lineArt(imageName, scheme: scheme) {
+                    ZoomableImage(image: art)
+                } else {
+                    Color.clear
+                }
+            }
+                .background(Color.dsFill)
                 .clipShape(RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
                 .padding(DS.gutter)
                 .dsScreenBackground()
@@ -463,6 +477,7 @@ private struct KnotDiagramViewer: View {
 /// Loads bundled knot images from the Resources/Knots folder reference.
 enum KnotImageStore {
     private static var cache: [String: UIImage] = [:]
+    private static var artCache: [String: UIImage] = [:]
     static func image(_ name: String?) -> UIImage? {
         guard let name else { return nil }
         if let cached = cache[name] { return cached }
@@ -473,6 +488,69 @@ enum KnotImageStore {
               let img = UIImage(contentsOfFile: url.path) else { return nil }
         cache[name] = img
         return img
+    }
+
+    /// The diagram with its paper taken out, as a template image. The
+    /// engravings are dark lines on white paper with no transparency, which
+    /// glares in dark mode, so each pixel's darkness becomes its opacity and
+    /// the lines then draw in any colour on any tint.
+    static func lineArt(_ name: String?) -> UIImage? {
+        guard let name else { return nil }
+        if let cached = artCache[name] { return cached }
+        guard let source = image(name), let art = removingPaper(from: source) else { return nil }
+        artCache[name] = art
+        return art
+    }
+
+    /// The line art drawn in the text colour for one appearance, for UIKit
+    /// views. Cached, so the zoom view keeps the same image between updates.
+    @MainActor static func lineArt(_ name: String?, scheme: ColorScheme) -> UIImage? {
+        guard let name, let art = lineArt(name) else { return nil }
+        let key = "\(name)|\(scheme == .dark ? "dark" : "light")"
+        if let cached = artCache[key] { return cached }
+        let renderer = ImageRenderer(content: Image(uiImage: art)
+            .renderingMode(.template)
+            .foregroundStyle(Color.dsText)
+            .environment(\.colorScheme, scheme))
+        renderer.scale = art.scale
+        guard let drawn = renderer.uiImage else { return nil }
+        artCache[key] = drawn
+        return drawn
+    }
+
+    /// Turns paper white into clear and ink into opaque white. A contrast
+    /// step around mid grey drops the paper (about 90 percent white) to
+    /// nothing while the inked lines stay solid.
+    private static func removingPaper(from image: UIImage) -> UIImage? {
+        guard let cg = image.cgImage else { return nil }
+        let width = cg.width
+        let height = cg.height
+        guard width > 0, height > 0 else { return nil }
+        let ink: [UInt8] = (0..<256).map { level in
+            let boosted = (Double(level) / 255 - 0.5) * 1.6 + 0.5
+            return UInt8(((1 - min(1, max(0, boosted))) * 255).rounded())
+        }
+        var pixels = [UInt8](repeating: 0, count: width * height * 4)
+        let output: CGImage? = pixels.withUnsafeMutableBytes { buffer in
+            guard let context = CGContext(data: buffer.baseAddress, width: width, height: height,
+                                          bitsPerComponent: 8, bytesPerRow: width * 4,
+                                          space: CGColorSpaceCreateDeviceRGB(),
+                                          bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+            else { return nil }
+            context.draw(cg, in: CGRect(x: 0, y: 0, width: width, height: height))
+            // Premultiplied white: every channel equals the alpha.
+            for i in stride(from: 0, to: buffer.count, by: 4) {
+                let alpha = ink[Int(buffer[i])]
+                buffer[i] = alpha
+                buffer[i + 1] = alpha
+                buffer[i + 2] = alpha
+                buffer[i + 3] = alpha
+            }
+            return context.makeImage()
+        }
+        guard let output else { return nil }
+        return UIImage(cgImage: output, scale: image.scale, orientation: image.imageOrientation)
+            .withRenderingMode(.alwaysTemplate)
     }
 }
 
