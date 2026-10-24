@@ -253,6 +253,7 @@ struct CrewDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(AppState.self) private var appState
     @StateObject private var svc = CommunityService.shared
+    @ObservedObject private var connection = CrewConnection.shared
     @State private var crew: CommunityService.Crew?
     @State private var members: [CommunityService.GroupMember] = []
     @State private var memberAvatars: [String: UIImage] = [:]
@@ -397,9 +398,15 @@ struct CrewDetailView: View {
     }
 
     private var unavailable: some View {
+        // Offline is never reported as a crew that doesn't exist.
         CardGroup {
-            CardRow("Crew not available", subtitle: "It may be deleted, or you're offline.",
-                    systemImage: "person.3.fill", tint: CrewTint.lock)
+            if connection.isOffline {
+                CardRow("Can't reach Crew right now", subtitle: "The crew loads once you're back online.",
+                        systemImage: "wifi.slash", tint: .orange)
+            } else {
+                CardRow("Crew not available", subtitle: "It may have been deleted.",
+                        systemImage: "person.3.fill", tint: .orange)
+            }
         }
         .padding(.top, DS.Space.s8)
     }
@@ -734,7 +741,7 @@ struct CrewDetailView: View {
                 TournamentHistoryView(crew: crew)
             } label: {
                 ArtRow(title: "All tournaments", subtitle: tournamentHint, chevron: true) {
-                    ThumbView(systemImage: "clock.arrow.circlepath", tint: .dsText2)
+                    ThumbView(systemImage: "clock.arrow.circlepath", tint: .dsScoreFair)
                 }
             }
             .buttonStyle(.dsRow)
@@ -780,7 +787,7 @@ struct CrewDetailView: View {
         case .captain: .dsScoreFair
         case .mate:    .dsScoreLow
         case .admin:   DS.accent
-        case .member:  .dsText2
+        case .member:  .blue
         }
     }
 
@@ -1555,7 +1562,7 @@ struct CrewSettingsView: View {
                     .lineLimit(1)
                 Text(role.label)
                     .font(.subheadline)
-                    .foregroundStyle(CrewDetailView.roleColor(role))
+                    .foregroundStyle(DS.ink(CrewDetailView.roleColor(role)))
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             if busyMember == m.id {
