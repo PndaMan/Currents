@@ -66,8 +66,8 @@ struct BiteStrip: View {
                 .padding(.top, DS.Space.s1)
             }
 
-            if bite.allPassed, let line = bite.bestLine(use24: use24HourTime) {
-                Text(line + ".")
+            if let note = footnote {
+                Text(note)
                     .font(.footnote)
                     .foregroundStyle(.dsText2)
                     .fixedSize(horizontal: false, vertical: true)
@@ -79,6 +79,14 @@ struct BiteStrip: View {
 
     private var axis: [String] {
         use24HourTime ? ["00:00", "06:00", "12:00", "18:00", "23:00"] : ["12 am", "6 am", "Noon", "6 pm", "11 pm"]
+    }
+
+    /// The one line under the tiles: tomorrow's best once today's windows
+    /// are over, or that today has none.
+    private var footnote: String? {
+        if bite.windows.isEmpty { return "No strong window today." }
+        guard bite.allPassed, let line = bite.bestLine(use24: use24HourTime) else { return nil }
+        return line + "."
     }
 
     private func barColor(_ p: (hour: Int, score: Int)) -> Color {

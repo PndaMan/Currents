@@ -11,7 +11,6 @@ struct ExplorePlacePage: View {
 
     @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss
-    @AppStorage("use24HourTime") private var use24HourTime = true
     @AppStorage("cloudSyncEnabled") private var cloudSyncEnabled = false
 
     let style: Style
@@ -273,15 +272,15 @@ struct ExplorePlacePage: View {
 
     // MARK: Header and actions
 
+    /// Name and the day's grade beside the ring. The windows are told once,
+    /// under the bite strip.
     private var header: some View {
         HStack(alignment: .center, spacing: DS.Space.s3) {
             DetailHeader(
                 over: overLine,
                 title: name,
                 subtitle: bite.map { (bite: BiteSnapshot) -> String in
-                    let grade = "\(ForecastFormat.grade(bite.day)) today"
-                    guard let line = bite.bestLine(use24: use24HourTime) else { return grade + ", no strong window" }
-                    return "\(grade). \(line)"
+                    "\(ForecastFormat.grade(bite.day)) today"
                 }
             )
             if let bite {
