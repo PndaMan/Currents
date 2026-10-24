@@ -110,12 +110,9 @@ struct CrewSetupView: View {
             VStack(alignment: .leading, spacing: DS.Space.s5) {
                 setupHero
                     .padding(.horizontal, -DS.gutter)
-                Picker("Start or join", selection: $mode) {
-                    Text("Start a crew").tag(CrewSetupMode.start)
-                    Text("Join a crew").tag(CrewSetupMode.join)
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
+                FilterChips([CrewSetupMode.start, .join], selection: $mode,
+                            title: { $0 == .start ? "Start a crew" : "Join a crew" })
+                    .padding(.horizontal, -DS.gutter)
 
                 if mode == .start { startForm } else { joinForm }
             }
@@ -755,23 +752,16 @@ struct CrewDetailView: View {
     // MARK: Settings
 
     private func settingsSection(_ crew: CommunityService.Crew) -> some View {
-        CrewSection(title: "Settings") {
+        CardSection("Settings") {
             Button { copyCode() } label: {
-                CrewListRow(title: "Crew code", systemImage: "number") {
-                    Text(crew.code)
-                        .font(.body.monospaced().weight(.semibold))
-                        .foregroundStyle(.dsText2)
-                }
+                CardRow("Crew code", systemImage: "number", tint: .blue, value: crew.code)
             }
-            .buttonStyle(.dim)
+            .buttonStyle(.dsCardRow)
             .accessibilityHint("Copies the crew code")
-            CrewListRow(title: "Post my catches here", systemImage: "arrow.up.circle.fill") {
-                Toggle("Post my catches here", isOn: autoPostBinding(crew))
-                    .labelsHidden()
-                    .tint(DS.accent)
-            }
-            SectionFootnote("Catches you log are also posted to this crew while this is on.")
+            CardToggleRow("Post my catches here", systemImage: "arrow.up.circle.fill", tint: .dsScoreGood,
+                          isOn: autoPostBinding(crew))
         }
+        .padding(.top, DS.Space.s6)
     }
 
     private func autoPostBinding(_ crew: CommunityService.Crew) -> Binding<Bool> {
