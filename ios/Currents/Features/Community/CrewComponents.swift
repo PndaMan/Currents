@@ -225,14 +225,15 @@ struct CrewPersonCell: View {
 }
 
 /// Luma's avatar: the photo, or the first letter on a colour derived from the
-/// name, so every angler is recognisable before their picture loads.
+/// name, so every angler is recognisable before their picture loads. No red
+/// in the palette: a red face reads as an alert.
 struct CrewAvatar: View {
     let image: UIImage?
     let name: String
     var size: CGFloat = 44
 
     private static var palette: [Color] {
-        [DS.accent, .dsScoreSlow, .dsScoreLow, .dsScoreFair, .dsScoreGood]
+        [DS.accent, .dsScoreLow, .dsScoreFair, .dsScoreGood]
     }
 
     private var colour: Color {
@@ -830,16 +831,22 @@ struct CrewHeroImage: View {
     }
 }
 
-/// Up to three overlapping member avatars for the end of a crew row.
+/// Up to three overlapping member avatars for the end of a crew row. You are
+/// your own photo, as in the crew's Members section.
 struct CrewAvatarStack: View {
     let members: [CommunityService.GroupMember]
     var size: CGFloat = 26
 
+    private func avatar(_ m: CommunityService.GroupMember) -> UIImage? {
+        let svc = CommunityService.shared
+        let cached = svc.cachedProfiles(for: [m.id]).first?.avatar
+        return m.id == svc.friendCode ? (svc.myAvatar ?? cached) : cached
+    }
+
     var body: some View {
         HStack(spacing: -size * 0.3) {
             ForEach(members.prefix(3)) { m in
-                CrewAvatar(image: CommunityService.shared.cachedProfiles(for: [m.id]).first?.avatar,
-                           name: m.name, size: size)
+                CrewAvatar(image: avatar(m), name: m.name, size: size)
                     .overlay(Circle().stroke(Color.dsBackground, lineWidth: 2))
             }
         }
