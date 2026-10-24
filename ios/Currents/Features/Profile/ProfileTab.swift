@@ -782,15 +782,21 @@ struct StorageSettingsView: View {
             CardToggleRow("Automatic daily backup",
                           subtitle: iCloudAvailable ? "On this phone and to iCloud" : "On this phone",
                           systemImage: "clock.arrow.circlepath", tint: .blue, isOn: $autoBackupEnabled)
-            // The logbook's size, measured as the bar above measures it.
-            Button { backUpNow() } label: {
-                CardRow(isBackingUp ? "Backing up" : "Back up now", systemImage: "icloud.and.arrow.up.fill",
-                        tint: .cyan, value: isBackingUp ? nil : usage.map { StorageUsage.format($0.logbook) }) {
-                    if isBackingUp { ProgressView() }
+            // The page's main action, as a button on the row. The size is
+            // the logbook's, measured as the bar above measures it.
+            CardRow("Logbook backup", subtitle: isBackingUp ? "Backing up" : usage.map { StorageUsage.format($0.logbook) },
+                    systemImage: "icloud.and.arrow.up.fill", tint: .cyan, combinesChildren: false) {
+                Button { backUpNow() } label: {
+                    if isBackingUp {
+                        ProgressView()
+                    } else {
+                        Text("Back up")
+                    }
                 }
+                .buttonStyle(TonalButtonStyle(fullWidth: false))
+                .disabled(isBackingUp || isRestoring)
+                .accessibilityLabel(isBackingUp ? "Backing up" : "Back up now")
             }
-            .buttonStyle(.dsCardRow)
-            .disabled(isBackingUp || isRestoring)
             if let date = lastBackupDate {
                 CardRow("Last backup", systemImage: "checkmark.circle.fill", tint: .green) {
                     Text(date, format: .relative(presentation: .named))
@@ -819,7 +825,7 @@ struct StorageSettingsView: View {
     /// What a backup holds, or the last automatic backup that failed.
     private var backupNote: String {
         if let failed = lastAutoFailure {
-            return "The automatic backup on \(ForecastFormat.longDate(failed)) failed. Try Back up now."
+            return "The automatic backup on \(ForecastFormat.longDate(failed)) failed. Tap Back up to try again."
         }
         return "Catches, spots, gear and licence details. Photos are kept in your iPhone backup."
     }
