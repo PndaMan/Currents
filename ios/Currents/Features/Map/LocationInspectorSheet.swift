@@ -8,6 +8,7 @@ import CoreLocation
 struct LocationInspectorSheet: View {
     @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dynamicTypeSize) private var typeSize
     @AppStorage("use24HourTime") private var use24HourTime = true
 
     let coordinate: CLLocationCoordinate2D
@@ -88,16 +89,17 @@ struct LocationInspectorSheet: View {
         return ExploreFormat.coords(coordinate)
     }
 
-    /// The place sheet's header: name and grade beside the ring, then the
-    /// window in one footnote across the sheet.
+    /// The place sheet's header: name and grade beside the ring (the ring
+    /// under them at accessibility sizes), then the window in one footnote
+    /// across the sheet.
     private var header: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .center, spacing: DS.Space.s3) {
+            headerLayout {
                 DetailHeader(over: subheading, title: heading,
                              subtitle: bite.map { "\(ForecastFormat.grade($0.now)) now" })
                 if let bite {
                     ScoreRing(score: bite.now, size: 88, caption: "now")
-                        .padding(.trailing, DS.gutter)
+                        .padding(typeSize.isAccessibilitySize ? Edge.Set.leading : Edge.Set.trailing, DS.gutter)
                 }
             }
             if let windowLine {
@@ -105,6 +107,12 @@ struct LocationInspectorSheet: View {
             }
         }
         .padding(.top, DS.Space.s2)
+    }
+
+    private var headerLayout: AnyLayout {
+        typeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: DS.Space.s3))
+            : AnyLayout(HStackLayout(alignment: .center, spacing: DS.Space.s3))
     }
 
     /// "Best 06:00 to 09:00, peaking at 81."
