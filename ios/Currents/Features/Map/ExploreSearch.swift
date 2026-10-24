@@ -146,6 +146,7 @@ struct ExploreSearchPane: View {
                 }
                 .padding(.bottom, DS.Space.s8)
                 .pageWidth()
+                .placeThumbsTogether()
             }
             .scrollDismissesKeyboard(.immediately)
         }

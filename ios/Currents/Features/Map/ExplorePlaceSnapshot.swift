@@ -6,6 +6,8 @@ import Network
 /// a pin in the middle. Water is framed whole, without a pin. Rendered once
 /// per place, map style and appearance, then kept on disk. The glyph
 /// thumbnail shows while it renders and whenever there is no connection.
+/// Inside `placeThumbsTogether()` the rows on screen show their maps
+/// together, once all of them are ready.
 /// A spot with its own picture (a photo or a collage of its catches) shows
 /// that instead, and the map only when the picture cannot be found.
 struct PlaceSnapshotThumb: View {
@@ -23,6 +25,7 @@ struct PlaceSnapshotThumb: View {
 
     @Environment(\.colorScheme) private var scheme
     @Environment(\.displayScale) private var displayScale
+    @Environment(\.placeThumbGroup) private var group
     @AppStorage("mapStyleOption") private var mapStyleRaw = MapTab.MapStyleOption.standard.rawValue
     @State private var image: UIImage?
     @State private var coverImage: UIImage?
@@ -51,6 +54,7 @@ struct PlaceSnapshotThumb: View {
     /// waits until that picture turns out to be missing.
     private var shown: UIImage? {
         guard cover == nil || coverMissing else { return nil }
+        if let group, !group.showsMaps { return nil }
         return image ?? PlaceSnapshots.cached(request.key)
     }
 
@@ -74,11 +78,16 @@ struct PlaceSnapshotThumb: View {
         }
         .frame(width: size, height: size)
         .animation(.easeOut(duration: DS.Motion.fast), value: coverShown != nil || shown != nil)
+        .onAppear {
+            group?.appeared(request.key, ready: coverShown != nil || PlaceSnapshots.cached(request.key) != nil)
+        }
         .task(id: loadKey) { await load() }
         .accessibilityHidden(true)
     }
 
     private func load() async {
+        let key = request.key
+        defer { group?.finished(key) }
         if let cover {
             coverImage = nil
             coverMissing = false
@@ -134,6 +143,68 @@ extension PlaceSnapshotThumb {
     /// About two and a half times the water's width, within sensible bounds.
     static func span(for water: Waterbody) -> CLLocationDistance {
         min(max(water.approximateRadiusM * 2.6, 600), 20_000)
+    }
+}
+
+/// Lets a list show its place maps together. The rows on screen when the
+/// list opens keep their glyphs until every one of them has its map (or a
+/// few seconds have passed), then all change at once. Rows scrolled in
+/// after that load on their own, like anywhere else.
+@MainActor
+@Observable
+final class PlaceThumbGroup {
+    /// Rows on screen at the start whose map is still loading.
+    private var waiting = Set<String>()
+    private(set) var settled = false
+    @ObservationIgnored private var started: Date?
+
+    var showsMaps: Bool { settled || waiting.isEmpty }
+
+    /// A row came on screen. `ready` when its map is already in memory.
+    func appeared(_ key: String, ready: Bool) {
+        if started == nil {
+            started = .now
+            Task { [weak self] in
+                try? await Task.sleep(for: .seconds(3))
+                self?.settled = true
+            }
+        }
+        guard !settled, !ready, let start = started, Date.now.timeIntervalSince(start) < 0.5 else { return }
+        waiting.insert(key)
+    }
+
+    /// A row's map loaded, or turned out not to be available.
+    func finished(_ key: String) {
+        guard waiting.remove(key) != nil, waiting.isEmpty else { return }
+        settled = true
+    }
+}
+
+private struct PlaceThumbGroupKey: EnvironmentKey {
+    static let defaultValue: PlaceThumbGroup? = nil
+}
+
+extension EnvironmentValues {
+    /// The list that shows its place maps together, if any.
+    var placeThumbGroup: PlaceThumbGroup? {
+        get { self[PlaceThumbGroupKey.self] }
+        set { self[PlaceThumbGroupKey.self] = newValue }
+    }
+}
+
+private struct PlaceThumbsTogether: ViewModifier {
+    @State private var group = PlaceThumbGroup()
+
+    func body(content: Content) -> some View {
+        content.environment(\.placeThumbGroup, group)
+    }
+}
+
+extension View {
+    /// The place thumbnails inside show their maps together instead of one
+    /// by one as each render lands. For lists of places.
+    func placeThumbsTogether() -> some View {
+        modifier(PlaceThumbsTogether())
     }
 }
 

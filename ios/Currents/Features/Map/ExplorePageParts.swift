@@ -291,6 +291,7 @@ struct ExploreNearbyPlaces: View {
             }
         }
         .padding(.top, list.isEmpty ? 0 : DS.Space.s8)
+        .placeThumbsTogether()
         .task {
             // Bundled places load instantly; outside the bundle this waits
             // for the map to have fetched them rather than calling out here.

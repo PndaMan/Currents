@@ -172,6 +172,7 @@ struct LocationInspectorSheet: View {
                     .buttonStyle(.dsRow)
                 }
             }
+            .placeThumbsTogether()
         }
     }
 
@@ -201,6 +202,7 @@ struct LocationInspectorSheet: View {
                 }
             }
         }
+        .placeThumbsTogether()
     }
 
     // MARK: - Biting

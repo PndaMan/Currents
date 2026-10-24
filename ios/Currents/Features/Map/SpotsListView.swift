@@ -67,6 +67,7 @@ struct SpotsListView: View {
             }
             .padding(.bottom, 40)
             .pageWidth()
+            .placeThumbsTogether()
         }
         .detailScrollEdge()
         .exploreInlineTitle("Your spots")
@@ -265,6 +266,7 @@ struct WaterListView: View {
             }
             .padding(.bottom, 40)
             .pageWidth()
+            .placeThumbsTogether()
         }
         .detailScrollEdge()
         .exploreInlineTitle("Water")
@@ -394,6 +396,7 @@ struct RampListView: View {
             }
             .padding(.bottom, 40)
             .pageWidth()
+            .placeThumbsTogether()
         }
         .detailScrollEdge()
         .exploreInlineTitle("Ramps and access")
