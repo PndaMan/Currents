@@ -27,7 +27,9 @@ struct ArtRow<Leading: View, Trailing: View>: View {
     }
 
     var body: some View {
-        HStack(spacing: 14) {
+        // Top-aligned at accessibility sizes, so the art sits by the title
+        // rather than in the middle of a tall block of text.
+        HStack(alignment: isLarge ? .top : .center, spacing: 14) {
             leading
             VStack(alignment: .leading, spacing: 2) {
                 if let over, !over.isEmpty {

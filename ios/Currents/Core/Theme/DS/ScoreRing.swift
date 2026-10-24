@@ -12,6 +12,7 @@ struct ScoreRing: View {
 
     @State private var shown: Double = 0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     private var clamped: Int { min(100, max(0, score)) }
     private var stroke: CGFloat { lineWidth ?? size * 0.1 }
@@ -31,7 +32,9 @@ struct ScoreRing: View {
                     .monospacedDigit()
                     .foregroundStyle(.dsText)
                     .contentTransition(.numericText(value: Double(clamped)))
-                if let caption {
+                // The ring does not grow with text size, so the caption is
+                // dropped at accessibility sizes; the label still reads it.
+                if let caption, !typeSize.isAccessibilitySize {
                     Text(caption)
                         .font(.system(size: max(10, size * 0.12)))
                         .foregroundStyle(.dsText2)
