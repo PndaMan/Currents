@@ -1800,7 +1800,7 @@ struct TeamTournamentDetailView: View {
     private var endedLine: String {
         tournament.isEnded
             ? "Finished \(eventOrdinal(place))"
-            : "Session ended, \(eventOrdinal(place)) place"
+            : "Group trip ended, \(eventOrdinal(place)) place"
     }
 
     private var summaryLine: String {
@@ -1814,7 +1814,7 @@ struct TeamTournamentDetailView: View {
             ActionTriple {
                 Button { showingLog = true } label: { Label("Log catch", systemImage: "plus") }
                     .buttonStyle(ActionTileStyle(.primary))
-                sessionTile("Session", systemImage: "dot.radiowaves.left.and.right", kind: .tonal)
+                sessionTile("Group trip", systemImage: "dot.radiowaves.left.and.right", kind: .tonal)
                 scoringTile
             }
         } else if !ended {
@@ -1833,18 +1833,18 @@ struct TeamTournamentDetailView: View {
                     ActionTileLabel("Your track", systemImage: "map", kind: .primary)
                 }
                 .buttonStyle(.dim)
-                sessionTile("Session", systemImage: "dot.radiowaves.left.and.right", kind: .tonal)
+                sessionTile("Group trip", systemImage: "dot.radiowaves.left.and.right", kind: .tonal)
                 scoringTile
             }
         } else {
             ActionTriple {
-                sessionTile("Session", systemImage: "dot.radiowaves.left.and.right", kind: .primary)
+                sessionTile("Group trip", systemImage: "dot.radiowaves.left.and.right", kind: .primary)
                 scoringTile
             }
         }
     }
 
-    /// The team's live session page: the feed, GPS and log-to-trip for
+    /// The team's group trip page: the feed, GPS and log-to-trip for
     /// members, the join confirmation for everyone else.
     private func sessionTile(_ title: String, systemImage: String, kind: ActionTileKind) -> some View {
         NavigationLink {
@@ -1945,7 +1945,7 @@ struct TeamTournamentDetailView: View {
 
     @ViewBuilder private func anglerRow(_ line: AnglerLine) -> some View {
         let isMe = line.code == svc.friendCode
-        let row = ArtRow(over: line.code == standing.hostCode ? "Started the session" : nil,
+        let row = ArtRow(over: line.code == standing.hostCode ? "Started the group trip" : nil,
                          title: isMe ? "You" : line.name,
                          subtitle: line.fish == 0 ? "No catches yet"
                              : "\(line.fish) fish, \(Units.weight(kg: line.kg, imperial: imperial))",
