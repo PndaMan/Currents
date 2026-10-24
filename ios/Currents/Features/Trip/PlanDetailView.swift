@@ -27,6 +27,8 @@ struct PlanDetailView: View {
     @State private var titleShown = false
     @FocusState private var addingItem: Bool
     @Environment(\.dynamicTypeSize) private var typeSize
+    /// Hairlines start under the item names, past the check circle.
+    @ScaledMetric(relativeTo: .title3) private var checklistInset: CGFloat = 50
 
     private var tracker: TripTracker { appState.tripTracker }
 
@@ -79,8 +81,11 @@ struct PlanDetailView: View {
                     DetailHeader(over: LogbookFormat.longDay(date),
                                  title: trip.name,
                                  subtitle: "Planned for \(ForecastFormat.time(date, use24: use24))")
-                    if let forecast, let peak = forecast.hourlyScores.map(\.score).max() {
-                        ScoreRing(score: peak, size: 64, caption: "best")
+                    // The best of the planned hours, as the Sessions row
+                    // rings it; the day's own peak has its window tile.
+                    if let forecast, !forecast.hourlyScores.isEmpty {
+                        let best = PlanRowOutlook.hoursBest(forecast, from: Calendar.current.component(.hour, from: date))
+                        ScoreRing(score: best, size: 64, caption: "your hours")
                             .padding(.trailing, DS.gutter)
                             .padding(.top, DS.Space.s2)
                     }
@@ -147,7 +152,7 @@ struct PlanDetailView: View {
         if let forecast, !forecast.hourlyScores.isEmpty {
             let cal = Calendar.current
             let plannedHour = cal.component(.hour, from: date)
-            let window = plannedHour...(min(23, plannedHour + 3))
+            let window = PlanRowOutlook.hours(from: plannedHour)
             let windows = BiteWindows.best(from: forecast.hourlyScores)
             let shownHour = selectedHour ?? plannedHour
             let bestHour = forecast.hourlyScores.max { $0.score < $1.score }?.hour ?? plannedHour
@@ -164,30 +169,45 @@ struct PlanDetailView: View {
             }
             .padding(.horizontal, DS.gutter)
 
-            // One row of three, as the streak tiles are, so the tiles share a
-            // height and their footnotes line up. Stacked at accessibility sizes.
+            // One row of three, as the streak tiles are. Each tile stretches
+            // to the row and keeps a visual slot, so the footnotes all sit at
+            // the foot. Stacked at accessibility sizes.
             let tileRow = typeSize.isAccessibilitySize
                 ? AnyLayout(VStackLayout(spacing: 10))
                 : AnyLayout(HStackLayout(alignment: .top, spacing: 10))
             tileRow {
-                let planned = forecast.hourlyScores.filter { window.contains($0.hour) }.map(\.score)
                 // The readout above shows one hour, so this says it is the
                 // best of the planned hours rather than a second "Your hours".
                 ConditionTile("Your hours", systemImage: "clock", iconTint: DS.accent,
-                              value: planned.max().map { "\($0)" } ?? "\(forecast.score)", unit: "best",
-                              footnote: "\(ForecastFormat.hour(window.lowerBound, use24: use24)) to \(ForecastFormat.hour(window.upperBound + 1, use24: use24))")
+                              value: "\(PlanRowOutlook.hoursBest(forecast, from: plannedHour))", unit: "best",
+                              footnote: "\(ForecastFormat.hour(window.lowerBound, use24: use24)) to \(ForecastFormat.hour(window.upperBound + 1, use24: use24))") {
+                    Color.clear
+                }
+                .frame(maxHeight: .infinity)
                 if let solunar {
-                    ConditionTile("Sunrise", systemImage: "sunrise.fill", iconTint: .dsScoreLow,
+                    ConditionTile("Sunrise", systemImage: "sunrise.fill", iconTint: ForecastCondition.sun.tint,
                                   value: ForecastFormat.time(solunar.sunrise, use24: use24),
-                                  footnote: "Sunset \(ForecastFormat.time(solunar.sunset, use24: use24))")
-                    ConditionTile("Moon", systemImage: "moon.fill", iconTint: .dsScoreFair,
-                                  value: "\(Int((solunar.moonIllumination * 100).rounded()))", unit: "%",
-                                  footnote: CatchDetailView.sentenceCase(solunar.moonPhase.displayName)) {
-                        Image(systemName: solunar.moonPhase.symbolName)
-                            .font(.title)
-                            .foregroundStyle(.dsText2)
-                            .accessibilityHidden(true)
+                                  footnote: "Sunset \(ForecastFormat.time(solunar.sunset, use24: use24))") {
+                        PlanTileVisual {
+                            SunArc(sunrise: solunar.sunrise, sunset: solunar.sunset, now: nil,
+                                   tint: ForecastCondition.sun.ink)
+                        }
                     }
+                    .frame(maxHeight: .infinity)
+                    ConditionTile("Moon", systemImage: "moon.fill", iconTint: ForecastCondition.moon.tint,
+                                  value: "\(Int((solunar.moonIllumination * 100).rounded()))%",
+                                  footnote: CatchDetailView.sentenceCase(solunar.moonPhase.displayName)) {
+                        PlanTileVisual {
+                            // The tile's own hue, so the disc does not read
+                            // as a greyed-out control.
+                            Image(systemName: solunar.moonPhase.symbolName)
+                                .font(.title)
+                                .symbolRenderingMode(.hierarchical)
+                                .foregroundStyle(ForecastCondition.moon.ink)
+                                .accessibilityHidden(true)
+                        }
+                    }
+                    .frame(maxHeight: .infinity)
                 }
             }
             .fixedSize(horizontal: false, vertical: true)
@@ -228,7 +248,8 @@ struct PlanDetailView: View {
         SectionTitle("Gear checklist",
                      detail: checklist.isEmpty ? nil : "\(checklist.filter(\.checked).count) of \(checklist.count)")
             .padding(.top, DS.Space.s8)
-        VStack(spacing: 0) {
+        // The items and the add field on one card, as Reminders lists them.
+        CardGroup(separatorInset: checklistInset) {
             ForEach($checklist) { $item in
                 HStack(spacing: 0) {
                     Button {
@@ -247,10 +268,10 @@ struct PlanDetailView: View {
                             Spacer(minLength: 0)
                         }
                         .padding(.vertical, 11)
-                        .padding(.leading, DS.gutter)
+                        .padding(.leading, DS.Space.s4)
                         .contentShape(Rectangle())
                     }
-                    .buttonStyle(.dsRow)
+                    .buttonStyle(.dsCardRow)
                     .buttonHaptic(.toggle)
                     .accessibilityAddTraits(item.checked ? .isSelected : [])
 
@@ -266,7 +287,7 @@ struct PlanDetailView: View {
                     }
                     .buttonStyle(.dim)
                     .accessibilityLabel("Remove \(item.name)")
-                    .padding(.trailing, DS.gutter - 12)
+                    .padding(.trailing, DS.Space.s1)
                 }
             }
             HStack(spacing: 12) {
@@ -283,7 +304,7 @@ struct PlanDetailView: View {
                 }
             }
             .padding(.vertical, 11)
-            .padding(.horizontal, DS.gutter)
+            .padding(.horizontal, DS.Space.s4)
         }
     }
 
@@ -453,5 +474,20 @@ struct PlanDetailView: View {
         PlanWidget.refresh(appState.tripRepository)
         ToastCenter.shared.show("Plan deleted", style: .info, haptic: false, icon: "trash")
         dismiss()
+    }
+}
+
+/// A plan tile's small visual at Today's height, just above the footnote, so
+/// the tiles in a row line up.
+private struct PlanTileVisual<Content: View>: View {
+    @ViewBuilder let content: Content
+    @ScaledMetric(relativeTo: .body) private var height: CGFloat = 36
+
+    var body: some View {
+        content
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(height: height)
+            .padding(.vertical, 6)
+            .frame(maxHeight: .infinity, alignment: .bottom)
     }
 }

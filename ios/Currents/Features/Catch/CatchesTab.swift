@@ -816,9 +816,8 @@ struct CatchesTab: View {
         summary = LogbookSummary(catches: catches, speciesTotal: total)
     }
 
-    /// The bite at a plan's start time and its best window, for the plan's
-    /// pin or else where you are now. Moon, sun, tide and season only: live
-    /// weather is not known days ahead.
+    /// The best bite in a plan's hours and its best window, worked out as
+    /// the Sessions list and the plan page do (`PlanRowOutlook`).
     struct PlanOutlook {
         let score: Int
         let best: BiteWindows.Window?
@@ -827,17 +826,8 @@ struct CatchesTab: View {
     private static func planOutlooks(for plans: [Trip], fallback: CLLocationCoordinate2D?) -> [String: PlanOutlook] {
         var result: [String: PlanOutlook] = [:]
         for p in plans {
-            guard let coord = p.plannedCoordinate ?? fallback else { continue }
-            let date = p.plannedDate ?? p.startDate
-            let hour = Calendar.current.component(.hour, from: date)
-            let f = ForecastEngine.forecast(
-                date: date, coordinate: coord,
-                currentPressureHpa: nil, pressureChange6h: nil, waterTempC: nil,
-                windSpeedKmh: nil, windDirection: nil, species: nil, isInSpawningZone: false
-            )
-            result[p.id] = PlanOutlook(
-                score: f.hourlyScores.first { $0.hour == hour }?.score ?? f.score,
-                best: BiteWindows.best(from: f.hourlyScores).max { $0.peakScore < $1.peakScore })
+            guard let outlook = PlanRowOutlook.make(for: p, fallback: fallback) else { continue }
+            result[p.id] = PlanOutlook(score: outlook.score, best: outlook.best)
         }
         return result
     }

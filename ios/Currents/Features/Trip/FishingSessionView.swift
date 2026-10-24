@@ -202,12 +202,23 @@ struct SessionsView: View {
     }
 }
 
-/// The bite at a plan's start time and its best window, for the plan's pin
-/// or else where you are now. Moon, sun, tide and season only: live weather
-/// is not known days ahead.
+/// The best bite in a plan's hours and the day's best window, for the plan's
+/// pin or else where you are now. Moon, sun, tide and season only: live
+/// weather is not known days ahead. The plan page rings the same score.
 struct PlanRowOutlook {
     let score: Int
     let best: BiteWindows.Window?
+
+    /// A plan's hours: the start hour and the three after it.
+    static func hours(from hour: Int) -> ClosedRange<Int> {
+        hour...min(23, hour + 3)
+    }
+
+    /// The best score in a plan's hours.
+    static func hoursBest(_ f: ForecastEngine.ForecastResult, from hour: Int) -> Int {
+        let window = hours(from: hour)
+        return f.hourlyScores.filter { window.contains($0.hour) }.map(\.score).max() ?? f.score
+    }
 
     static func make(for plan: Trip, fallback: CLLocationCoordinate2D?) -> PlanRowOutlook? {
         guard let coord = plan.plannedCoordinate ?? fallback else { return nil }
@@ -218,13 +229,13 @@ struct PlanRowOutlook {
             currentPressureHpa: nil, pressureChange6h: nil, waterTempC: nil,
             windSpeedKmh: nil, windDirection: nil, species: nil, isInSpawningZone: false
         )
-        return PlanRowOutlook(score: f.hourlyScores.first { $0.hour == hour }?.score ?? f.score,
+        return PlanRowOutlook(score: hoursBest(f, from: hour),
                               best: BiteWindows.best(from: f.hourlyScores).max { $0.peakScore < $1.peakScore })
     }
 }
 
 /// A plan in a list, as on the Logbook's Plans pane: a date thumb, the time
-/// and day over the name, the best window, and the bite at the start time.
+/// and day over the name, the best window, and the best bite in its hours.
 /// The caller wraps it in the link to the plan.
 struct PlannedRow: View {
     let trip: Trip
@@ -263,7 +274,7 @@ struct PlannedRow: View {
         } trailing: {
             if let outlook {
                 ScoreRing(score: outlook.score, size: 44)
-                    .accessibilityLabel("Bite \(outlook.score) at the planned time")
+                    .accessibilityLabel("Bite \(outlook.score) at best in your hours")
             }
         }
     }
