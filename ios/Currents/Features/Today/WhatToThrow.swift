@@ -22,11 +22,6 @@ enum ThrowText {
         }
     }
 
-    /// Colour names say "and" between colours; the swatch splits on "/".
-    static func swatchName(_ name: String) -> String {
-        name.replacingOccurrences(of: " and ", with: "/")
-    }
-
     static func light(_ cloud: Int) -> String {
         if cloud >= 60 { return "low light" }
         if cloud <= 25 { return "bright sun" }
@@ -122,7 +117,7 @@ struct LureSuggestionRow: View {
                         }
                     }
                     HStack(spacing: 6) {
-                        LureColorSwatch(name: ThrowText.swatchName(suggestion.color), size: 12)
+                        LureColorSwatch(name: suggestion.color, size: 12)
                         Text(suggestion.color)
                             .font(.subheadline)
                             .foregroundStyle(.dsText2)
@@ -197,7 +192,7 @@ struct LureColourStrip: View {
             HStack(spacing: 8) {
                 ForEach(names, id: \.self) { name in
                     HStack(spacing: 8) {
-                        LureColorSwatch(name: ThrowText.swatchName(name), size: 18)
+                        LureColorSwatch(name: name, size: 18)
                         Text(name)
                             .font(.subheadline)
                             .foregroundStyle(.dsText)

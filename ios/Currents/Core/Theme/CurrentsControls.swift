@@ -146,8 +146,9 @@ struct LureColorSwatch: View {
         .accessibilityHidden(true)
     }
 
-    /// Split on "/" and map each token to a real colour, so combination
-    /// names render as the combination. Grey when nothing is recognised.
+    /// Split on "/" and " and ", and map each token to a real colour, so
+    /// combination names render as the combination. Grey when nothing is
+    /// recognised.
     static func colors(for name: String) -> [Color] {
         let mapped = tokens(in: name).compactMap(color)
         return mapped.isEmpty ? [.gray] : mapped
@@ -159,9 +160,10 @@ struct LureColorSwatch: View {
     }
 
     private static func tokens(in name: String) -> [String] {
-        name.split(separator: "/").map {
-            $0.trimmingCharacters(in: .whitespaces).lowercased()
-        }
+        name.lowercased()
+            .replacingOccurrences(of: " and ", with: "/")
+            .split(separator: "/")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
     }
 
     /// The colours lures are sold in. These are content (the swatch shows the
