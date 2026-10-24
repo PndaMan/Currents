@@ -1312,7 +1312,8 @@ struct TitleFlairPickerSheet: View {
         VStack(spacing: 10) {
             ForEach(list) { flair in
                 if locked {
-                    TitleBadge(flair: flair, subtitle: "Earn \(flair.achievement)", medallionSize: 48, locked: true)
+                    TitleBadge(flair: flair, subtitle: "Earn \(BadgeDefinition.displayName(for: flair.achievement))",
+                               medallionSize: 48, locked: true)
                 } else {
                     Button {
                         selection = flair.name
