@@ -52,7 +52,7 @@ struct ArtRow<Leading: View, Trailing: View>: View {
                         Text(subtitle)
                             .font(.subheadline)
                             .foregroundStyle(.dsText2)
-                            .lineLimit(isLarge ? 3 : 1)
+                            .lineLimit(isLarge ? nil : 2)
                     }
                 }
             }
