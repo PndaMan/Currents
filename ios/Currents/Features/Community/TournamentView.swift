@@ -98,15 +98,14 @@ struct TournamentSetupView: View {
         VStack(alignment: .leading, spacing: 0) {
             SectionTitle("When")
                 .padding(.top, DS.Space.s6)
-            GroupedCard {
-                IconRow("Starts", systemImage: "play.fill", tint: .dsScoreGood) {
-                    Text("Now").foregroundStyle(.dsText2)
+            CardGroup {
+                CardRow("Starts", systemImage: "play.fill", tint: .dsScoreGood, value: "Now")
+                CardRow("Runs for", systemImage: "timer", tint: .orange, combinesChildren: false) {
+                    durationPicker
                 }
-                CardDivider()
-                IconRow("Runs for", systemImage: "timer", tint: .orange) { durationPicker }
                 if hasEnd {
-                    CardDivider()
-                    IconRow("Ends", systemImage: "flag.checkered", tint: CrewTint.calendar) {
+                    CardRow("Ends", systemImage: "flag.checkered", tint: CrewTint.calendar,
+                            combinesChildren: false) {
                         DatePicker("Ends", selection: $endsAt, in: Date()...,
                                    displayedComponents: [.date, .hourAndMinute])
                             .labelsHidden()
@@ -138,22 +137,19 @@ struct TournamentSetupView: View {
         VStack(alignment: .leading, spacing: 0) {
             SectionTitle("Scoring")
                 .padding(.top, DS.Space.s6)
-            GroupedCard {
+            CardGroup {
                 stepperRow("Each fish", value: pointsText(perFish), systemImage: "fish.fill",
                            tint: CrewTint.fish, binding: $perFish, range: 0...100)
-                CardDivider()
                 stepperRow("Each kilogram", value: "+\(perKg)", systemImage: "scalemass.fill",
                            tint: CrewTint.weight, binding: $perKg, range: 0...50)
-                CardDivider()
                 stepperRow("New species", value: "+\(speciesBonus)", systemImage: "leaf.fill",
                            tint: CrewTint.species, binding: $speciesBonus, range: 0...100)
                 if !isStandard {
-                    CardDivider()
                     Button(action: resetScoring) {
-                        IconRow("Use standard scoring", systemImage: "arrow.counterclockwise",
+                        CardRow("Use standard scoring", systemImage: "arrow.counterclockwise",
                                 tint: CrewTint.people)
                     }
-                    .buttonStyle(.dim)
+                    .buttonStyle(.dsCardRow)
                 }
             }
             SectionFootnote("A 3 kg fish new to the team scores \(pointsText(perFish + 3 * perKg + speciesBonus)).")
@@ -162,11 +158,10 @@ struct TournamentSetupView: View {
 
     private func stepperRow(_ title: String, value: String, systemImage: String, tint: Color,
                             binding: Binding<Int>, range: ClosedRange<Int>) -> some View {
-        IconRow(title, subtitle: value, systemImage: systemImage, tint: tint) {
+        CardRow(title, subtitle: value, systemImage: systemImage, tint: tint) {
             Stepper(title, value: binding, in: range)
                 .labelsHidden()
         }
-        .accessibilityElement(children: .combine)
     }
 
     // MARK: Teams
@@ -175,16 +170,10 @@ struct TournamentSetupView: View {
         VStack(alignment: .leading, spacing: 0) {
             SectionTitle("Teams")
                 .padding(.top, DS.Space.s6)
-            GroupedCard {
-                IconRow("Crew", systemImage: "person.3.fill", tint: CrewTint.people) {
-                    Text(crew.name).foregroundStyle(.dsText2).lineLimit(1)
-                }
-                CardDivider()
-                IconRow("Teams", subtitle: "Live sessions with GPS on", systemImage: "location.fill",
-                        tint: CrewTint.spot) {
-                    Text("Started by crewmates").font(.footnote).foregroundStyle(.dsText2)
-                        .multilineTextAlignment(.trailing)
-                }
+            CardGroup {
+                CardRow("Crew", systemImage: "person.3.fill", tint: CrewTint.people, value: crew.name)
+                CardRow("Teams", subtitle: "Live sessions crewmates start, GPS on",
+                        systemImage: "location.fill", tint: CrewTint.spot)
             }
             SectionFootnote("Every catch a team logs scores.")
         }
@@ -1038,17 +1027,15 @@ struct TournamentView: View {
 
     private var rulesSection: some View {
         CrewSection(title: "Rules") {
-            GroupedCard {
-                ForEach(Array(ruleRows.enumerated()), id: \.offset) { i, row in
-                    if i > 0 { CardDivider() }
-                    IconRow(row.label, systemImage: row.symbol, tint: row.tint) {
+            CardGroup {
+                ForEach(ruleRows, id: \.label) { row in
+                    CardRow(row.label, systemImage: row.symbol, tint: row.tint) {
                         Text(row.value)
                             .font(.body)
                             .monospacedDigit()
                             .foregroundStyle(.dsText2)
                             .multilineTextAlignment(.trailing)
                     }
-                    .accessibilityElement(children: .combine)
                 }
             }
             if tournament.rates != TournamentPoints.standard {
@@ -1285,11 +1272,10 @@ private struct NewTeamSheet: View {
                     .focused($nameFocused)
                     .padding(.horizontal, DS.gutter)
                     .padding(.top, DS.Space.s2)
-                GroupedCard {
-                    IconRow("Session", subtitle: "Starts now, GPS on", systemImage: "location.fill",
-                            tint: CrewTint.spot)
-                    CardDivider()
-                    IconRow("Scores", subtitle: "Every catch you log", systemImage: "fish.fill",
+                CardGroup {
+                    CardRow("Session", subtitle: runningSession.map { "Uses \($0)" } ?? "Starts now, GPS on",
+                            systemImage: "location.fill", tint: CrewTint.spot)
+                    CardRow("Scores", subtitle: "Every catch you log", systemImage: "fish.fill",
                             tint: CrewTint.fish)
                 }
                 .padding(.top, DS.Space.s5)
@@ -1353,9 +1339,9 @@ private struct TournamentScoringSheet: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
-                    CommunityHero(label: "A new species at 3 kg", title: pointsText(exampleTotal),
-                                  line: rates != TournamentPoints.standard ? "Custom scoring set by the host"
-                                                                           : "Standard scoring") {
+                    PageHero(label: "A new species at 3 kg", value: pointsText(exampleTotal),
+                             callout: rates != TournamentPoints.standard ? "Custom scoring set by the host"
+                                                                         : "Standard scoring") {
                         ThumbView(systemImage: "trophy.fill", tint: CrewTint.trophy, size: 72)
                     }
                     .padding(.top, DS.Space.s2)
@@ -1446,8 +1432,8 @@ private struct EndTournamentSheet: View {
     private var list: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                CommunityHero(label: "Winner", title: selected ?? "No winner",
-                              line: "Most points wins unless the crew agreed another") {
+                PageHero(label: "Winner", value: selected ?? "No winner",
+                         callout: "Most points wins unless the crew agreed another") {
                     ThumbView(systemImage: "trophy.fill", tint: CrewTint.trophy, size: 72)
                 }
                 .padding(.top, DS.Space.s2)
@@ -1456,9 +1442,8 @@ private struct EndTournamentSheet: View {
                 if standings.isEmpty {
                     InlineEmpty(systemImage: "trophy", text: "No team fished this tournament.")
                 } else {
-                    GroupedCard {
+                    CardGroup(separatorInset: DS.Space.s4 + 40 + DS.Space.s3) {
                         ForEach(Array(standings.enumerated()), id: \.element.id) { i, s in
-                            if i > 0 { CardDivider(inset: DS.Space.s4 + 40 + DS.Space.s3) }
                             teamRow(s, rank: i + 1)
                         }
                     }
@@ -1502,9 +1487,10 @@ private struct EndTournamentSheet: View {
             }
             .padding(.horizontal, DS.Space.s4)
             .padding(.vertical, 10)
+            .frame(minHeight: 54)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.dim)
+        .buttonStyle(.dsCardRow)
         .buttonHaptic(.selection)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
