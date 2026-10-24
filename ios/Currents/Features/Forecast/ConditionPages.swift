@@ -917,7 +917,7 @@ struct ConditionPageModel {
         return ConditionPageModel(
             value: reading.value, unit: reading.unit, subtitle: subtitle,
             chartTitle: "Solunar pull through the day",
-            chartCaption: "Darker shading marks the major periods, lighter shading the minor ones.",
+            chartCaption: "Stronger shading marks the major periods, fainter shading the minor ones.",
             figures: figures, footnote: footnote
         )
     }
