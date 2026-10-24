@@ -220,9 +220,13 @@ struct CommunityView: View {
                 .foregroundStyle(.dsText2)
                 .multilineTextAlignment(.center)
             CrewJoinForm {
-                await svc.updateProfile(name: svc.myName, bio: svc.myBio, homeWater: svc.myHomeWater,
-                                        region: region, avatar: nil, stats: stats)
-                ToastCenter.shared.show("You're in. Add a friend or start a crew.", style: .success, haptic: false)
+                let ok = await svc.updateProfile(name: svc.myName, bio: svc.myBio, homeWater: svc.myHomeWater,
+                                                 region: region, avatar: nil, stats: stats)
+                if ok {
+                    ToastCenter.shared.show("You're in. Add a friend or start a crew", style: .success, haptic: false)
+                } else {
+                    ToastCenter.shared.show("You're in. Couldn't update your Crew profile", style: .error, haptic: false)
+                }
             }
             .padding(.top, DS.Space.s3)
         }
