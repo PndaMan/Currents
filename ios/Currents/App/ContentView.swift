@@ -75,6 +75,7 @@ struct ContentView: View {
     @State private var pendingFriend: JoinCode?
     @State private var pendingCrew: JoinCode?
     @AppStorage("hasOnboarded") private var hasOnboarded = false
+    @AppStorage("use24HourTime") private var use24 = true
 
     struct JoinCode: Identifiable { let id: String }
 
@@ -140,7 +141,12 @@ struct ContentView: View {
                 }
             }
         }
-        .task { checkPlannedSession() }
+        .task {
+            // After the launch animation (about 1.7 seconds, CurrentsApp), so
+            // the planned-session alert never appears behind it.
+            try? await Task.sleep(for: .seconds(2))
+            checkPlannedSession()
+        }
         .task {
             // Screenshot mode: push the screen CI asked for once the tabs exist.
             guard let tab = ScreenshotSupport.initialTab else { return }
@@ -180,13 +186,12 @@ struct ContentView: View {
         }
         .sheet(item: $joinGroupCode) { join in
             NavigationStack {
-                GroupTripView(tripId: nil, tripName: "Group Trip", initialCode: join.id)
+                GroupTripView(tripId: nil, tripName: "Group trip", initialCode: join.id)
                     .toolbar {
-                        ToolbarItem(placement: .cancellationAction) {
-                            Button("Done") { joinGroupCode = nil }
-                        }
+                        ToolbarItem(placement: .confirmationAction) { SheetDoneButton() }
                     }
             }
+            .dsSheet([.large])
         }
         .sheet(item: $pendingFriend) { friend in
             NavigationStack {
@@ -214,7 +219,7 @@ struct ContentView: View {
             }
             Button("Not now", role: .cancel) { planPrompt = nil }
         } message: { trip in
-            Text("\(trip.name) is planned for \(trip.plannedDate.map { ForecastFormat.time($0) } ?? "now").")
+            Text("\(trip.name) is planned for \(trip.plannedDate.map { ForecastFormat.time($0, use24: use24) } ?? "now").")
         }
     }
 
@@ -222,7 +227,8 @@ struct ContentView: View {
     /// invite links and the celebration card:
     ///   currents://log           → Logbook, log sheet open
     ///   currents://session       → the live session (Explore presents it)
-    ///   currents://sessions      → Logbook > Sessions (start a planned trip)
+    ///   currents://sessions      → Logbook (its Sessions pane lists them)
+    ///   currents://plan          → Logbook (its Plans pane lists them)
     ///   currents://plan/<id>     → Logbook > that plan (its reminder)
     ///   currents://community     → Crew (friend requests / trip invites)
     ///   currents://crewfeed/<C>  → Crew, straight into that crew
@@ -255,12 +261,12 @@ struct ContentView: View {
             appState.openLiveSession = true
             return
         case "sessions":
-            navigate(.logbook, .sessions)
+            navigate(.logbook)
             return
         case "plan":
             let id = url.lastPathComponent
             if id.isEmpty || id == "/" || id == host {
-                navigate(.logbook, .sessions)
+                navigate(.logbook)
             } else {
                 navigate(.logbook, .plan(id))
             }
