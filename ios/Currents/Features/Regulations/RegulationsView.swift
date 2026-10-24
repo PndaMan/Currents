@@ -102,6 +102,17 @@ private func limitLength(_ cm: Double, imperial: Bool) -> String {
 }
 
 extension FishingRegulation {
+    /// The name as shown: "Baardman (Belman)" for the stored "Baardman /
+    /// Belman", the first name with the others in brackets. The data keeps
+    /// its slashes.
+    var displayName: String {
+        let names = commonName.components(separatedBy: "/")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        guard names.count > 1 else { return commonName }
+        return "\(names[0]) (\(names.dropFirst().joined(separator: ", ")))"
+    }
+
     /// "Min 30 cm, 5 per day", for list rows, in the stored units setting.
     var limitSummary: String { limitSummary(imperial: Units.isImperial) }
 
@@ -154,7 +165,7 @@ private struct RegulationRow: View {
                 ThumbView(systemImage: "fish.fill", tint: Color.dsText3, size: 56)
             }
             VStack(alignment: .leading, spacing: 2) {
-                Text(reg.commonName)
+                Text(reg.displayName)
                     .foregroundStyle(.dsText)
                     .lineLimit(lines)
                 Text(reg.limitSummary(imperial: units == "imperial"))
@@ -202,7 +213,7 @@ struct RegulationDetailView: View {
     private var stepCm: Double { imperial ? 2.54 : 1 }
 
     var body: some View {
-        TodayPage(reg.commonName, subtitle: reg.scientificName, tint: species?.artTint) {
+        TodayPage(reg.displayName, subtitle: reg.scientificName, tint: species?.artTint) {
             if let species {
                 ThumbView(species: species, size: 120)
                     .padding(.horizontal, DS.gutter)
@@ -210,7 +221,7 @@ struct RegulationDetailView: View {
 
             if reg.bagLimit == 0 {
                 PFNotice(systemImage: "hand.raised.fill", tint: .dsScoreSlow,
-                         title: "No take", message: "Release every \(reg.commonName.lowercased()) you catch.")
+                         title: "No take", message: "Release every \(reg.displayName.lowercased()) you catch.")
             }
 
             VStack(alignment: .leading, spacing: 0) {
