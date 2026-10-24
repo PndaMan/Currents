@@ -649,16 +649,17 @@ enum MoonPhase: Int, Sendable, CaseIterable {
         }
     }
 
+    /// The SF Symbol for the phase.
     var symbolName: String {
         switch self {
-        case .new: "moon.new"
-        case .waxingCrescent: "moon.waxing.crescent"
-        case .firstQuarter: "moon.first.quarter"
-        case .waxingGibbous: "moon.waxing.gibbous"
-        case .full: "moon.full"
-        case .waningGibbous: "moon.waning.gibbous"
-        case .lastQuarter: "moon.last.quarter"
-        case .waningCrescent: "moon.waning.crescent"
+        case .new: "moonphase.new.moon"
+        case .waxingCrescent: "moonphase.waxing.crescent"
+        case .firstQuarter: "moonphase.first.quarter"
+        case .waxingGibbous: "moonphase.waxing.gibbous"
+        case .full: "moonphase.full.moon"
+        case .waningGibbous: "moonphase.waning.gibbous"
+        case .lastQuarter: "moonphase.last.quarter"
+        case .waningCrescent: "moonphase.waning.crescent"
         }
     }
 
