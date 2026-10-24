@@ -498,7 +498,7 @@ enum ScreenshotSupport {
         ("Theewaterskloof weed beds", -34.050, 19.280, .dam, nil),
         ("Breede Estuary channel", -34.400, 20.840, .estuary, "scene-river"),
         ("Palmiet River pools", -34.290, 18.990, .river, nil),
-        ("Hartbeespoort Dam wall", -25.745, 27.858, .dam, "scene-lake"),
+        ("Hartbeespoort Dam wall", -25.745, 27.858, .dam, "scene-dam"),
     ]
 
     @MainActor
