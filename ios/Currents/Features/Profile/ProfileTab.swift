@@ -835,7 +835,7 @@ struct StorageSettingsView: View {
             ScrollView {
                 CardSection(note: "The latest automatic backups on this phone.") {
                     ForEach(snapshots) { snap in
-                        CardRow("\(snap.date.formatted(.dateTime.day().month(.abbreviated))), \(ForecastFormat.time(snap.date, use24: use24))",
+                        CardRow("\(LogbookFormat.relativeDay(snap.date)), \(ForecastFormat.time(snap.date, use24: use24))",
                                 subtitle: snap.formattedSize, systemImage: "externaldrive.fill", tint: .mint,
                                 combinesChildren: false) {
                             Button("Restore") { restoreSnapshot = snap }
