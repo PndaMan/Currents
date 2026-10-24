@@ -524,16 +524,6 @@ struct GroupTripView: View {
             .scrollDismissesKeyboard(.interactively)
             .detailTint(showsTrip ? coverSpecies?.artTint : nil)
             .eventPageTitle(trip?.name ?? tripName)
-            .toolbar {
-                if let code, showsTrip, !confirming, showsInvites {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        ShareLink(item: service.inviteMessage(forGroup: code, tripName: trip?.name ?? tripName)) {
-                            Image(systemName: "square.and.arrow.up")
-                        }
-                        .accessibilityLabel("Share invite link")
-                    }
-                }
-            }
     }
 
     private var content: some View {
@@ -888,7 +878,6 @@ struct GroupTripView: View {
         // session isn't the place to be packing.
         if amMember { sessionSection(code) }
         feedSection
-        if showsInvites { inviteSection(code) }
         detailsSection
         if canLeave {
             DangerButton(title: ended ? "Remove from my trips" : "Leave trip",
@@ -999,24 +988,14 @@ struct GroupTripView: View {
         }
     }
 
+    /// Inviting has one route, the Invite tile and its sheet, so the menu
+    /// holds only the end and leave actions.
     private var hasMoreItems: Bool {
-        (showsInvites) || (isHost && !ended) || canLeave
+        (isHost && !ended) || canLeave
     }
 
     private func moreMenu(_ code: String) -> some View {
         Menu {
-            if showsInvites {
-                ShareLink(item: service.inviteMessage(forGroup: code, tripName: trip?.name ?? tripName)) {
-                    Label("Share invite link", systemImage: "square.and.arrow.up")
-                }
-                Button {
-                    UIPasteboard.general.string = code
-                    ToastCenter.shared.show("Trip code copied", style: .info, icon: "doc.on.doc")
-                } label: {
-                    Label("Copy trip code", systemImage: "doc.on.doc")
-                }
-                if (isHost && !ended) || canLeave { Divider() }
-            }
             if isHost && !ended {
                 Button(role: .destructive) {
                     confirmingEndForAll = true
@@ -1131,24 +1110,6 @@ struct GroupTripView: View {
 
     // MARK: - Invite and details
 
-    private func inviteSection(_ code: String) -> some View {
-        CrewSection(title: "Invite") {
-            VStack(spacing: 0) {
-                Button { showingInvite = true } label: {
-                    ArtRow(title: "Invite friends", subtitle: "Send an invite in one tap", chevron: true) {
-                        ThumbView(systemImage: "person.badge.plus", tint: .dsScoreGood, size: 44)
-                    }
-                }
-                .buttonStyle(.dim)
-                ArtRow(title: "Trip code", subtitle: "Tap the code to copy it") {
-                    ThumbView(systemImage: "number", tint: CrewTint.region, size: 44)
-                } trailing: {
-                    CopyableCode(code: code, font: .system(.headline, design: .monospaced))
-                }
-            }
-        }
-    }
-
     private var detailsSection: some View {
         CrewSection(title: "Details") {
             detailCard
@@ -1214,8 +1175,7 @@ struct GroupTripView: View {
                     .dsScreenBackground()
                     .eventSheetTitle("Invite friends")
             }
-            .presentationDetents([.medium, .large])
-            .presentationDragIndicator(.visible)
+            .dsSheet([.medium, .large])
         }
     }
 
@@ -1244,10 +1204,6 @@ struct GroupTripView: View {
                 Label("Share link", systemImage: "square.and.arrow.up")
             }
             .buttonStyle(.dsTonal)
-            Text("Tap the code to copy it. Anyone with it can join while the trip is live.")
-                .font(.footnote)
-                .foregroundStyle(.dsText2)
-                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -1304,9 +1260,6 @@ struct GroupTripView: View {
             }
             .buttonStyle(.dsPrimary)
             .disabled(sendingInvite || inviteCode.trimmingCharacters(in: .whitespaces).count != 6)
-            Text("Their angler code is on their profile in the Crew tab.")
-                .font(.footnote)
-                .foregroundStyle(.dsText2)
         }
         .padding(.horizontal, DS.gutter)
     }
