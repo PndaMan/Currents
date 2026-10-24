@@ -54,8 +54,10 @@ private struct TournamentShareCardView: View {
             let points = rows.first { $0.team.teamName == winner }?.team.points
             return points.map { "\(winner) won with \($0) points" } ?? "\(winner) won"
         }
-        if teamCount == 0 { return "Teams are forming" }
-        return "\(teamCount == 1 ? "1 team" : "\(teamCount) teams"), \(fishCount) fish so far"
+        if teamCount == 0 { return tournament.isEnded ? "No teams fished" : "Teams are forming" }
+        let teams = teamCount == 1 ? "1 team" : "\(teamCount) teams"
+        // An ended tournament's haul is final, so only a live one says "so far".
+        return tournament.isEnded ? "\(teams), \(fishCount) fish" : "\(teams), \(fishCount) fish so far"
     }
 
     var body: some View {
@@ -96,7 +98,10 @@ private struct TournamentShareCardView: View {
                 HStack(spacing: DS.Space.s2) {
                     Image(systemName: "scalemass.fill")
                         .foregroundStyle(Color.dsScoreGood)
-                    Text("Biggest fish: \(biggest.species), \(Units.weight(kg: kg)), \(biggest.anglerName)")
+                    Text("Biggest")
+                        .foregroundStyle(Color.dsText2)
+                        .fixedSize()
+                    Text("\(biggest.species), \(Units.weight(kg: kg)), \(biggest.anglerName)")
                         .foregroundStyle(Color.dsText)
                         .lineLimit(1)
                         .minimumScaleFactor(0.8)
@@ -105,7 +110,7 @@ private struct TournamentShareCardView: View {
                 .padding(.bottom, DS.Space.s3)
             }
             let r = tournament.rates
-            ShareCardFooter(detail: "\(r.perFish) a fish, +\(r.perKg) a kilogram, +\(r.newSpeciesBonus) a new species")
+            ShareCardFooter(detail: "+\(r.perFish) per fish, +\(r.perKg) per kg, +\(r.newSpeciesBonus) per new species")
         }
     }
 
@@ -134,7 +139,7 @@ private struct TournamentShareCardView: View {
                 Text("\(team.points)")
                     .font(.headline.monospacedDigit())
                     .foregroundStyle(rank == 1 ? Color.dsScoreFair : Color.dsText)
-                Text("pts")
+                Text(team.points == 1 ? "point" : "points")
                     .font(.caption)
                     .foregroundStyle(Color.dsText2)
             }
