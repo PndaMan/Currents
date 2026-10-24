@@ -194,7 +194,7 @@ struct CardRow<Trailing: View>: View {
                 Text(title)
                     .font(.body)
                     .foregroundStyle(.dsText)
-                    .lineLimit(typeSize.isAccessibilitySize ? 3 : 1)
+                    .lineLimit(typeSize.isAccessibilitySize ? 3 : 2)
                 if let subtitle, !subtitle.isEmpty {
                     Text(subtitle)
                         .font(.subheadline)
@@ -209,7 +209,8 @@ struct CardRow<Trailing: View>: View {
                     .font(.body)
                     .foregroundStyle(valueTint)
                     .monospacedDigit()
-                    .lineLimit(1)
+                    .multilineTextAlignment(.trailing)
+                    .lineLimit(typeSize.isAccessibilitySize ? 2 : 1)
             }
             if showsChevron {
                 Image(systemName: "chevron.right")
