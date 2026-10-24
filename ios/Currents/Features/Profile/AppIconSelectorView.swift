@@ -34,23 +34,24 @@ struct AppIconOption: Identifiable {
     let name: String
     let alternateIconName: String? // nil = primary icon, string = CFBundleAlternateIcons key
 
-    /// One icon per theme. Previews are drawn live (AppIconPreview) tinted by
-    /// the theme.
+    /// One icon per theme, in `ThemeOption.allCases` order so the icon grid
+    /// and the colour theme grid read the same way. Previews are drawn live
+    /// (AppIconPreview) tinted by the theme. The primary icon stays first.
     static let all: [AppIconOption] = [
         AppIconOption(id: "ocean", name: "Ocean",
                       alternateIconName: nil), // Primary (default)
         AppIconOption(id: "forest", name: "Forest",
                       alternateIconName: "AppIcon-Green"),
-        AppIconOption(id: "teal", name: "Teal",
-                      alternateIconName: "AppIcon-Teal"),
-        AppIconOption(id: "amethyst", name: "Amethyst",
-                      alternateIconName: "AppIcon-Purple"),
-        AppIconOption(id: "rose", name: "Rose",
-                      alternateIconName: "AppIcon-Rose"),
         AppIconOption(id: "ember", name: "Ember",
                       alternateIconName: "AppIcon-Ember"),
         AppIconOption(id: "sunset", name: "Sunset",
                       alternateIconName: "AppIcon-Sunset"),
+        AppIconOption(id: "amethyst", name: "Amethyst",
+                      alternateIconName: "AppIcon-Purple"),
+        AppIconOption(id: "teal", name: "Teal",
+                      alternateIconName: "AppIcon-Teal"),
+        AppIconOption(id: "rose", name: "Rose",
+                      alternateIconName: "AppIcon-Rose"),
         AppIconOption(id: "gold", name: "Gold",
                       alternateIconName: "AppIcon-Gold"),
     ]
