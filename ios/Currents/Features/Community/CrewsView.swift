@@ -1318,8 +1318,7 @@ struct CrewSettingsView: View {
                 savedIcon = await CommunityDiskCache.image(key: "crewicon-\(crew.code)")
             }
         }
-        .presentationDetents([.large])
-        .presentationDragIndicator(.visible)
+        .dsSheet([.large])
     }
 
     // MARK: Identity
@@ -1778,8 +1777,8 @@ struct CrewPostSheet: View {
             .eventPageTitle(CrewText.catchTitle(species: post.species, lengthCm: post.lengthCm,
                                                 weightKg: post.weightKg))
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Done") { dismiss() } }
                 ToolbarItem(placement: .topBarTrailing) { moreMenu }
+                ToolbarItem(placement: .confirmationAction) { SheetDoneButton() }
             }
             // The thread is pushed inside this sheet rather than stacked as
             // a second sheet on top of it.
@@ -1789,8 +1788,11 @@ struct CrewPostSheet: View {
                 }
             }
         }
+        // dsSheet's chrome, with the detent bound so opening the comments
+        // can raise the sheet.
         .presentationDetents([.medium, .large], selection: $detent)
         .presentationDragIndicator(.visible)
+        .presentationBackground(Color.dsBackground)
         .task(id: post.id) {
             guard post.hasPhoto, photo == nil else { return }
             photoFailed = false
@@ -2369,11 +2371,16 @@ struct JoinCrewConfirmView: View {
             .dsScreenBackground()
             .eventPageTitle(crew?.name ?? "Crew invite")
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button(joined || alreadyIn ? "Done" : "Cancel") { dismiss() } }
+                if !isIn {
+                    ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                }
+                if isIn {
+                    ToolbarItem(placement: .confirmationAction) { SheetDoneButton() }
+                }
             }
             .task { await loadPreview() }
         }
-        .presentationDragIndicator(.visible)
+        .dsSheet([.large])
     }
 
     /// On Crew already: the crew with a Join button, or why there's nothing
