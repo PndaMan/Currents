@@ -23,10 +23,6 @@ struct AlertSettingsView: View {
 
     private var svc: CommunityService { .shared }
 
-    /// The test notification and push status rows. Built for tracking down
-    /// delivery problems, not shown in the app.
-    private static let showsDiagnostics = false
-
     /// Crew pushes need the phone registered and both subscription sets made.
     private var crewAlertsWorking: Bool {
         svc.apnsRegistered && svc.pushSubscriptionsCreated && svc.eventSubscriptionsSynced
@@ -77,7 +73,7 @@ struct AlertSettingsView: View {
             if svc.joined {
                 crewSection
             }
-            if Self.showsDiagnostics {
+            if isTestBuild {
                 diagnostics
             }
         }
@@ -212,77 +208,49 @@ struct AlertSettingsView: View {
         }
     }
 
-    // MARK: - Diagnostics
+    // MARK: - Testing
 
+    /// TestFlight and Xcode only: the test sends, and why crew alerts aren't
+    /// arriving when they aren't.
     private var diagnostics: some View {
-        Section {
+        CardSection("Testing", note: "Only shows in TestFlight builds.") {
             Button {
                 Haptics.tap()
                 Task { await NotificationManager.shared.sendTestNotification() }
                 ToastCenter.shared.show("Test notification on its way", style: .info, haptic: false)
             } label: {
-                PFRowLabel(title: "Send a test notification", systemImage: "paperplane.fill", color: .indigo)
+                CardRow("Send a test notification", systemImage: "paperplane.fill", tint: .indigo)
             }
-            if isTestBuild {
-                Button {
-                    Haptics.tap()
-                    Task { await NotificationManager.shared.sendEveryAlertPreview(spotName: spots.first?.name) }
-                    ToastCenter.shared.show("Eight sample alerts over the next 40 seconds. Lock your phone to see them.",
-                                            style: .info, haptic: false)
-                } label: {
-                    PFRowLabel(title: "Preview every alert", systemImage: "bell.badge.fill", color: .orange)
-                }
+            .buttonStyle(.dsCardRow)
+            Button {
+                Haptics.tap()
+                Task { await NotificationManager.shared.sendEveryAlertPreview(spotName: spots.first?.name) }
+                ToastCenter.shared.show("Eight sample alerts over the next 40 seconds. Lock your phone to see them.",
+                                        style: .info, haptic: false)
+            } label: {
+                CardRow("Preview every alert", subtitle: "Eight samples, 5 seconds apart",
+                        systemImage: "bell.badge.fill", tint: .orange)
             }
+            .buttonStyle(.dsCardRow)
             if svc.joined {
-                LabeledContent("Push delivery") {
-                    statusText(svc.apnsRegistered ? "Registered" : "Not registered", ok: svc.apnsRegistered)
-                }
-                LabeledContent("Crew alerts") {
-                    statusText(svc.pushSubscriptionsCreated ? "On" : "Off", ok: svc.pushSubscriptionsCreated)
-                }
-                LabeledContent("Trip and crew events") {
-                    statusText(svc.eventSubscriptionsSynced ? "On" : "Off", ok: svc.eventSubscriptionsSynced)
-                }
-                Button {
-                    Haptics.tap()
-                    busyPush = true
-                    Task {
-                        await svc.forcePushReenable()
-                        busyPush = false
-                        pushTick += 1
-                    }
-                } label: {
-                    HStack {
-                        Text("Turn crew notifications on again")
-                            .foregroundStyle(.tint)
-                        Spacer()
-                        if busyPush { ProgressView() }
-                    }
-                }
-                .disabled(busyPush)
-                if let e = svc.pushSubsError {
-                    Text("Subscription error: \(e)").font(.footnote).foregroundStyle(.dsScoreLow)
-                }
-                if let e = svc.eventSubsError {
-                    Text("Crew alerts error: \(e)").font(.footnote).foregroundStyle(.dsScoreLow)
-                }
-                if !svc.apnsRegistered, let e = svc.apnsRegisterError {
-                    Text("Push error: \(e)").font(.footnote).foregroundStyle(.dsScoreLow)
-                }
+                CardRow("Push delivery",
+                        subtitle: svc.apnsRegistered ? nil : (svc.apnsRegisterError ?? "No answer from Apple yet"),
+                        systemImage: "antenna.radiowaves.left.and.right", tint: .blue,
+                        value: svc.apnsRegistered ? "Registered" : "Not registered",
+                        valueTint: svc.apnsRegistered ? .dsScoreGood : .dsScoreLow)
+                CardRow("Friend requests and invites",
+                        subtitle: svc.pushSubscriptionsCreated ? nil : (svc.pushSubsError ?? "Not set up yet"),
+                        systemImage: "person.2.fill", tint: .teal,
+                        value: svc.pushSubscriptionsCreated ? "On" : "Off",
+                        valueTint: svc.pushSubscriptionsCreated ? .dsScoreGood : .dsScoreLow)
+                CardRow("Crew posts and trips",
+                        subtitle: svc.eventSubscriptionsSynced ? nil : (svc.eventSubsError ?? "Not set up yet"),
+                        systemImage: "figure.fishing", tint: .green,
+                        value: svc.eventSubscriptionsSynced ? "On" : "Off",
+                        valueTint: svc.eventSubscriptionsSynced ? .dsScoreGood : .dsScoreLow)
             }
-        } header: {
-            Text("Diagnostics")
-        } footer: {
-            Text(svc.joined
-                 ? "Bite alerts are worked out and scheduled on your phone, so they arrive with no signal. Friend requests and trip invites also need push delivery registered and crew alerts on."
-                 : "Bite alerts are worked out and scheduled on your phone, so they arrive with no signal. A test notification arrives in a few seconds.")
         }
-        .pfRows()
         .id(pushTick)
-    }
-
-    private func statusText(_ text: String, ok: Bool) -> some View {
-        Text(text).foregroundStyle(ok ? Color.dsScoreGood : Color.dsScoreLow)
     }
 
     private func reschedule() async {
