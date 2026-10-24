@@ -605,9 +605,20 @@ struct GroupTripView: View {
 
     // MARK: - Shared page parts
 
-    private var cover: some View {
-        EventCover(species: coverSpecies, systemImage: "person.3.sequence.fill", tint: DS.accent)
-            .padding(.top, DS.Space.s2)
+    /// The heaviest fish's art across the top. Before there is one there is
+    /// no cover, so the header's faces or people tile is the one visual.
+    @ViewBuilder private var cover: some View {
+        if let coverSpecies {
+            EventCover(species: coverSpecies, systemImage: "person.3.sequence.fill", tint: DS.accent)
+                .padding(.top, DS.Space.s2)
+        }
+    }
+
+    /// The people tile for a hero that has no cover above it.
+    @ViewBuilder private var heroTileWithoutCover: some View {
+        if coverSpecies == nil {
+            ThumbView(systemImage: "person.3.fill", tint: CrewTint.people, size: 92)
+        }
     }
 
     private var hostLine: String? {
@@ -726,7 +737,7 @@ struct GroupTripView: View {
         VStack(alignment: .leading, spacing: 0) {
             cover
             PageHero(label: "Group trip invite", value: trip?.name ?? tripName,
-                     callout: "Pick a name to join. No account needed.") { EmptyView() }
+                     callout: "Pick a name to join. No account needed.") { heroTileWithoutCover }
                 .padding(.top, DS.Space.s4)
             CrewJoinForm(buttonTitle: "Join and continue") { await afterProfileJoin() }
                 .padding(.horizontal, DS.gutter)
@@ -807,7 +818,7 @@ struct GroupTripView: View {
         VStack(alignment: .leading, spacing: 0) {
             cover
             PageHero(label: isTournamentTeam ? "Tournament team" : "Group trip invite",
-                     value: trip?.name ?? tripName, callout: hostLine) { EmptyView() }
+                     value: trip?.name ?? tripName, callout: hostLine) { heroTileWithoutCover }
                 .padding(.top, DS.Space.s4)
             if !members.isEmpty {
                 CrewSection(title: "Going", detail: "\(members.count)") { goingStrip }
