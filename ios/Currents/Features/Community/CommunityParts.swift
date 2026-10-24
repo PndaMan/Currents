@@ -4,25 +4,7 @@ import SwiftUI
 // verdict, one line, a visual on the right), filled cards of rows with a
 // coloured icon tile, and a horizontal strip of stat tiles.
 
-// MARK: - Grouped card
-
-/// Rows grouped on one filled card, in the gutter. Put `CardDivider`s
-/// between the rows.
-struct GroupedCard<Content: View>: View {
-    private let content: Content
-
-    init(@ViewBuilder content: () -> Content) {
-        self.content = content()
-    }
-
-    var body: some View {
-        VStack(spacing: 0) { content }
-            .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
-            .padding(.horizontal, DS.gutter)
-    }
-}
-
-/// The hairline between rows on a `GroupedCard`, inset past the icon tile.
+/// The hairline between rows on a card, inset past the icon tile.
 struct CardDivider: View {
     var inset: CGFloat = DS.Space.s4 + IconRow<EmptyView>.iconSize + DS.Space.s3
 
