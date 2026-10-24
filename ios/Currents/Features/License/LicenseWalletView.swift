@@ -241,14 +241,14 @@ extension FishingLicense {
     var isRenewalDue: Bool { (daysUntilExpiry ?? Int.max) <= 30 }
 
     /// Short status for rows and the detail page: Expired, Expires today,
-    /// 12 days left, Valid until 3 Mar 2027. Warning colours use the score
+    /// 12 days left, Valid until 3 March 2027. Warning colours use the score
     /// ink so they stay readable on light rows.
     var expiryStatus: (text: String, color: Color)? {
         guard let days = daysUntilExpiry, let expiryDate else { return nil }
         if days < 0 { return ("Expired", DS.scoreInk(0)) }
         if days == 0 { return ("Expires today", DS.scoreInk(0)) }
         if days <= 30 { return (days == 1 ? "1 day left" : "\(days) days left", DS.scoreInk(30)) }
-        return ("Valid until \(expiryDate.formatted(date: .abbreviated, time: .omitted))", .dsText2)
+        return ("Valid until \(LogbookFormat.fullDate(expiryDate))", .dsText2)
     }
 
     /// The renewal notice's tint: the raw colour of the score `expiryStatus`
@@ -260,28 +260,43 @@ extension FishingLicense {
 
 // MARK: - Row
 
-/// A licence in the list: its document cropped to card shape, the title and
-/// where it stands on expiry.
+/// A licence in the list: its document cropped to card shape, where it is
+/// for over the title, and where it stands on expiry.
 struct LicenseRow: View {
     let license: FishingLicense
+    @Environment(\.dynamicTypeSize) private var typeSize
 
-    private var secondary: (text: String, color: Color)? {
-        if let status = license.expiryStatus { return status }
-        let place = license.region ?? license.licenseType ?? ""
-        return place.isEmpty ? nil : (place, .dsText2)
+    /// The region, else the licence type, as the over-line.
+    private var place: String? {
+        let text = (license.region ?? license.licenseType ?? "").trimmingCharacters(in: .whitespaces)
+        return text.isEmpty ? nil : text
+    }
+
+    /// The card beside the text, or above it at accessibility sizes, where
+    /// beside it the title broke into a few letters a line.
+    private var layout: AnyLayout {
+        typeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: DS.Space.s2))
+            : AnyLayout(HStackLayout(spacing: DS.Space.s3))
     }
 
     var body: some View {
-        HStack(spacing: DS.Space.s3) {
+        layout {
             LicenseThumbnail(license: license)
             VStack(alignment: .leading, spacing: 2) {
+                if let place {
+                    Text(place)
+                        .font(.footnote)
+                        .foregroundStyle(.dsText2)
+                        .lineLimit(typeSize.isAccessibilitySize ? 3 : 1)
+                }
                 Text(license.title)
                     .foregroundStyle(.dsText)
-                    .lineLimit(2)
-                if let secondary {
-                    Text(secondary.text)
+                    .lineLimit(typeSize.isAccessibilitySize ? nil : 2)
+                if let status = license.expiryStatus {
+                    Text(status.text)
                         .font(.subheadline)
-                        .foregroundStyle(secondary.color)
+                        .foregroundStyle(status.color)
                 }
             }
         }
@@ -462,8 +477,9 @@ private struct LicenseFieldsSection: View {
         return result
     }
 
+    /// "21 February 2027", day before month as everywhere else.
     private static func day(_ date: Date) -> String {
-        date.formatted(date: .abbreviated, time: .omitted)
+        LogbookFormat.fullDate(date)
     }
 
     var body: some View {
