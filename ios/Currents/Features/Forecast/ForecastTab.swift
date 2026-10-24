@@ -1,47 +1,4 @@
 import SwiftUI
-import CoreLocation
-
-/// The forecast on its own, for places outside Today (the Explore map opens it
-/// as a sheet). Today pushes the same pages onto its own stack instead.
-struct ForecastTab: View {
-    @Environment(AppState.self) private var appState
-    @Environment(\.dismiss) private var dismiss
-    var presentedAsSheet: Bool = false
-    @State private var store = ForecastStore()
-
-    var body: some View {
-        NavigationStack {
-            ForecastDayPage(store: store)
-                .toolbar {
-                    if presentedAsSheet {
-                        ToolbarItem(placement: .confirmationAction) {
-                            Button("Done") { dismiss() }
-                        }
-                    }
-                    ToolbarItem(placement: .primaryAction) {
-                        Button {
-                            Task { await store.load(force: true) }
-                        } label: {
-                            Image(systemName: "arrow.clockwise")
-                        }
-                        .accessibilityLabel("Refresh forecast")
-                        .disabled(store.isLoading)
-                    }
-                }
-                .navigationDestination(for: ForecastRoute.self) { route in
-                    ForecastDestination(store: store, route: route)
-                }
-        }
-        .dsScreenBackground()
-        .syncsTargetSpecies(store)
-        .task {
-            if let loc = appState.locationManager.currentLocation {
-                store.setLocation(loc.coordinate, name: "Current location")
-            }
-            await store.load()
-        }
-    }
-}
 
 /// The page for a forecast route. Declare with
 /// `.navigationDestination(for: ForecastRoute.self)` inside the stack's root.
@@ -78,6 +35,7 @@ struct TargetSpeciesPage: View {
     @Environment(\.dismiss) private var dismiss
     @AppStorage("targetSpeciesId") private var targetSpeciesId: Int = 0
     @AppStorage(RecentTargets.key) private var recentTargets = ""
+    @AppStorage("units") private var units = "metric"
     @State private var all: [Species] = []
     @State private var loaded = false
     @State private var search = ""
@@ -135,6 +93,17 @@ struct TargetSpeciesPage: View {
                 }
             }
 
+            if loaded && rows.isEmpty && search.isEmpty {
+                Section {
+                    InlineEmpty(systemImage: all.isEmpty ? "fish" : "line.3.horizontal.decrease",
+                                text: all.isEmpty
+                                    ? "The species guide is still being set up. Try again in a moment."
+                                    : "No species in this group. Pick another habitat.")
+                        .padding(.top, DS.Space.s4)
+                        .dsListRow()
+                }
+            }
+
             if !rows.isEmpty {
                 // A row, not a section header: plain-list headers pin and
                 // draw over the rows on this clear background.
@@ -153,16 +122,8 @@ struct TargetSpeciesPage: View {
         .overlay {
             if !loaded {
                 ProgressView()
-            } else if all.isEmpty {
-                ContentUnavailableView("No species yet", systemImage: "fish",
-                                       description: Text("The species guide is still being set up. Try again in a moment."))
-            } else if rows.isEmpty {
-                if search.isEmpty {
-                    ContentUnavailableView("None in this group", systemImage: "line.3.horizontal.decrease",
-                                           description: Text("Pick another habitat."))
-                } else {
-                    ContentUnavailableView.search(text: search)
-                }
+            } else if rows.isEmpty && !search.isEmpty {
+                ContentUnavailableView.search(text: search)
             }
         }
         .navigationTitle("Target species")
@@ -189,7 +150,7 @@ struct TargetSpeciesPage: View {
 
     private func subtitle(for sp: Species) -> String {
         if let t = sp.optimalTempC {
-            return "\(sp.scientificName), best at \(Int(t))°"
+            return "\(sp.scientificName), best at \(Units.temperature(t, imperial: units == "imperial"))"
         }
         return sp.scientificName
     }
@@ -213,7 +174,9 @@ enum SpeciesHabitatFilter: Hashable {
     var title: String {
         switch self {
         case .all: "All"
-        case .only(let h): h.rawValue.capitalized
+        case .only(.freshwater): "Freshwater"
+        case .only(.marine): "Saltwater"
+        case .only(.brackish): "Estuary"
         }
     }
 }
