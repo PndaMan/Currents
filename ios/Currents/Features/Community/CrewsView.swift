@@ -1203,6 +1203,9 @@ struct CrewSettingsView: View {
     @State private var saving = false
     @State private var confirmingRemove: CommunityService.GroupMember?
     @State private var confirmingTransfer: CommunityService.GroupMember?
+    /// The member whose role or membership is being saved; their menu
+    /// shows progress until the server answers.
+    @State private var busyMember: String?
     @State private var showingIconPicker = false
     @State private var showingBannerPicker = false
     @State private var showingArt = false
@@ -1509,7 +1512,9 @@ struct CrewSettingsView: View {
             presenting: confirmingRemove
         ) { m in
             Button("Remove \(m.name)", role: .destructive) {
+                busyMember = m.id
                 Task {
+                    defer { busyMember = nil }
                     if await svc.removeMember(m.id, fromCrew: currentCrew) {
                         Haptics.warning()
                         ToastCenter.shared.show("Removed from the crew", style: .info, haptic: false)
@@ -1530,7 +1535,9 @@ struct CrewSettingsView: View {
             presenting: confirmingTransfer
         ) { m in
             Button("Make \(m.name) captain", role: .destructive) {
+                busyMember = m.id
                 Task {
+                    defer { busyMember = nil }
                     if let updated = await svc.transferCaptaincy(to: m.id, name: m.name, in: currentCrew) {
                         currentCrew = updated
                         Haptics.warning()
@@ -1564,8 +1571,12 @@ struct CrewSettingsView: View {
                     .foregroundStyle(CrewDetailView.roleColor(role))
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            if !isSelf, !isCaptain, myRole.canModerate {
+            if busyMember == m.id {
+                ProgressView()
+                    .frame(width: 44, height: 44)
+            } else if !isSelf, !isCaptain, myRole.canModerate {
                 memberMenu(m, role: role)
+                    .disabled(busyMember != nil)
             }
         }
         .padding(.horizontal, DS.Space.s4)
@@ -1614,7 +1625,9 @@ struct CrewSettingsView: View {
     }
 
     private func apply(_ role: CrewRole, to m: CommunityService.GroupMember) {
+        busyMember = m.id
         Task {
+            defer { busyMember = nil }
             if let updated = await svc.setRole(role, for: m.id, in: currentCrew) {
                 currentCrew = updated
                 ToastCenter.shared.show(role == .member ? "\(m.name) is a member again"
