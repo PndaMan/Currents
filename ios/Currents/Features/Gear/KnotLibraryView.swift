@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Offline knot and rig reference. Knots that have a real, openly-licensed
+/// Offline knot reference. Knots that have a real, openly-licensed
 /// diagram or photo (bundled from Wikimedia Commons, with attribution) show it;
 /// the rest show accurate numbered steps only. No invented diagrams, which are
 /// misleading. Entries come from `KnotCatalog`, so new sources plug in there.
@@ -39,7 +39,7 @@ struct KnotLibraryView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                DetailHeader(title: "Knots and rigs", subtitle: "Step by step. Works offline.")
+                DetailHeader(title: "Knots", subtitle: "Step by step. Works offline.")
                 PFSearchField(prompt: "Knot name or use", text: $search)
                     .padding(.top, DS.Space.s4)
                 FilterChips(categories, selection: $category) { $0?.rawValue ?? "All" }
@@ -64,7 +64,7 @@ struct KnotLibraryView: View {
         .scrollDismissesKeyboard(.interactively)
         .detailTint(nil)
         .pfTrackScroll($titleShown, threshold: 60)
-        .pfScrollTitle("Knots and rigs", shown: titleShown)
+        .pfScrollTitle("Knots", shown: titleShown)
         .navigationDestination(for: KnotRoute.self) { route in
             if let knot = catalog.entry(id: route.id) {
                 KnotDetailView(knot: knot)
