@@ -111,6 +111,20 @@ extension FishingRegulation {
         }
         return parts.joined(separator: ", ")
     }
+
+    /// The species guide's record for this fish: by scientific name, else by
+    /// the whole common name, else by the first of its slash names
+    /// ("Geelbek" of "Geelbek / Cape Salmon"). The other slash names are not
+    /// tried: several of them name a different fish in the guide.
+    @MainActor
+    func species(in repository: SpeciesRepository) -> Species? {
+        if let match = (try? repository.fetchByScientificName(scientificName)) ?? nil { return match }
+        if let match = (try? repository.fetchByCommonName(commonName)) ?? nil { return match }
+        let first = commonName.components(separatedBy: "/").first?
+            .trimmingCharacters(in: .whitespaces) ?? ""
+        guard !first.isEmpty, first != commonName else { return nil }
+        return (try? repository.fetchByCommonName(first)) ?? nil
+    }
 }
 
 /// One row: the species art thumb, the name and its key limits.
@@ -128,7 +142,9 @@ private struct RegulationRow: View {
             if let species {
                 ThumbView(species: species, size: 56)
             } else {
-                ThumbView(systemImage: "fish.fill", tint: .purple, size: 56)
+                // A fish the guide has no record of: the neutral silhouette
+                // of a species not found yet, not a bright stand-in colour.
+                ThumbView(systemImage: "fish.fill", tint: Color.dsText3, size: 56)
             }
             VStack(alignment: .leading, spacing: 2) {
                 Text(reg.commonName)
@@ -155,7 +171,7 @@ private struct RegulationRow: View {
         .contentShape(Rectangle())
         .task {
             if species == nil {
-                species = (try? appState.speciesRepository.fetchByScientificName(reg.scientificName)) ?? nil
+                species = reg.species(in: appState.speciesRepository)
             }
         }
     }
@@ -269,7 +285,7 @@ struct RegulationDetailView: View {
             PFFootnote("Rules change. Confirm them with the local authority before you keep a fish.")
         }
         .task {
-            species = (try? appState.speciesRepository.fetchByScientificName(reg.scientificName)) ?? nil
+            species = reg.species(in: appState.speciesRepository)
             if let mn = reg.minSizeCm { lengthCm = snapped(mn, .up) }
             else if let mx = reg.maxSizeCm { lengthCm = snapped(mx, .down) }
         }
