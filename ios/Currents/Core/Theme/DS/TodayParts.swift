@@ -307,12 +307,15 @@ extension ButtonStyle where Self == CardRowPressStyle {
 // MARK: - Hero
 
 /// Today's hero: a subheadline label, a bold title-sized value, one short
-/// callout line, and a visual on the right (ScoreRing, big number, art).
+/// callout line, and a visual on the right (ScoreRing, big number, art). At
+/// accessibility sizes the visual moves under the text, both leading, so the
+/// value gets the full width.
 struct PageHero<Visual: View>: View {
     let label: String
     let value: String
     var callout: String? = nil
     private let visual: Visual
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     init(label: String, value: String, callout: String? = nil, @ViewBuilder visual: () -> Visual) {
         self.label = label
@@ -322,7 +325,11 @@ struct PageHero<Visual: View>: View {
     }
 
     var body: some View {
-        HStack(alignment: .center, spacing: 16) {
+        let stacked = typeSize.isAccessibilitySize
+        let layout = stacked
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 16))
+            : AnyLayout(HStackLayout(alignment: .center, spacing: 16))
+        layout {
             VStack(alignment: .leading, spacing: 4) {
                 Text(label)
                     .font(.subheadline)
@@ -338,9 +345,10 @@ struct PageHero<Visual: View>: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
-            Spacer(minLength: 0)
+            if !stacked { Spacer(minLength: 0) }
             visual
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, DS.gutter)
         .accessibilityElement(children: .combine)
     }
