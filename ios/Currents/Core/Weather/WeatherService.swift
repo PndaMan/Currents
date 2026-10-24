@@ -13,7 +13,7 @@ actor WeatherService {
         let pressureHpa: Double
         let pressureChange6h: Double
         let temperatureC: Double
-        let waterTempC: Double? // estimated from air temp for freshwater
+        let waterTempC: Double? // estimated from recent air temperature, see waterEstimates
         let windSpeedKmh: Double
         let windDirectionDeg: Double
         let cloudCoverPct: Int
@@ -138,7 +138,7 @@ actor WeatherService {
         }
 
         // Try fetching from Open-Meteo
-        let urlString = "https://api.open-meteo.com/v1/forecast?latitude=\(coordinate.latitude)&longitude=\(coordinate.longitude)&current=temperature_2m,relative_humidity_2m,pressure_msl,surface_pressure,wind_speed_10m,wind_direction_10m,cloud_cover,precipitation,weather_code,uv_index&hourly=pressure_msl&forecast_hours=7&timezone=auto"
+        let urlString = "https://api.open-meteo.com/v1/forecast?latitude=\(coordinate.latitude)&longitude=\(coordinate.longitude)&current=temperature_2m,relative_humidity_2m,pressure_msl,surface_pressure,wind_speed_10m,wind_direction_10m,cloud_cover,precipitation,weather_code,uv_index&hourly=pressure_msl&forecast_hours=7&daily=temperature_2m_mean&timezone=auto"
 
         guard let url = URL(string: urlString) else { return (cache[key]?.data, false) }
 
@@ -168,8 +168,10 @@ actor WeatherService {
                 pressureChange6h = pressures.last! - pressures.first!
             }
 
-            // Estimate water temp from air temp (rough freshwater heuristic)
-            let waterTemp = tempC - 2.0
+            // Water comes from the days' mean air temperature, on the same
+            // basis as the outlook, so today matches its first day.
+            let dailyMeans = (json?["daily"] as? [String: Any])?["temperature_2m_mean"] as? [Double] ?? []
+            let waterTemp = Self.waterEstimates(dailyMeanAirC: dailyMeans.isEmpty ? [tempC] : dailyMeans).first
 
             let weather = WeatherData(
                 pressureHpa: pressureNow,
@@ -273,6 +275,13 @@ actor WeatherService {
 
             let n = [times.count, temps.count, pressures.count, winds.count, windDirs.count,
                      precips.count, clouds.count, humidities.count, codes.count, uvs.count].min() ?? 0
+            // Each day's mean air temperature, the basis of its water estimate.
+            let meanAir = stride(from: 0, to: n, by: 24).map { start -> Double in
+                let hours = start..<min(start + 24, n)
+                return hours.map { temps[$0] }.reduce(0, +) / Double(hours.count)
+            }
+            let water = Self.waterEstimates(dailyMeanAirC: meanAir)
+
             var days: [WeatherData] = []
             var day = 0
             while true {
@@ -295,7 +304,7 @@ actor WeatherService {
                     pressureHpa: pressures[midday],
                     pressureChange6h: trend,
                     temperatureC: temps[midday],
-                    waterTempC: temps[midday] - 2.0,
+                    waterTempC: day < water.count ? water[day] : nil,
                     windSpeedKmh: meanWind,
                     windDirectionDeg: windDirs[midday],
                     cloudCoverPct: clouds[midday],
@@ -316,6 +325,21 @@ actor WeatherService {
             // Offline — serve the persisted outlook (any age) instead of nothing.
             return dailyCache[key]?.days ?? []
         }
+    }
+
+    /// Water lags air: a 5-day running mean of daily mean air temperature, seeded from the first day, moving at most 1 °C a day, never below 0 °C.
+    nonisolated static func waterEstimates(dailyMeanAirC: [Double]) -> [Double] {
+        let weight = 1 - exp(-1.0 / 5)
+        var estimates: [Double] = []
+        for air in dailyMeanAirC {
+            guard let last = estimates.last else {
+                estimates.append(max(0, air))
+                continue
+            }
+            let step = min(1, max(-1, (air - last) * weight))
+            estimates.append(max(0, last + step))
+        }
+        return estimates
     }
 
     /// Fetch hourly forecast for 48 hours. Times come back as Unix seconds:
