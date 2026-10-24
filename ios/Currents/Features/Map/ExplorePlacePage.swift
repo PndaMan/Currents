@@ -12,6 +12,7 @@ struct ExplorePlacePage: View {
     @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss
     @AppStorage("use24HourTime") private var use24HourTime = true
+    @AppStorage("cloudSyncEnabled") private var cloudSyncEnabled = false
 
     let style: Style
     /// Called after the place is saved or removed, so the map can swap the
@@ -219,16 +220,17 @@ struct ExplorePlacePage: View {
             .pageWidth()
         }
         .detailTint(tint)
-        .navigationTitle("")
-        .navigationBarTitleDisplayMode(.inline)
+        .exploreInlineTitle(name)
         .toolbar {
-            ToolbarItemGroup(placement: .topBarTrailing) {
-                shareButton
-                if style == .sheet {
-                    Button { dismiss() } label: {
-                        Image(systemName: "xmark")
-                    }
-                    .accessibilityLabel("Close")
+            ToolbarItem(placement: .topBarTrailing) {
+                Button { showingPlan = true } label: {
+                    Image(systemName: "calendar.badge.plus")
+                }
+                .accessibilityLabel("Plan session")
+            }
+            if style == .sheet {
+                ToolbarItem(placement: .confirmationAction) {
+                    SheetDoneButton()
                 }
             }
         }
@@ -289,12 +291,14 @@ struct ExplorePlacePage: View {
         .padding(.top, style == .page ? DS.Space.s5 : DS.Space.s2)
     }
 
+    /// Save spot, Directions and Share, in the order of every place sheet.
+    /// Planning a session sits in the toolbar.
     private var actions: some View {
         ActionTriple {
             Button {
                 if isSaved { confirmingRemove = true } else { save() }
             } label: {
-                Label(isSaved ? "Saved" : "Save", systemImage: isSaved ? "bookmark.fill" : "bookmark")
+                Label(isSaved ? "Saved" : "Save spot", systemImage: isSaved ? "bookmark.fill" : "bookmark")
             }
             .buttonStyle(ActionTileStyle(isSaved ? .tonal : .primary))
             .symbolEffect(.bounce, value: savedTick)
@@ -302,23 +306,25 @@ struct ExplorePlacePage: View {
             DirectionsMenu(coordinate: coord, name: name) {
                 ActionTileLabel("Directions", systemImage: "location.north.line")
             }
-            Button { showingPlan = true } label: {
-                Label("Plan", systemImage: "calendar.badge.plus")
-            }
-            .buttonStyle(ActionTileStyle())
+            shareTile
         }
         .padding(.top, DS.Space.s5)
     }
 
+    /// A saved spot shares its card; anywhere else shares a map link.
     @ViewBuilder
-    private var shareButton: some View {
+    private var shareTile: some View {
         if savedSpot != nil {
-            Button { generateShareCard() } label: { Image(systemName: "square.and.arrow.up") }
-                .accessibilityLabel("Share spot")
-                .disabled(isGeneratingShare)
+            Button { generateShareCard() } label: {
+                Label("Share", systemImage: "square.and.arrow.up")
+            }
+            .buttonStyle(ActionTileStyle())
+            .disabled(isGeneratingShare)
+            .accessibilityHint("Shares a card of this spot")
         } else if let mapsURL {
-            ShareLink(item: mapsURL) { Image(systemName: "square.and.arrow.up") }
-                .accessibilityLabel("Share")
+            ShareLink(item: mapsURL) {
+                ActionTileLabel("Share", systemImage: "square.and.arrow.up")
+            }
         }
     }
 
@@ -328,14 +334,10 @@ struct ExplorePlacePage: View {
         section {
             SectionTitle("Your catches here", detail: catches.isEmpty ? nil : "\(catches.count)")
             if catches.isEmpty {
-                ContentUnavailableView {
-                    Label("No catches here yet", systemImage: "fish")
-                } description: {
-                    Text("Log a catch here and it shows on this page and on the map.")
-                } actions: {
-                    Button("Log catch") { logCatch() }
-                        .buttonStyle(PrimaryButtonStyle(fullWidth: false))
-                }
+                InlineEmpty(systemImage: "fish",
+                            text: "No catches here yet. Log one and it shows on this page and on the map.",
+                            actionTitle: "Log catch",
+                            action: logCatch)
             } else {
                 catchStats
                 ForEach(catches, id: \.catchRecord.id) { detail in
@@ -428,8 +430,16 @@ struct ExplorePlacePage: View {
                                  isDestructive: true, chevron: false, showsDivider: false)
             }
             .buttonStyle(.dsRow)
-            ExploreFootnote("Spots stay on this phone. Exact locations are never shared unless you share them.")
+            ExploreFootnote(savedWhere)
         }
+    }
+
+    /// Where the spot is kept, which is also the iCloud account when sync is on.
+    private var savedWhere: String {
+        let place = cloudSyncEnabled && CloudCapability.isAvailable
+            ? "Saved on this phone and your iCloud."
+            : "Saved on this phone."
+        return place + " Exact locations are never shared unless you share them."
     }
 
     // MARK: Water sections
@@ -462,8 +472,7 @@ struct ExplorePlacePage: View {
                     Button("Show \(observedFish.count - 8) more species") {
                         withAnimation(DS.Motion.easeOut) { showsAllFish = true }
                     }
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.dsText)
+                    .buttonStyle(TonalButtonStyle(fullWidth: false))
                     .padding(.horizontal, DS.gutter)
                     .padding(.vertical, DS.Space.s2)
                 }
@@ -507,7 +516,7 @@ struct ExplorePlacePage: View {
             if let local = fish.localSpecies {
                 ThumbView(species: local, size: 56)
             } else {
-                ThumbView(systemImage: "fish", tint: .gray, size: 56)
+                ThumbView(systemImage: "fish", tint: .blue, size: 56)
             }
         }
     }
@@ -624,7 +633,7 @@ struct ExplorePlacePage: View {
             onSavedChange?()
             ToastCenter.shared.show("\(record.name) saved to your spots", icon: "bookmark.fill")
         } catch {
-            ToastCenter.shared.show("Could not save this spot", style: .error)
+            ToastCenter.shared.show("Couldn't save the spot", style: .error)
         }
     }
 
@@ -635,7 +644,7 @@ struct ExplorePlacePage: View {
         do {
             detached = try ExploreSpots.remove(spot, in: appState)
         } catch {
-            ToastCenter.shared.show("Could not remove this spot", style: .error)
+            ToastCenter.shared.show("Couldn't remove the spot", style: .error)
             return
         }
         isSaved = false
@@ -686,6 +695,7 @@ struct ExplorePlacePage: View {
 /// Depth profile, size, height, access and structure of a water body.
 struct ExploreWaterFacts: View {
     let waterbody: Waterbody
+    @AppStorage("units") private var units = "metric"
 
     private var coord: CLLocationCoordinate2D {
         CLLocationCoordinate2D(latitude: waterbody.latitude, longitude: waterbody.longitude)
@@ -732,10 +742,13 @@ struct ExploreWaterFacts: View {
 
     private var rows: [(String, String)] {
         var s: [(String, String)] = [("Type", ExploreFormat.waterType(waterbody.type))]
-        if let maxD = waterbody.maxDepthM { s.append(("Max depth", Units.depth(m: maxD))) }
-        if let avgD = waterbody.averageDepthM { s.append(("Average depth", Units.depth(m: avgD))) }
-        if let area = waterbody.surfaceAreaKm2 { s.append(("Surface area", ExploreFormat.area(area))) }
-        if let elev = waterbody.elevation { s.append(("Elevation", String(format: "%.0f m", elev))) }
+        let imperial = units == "imperial"
+        if let maxD = waterbody.maxDepthM { s.append(("Max depth", Units.depth(m: maxD, imperial: imperial))) }
+        if let avgD = waterbody.averageDepthM { s.append(("Average depth", Units.depth(m: avgD, imperial: imperial))) }
+        if let area = waterbody.surfaceAreaKm2 {
+            s.append(("Surface area", Units.area(km2: area, imperial: imperial, smallInHectares: true)))
+        }
+        if let elev = waterbody.elevation { s.append(("Elevation", Units.elevation(m: elev, imperial: imperial))) }
         s.append(("Access", waterbody.isPublic ? "Public" : "Private, ask first"))
         s.append(("Location", ExploreFormat.coords(coord)))
         return s
