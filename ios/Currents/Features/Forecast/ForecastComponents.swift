@@ -835,29 +835,16 @@ struct CloudBars: View {
 
 extension View {
     /// Sets `shown` once a page with its own large title has scrolled past
-    /// it. Apply to the page's ScrollView.
+    /// it: past the page's `DetailHeader` over line and title, as on
+    /// `TodayPage`. Apply to the page's ScrollView.
     func forecastTracksTitle(_ shown: Binding<Bool>) -> some View {
-        onScrollGeometryChange(for: Bool.self) { geo in
-            geo.contentOffset.y + geo.contentInsets.top > 60
-        } action: { _, past in
-            shown.wrappedValue = past
-        }
+        pageTitleTracking(shown)
     }
 
     /// The inline title of a page that shows its own large title: hidden at
-    /// rest and faded in once `shown`, as on `TodayPage`.
+    /// rest and faded in once `shown`, with the hairline under the bar, as
+    /// on `TodayPage`. Apply after `detailTint` or `detailScrollEdge`.
     func forecastInlineTitle(_ title: String, shown: Bool) -> some View {
-        navigationTitle(title)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .principal) {
-                    Text(title)
-                        .font(.headline)
-                        .lineLimit(1)
-                        .opacity(shown ? 1 : 0)
-                        .animation(.easeOut(duration: DS.Motion.fast), value: shown)
-                        .accessibilityHidden(!shown)
-                }
-            }
+        pageInlineTitle(title, shown: shown)
     }
 }
