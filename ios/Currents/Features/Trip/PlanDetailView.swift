@@ -299,9 +299,11 @@ struct PlanDetailView: View {
                 locationMap(coord)
                     .padding(.horizontal, DS.gutter)
                     .padding(.top, DS.Space.s2)
-                DirectionsButton(coordinate: coord, name: spot?.name ?? trip.name)
-                    .padding(.horizontal, DS.gutter)
-                    .padding(.top, DS.Space.s3)
+                DirectionsMenu(coordinate: coord, name: spot?.name ?? trip.name) {
+                    ActionTileLabel("Directions", systemImage: "location.north.line")
+                }
+                .padding(.horizontal, DS.gutter)
+                .padding(.top, DS.Space.s3)
                 if spot == nil {
                     SectionFootnote("The session tracks wherever you are when you start it.")
                 }
