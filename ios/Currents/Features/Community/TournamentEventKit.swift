@@ -459,8 +459,10 @@ private struct EventPodiumPlinth: View {
 
 // MARK: - Rank row
 
-/// A ranked row: number, avatar, name with a subtitle, value on the right.
-/// Your own row is tinted with the accent.
+/// A ranked row: number, avatar, name with a subtitle, value on the right,
+/// and a chevron when the row opens a profile. Your own row sits on a
+/// rounded accent band inset from the page edge; the numbers stay on the
+/// gutter in every row.
 struct EventRankRow: View {
     let rank: Int
     let name: String
@@ -468,6 +470,7 @@ struct EventRankRow: View {
     let value: String
     var images: [UIImage?] = []
     var isMe = false
+    var showsChevron = false
     @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
@@ -495,11 +498,22 @@ struct EventRankRow: View {
                 .font(.headline.monospacedDigit())
                 .foregroundStyle(Color.dsText)
                 .contentTransition(.numericText())
+            if showsChevron {
+                Image(systemName: "chevron.right")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Color.dsText3)
+            }
         }
-        .padding(.horizontal, DS.gutter)
+        .padding(.horizontal, DS.Space.s3)
         .padding(.vertical, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(isMe ? DS.accent.opacity(0.12) : Color.clear)
+        .background {
+            if isMe {
+                RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous)
+                    .fill(DS.accent.opacity(0.12))
+            }
+        }
+        .padding(.horizontal, DS.gutter - DS.Space.s3)
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
     }

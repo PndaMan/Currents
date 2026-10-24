@@ -164,7 +164,8 @@ struct CrewLeaderboardView: View {
                                      name: isSelf ? "You" : row.anglerName,
                                      value: value(row),
                                      images: [avatars[row.friendCode]],
-                                     isMe: isSelf)
+                                     isMe: isSelf,
+                                     showsChevron: true)
                     }
                     .buttonStyle(.dim)
                 }

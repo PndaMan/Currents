@@ -1052,7 +1052,8 @@ struct GroupTripView: View {
                                subtitle: s.subtitle(imperial: imperial),
                                value: "\(s.count) fish",
                                images: [memberAvatars[s.code]],
-                               isMe: isMe)
+                               isMe: isMe,
+                               showsChevron: !isMe)
         if isMe {
             row
         } else {
