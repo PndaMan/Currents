@@ -125,26 +125,25 @@ struct AnalyticsView: View {
 
     // MARK: - Patterns
 
+    /// Headline patterns the charts below do not already show.
     @ViewBuilder
     private var patternsSection: some View {
         let insights = InsightsEngine.compute(from: allCatches, use24: use24HourTime)
         if !insights.isEmpty {
-            SectionTitle("Your patterns")
-                .padding(.top, DS.Space.s8)
-            VStack(alignment: .leading, spacing: DS.Space.s3) {
-                ForEach(insights.prefix(6)) { insight in
-                    HStack(spacing: 14) {
-                        ThumbView(systemImage: insight.icon, tint: DS.accent, size: 44)
-                        Text(insight.text)
-                            .font(.body)
-                            .foregroundStyle(.dsText)
-                            .fixedSize(horizontal: false, vertical: true)
-                        Spacer(minLength: 0)
-                    }
-                    .accessibilityElement(children: .combine)
+            CardSection("Your patterns") {
+                ForEach(insights) { insight in
+                    CardRow(insight.title, subtitle: insight.detail, systemImage: insight.icon,
+                            tint: patternTint(insight.kind), value: insight.value)
                 }
             }
-            .padding(.horizontal, DS.gutter)
+            .padding(.top, DS.Space.s8)
+        }
+    }
+
+    private func patternTint(_ kind: Insight.Kind) -> Color {
+        switch kind {
+        case .bestTime: return .dsScoreLow
+        case .bestLure: return .dsScoreGood
         }
     }
 
@@ -158,7 +157,7 @@ struct AnalyticsView: View {
             let readout = selectedMonth.flatMap { m in monthlyCounts.first { $0.month == m } }
                 ?? monthlyCounts.max { $0.count < $1.count }
             if let readout {
-                Text("\(monthName(readout.month, wide: true)): \(readout.count) \(readout.count == 1 ? "catch" : "catches")")
+                Text("\(monthName(readout.month, wide: true)), \(readout.count) \(readout.count == 1 ? "catch" : "catches")")
                     .font(.subheadline.weight(.medium))
                     .foregroundStyle(.dsText2)
                     .contentTransition(.numericText())
@@ -184,7 +183,6 @@ struct AnalyticsView: View {
             .padding(.horizontal, DS.gutter)
             .accessibilityLabel("Catches by month")
             .accessibilityValue(monthlyCounts.map { "\(monthName($0.month, wide: true)) \($0.count)" }.joined(separator: ", "))
-            SectionFoot("Touch and hold a bar to read it.")
         }
     }
 
@@ -220,10 +218,9 @@ struct AnalyticsView: View {
             .padding(.horizontal, DS.gutter)
             if speciesCounts.count > 8 {
                 Button(showingAllSpecies ? "Show fewer" : "Show all \(speciesCounts.count) species") {
-                    withAnimation(DS.Motion.spring) { showingAllSpecies.toggle() }
+                    withAnimation(DS.Motion.softSpring) { showingAllSpecies.toggle() }
                 }
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(DS.accent)
+                .buttonStyle(TonalButtonStyle(fullWidth: false))
                 .padding(.horizontal, DS.gutter)
                 .padding(.top, DS.Space.s3)
             }
@@ -339,9 +336,6 @@ struct AnalyticsView: View {
             .padding(.horizontal, DS.gutter)
             .padding(.top, DS.Space.s2)
             .accessibilityHidden(true)
-            if let peak = hourCounts.max(by: { $0.count < $1.count }) {
-                SectionFoot("Most of your fish come around \(formatHour(peak.hour)), \(peak.count) so far.")
-            }
         }
     }
 
@@ -366,9 +360,6 @@ struct AnalyticsView: View {
             .padding(.horizontal, DS.gutter)
             .accessibilityLabel("Catches by day of the week")
             .accessibilityValue(dayCounts.map { "\($0.day) \($0.count)" }.joined(separator: ", "))
-            if let best, dayCounts.count > 1 {
-                SectionFoot("\(Calendar.current.weekdaySymbols[best.index]) is your best day.")
-            }
         }
     }
 

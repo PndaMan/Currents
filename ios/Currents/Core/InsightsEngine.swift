@@ -1,90 +1,59 @@
 import Foundation
 
-/// Turns a logged catch history into plain-language takeaways ("most of your
-/// fish come at dawn", "April is your best month"). Purely on-device.
+/// One headline pattern from the catch history, shown as a row on the Stats
+/// page: "Best time", "Dawn, 42%".
 struct Insight: Identifiable {
-    let id = UUID()
+    enum Kind { case bestTime, bestLure }
+    let kind: Kind
     let icon: String
-    let text: String
+    let title: String
+    let value: String
+    var detail: String? = nil
+    var id: Kind { kind }
 }
 
+/// Turns a logged catch history into headline patterns. Purely on-device.
+/// Only patterns the Stats page does not already chart or list are made: the
+/// best month, top species, top spot, average bite score and release rate
+/// each have their own section there.
 enum InsightsEngine {
-    /// Produces a small ranked set of insights. Returns empty until there's
-    /// enough history to say anything meaningful.
+    /// Returns empty until there's enough history to say anything meaningful.
     static func compute(from catches: [CatchDetail], use24: Bool = ForecastFormat.use24) -> [Insight] {
         guard catches.count >= 3 else { return [] }
         var out: [Insight] = []
         let cal = Calendar.current
         let total = catches.count
 
-        // Best time-of-day window, in the 24-hour setting.
+        // Best time of day, as a share of every catch, in the 24-hour setting.
         func range(_ from: Int, _ to: Int) -> String {
             "\(ForecastFormat.hour(from, use24: use24)) to \(ForecastFormat.hour(to, use24: use24))"
         }
-        let windows: [(name: String, range: String, test: (Int) -> Bool)] = [
-            ("dawn", range(4, 8), { (4..<8).contains($0) }),
-            ("the morning", range(8, 12), { (8..<12).contains($0) }),
-            ("midday", range(12, 16), { (12..<16).contains($0) }),
-            ("the evening", range(16, 20), { (16..<20).contains($0) }),
-            ("after dark", range(20, 4), { $0 >= 20 || $0 < 4 }),
+        let windows: [(name: String, from: Int, to: Int, icon: String, test: (Int) -> Bool)] = [
+            ("Dawn", 4, 8, "sunrise.fill", { (4..<8).contains($0) }),
+            ("Morning", 8, 12, "sun.max.fill", { (8..<12).contains($0) }),
+            ("Midday", 12, 16, "sun.max.fill", { (12..<16).contains($0) }),
+            ("Evening", 16, 20, "sunset.fill", { (16..<20).contains($0) }),
+            ("After dark", 20, 4, "moon.stars.fill", { $0 >= 20 || $0 < 4 }),
         ]
         let hours = catches.map { cal.component(.hour, from: $0.catchRecord.caughtAt) }
         if let best = windows.map({ w in (w, hours.filter(w.test).count) }).max(by: { $0.1 < $1.1 }),
            best.1 > 0 {
             let pct = Int((Double(best.1) / Double(total)) * 100)
             if pct >= 30 {
-                out.append(.init(icon: "sunrise.fill",
-                                 text: "\(pct)% of your catches come in \(best.0.name) (\(best.0.range))."))
+                out.append(Insight(kind: .bestTime, icon: best.0.icon, title: "Best time",
+                                   value: "\(best.0.name), \(pct)%", detail: range(best.0.from, best.0.to)))
             }
         }
 
-        // Best month.
-        let months = Dictionary(grouping: catches, by: { cal.component(.month, from: $0.catchRecord.caughtAt) })
-        if let best = months.max(by: { $0.value.count < $1.value.count }), best.value.count >= 2 {
-            let name = cal.monthSymbols[best.key - 1]
-            out.append(.init(icon: "calendar", text: "\(name) is your most productive month so far."))
-        }
-
-        // Top species.
-        let species = Dictionary(grouping: catches.compactMap { $0.species?.commonName }, by: { $0 })
-        if let top = species.max(by: { $0.value.count < $1.value.count }), top.value.count >= 2 {
-            out.append(.init(icon: "fish.fill",
-                             text: "\(top.key) is your most-caught species (\(top.value.count) landed)."))
-        }
-
-        // Most productive spot.
-        let spots = Dictionary(grouping: catches.compactMap { $0.spot?.name }, by: { $0 })
-        if let top = spots.max(by: { $0.value.count < $1.value.count }), top.value.count >= 2 {
-            let pct = Int((Double(top.value.count) / Double(total)) * 100)
-            out.append(.init(icon: "mappin.circle.fill",
-                             text: "\(pct)% of your fish come from \(top.key)."))
-        }
-
-        // Bite-score read.
-        let scores = catches.compactMap { $0.catchRecord.forecastScoreAtCapture }
-        if scores.count >= 3 {
-            let avg = scores.reduce(0, +) / scores.count
-            let tail = avg >= 65 ? " — you read the conditions well." : "."
-            out.append(.init(icon: "gauge.with.dots.needle.67percent",
-                             text: "Your catches average a bite score of \(avg)/100\(tail)"))
-        }
-
-        // Best lure.
-        let lures = catches.compactMap { $0.gearLoadout?.lure ?? $0.gearLoadout?.name }
+        // Best lure overall. The page's gear list counts loadouts, and its
+        // lure list goes species by species.
+        let lures = catches
+            .compactMap { $0.gearLoadout?.lure ?? $0.gearLoadout?.name }
+            .filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
         let lureGroups = Dictionary(grouping: lures, by: { $0 })
         if let top = lureGroups.max(by: { $0.value.count < $1.value.count }), top.value.count >= 3 {
-            out.append(.init(icon: "scribble.variable",
-                             text: "\(top.key) is your most effective lure (\(top.value.count) catches)."))
-        }
-
-        // Release rate.
-        let released = catches.filter { $0.catchRecord.released }.count
-        if released > 0 {
-            let pct = Int((Double(released) / Double(total)) * 100)
-            if pct >= 20 {
-                out.append(.init(icon: "arrow.uturn.backward",
-                                 text: "You release \(pct)% of your catches — nice conservation ethic."))
-            }
+            out.append(Insight(kind: .bestLure, icon: "scribble.variable", title: "Best lure",
+                               value: "\(top.value.count) catches", detail: top.key))
         }
 
         return out
