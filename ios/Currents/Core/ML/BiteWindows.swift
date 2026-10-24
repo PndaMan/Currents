@@ -130,7 +130,8 @@ extension BiteWindows {
 extension ForecastEngine {
     /// One day's forecast as Today shows it: this moment with the live
     /// reading for today, noon with the outlook's day for later days. Today,
-    /// the widget and the bite alerts all go through here so they agree.
+    /// the widget and the bite alerts all go through here so they agree. An
+    /// offline estimate scores on its pressure alone.
     static func day(_ offset: Int,
                     coordinate: CLLocationCoordinate2D,
                     current: WeatherService.WeatherData?,
@@ -153,9 +154,9 @@ extension ForecastEngine {
             coordinate: coordinate,
             currentPressureHpa: weather?.pressureHpa,
             pressureChange6h: weather?.pressureChange6h,
-            waterTempC: weather?.waterTempC,
-            windSpeedKmh: weather?.windSpeedKmh,
-            windDirection: weather?.windDirectionDeg,
+            waterTempC: weather?.measured?.waterTempC,
+            windSpeedKmh: weather?.measured?.windSpeedKmh,
+            windDirection: weather?.measured?.windDirectionDeg,
             species: species,
             isInSpawningZone: false
         )

@@ -230,16 +230,9 @@ final class ForecastStore {
                                           outlook: outlook, species: species)
         let date = computed.date
         let w = computed.weather
-        var result = computed.result
-        if offset == 0, weatherIsEstimate, let reading = w {
-            // Offline with nothing saved: only the barometer is real, so
-            // score without the placeholder wind and water.
-            result = ForecastEngine.forecast(
-                date: date, coordinate: coordinate,
-                currentPressureHpa: reading.pressureHpa, pressureChange6h: reading.pressureChange6h,
-                waterTempC: nil, windSpeedKmh: nil, windDirection: nil,
-                species: species, isInSpawningZone: false)
-        }
+        // Offline with nothing saved, the engine scores on the barometer
+        // alone and leaves out the placeholder wind and water.
+        let result = computed.result
         let day = ForecastDay(
             offset: offset,
             date: date,

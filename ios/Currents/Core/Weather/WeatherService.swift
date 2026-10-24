@@ -35,6 +35,11 @@ actor WeatherService {
 
         /// Shorthand for `isEstimate == true`.
         var isEstimated: Bool { isEstimate == true }
+
+        /// The reading when it is real, nil for an offline estimate. Take
+        /// temperature, water, wind and cloud from here; pressure is real
+        /// either way.
+        var measured: WeatherData? { isEstimated ? nil : self }
     }
 
     struct HourlyForecast: Sendable {
