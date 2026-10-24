@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Today's bite as 24 bars (one per hour, coloured by score, past hours
+/// Today's bite as 24 bars (one per hour, lit by Today's rule, past hours
 /// dimmed, a dot under now) with the day's best windows as tiles below.
 /// Used on the spot and water pages.
 struct BiteStrip: View {
@@ -89,9 +89,13 @@ struct BiteStrip: View {
         return line + "."
     }
 
+    /// Today's rule from the forecast bars: an hour in a window, the hour
+    /// now, or any hour scoring 50 or more is lit in its score colour.
+    /// Past hours are dimmed.
     private func barColor(_ p: (hour: Int, score: Int)) -> Color {
-        let base = inWindow(p.hour) ? DS.scoreColor(p.score) : Color.dsText.opacity(0.14)
-        return p.hour < nowHour ? base.opacity(0.4) : base
+        let lit = inWindow(p.hour) || p.hour == nowHour || p.score >= 50
+        let base = lit ? DS.scoreColor(p.score) : Color.dsFill2
+        return p.hour < nowHour ? base.opacity(0.35) : base
     }
 
     private var accessibilitySummary: String {
