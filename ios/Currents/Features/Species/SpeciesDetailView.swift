@@ -255,7 +255,7 @@ struct SpeciesDetailView: View {
                     StatTile("Caught", systemImage: "fish.fill", value: "\(records.count)")
                     if let heaviest {
                         let parts = Units.weightParts(kg: heaviest, imperial: imperial)
-                        StatTile("Heaviest", systemImage: "trophy.fill", tint: DS.ink(.dsScoreFair),
+                        StatTile("Heaviest", systemImage: "trophy.fill", tint: .dsScoreFair,
                                  value: parts.0, unit: parts.1)
                     }
                     if let longest {
