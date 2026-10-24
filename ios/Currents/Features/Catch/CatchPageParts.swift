@@ -33,7 +33,9 @@ struct CatchHero: View {
     @Environment(\.colorScheme) private var scheme
 
     /// Hero height as a share of the page width, below the navigation bar.
-    static func factor(hasPhoto: Bool) -> CGFloat { hasPhoto ? 0.95 : 0.7 }
+    /// Low enough that the Share, Edit and Favourite tiles clear the tab bar
+    /// on a 6.1 inch phone when the page opens.
+    static func factor(hasPhoto: Bool) -> CGFloat { hasPhoto ? 0.75 : 0.7 }
 
     private var reach: CGFloat { barHeight ?? 0 }
 
