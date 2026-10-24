@@ -6,7 +6,8 @@ name: UI Review Screenshots
 # App Store run (screenshots.yml), the app is relaunched once per shot in
 # screenshot mode (SCREENSHOT_MODE=1), which seeds fictional demo data and
 # opens the screen named by SCREENSHOT_SCREEN. The appearance is chosen per
-# launch with -appearanceMode, so nothing is stored between shots.
+# launch with -appearanceMode, so nothing is stored between shots. Every
+# launch runs on Cape Town time (TZ), matching the simulated location.
 #
 # Manual only: it never runs on push. Run it from the Actions tab, then
 # download the "ui-review" artifact: dark/ and light/ hold one PNG per screen,
@@ -243,7 +244,8 @@ jobs:
             mkdir -p "$dir"
             xcrun simctl terminate "$UDID" "$BUNDLE_ID" 2>/dev/null || true
             sleep 1
-            if ! SIMCTL_CHILD_SCREENSHOT_MODE=1 \
+            if ! SIMCTL_CHILD_TZ=Africa/Johannesburg \
+                 SIMCTL_CHILD_SCREENSHOT_MODE=1 \
                  SIMCTL_CHILD_SCREENSHOT_SCREEN="$screen" \
                  xcrun simctl launch "$UDID" "$BUNDLE_ID" -appearanceMode "$appearance"; then
               echo "::warning::Launch failed for $screen ($appearance), skipped"
@@ -259,6 +261,7 @@ jobs:
 
           # Warm-up launch: seeds the demo data and lets the forecast cache
           # fill, so every later launch opens on settled content.
+          SIMCTL_CHILD_TZ=Africa/Johannesburg \
           SIMCTL_CHILD_SCREENSHOT_MODE=1 \
           SIMCTL_CHILD_SCREENSHOT_SCREEN=today \
             xcrun simctl launch "$UDID" "$BUNDLE_ID" -appearanceMode dark \
