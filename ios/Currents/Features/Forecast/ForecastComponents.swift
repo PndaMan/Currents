@@ -241,8 +241,9 @@ struct TintedIconLabelStyle: LabelStyle {
 
 // MARK: - Hour info (day page)
 
-/// What a tapped hour looks like: score, grade, the weather for that hour
-/// and the engine's factor cells.
+/// What a tapped hour looks like: score, the hour and its grade, the
+/// weather for that hour and the engine's main reason. The factors are in
+/// "Why this score" further down the page.
 struct HourInfoBox: View {
     let store: ForecastStore
     let day: ForecastDay
@@ -252,6 +253,15 @@ struct HourInfoBox: View {
     /// anywhere on it goes back to the day view.
     var onClose: (() -> Void)? = nil
     @AppStorage("units") private var units = "metric"
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    /// The weather the card shows for an hour.
+    private struct HourWeather {
+        let temperatureC: Double
+        let windSpeedKmh: Double
+        let cloudCoverPct: Int
+        let precipMm: Double
+    }
 
     /// The score shown for an hour: this moment's for the current hour of
     /// today, so it matches the hero ring and the bar, otherwise the hour's own.
@@ -261,6 +271,18 @@ struct HourInfoBox: View {
 
     private func isNow(_ hour: Int) -> Bool {
         day.isToday && hour == Calendar.current.component(.hour, from: .now)
+    }
+
+    /// This moment's reading for the current hour of today, as the tiles
+    /// show; the hourly forecast for every other hour.
+    private func weather(_ hour: Int) -> HourWeather? {
+        if isNow(hour), let w = ConditionReading.measured(day, store: store) {
+            return HourWeather(temperatureC: w.temperatureC, windSpeedKmh: w.windSpeedKmh,
+                               cloudCoverPct: w.cloudCoverPct, precipMm: w.precipMm)
+        }
+        guard let p = day.hourWeather(hour) else { return nil }
+        return HourWeather(temperatureC: p.temperatureC, windSpeedKmh: p.windSpeedKmh,
+                           cloudCoverPct: p.cloudCoverPct, precipMm: p.precipMm)
     }
 
     var body: some View {
@@ -288,19 +310,27 @@ struct HourInfoBox: View {
         let detail = isNow(hour) ? day.result : store.hourDetail(day: day.offset, hour: hour)
         let hourDate = Calendar.current.startOfDay(for: day.date).addingTimeInterval(Double(hour) * 3600 + 1800)
         let feeding = detail.feedingWindows.contains { hourDate >= $0.start && hourDate <= $0.end }
-        let wx = day.hourWeather(hour)
+        let wx = weather(hour)
+        // The hour and its grade side by side, stacked at accessibility sizes.
+        let title = typeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 2))
+            : AnyLayout(HStackLayout(alignment: .firstTextBaseline, spacing: 8))
 
         return VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .center, spacing: 12) {
                 ScoreRing(score: score, size: 48)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("\(ForecastFormat.hour(hour, use24: use24)), \(ForecastFormat.grade(score).lowercased())")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.dsText)
+                VStack(alignment: .leading, spacing: 4) {
+                    title {
+                        Text(ForecastFormat.hour(hour, use24: use24))
+                            .font(.headline)
+                            .monospacedDigit()
+                            .foregroundStyle(.dsText)
+                        Text(ForecastFormat.grade(score))
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(DS.scoreInk(score))
+                    }
                     if let wx {
-                        Text(weatherLine(wx))
-                            .font(.footnote)
-                            .foregroundStyle(.dsText2)
+                        weatherLabels(wx, hour: hour)
                     }
                     if feeding {
                         Label("In a solunar feeding period", systemImage: "moon.stars.fill")
@@ -318,20 +348,41 @@ struct HourInfoBox: View {
                     .foregroundStyle(.dsText2)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            LazyVGrid(columns: [GridItem(.flexible(), spacing: 14), GridItem(.flexible())], spacing: 6) {
-                MiniFactor(label: "Pressure", value: detail.breakdown.pressure)
-                MiniFactor(label: "Trend", value: detail.breakdown.pressureTrend)
-                if detail.breakdown.weights.tide > 0 {
-                    MiniFactor(label: "Tide", value: detail.breakdown.tide)
-                }
-                MiniFactor(label: "Solunar", value: detail.breakdown.solunar)
-                MiniFactor(label: "Time of day", value: detail.breakdown.timeOfDay)
-                MiniFactor(label: "Wind", value: detail.breakdown.wind)
-                MiniFactor(label: "Temperature", value: detail.breakdown.temperature)
-                MiniFactor(label: "Moon", value: detail.breakdown.moon)
-            }
         }
         .transition(.opacity)
+    }
+
+    /// The sky and temperature, the wind and any rain as short labels side
+    /// by side, stacked when they do not fit, as the week rows show a day.
+    private func weatherLabels(_ w: HourWeather, hour: Int) -> some View {
+        let imperial = units == "imperial"
+        let temperature = Units.temperature(w.temperatureC, imperial: imperial)
+        let wind = Units.speed(kmh: w.windSpeedKmh, imperial: imperial)
+        let rainText = ConditionText.rainLine(w.precipMm)
+        let wet = w.precipMm >= 0.1
+        let sky = Label(temperature, systemImage: ForecastFormat.weatherSymbol(cloud: w.cloudCoverPct,
+                                                                                precipMm: w.precipMm, hour: hour))
+            .accessibilityLabel("\(temperature), \(w.cloudCoverPct)% cloud")
+        let breeze = Label(wind, systemImage: "wind")
+            .accessibilityLabel("Wind \(wind)")
+        let rain = Label(rainText, systemImage: "drop")
+            .accessibilityLabel("Rain \(rainText)")
+        return ViewThatFits(in: .horizontal) {
+            HStack(spacing: 12) {
+                sky
+                breeze
+                if wet { rain }
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                sky
+                breeze
+                if wet { rain }
+            }
+        }
+        .font(.footnote)
+        .foregroundStyle(.dsText2)
+        .symbolRenderingMode(.hierarchical)
+        .monospacedDigit()
     }
 
     /// A small close mark in the top corner, like the close button on a sheet.
@@ -355,39 +406,6 @@ struct HourInfoBox: View {
         guard let onClose else { return }
         Haptics.selection()
         onClose()
-    }
-
-    private func weatherLine(_ w: WeatherService.HourlyPoint) -> String {
-        let imperial = units == "imperial"
-        var parts = [Units.temperature(w.temperatureC, imperial: imperial),
-                     "wind \(Units.speed(kmh: w.windSpeedKmh, imperial: imperial))",
-                     "\(w.cloudCoverPct)% cloud"]
-        if w.precipMm >= 0.1 { parts.append(String(format: "%.1f mm rain", w.precipMm)) }
-        return parts.joined(separator: ", ")
-    }
-}
-
-private struct MiniFactor: View {
-    let label: String
-    let value: Double
-    @Environment(\.dynamicTypeSize) private var typeSize
-
-    var body: some View {
-        HStack(spacing: 6) {
-            Circle()
-                .fill(DS.scoreColor(Int(value * 100)))
-                .frame(width: 7, height: 7)
-            Text(label)
-                .font(.footnote)
-                .foregroundStyle(.dsText2)
-                .lineLimit(typeSize.isAccessibilitySize ? 3 : 1)
-            Spacer(minLength: 0)
-            Text("\(Int((value * 100).rounded()))%")
-                .font(.footnote.weight(.semibold))
-                .monospacedDigit()
-                .foregroundStyle(.dsText)
-        }
-        .accessibilityElement(children: .combine)
     }
 }
 
