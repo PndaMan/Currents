@@ -38,9 +38,10 @@ struct ExploreConditions: View {
                               value: Units.speed(kmh: w.windSpeedKmh), unit: ExploreFormat.compass(w.windDirectionDeg)) {
                     visual { CompassDial(degrees: w.windDirectionDeg, size: 36) }
                 }
+                let pressure = Units.pressureParts(hpa: w.pressureHpa)
                 ConditionTile("Pressure", systemImage: "gauge.with.dots.needle.33percent",
                               iconTint: ForecastCondition.pressure.tint,
-                              value: "\(Int(w.pressureHpa.rounded()))", unit: "hPa") {
+                              value: pressure.0, unit: pressure.1) {
                     visual {
                         RangeBar(domain: 990...1045, band: ConditionText.pressureSweetSpot,
                                  value: w.pressureHpa, tint: ForecastCondition.pressure.tint)
@@ -49,17 +50,12 @@ struct ExploreConditions: View {
             }
             .padding(.horizontal, DS.gutter)
         } else if isLoading {
-            HStack(spacing: DS.Space.s2) {
-                ProgressView()
-                Text("Loading conditions")
-                    .foregroundStyle(.dsText2)
-            }
-            .padding(.horizontal, DS.gutter)
+            FishLoader(message: "Loading conditions")
+                .frame(minHeight: 90)
+                .frame(maxWidth: .infinity)
         } else {
-            Text("No weather yet. It loads next time you are online.")
-                .font(.subheadline)
-                .foregroundStyle(.dsText2)
-                .padding(.horizontal, DS.gutter)
+            InlineEmpty(systemImage: "cloud.sun",
+                        text: "No weather yet. It loads next time you are online.")
         }
     }
 
@@ -233,7 +229,7 @@ struct ExploreBaitRows: View {
     }
 }
 
-// MARK: - Access and ramps nearby
+// MARK: - Ramps and access nearby
 
 /// Public fishing access and boat ramps within 5 km, nearest first. Hidden
 /// when there are none. Each opens on the map in its sheet.
@@ -260,7 +256,7 @@ struct ExploreNearbyPlaces: View {
         let list = nearby
         VStack(alignment: .leading, spacing: 0) {
             if !list.isEmpty {
-                SectionTitle("Access and ramps")
+                SectionTitle("Ramps and access")
                 ForEach(list) { entry in
                     Button { appState.pendingDeepLink = MapLink.ramp(entry.place) } label: {
                         ArtRow(title: entry.place.name,
