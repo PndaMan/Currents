@@ -320,6 +320,57 @@ actor WeatherService {
         }
     }
 
+    /// The weather at one past hour.
+    struct PastHour: Sendable {
+        let temperatureC: Double?
+        let windSpeedKmh: Double?
+        let windDirectionDeg: Double?
+        let pressureHpa: Double?
+        let condition: String?
+    }
+
+    /// The weather at a past hour, from Open-Meteo's historical forecast
+    /// archive (2022 on, up to the present hour). For catches whose weather
+    /// wasn't saved when they were logged. Nil offline or out of range.
+    func pastHour(at date: Date, for coordinate: CLLocationCoordinate2D) async -> PastHour? {
+        let day = DateFormatter()
+        day.calendar = Calendar(identifier: .gregorian)
+        day.locale = Locale(identifier: "en_US_POSIX")
+        day.timeZone = TimeZone(identifier: "UTC")
+        day.dateFormat = "yyyy-MM-dd"
+        let start = day.string(from: date.addingTimeInterval(-3600))
+        let end = day.string(from: date.addingTimeInterval(3600))
+        let urlString = "https://historical-forecast-api.open-meteo.com/v1/forecast?latitude=\(coordinate.latitude)&longitude=\(coordinate.longitude)&start_date=\(start)&end_date=\(end)&hourly=temperature_2m,pressure_msl,wind_speed_10m,wind_direction_10m,weather_code&timezone=GMT&timeformat=unixtime"
+        guard let url = URL(string: urlString) else { return nil }
+
+        do {
+            var request = URLRequest(url: url)
+            request.timeoutInterval = 15
+            let (data, _) = try await URLSession.shared.data(for: request)
+            let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+            guard let hourly = json?["hourly"] as? [String: Any],
+                  let times = hourly["time"] as? [NSNumber], !times.isEmpty else { return nil }
+            // Hours can be null (the archive has gaps), so read each value alone.
+            func value(_ key: String, _ i: Int) -> Double? {
+                guard let list = hourly[key] as? [Any], i < list.count else { return nil }
+                return (list[i] as? NSNumber)?.doubleValue
+            }
+            let target = date.timeIntervalSince1970
+            guard let i = times.indices.min(by: {
+                abs(times[$0].doubleValue - target) < abs(times[$1].doubleValue - target)
+            }), abs(times[i].doubleValue - target) <= 5400 else { return nil }
+            let hour = PastHour(temperatureC: value("temperature_2m", i),
+                                windSpeedKmh: value("wind_speed_10m", i),
+                                windDirectionDeg: value("wind_direction_10m", i),
+                                pressureHpa: value("pressure_msl", i),
+                                condition: value("weather_code", i).map { weatherCondition(code: Int($0)) })
+            guard hour.temperatureC != nil || hour.windSpeedKmh != nil || hour.pressureHpa != nil else { return nil }
+            return hour
+        } catch {
+            return nil
+        }
+    }
+
     private func weatherCondition(code: Int) -> String {
         switch code {
         case 0: return "clear"

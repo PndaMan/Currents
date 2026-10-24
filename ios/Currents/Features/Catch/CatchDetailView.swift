@@ -266,6 +266,7 @@ struct CatchDetailView: View {
         photos = await Task.detached { paths.compactMap { PhotoManager.load($0) } }.value
         if carouselIndex >= photos.count { carouselIndex = 0 }
         photosLoaded = true
+        await backfillWeather()
     }
 
     private func toggleFavorite() {
@@ -489,14 +490,74 @@ struct CatchDetailView: View {
                                        value: rising ? "Rising" : "Falling", footnote: "Predicted"))
         }
         if let solunar {
-            items.append(ConditionItem(label: "Moon", systemImage: solunar.moonPhase.symbolName,
-                                       value: "\(Int((solunar.moonIllumination * 100).rounded()))", unit: "% lit",
-                                       footnote: Self.sentenceCase(solunar.moonPhase.displayName)))
+            items.append(lightItem(solunar))
+            items.append(biteItem(solunar))
         }
         if let clarity = record.clarity {
             items.append(ConditionItem(label: "Water clarity", systemImage: "eye", value: clarity.label))
         }
         return items
+    }
+
+    /// Dawn, daylight, dusk or night at the catch time, with the sun time it
+    /// was nearest.
+    private func lightItem(_ day: SolunarEngine.SolunarDay) -> ConditionItem {
+        let at = record.caughtAt
+        let time: (Date) -> String = { $0.formatted(date: .omitted, time: .shortened) }
+        if day.dawnGoldenHour.contains(at) {
+            return ConditionItem(label: "Light", systemImage: "sunrise.fill", iconTint: .orange,
+                                 value: "Dawn", footnote: "Sunrise \(time(day.sunrise))")
+        }
+        if day.duskGoldenHour.contains(at) {
+            return ConditionItem(label: "Light", systemImage: "sunset.fill", iconTint: .orange,
+                                 value: "Dusk", footnote: "Sunset \(time(day.sunset))")
+        }
+        if at > day.sunrise && at < day.sunset {
+            return ConditionItem(label: "Light", systemImage: "sun.max.fill", iconTint: .yellow,
+                                 value: "Daylight", footnote: "Sunset \(time(day.sunset))")
+        }
+        return ConditionItem(label: "Light", systemImage: "moon.stars.fill", iconTint: .indigo,
+                             value: "Night", footnote: "Sunrise \(time(day.sunrise))")
+    }
+
+    /// Whether the catch landed in a solunar feeding period, or how far it
+    /// was from the nearest one.
+    private func biteItem(_ day: SolunarEngine.SolunarDay) -> ConditionItem {
+        let at = record.caughtAt
+        if let major = day.majorPeriods.first(where: { ($0.start...$0.end).contains(at) }) {
+            return ConditionItem(label: "Bite period", systemImage: "fish.fill", iconTint: .green,
+                                 value: "Major", footnote: Self.sentenceCase(major.kind.rawValue))
+        }
+        if let minor = day.minorPeriods.first(where: { ($0.start...$0.end).contains(at) }) {
+            return ConditionItem(label: "Bite period", systemImage: "fish.fill", iconTint: .teal,
+                                 value: "Minor", footnote: Self.sentenceCase(minor.kind.rawValue))
+        }
+        let all = day.majorPeriods + day.minorPeriods
+        let gap = all.map { min(abs($0.start.timeIntervalSince(at)), abs($0.end.timeIntervalSince(at))) }.min()
+        let footnote = gap.map { g -> String in
+            let minutes = Int((g / 60).rounded())
+            return minutes < 90 ? "\(minutes) min from one" : "\(Int((g / 3600).rounded())) h from one"
+        }
+        return ConditionItem(label: "Bite period", systemImage: "fish", iconTint: .dsText2,
+                             value: "Between", footnote: footnote)
+    }
+
+    /// A catch saved without weather (logged offline, imported, or logged
+    /// later) gets the hour's weather from the archive once, saved with it.
+    private func backfillWeather() async {
+        guard record.weatherSnapshot == nil, hasCoordinate,
+              record.caughtAt < Date.now.addingTimeInterval(-600),
+              let hour = await WeatherService.shared.pastHour(at: record.caughtAt, for: catchCoordinate)
+        else { return }
+        let snap = WeatherSnapshot(temperatureC: hour.temperatureC, waterTempC: nil,
+                                   windSpeedKmh: hour.windSpeedKmh, windDirectionDeg: hour.windDirectionDeg,
+                                   pressureHpa: hour.pressureHpa, condition: hour.condition)
+        guard let json = (try? JSONEncoder().encode(snap)).flatMap({ String(data: $0, encoding: .utf8) }),
+              detail.catchRecord.weatherSnapshot == nil else { return }
+        var updated = detail.catchRecord
+        updated.weatherSnapshot = json
+        guard (try? appState.catchRepository.save(&updated)) != nil else { return }
+        detail.catchRecord = updated
     }
 
     private var solunar: SolunarEngine.SolunarDay? {
@@ -520,7 +581,7 @@ struct CatchDetailView: View {
             SectionTitle("Conditions at the time")
                 .padding(.top, DS.Space.s8)
             CatchConditionGrid(items: items)
-            SectionFootnote("Saved when you logged it. Tide and moon are predicted for the spot.")
+            SectionFootnote("Weather is from the hour you caught it. Light, bite period and tide are worked out for the spot.")
         }
     }
 
