@@ -519,7 +519,7 @@ struct TournamentView: View {
                 statusLabel
                     .font(.subheadline)
                     .foregroundStyle(.dsText2)
-                    .lineLimit(1)
+                    .lineLimit(typeSize.isAccessibilitySize ? 3 : 1)
                 Text(tournament.name)
                     .font(.title.bold())
                     .foregroundStyle(.dsText)
@@ -1000,7 +1000,7 @@ struct TournamentView: View {
                 Text(plainDetail(h.detail))
                     .font(.headline)
                     .foregroundStyle(.dsText)
-                    .lineLimit(2)
+                    .lineLimit(typeSize.isAccessibilitySize ? 4 : 2)
                 Text(h.anglerCode == svc.friendCode ? "You, \(h.teamName)" : "\(h.anglerName), \(h.teamName)")
                     .font(.footnote)
                     .foregroundStyle(.dsText2)
@@ -1329,6 +1329,7 @@ private struct NewTeamSheet: View {
 private struct TournamentScoringSheet: View {
     let rates: TournamentPoints.Rates
     @AppStorage("units") private var units = "metric"
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     /// The worked example's fish weight, in the user's units.
     private var exampleWeight: String { Units.weight(kg: 3, imperial: units == "imperial") }
@@ -1361,7 +1362,7 @@ private struct TournamentScoringSheet: View {
         VStack(alignment: .leading, spacing: 0) {
             SectionTitle("Points")
                 .padding(.top, DS.Space.s6)
-            HStack(spacing: 10) {
+            tileLayout {
                 StatTile("Each fish", systemImage: "fish.fill", tint: CrewTint.fish,
                          value: "\(rates.perFish)", unit: "points", width: nil)
                 StatTile("Per kg", systemImage: "scalemass.fill", tint: CrewTint.weight,
@@ -1372,6 +1373,13 @@ private struct TournamentScoringSheet: View {
             .padding(.horizontal, DS.gutter)
             SectionFootnote("Weight rounds to the nearest kg. The new species bonus is the team's first of its kind.")
         }
+    }
+
+    /// The three rate tiles side by side, stacked at accessibility sizes.
+    private var tileLayout: AnyLayout {
+        typeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(spacing: DS.Space.s2))
+            : AnyLayout(HStackLayout(spacing: 10))
     }
 
     private var exampleSection: some View {
@@ -1658,6 +1666,7 @@ struct TeamTournamentDetailView: View {
     @State private var showingScoring = false
     @AppStorage("use24HourTime") private var use24 = true
     @AppStorage("units") private var units = "metric"
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     private var imperial: Bool { units == "imperial" }
 
@@ -1748,7 +1757,7 @@ struct TeamTournamentDetailView: View {
                 statusLabel
                     .font(.subheadline)
                     .foregroundStyle(.dsText2)
-                    .lineLimit(1)
+                    .lineLimit(typeSize.isAccessibilitySize ? 3 : 1)
                 Text(standing.teamName)
                     .font(.title.bold())
                     .foregroundStyle(.dsText)
