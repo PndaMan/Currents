@@ -155,12 +155,14 @@ struct AlertSettingsView: View {
         }
     }
 
-    /// The default score as a big number with its ring, then the slider.
+    /// The default score, led by the gauge a spot's own score row uses, then
+    /// the slider. No ring: a ring reads as a bite score now.
     private var thresholdSection: some View {
         CardSection("Default score", note: "Each spot can set its own.") {
             VStack(alignment: .leading, spacing: DS.Space.s3) {
                 HStack(spacing: 14) {
-                    ScoreRing(score: Int(alertThreshold), size: 44)
+                    TintIcon(systemImage: "gauge.with.dots.needle.67percent",
+                             tint: DS.scoreColor(Int(alertThreshold)))
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Alert at \(Int(alertThreshold)) or more")
                             .font(.body.weight(.medium))
