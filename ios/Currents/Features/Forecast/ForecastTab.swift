@@ -42,6 +42,7 @@ struct TargetSpeciesPage: View {
     @State private var loaded = false
     @State private var search = ""
     @State private var habitat: SpeciesHabitatFilter = .all
+    @State private var titleShown = false
 
     private var filtered: [Species] {
         var result = all
@@ -87,6 +88,8 @@ struct TargetSpeciesPage: View {
         let near = nearby(excluding: recent)
         List {
             Section {
+                DetailHeader(title: "Target species")
+                    .dsListRow()
                 // In the list, as on the species guide, rather than the
                 // system's floating search capsule.
                 PFSearchField(prompt: "Name or family", text: $search)
@@ -157,8 +160,8 @@ struct TargetSpeciesPage: View {
                 FishLoader(message: "Loading species")
             }
         }
-        .navigationTitle("Target species")
-        .navigationBarTitleDisplayMode(.inline)
+        .forecastTracksTitle($titleShown)
+        .forecastInlineTitle("Target species", shown: titleShown)
         .task {
             guard !loaded else { return }
             all = (try? appState.speciesRepository.fetchAll()) ?? []
