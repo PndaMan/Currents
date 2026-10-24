@@ -555,11 +555,14 @@ struct AnalyticsView: View {
         do {
             totalCatches = try repo.totalCount()
             personalBests = try repo.personalBests()
-            monthlyCounts = try Self.everyMonth(repo.monthlyCounts())
-            hourCounts = try repo.catchesByHour()
             avgForecast = try repo.averageForecastScore()
             speciesCounts = try repo.speciesCounts()
             allCatches = try repo.fetchAll(limit: 1000)
+            // Counted on the phone's clock. SQLite's strftime reads the stored
+            // UTC times, which put every hour bar two hours early in Cape Town
+            // and could file a catch after midnight under the month before.
+            monthlyCounts = Self.everyMonth(Self.countsByMonth(allCatches))
+            hourCounts = Self.countsByHour(allCatches)
             loadFailed = false
         } catch {
             loadFailed = true
@@ -567,7 +570,26 @@ struct AnalyticsView: View {
         loaded = true
     }
 
-    /// The query returns only months with catches, which drew four bars
+    /// Catches per month in local time, keyed "2026-10", months with none
+    /// left out.
+    private static func countsByMonth(_ catches: [CatchDetail]) -> [(month: String, count: Int)] {
+        let cal = Calendar.current
+        let byMonth = Dictionary(grouping: catches) { detail -> String in
+            let parts = cal.dateComponents([.year, .month], from: detail.catchRecord.caughtAt)
+            return String(format: "%04d-%02d", parts.year ?? 0, parts.month ?? 0)
+        }
+        return byMonth.map { (month: $0.key, count: $0.value.count) }
+    }
+
+    /// Catches per hour of the day in local time, as "Your patterns" counts
+    /// them, hours with none left out.
+    private static func countsByHour(_ catches: [CatchDetail]) -> [(hour: Int, count: Int)] {
+        let cal = Calendar.current
+        let byHour = Dictionary(grouping: catches) { cal.component(.hour, from: $0.catchRecord.caughtAt) }
+        return byHour.map { (hour: $0.key, count: $0.value.count) }.sorted { $0.hour < $1.hour }
+    }
+
+    /// The counts hold only months with catches, which drew four bars
     /// under "Last 12 months". Every month of the last 12, oldest first,
     /// with zero where nothing was caught.
     private static func everyMonth(_ counts: [(month: String, count: Int)],
