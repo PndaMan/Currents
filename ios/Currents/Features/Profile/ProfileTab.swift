@@ -154,9 +154,9 @@ struct SettingsView: View {
         CardSection("Kit and reference") {
             row(AppRoute.gear, "Tackle box", "shippingbox.fill", .orange,
                 value: lowStockCount > 0 ? "\(lowStockCount) running low" : "\(gearCount) items",
-                valueTint: lowStockCount > 0 ? DS.ink(.dsScoreLow) : .dsText2)
+                warning: lowStockCount > 0)
             row(AppRoute.licenses, "Licences", "person.text.rectangle.fill", .green,
-                value: licenceValue.text, valueTint: licenceValue.color)
+                value: licenceValue.text, warning: licenceValue.warning)
             row(SettingsRoute.knots, "Knots", "link", .cyan,
                 value: "\(KnotCatalog.shared.entries.count)")
             row(SettingsRoute.regulations, "Size and bag limits", "list.bullet.clipboard.fill", .purple)
@@ -178,11 +178,20 @@ struct SettingsView: View {
         }
     }
 
-    /// One navigation row on a settings card.
+    /// One navigation row on a settings card. A `warning` value keeps the
+    /// grey of every value and gains an orange dot: orange text is under
+    /// 4.5:1 on the light card, a dot needs only 3:1.
     private func row<Route: Hashable>(_ route: Route, _ title: String, _ systemImage: String, _ tint: Color,
-                                      value: String? = nil, valueTint: Color = .dsText2) -> some View {
+                                      value: String? = nil, warning: Bool = false) -> some View {
         NavigationLink(value: route) {
-            CardRow(title, systemImage: systemImage, tint: tint, value: value, valueTint: valueTint, chevron: true)
+            CardRow(title, systemImage: systemImage, tint: tint, value: value, chevron: true) {
+                if warning {
+                    Circle()
+                        .fill(DS.ink(.dsScoreLow))
+                        .frame(width: DS.Space.s2, height: DS.Space.s2)
+                        .accessibilityHidden(true)
+                }
+            }
         }
         .buttonStyle(.dsCardRow)
     }
@@ -284,11 +293,11 @@ struct SettingsView: View {
 
     // MARK: - Row values
 
-    private var licenceValue: (text: String, color: Color) {
+    private var licenceValue: (text: String, warning: Bool) {
         if let lic = soonestLicence, let days = lic.daysUntilExpiry {
-            return (days == 0 ? "Expires today" : (days == 1 ? "1 day left" : "\(days) days left"), DS.ink(.dsScoreLow))
+            return (days == 0 ? "Expires today" : (days == 1 ? "1 day left" : "\(days) days left"), true)
         }
-        return (licenceCount == 0 ? "" : "\(licenceCount)", .dsText2)
+        return (licenceCount == 0 ? "" : "\(licenceCount)", false)
     }
 
     /// "Not set up" until permission is asked for, "Off in Settings" once it
