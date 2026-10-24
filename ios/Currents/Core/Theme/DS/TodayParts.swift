@@ -135,7 +135,10 @@ struct CardGroup<Content: View>: View {
 // MARK: - Icon tile
 
 /// The coloured symbol tile that leads a card row: the symbol in `tint` on a
-/// faint tile of the same colour, like Today's plan row.
+/// faint tile of the same colour, like Today's plan row. Pass the raw hue;
+/// the glyph goes through `DS.ink`, so pale tints still read in light mode.
+/// The glyph is sized from the tile, not the text size, so it never
+/// outgrows the tile at accessibility sizes.
 struct TintIcon: View {
     let systemImage: String
     let tint: Color
@@ -144,8 +147,8 @@ struct TintIcon: View {
     var body: some View {
         ThumbView(tint: tint, size: size) {
             Image(systemName: systemImage)
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(tint)
+                .font(.system(size: size * 0.44, weight: .semibold)) // ui-lint: allow glyph sized from its fixed tile
+                .foregroundStyle(DS.ink(tint))
         }
         .accessibilityHidden(true)
     }
