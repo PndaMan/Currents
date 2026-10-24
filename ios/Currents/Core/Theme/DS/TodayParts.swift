@@ -158,7 +158,10 @@ struct TintIcon: View {
 
 /// One row on a `CardGroup`: tint icon, title, optional one-line subtitle,
 /// trailing content or value, optional chevron. Wrap in a Button or
-/// NavigationLink with `.buttonStyle(.dsCardRow)`.
+/// NavigationLink with `.buttonStyle(.dsCardRow)`. `tint` is the raw hue
+/// (TintIcon inks the glyph); `valueTint` is drawn as given, so pass
+/// `DS.ink(...)` there for a coloured value. At accessibility sizes the text
+/// wraps without a limit and the icon sits by the title.
 struct CardRow<Trailing: View>: View {
     let title: String
     var subtitle: String? = nil
@@ -189,7 +192,7 @@ struct CardRow<Trailing: View>: View {
     }
 
     var body: some View {
-        HStack(spacing: 14) {
+        HStack(alignment: typeSize.isAccessibilitySize ? .top : .center, spacing: 14) {
             if let systemImage {
                 TintIcon(systemImage: systemImage, tint: tint)
             }
@@ -197,12 +200,12 @@ struct CardRow<Trailing: View>: View {
                 Text(title)
                     .font(.body)
                     .foregroundStyle(.dsText)
-                    .lineLimit(typeSize.isAccessibilitySize ? 3 : 2)
+                    .lineLimit(typeSize.isAccessibilitySize ? nil : 2)
                 if let subtitle, !subtitle.isEmpty {
                     Text(subtitle)
                         .font(.subheadline)
                         .foregroundStyle(.dsText2)
-                        .lineLimit(typeSize.isAccessibilitySize ? 4 : 2)
+                        .lineLimit(typeSize.isAccessibilitySize ? nil : 2)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -240,12 +243,14 @@ extension CardRow where Trailing == EmptyView {
 }
 
 /// A switch row on a `CardGroup`, with the same icon tile and one subtitle.
+/// At accessibility sizes the icon sits by the title.
 struct CardToggleRow: View {
     let title: String
     var subtitle: String? = nil
     var systemImage: String? = nil
     var tint: Color = DS.accent
     @Binding var isOn: Bool
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     init(_ title: String, subtitle: String? = nil, systemImage: String? = nil, tint: Color = DS.accent,
          isOn: Binding<Bool>) {
@@ -258,7 +263,7 @@ struct CardToggleRow: View {
 
     var body: some View {
         Toggle(isOn: $isOn) {
-            HStack(spacing: 14) {
+            HStack(alignment: typeSize.isAccessibilitySize ? .top : .center, spacing: 14) {
                 if let systemImage {
                     TintIcon(systemImage: systemImage, tint: tint)
                 }
