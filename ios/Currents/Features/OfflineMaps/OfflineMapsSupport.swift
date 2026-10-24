@@ -266,24 +266,27 @@ enum OfflineSuggestions {
                    "calendar", .indigo, c, sideKm: spotSideKm, name: trip.name)
         }
 
-        // Waters with catches: catches at a spot go to the spot's water,
-        // the rest to the nearest known water within 3 km.
+        // Waters with catches: every catch at a saved spot goes where the
+        // spot is, its own water or else the water at the spot, so a water
+        // never counts fewer catches than one spot on it. Other catches go
+        // to the water at the catch.
         var catchesByWater: [Int64: Int] = [:]
         var watersById: [Int64: Waterbody] = [:]
+        var waterAtSpot: [String: Waterbody?] = [:]
         for point in places.catches {
-            var water: Waterbody?
-            if let spotId = point.spotId, let spot = places.spots.first(where: { $0.id == spotId }),
-               let wid = spot.waterbodyId {
-                water = watersById[wid] ?? (try? waterRepo.fetch(id: wid))
-            }
-            if water == nil {
-                let here = CLLocation(latitude: point.coordinate.latitude, longitude: point.coordinate.longitude)
-                water = (try? waterRepo.fetchNearby(latitude: point.coordinate.latitude,
-                                                     longitude: point.coordinate.longitude, radiusKm: 3))?
-                    .min { a, b in
-                        here.distance(from: CLLocation(latitude: a.latitude, longitude: a.longitude))
-                            < here.distance(from: CLLocation(latitude: b.latitude, longitude: b.longitude))
-                    }
+            let water: Waterbody?
+            if let spotId = point.spotId, let spot = places.spots.first(where: { $0.id == spotId }) {
+                if let known = waterAtSpot[spotId] {
+                    water = known
+                } else {
+                    let found = spot.waterbodyId.flatMap { wid in watersById[wid] ?? (try? waterRepo.fetch(id: wid)) }
+                        ?? nearestWater(to: CLLocationCoordinate2D(latitude: spot.latitude, longitude: spot.longitude),
+                                        in: waterRepo)
+                    waterAtSpot.updateValue(found, forKey: spotId)
+                    water = found
+                }
+            } else {
+                water = nearestWater(to: point.coordinate, in: waterRepo)
             }
             guard let water, let id = water.id else { continue }
             watersById[id] = water
@@ -329,6 +332,32 @@ enum OfflineSuggestions {
                     : pack.closeUps.contains { $0.contains(s.center) }
             }
         }
+    }
+
+    /// The water a point is on or beside. Each water counts as a circle of
+    /// its size; the one whose edge is nearest wins, ties to the nearest
+    /// middle. A water is in reach within 1.5 km of its edge or 3 km of its
+    /// middle, whichever is further, so the shore of a big dam counts as
+    /// well as a small dam's banks.
+    @MainActor
+    private static func nearestWater(to point: CLLocationCoordinate2D, in repo: WaterbodyRepository) -> Waterbody? {
+        let here = CLLocation(latitude: point.latitude, longitude: point.longitude)
+        // Each query keeps the largest 60, so small waters close by come
+        // from a tight search and big ones from a wide one.
+        let close = (try? repo.fetchNearby(latitude: point.latitude, longitude: point.longitude, radiusKm: 3)) ?? []
+        let wide = (try? repo.fetchNearby(latitude: point.latitude, longitude: point.longitude, radiusKm: 15)) ?? []
+        var seen = Set<Int64>()
+        var best: (edge: Double, middle: Double, water: Waterbody)?
+        for water in close + wide {
+            guard let id = water.id, seen.insert(id).inserted else { continue }
+            let middle = here.distance(from: CLLocation(latitude: water.latitude, longitude: water.longitude))
+            let radius = water.approximateRadiusM
+            guard middle <= max(3_000, radius + 1_500) else { continue }
+            let edge = max(0, middle - radius)
+            if let b = best, (edge, middle) >= (b.edge, b.middle) { continue }
+            best = (edge, middle, water)
+        }
+        return best?.water
     }
 
     @MainActor
