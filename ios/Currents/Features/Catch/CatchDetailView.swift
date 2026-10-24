@@ -15,6 +15,7 @@ struct CatchDetailView: View {
     @State private var showingDeleteConfirm = false
     @State private var showingEdit = false
     @State private var isGeneratingShareCard = false
+    @State private var isPostingToCrew = false
     @State private var shareItem: CatchShareItem?
     @State private var trip: Trip?
     @State private var showingPhotoViewer = false
@@ -43,7 +44,14 @@ struct CatchDetailView: View {
         .detailTint(detail.species?.artTint)
         .modifier(CatchHeroChrome(title: speciesName, heroFactor: CatchHero.factor(hasPhoto: hasPhotos)))
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) { moreMenu }
+            ToolbarItem(placement: .topBarTrailing) {
+                if isPostingToCrew {
+                    ProgressView()
+                        .accessibilityLabel("Sharing to your crew")
+                } else {
+                    moreMenu
+                }
+            }
         }
         .confirmationDialog("Delete this catch?", isPresented: $showingDeleteConfirm, titleVisibility: .visible) {
             Button("Delete catch", role: .destructive) {
@@ -229,17 +237,29 @@ struct CatchDetailView: View {
             Menu {
                 ForEach(svc.myCrews) { crew in
                     Button(crew.name) {
-                        let posted = detail.catchRecord
-                        let name = speciesName
-                        Task {
-                            await svc.postCatch(posted, speciesName: name,
-                                                toCrew: crew.code, caption: "")
-                            ToastCenter.shared.show("Shared to \(crew.name)")
-                        }
+                        shareToCrew(code: crew.code, name: crew.name)
                     }
                 }
             } label: {
                 Label("Share to crew", systemImage: "person.3")
+            }
+        }
+    }
+
+    /// Posts the catch to one crew. The toast says it went only when the
+    /// post did; offline or failed posts say so instead.
+    private func shareToCrew(code: String, name: String) {
+        let posted = detail.catchRecord
+        let species = speciesName
+        isPostingToCrew = true
+        Task {
+            let shared = await CommunityService.shared.postCatch(posted, speciesName: species,
+                                                                 toCrew: code, caption: "")
+            isPostingToCrew = false
+            if shared {
+                ToastCenter.shared.show("Shared to \(name)", icon: "person.3")
+            } else {
+                ToastCenter.shared.show("Couldn't share. Try again when you have signal", style: .error)
             }
         }
     }
