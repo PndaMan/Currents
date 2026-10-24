@@ -170,10 +170,11 @@ struct SpotsListView: View {
             photoCounts[spot.id] = spotCatches.filter { !$0.catchRecord.allPhotoPaths.isEmpty }.count
         }
         loaded = true
+        // The day's peak, the same number the spot's page shows in its ring.
         for spot in spots where scores[spot.id] == nil {
             let c = CLLocationCoordinate2D(latitude: spot.latitude, longitude: spot.longitude)
             let w = await WeatherService.shared.current(for: c)
-            scores[spot.id] = ForecastEngine.forecast(
+            let forecast = ForecastEngine.forecast(
                 coordinate: c,
                 currentPressureHpa: w?.pressureHpa,
                 pressureChange6h: w?.pressureChange6h,
@@ -182,7 +183,8 @@ struct SpotsListView: View {
                 windDirection: w?.measured?.windDirectionDeg,
                 species: nil,
                 isInSpawningZone: false
-            ).score
+            )
+            scores[spot.id] = BiteSnapshot(forecast).day
         }
     }
 }
