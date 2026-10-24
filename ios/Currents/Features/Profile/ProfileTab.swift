@@ -660,7 +660,7 @@ struct StorageSettingsView: View {
             CardSection("Maps") {
                 NavigationLink(value: SettingsRoute.offlineMaps) {
                     CardRow("Offline maps", subtitle: "Downloads and cached tiles", systemImage: "map.fill",
-                            tint: .green, value: usage.map(Self.mapsValue), chevron: true)
+                            tint: .green, value: usage.map { Self.mapsValue($0) }, chevron: true)
                 }
                 .buttonStyle(.dsCardRow)
             }
