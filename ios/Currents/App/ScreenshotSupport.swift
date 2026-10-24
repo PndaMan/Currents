@@ -3,7 +3,8 @@ import UIKit
 import CoreLocation
 
 /// Support for capturing App Store screenshots deterministically in the iOS
-/// Simulator (see `.github/workflows/screenshots.yml`).
+/// Simulator (see `.github/workflows/screenshots.yml`), and for the manual UI
+/// review run that captures every screen (`.github/workflows/ui-review.yml`).
 ///
 /// Activated only when the app is launched with `SCREENSHOT_MODE=1` (passed by
 /// CI via `SIMCTL_CHILD_SCREENSHOT_MODE`), so it can never affect a real
@@ -30,8 +31,12 @@ enum ScreenshotSupport {
 
     // MARK: - Screens
 
-    /// The screens CI captures, by their `SCREENSHOT_SCREEN` value.
-    enum Screen: String {
+    /// The screens CI captures, by their `SCREENSHOT_SCREEN` value. The first
+    /// group is the App Store set (`screenshots.yml`). The rest are the review
+    /// set that `ui-review.yml` captures in light, dark and large text. Cases
+    /// are declared in the order the review workflow runs them.
+    enum Screen: String, CaseIterable {
+        // App Store set.
         case today, logbook, crew
         /// Explore with the "Biting near you" sheet open over the map.
         case exploreNear = "explore-near"
@@ -44,15 +49,112 @@ enum ScreenshotSupport {
         /// My angler profile with the worn title.
         case profile
 
+        // Review set: forecast pages, pushed on Today.
+        case forecastDay = "forecast-day"
+        case forecastWeek = "forecast-week"
+        case conditionWater = "condition-water"
+        case conditionAir = "condition-air"
+        case conditionWind = "condition-wind"
+        case conditionPressure = "condition-pressure"
+        case conditionTide = "condition-tide"
+        case conditionMoon = "condition-moon"
+        case conditionSun = "condition-sun"
+        case conditionSky = "condition-sky"
+        case target
+        case targetSpecies = "target-species"
+
+        // Review set: Explore pages.
+        case spotPage = "spot"
+        case waterbodyPage = "waterbody"
+        case speciesPage = "species"
+        case spots, waters, ramps
+        case speciesGuide = "species-guide"
+        case regulations
+        case offlineMaps = "offline-maps"
+
+        // Review set: Logbook pages.
+        case session, plan, streak, achievements, stats
+        case sessions, gear, licences, fishdex
+
+        // Review set: Crew pages.
+        case crewDetail = "crew-detail"
+        case crews, friends, requests, friend
+        case tripSetup = "trip-setup"
+        case groupTrip = "group-trip"
+
+        // Review set: profile and settings, pushed on Today.
+        case settings
+        case settingsAppearance = "settings-appearance"
+        case settingsUnits = "settings-units"
+        case settingsNotifications = "settings-notifications"
+        case settingsPrivacy = "settings-privacy"
+        case settingsWidgets = "settings-widgets"
+        case settingsStorage = "settings-storage"
+        case settingsAbout = "settings-about"
+        case settingsKnots = "settings-knots"
+        case tips
+
+        // Review set: the log-catch sheet, opened by a deep link.
+        case logCatch = "log-catch"
+
         var tab: ContentView.Tab {
             switch self {
-            case .today, .lures: .today
-            case .explore, .exploreNear: .explore
-            case .logbook, .catchPage: .logbook
-            case .crew, .leaderboard, .profile: .crew
+            case .today, .lures, .forecastDay, .forecastWeek,
+                 .conditionWater, .conditionAir, .conditionWind, .conditionPressure,
+                 .conditionTide, .conditionMoon, .conditionSun, .conditionSky,
+                 .target, .targetSpecies,
+                 .settings, .settingsAppearance, .settingsUnits, .settingsNotifications,
+                 .settingsPrivacy, .settingsWidgets, .settingsStorage, .settingsAbout,
+                 .settingsKnots, .tips:
+                .today
+            case .explore, .exploreNear, .spotPage, .waterbodyPage, .speciesPage,
+                 .spots, .waters, .ramps, .speciesGuide, .regulations, .offlineMaps:
+                .explore
+            case .logbook, .catchPage, .session, .plan, .streak, .achievements, .stats,
+                 .sessions, .gear, .licences, .fishdex, .logCatch:
+                .logbook
+            case .crew, .leaderboard, .profile, .crewDetail, .crews, .friends,
+                 .requests, .friend, .tripSetup, .groupTrip:
+                .crew
+            }
+        }
+
+        /// The condition a `condition-*` screen opens.
+        var condition: ForecastCondition? {
+            switch self {
+            case .conditionWater: .water
+            case .conditionAir: .air
+            case .conditionWind: .wind
+            case .conditionPressure: .pressure
+            case .conditionTide: .tide
+            case .conditionMoon: .moon
+            case .conditionSun: .sun
+            case .conditionSky: .sky
+            default: nil
+            }
+        }
+
+        /// The settings page a `settings-*` screen opens under the profile
+        /// page. The tips page sits under About.
+        var settingsPage: SettingsRoute? {
+            switch self {
+            case .settingsAppearance: .appearance
+            case .settingsUnits: .units
+            case .settingsNotifications: .notifications
+            case .settingsPrivacy: .privacy
+            case .settingsWidgets: .widgets
+            case .settingsStorage: .storage
+            case .settingsAbout, .tips: .about
+            case .settingsKnots: .knots
+            default: nil
             }
         }
     }
+
+    /// Every screen name, the App Store set first, in the order the review
+    /// workflow runs them. `ui-review.yml` keeps the same list as its default,
+    /// so the two must match.
+    static let reviewScreens: [String] = Screen.allCases.map(\.rawValue)
 
     /// The screen CI asked for. Falls back to the older `SCREENSHOT_TAB`,
     /// whose values (today, map, catches, fish, community) still map to tabs.
@@ -78,16 +180,133 @@ enum ScreenshotSupport {
     static var initialTab: ContentView.Tab? { screen?.tab }
 
     /// What to push on that tab's stack once it is on screen, if anything.
+    /// Screens that open a saved record look it up from the seeded data when
+    /// this is read, so it runs after seeding. When the record is missing the
+    /// screen returns nil and CI captures its tab's root instead.
+    @MainActor
     static var initialPath: NavigationPath? {
+        guard let screen = Self.screen, let appState = AppState.shared else { return nil }
         var path = NavigationPath()
         switch screen {
+        // Tab roots, and the log-catch sheet, which `launchURL` opens.
+        case .today, .logbook, .crew, .exploreNear, .explore, .logCatch:
+            return nil
+
+        // App Store set.
         case .catchPage: path.append(LogbookRoute.catchDetail(heroCatchId))
         case .lures: path.append(ForecastRoute.lures)
         case .leaderboard: path.append(CrewRoute.leaderboard(crewCode))
         case .profile: path.append(CrewRoute.myProfile)
-        default: return nil
+
+        // Forecast pages, on Today's stack.
+        case .forecastDay: path.append(ForecastRoute.day(offset: 0, hour: nil))
+        case .forecastWeek: path.append(ForecastRoute.week)
+        case .conditionWater, .conditionAir, .conditionWind, .conditionPressure,
+             .conditionTide, .conditionMoon, .conditionSun, .conditionSky:
+            guard let condition = screen.condition else { return nil }
+            path.append(ForecastRoute.condition(condition, day: 0))
+        case .target: path.append(ForecastRoute.target)
+        case .targetSpecies: path.append(ForecastRoute.targetSpecies)
+
+        // Explore pages, on Explore's stack.
+        case .spotPage:
+            guard let spot = firstDemoSpot(appState) else { return nil }
+            path.append(ExploreRoute.spot(SpotRef(spot)))
+        case .waterbodyPage:
+            guard let waterbody = demoWaterbody(appState) else { return nil }
+            path.append(ExploreRoute.waterbody(WaterbodyRef(waterbody)))
+        case .speciesPage:
+            guard let fish = heroSpecies(appState) else { return nil }
+            path.append(ExploreRoute.species(fish))
+        case .spots: path.append(ExploreRoute.spots)
+        case .waters: path.append(ExploreRoute.waters)
+        case .ramps: path.append(ExploreRoute.ramps)
+        case .speciesGuide: path.append(ExploreRoute.speciesGuide)
+        case .regulations: path.append(ExploreRoute.regulations)
+        case .offlineMaps: path.append(ExploreRoute.offlineMaps)
+
+        // Logbook pages, on Logbook's stack.
+        case .session:
+            guard let id = latestSessionId(appState) else { return nil }
+            path.append(LogbookRoute.session(id))
+        case .plan:
+            guard let id = plannedSessionId(appState) else { return nil }
+            path.append(LogbookRoute.plan(id))
+        case .streak: path.append(LogbookRoute.streak)
+        case .achievements: path.append(LogbookRoute.achievements)
+        case .stats: path.append(LogbookRoute.stats)
+        case .sessions: path.append(AppRoute.sessions)
+        case .gear: path.append(AppRoute.gear)
+        case .licences: path.append(AppRoute.licenses)
+        case .fishdex: path.append(AppRoute.fishdex)
+
+        // Crew pages, on Crew's stack.
+        case .crewDetail: path.append(CrewRoute.crew(crewCode))
+        case .crews: path.append(CrewRoute.crews)
+        case .friends: path.append(CrewRoute.friends)
+        case .requests: path.append(CrewRoute.requests)
+        case .friend: path.append(CrewRoute.friend(mates[0].code))
+        case .tripSetup: path.append(CrewRoute.tripSetup(crewCode: crewCode))
+        case .groupTrip:
+            guard let trip = demoLiveTrips(crewCode: crewCode).first else { return nil }
+            path.append(CrewRoute.trip(code: trip.id, name: trip.name))
+
+        // Profile and settings, on Today's stack. Settings pages register
+        // their own routes, so the profile page goes first.
+        case .settings, .settingsAppearance, .settingsUnits, .settingsNotifications,
+             .settingsPrivacy, .settingsWidgets, .settingsStorage, .settingsAbout,
+             .settingsKnots, .tips:
+            path.append(AppRoute.profile)
+            if let page = screen.settingsPage { path.append(page) }
+            if screen == .tips { path.append(AboutRoute.tips) }
         }
         return path
+    }
+
+    /// A deep link to open once the tab is up, for a screen that is a sheet
+    /// rather than a pushed page. Only the log-catch sheet needs one.
+    static var launchURL: URL? {
+        screen == .logCatch ? URL(string: "currents://log") : nil
+    }
+
+    // MARK: - Records the review screens open
+
+    /// The first spot the demo seed saved (Kogel Bay Reef). Spots list newest
+    /// first, so it is matched by name.
+    @MainActor
+    private static func firstDemoSpot(_ appState: AppState) -> Spot? {
+        let spots = (try? appState.spotRepository.fetchAll()) ?? []
+        return spots.first { $0.name == demoSpots[0].name }
+    }
+
+    /// A waterbody near the demo coordinate, else any waterbody.
+    @MainActor
+    private static func demoWaterbody(_ appState: AppState) -> Waterbody? {
+        let repository = appState.waterbodyRepository
+        let near = (try? repository.fetchNearby(latitude: demoCoordinate.latitude,
+                                                longitude: demoCoordinate.longitude,
+                                                radiusKm: 30)) ?? []
+        return near.first ?? (try? repository.fetchAll())?.first
+    }
+
+    /// The species of the hero catch (Largemouth Bass).
+    @MainActor
+    private static func heroSpecies(_ appState: AppState) -> Species? {
+        let catches = (try? appState.catchRepository.fetchAll(limit: 500)) ?? []
+        return catches.first { $0.catchRecord.id == heroCatchId }?.species
+    }
+
+    /// The most recent finished session.
+    @MainActor
+    private static func latestSessionId(_ appState: AppState) -> String? {
+        let trips = (try? appState.tripRepository.fetchAll()) ?? []
+        return trips.first { $0.endDate != nil && $0.plannedDate == nil }?.id
+    }
+
+    /// The planned session ("Bass at first light").
+    @MainActor
+    private static func plannedSessionId(_ appState: AppState) -> String? {
+        (try? appState.tripRepository.fetchPlanned())?.first?.id
     }
 
     /// The catch the catch-page shot opens. Fixed so CI can deep link to it.
