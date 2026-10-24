@@ -259,6 +259,7 @@ struct CrewDetailView: View {
     @State private var showingAlerts = false
     @State private var openedTrip: CrewTripLink?
     @State private var confirmLeave = false
+    @State private var leaving = false
     @State private var openedPost: CommunityService.CrewPost?
     /// 0 while the cover is under the bar, 1 once it has scrolled away, 2
     /// once the name has too (the inline title shows).
@@ -513,9 +514,11 @@ struct CrewDetailView: View {
             if let crew {
                 tournamentsSection(crew)
                 settingsSection(crew)
-                DangerButton(title: "Leave crew", systemImage: "rectangle.portrait.and.arrow.right") {
+                DangerButton(title: leaving ? "Leaving" : "Leave crew",
+                             systemImage: "rectangle.portrait.and.arrow.right") {
                     confirmLeave = true
                 }
+                .disabled(leaving)
                 .padding(.top, DS.Space.s8)
             }
         }
@@ -874,9 +877,18 @@ struct CrewDetailView: View {
         ToastCenter.shared.show("Crew code copied", style: .success)
     }
 
+    /// Leaves only once the server dropped the membership; otherwise the
+    /// page stays, so the crew never vanishes from here but not from iCloud.
     private func leave() {
+        guard !leaving else { return }
+        leaving = true
         Task {
-            await svc.leaveCrew(code: code)
+            let ok = await svc.leaveCrew(code: code)
+            leaving = false
+            guard ok else {
+                ToastCenter.shared.show("Couldn't leave the crew", style: .error)
+                return
+            }
             Haptics.warning()
             ToastCenter.shared.show("Left the crew", style: .info, haptic: false)
             dismiss()
