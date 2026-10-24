@@ -297,7 +297,7 @@ struct CatchesTab: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 10) {
                 NavigationLink(value: LogbookRoute.streak) {
-                    StatTile("Streak", systemImage: "flame.fill", tint: .dsScoreLow,
+                    StatTile("Streak", systemImage: "flame.fill", tint: DS.ink(.dsScoreLow),
                              value: "\(summary.streak)",
                              unit: summary.streak == 1 ? "week" : "weeks",
                              footnote: summary.fishedThisWeek ? "Fished this week" : "Fish by Sunday")
