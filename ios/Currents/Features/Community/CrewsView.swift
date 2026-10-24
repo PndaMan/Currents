@@ -59,8 +59,7 @@ struct CrewsListPage: View {
             .pageWidth()
         }
         .detailTint(nil)
-        .navigationTitle("")
-        .navigationBarTitleDisplayMode(.inline)
+        .eventPageTitle("Your crews")
         .sheet(item: $setup) { mode in CrewSetupView(joining: mode == .join) }
     }
 
@@ -1107,8 +1106,7 @@ private struct CrewCatchesPage: View {
             .pageWidth()
         }
         .detailTint(tint)
-        .navigationTitle("")
-        .navigationBarTitleDisplayMode(.inline)
+        .eventPageTitle("Catches")
         .sheet(item: $openedPost) { post in
             CrewPostSheet(post: post, crew: crew) { await reload() }
         }
@@ -1761,9 +1759,9 @@ struct CrewPostSheet: View {
                 .pageWidth()
             }
             .dsScreenBackground()
-            .detailScrollEdge()
-            .navigationTitle("")
-            .navigationBarTitleDisplayMode(.inline)
+            // The catch's name fades into the bar once the hero scrolls away.
+            .eventPageTitle(CrewText.catchTitle(species: post.species, lengthCm: post.lengthCm,
+                                                weightKg: post.weightKg))
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Done") { dismiss() } }
                 ToolbarItem(placement: .topBarTrailing) { moreMenu }
@@ -2354,9 +2352,7 @@ struct JoinCrewConfirmView: View {
             }
             .scrollDismissesKeyboard(.interactively)
             .dsScreenBackground()
-            .detailScrollEdge()
-            .navigationTitle("")
-            .navigationBarTitleDisplayMode(.inline)
+            .eventPageTitle(crew?.name ?? "Crew invite")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button(joined || alreadyIn ? "Done" : "Cancel") { dismiss() } }
             }
