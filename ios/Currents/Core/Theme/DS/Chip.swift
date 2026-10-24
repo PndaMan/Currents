@@ -71,6 +71,7 @@ struct FilterChips<Item: Hashable>: View {
 
 /// An outlined action chip (quick links, suggestions): icon in its own tint,
 /// title, optional dimmed detail. 42 pt tall, button radius, hairline border.
+/// Pass the raw hue as `iconTint`; the glyph goes through `DS.ink`.
 struct OutlineChip: View {
     let title: String
     let systemImage: String
@@ -92,7 +93,7 @@ struct OutlineChip: View {
             HStack(spacing: 8) {
                 Image(systemName: systemImage)
                     .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(iconTint)
+                    .foregroundStyle(DS.ink(iconTint))
                 Text(title)
                     .font(.subheadline.weight(.medium))
                     .foregroundStyle(.dsText)

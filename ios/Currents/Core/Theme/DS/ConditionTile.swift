@@ -3,6 +3,7 @@ import SwiftUI
 /// An Apple Weather style condition tile (forecast grid): icon and label
 /// head, big value with unit, a slot for a small visual (gauge, arrow, curve),
 /// and a footnote. Fill background, card radius, at least 138 pt tall.
+/// Pass the raw hue as `iconTint`; the glyph goes through `DS.ink`.
 struct ConditionTile<Visual: View>: View {
     let label: String
     let systemImage: String
@@ -30,7 +31,7 @@ struct ConditionTile<Visual: View>: View {
             HStack(spacing: 6) {
                 Image(systemName: systemImage)
                     .font(.footnote.weight(.semibold))
-                    .foregroundStyle(iconTint)
+                    .foregroundStyle(DS.ink(iconTint))
                 Text(label)
                     .font(.footnote.weight(.medium))
                     .foregroundStyle(.dsText2)
