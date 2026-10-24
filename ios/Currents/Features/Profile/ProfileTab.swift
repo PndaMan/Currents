@@ -607,8 +607,10 @@ struct StorageSettingsView: View {
     @AppStorage("use24HourTime") private var use24 = true
 
     @State private var exportURL: URL?
+    @State private var isExporting = false
     @State private var showingCSVImport = false
-    @State private var importMessage: String?
+    @State private var importTitle = ""
+    @State private var importMessage = ""
     @State private var showingImportAlert = false
     @State private var usage: StorageUsage?
 
@@ -625,13 +627,17 @@ struct StorageSettingsView: View {
                 .buttonStyle(.dsCardRow)
             }
             backupSection
-            CardSection("Data") {
+            CardSection("Data", note: "The export holds catches, spots and gear. Import adds catches only.") {
                 Button { exportAllData() } label: {
-                    CardRow("Export all data", systemImage: "tablecells.fill", tint: .green, value: "CSV")
+                    CardRow("Export all data (.zip)", systemImage: "tablecells.fill", tint: .green) {
+                        if isExporting { ProgressView() }
+                    }
                 }
                 .buttonStyle(.dsCardRow)
+                .disabled(isExporting)
                 Button { showingCSVImport = true } label: {
-                    CardRow("Import catches", systemImage: "square.and.arrow.down.fill", tint: .blue, value: "CSV")
+                    CardRow("Import catches", subtitle: "From a Currents export or a CSV file",
+                            systemImage: "square.and.arrow.down.fill", tint: .blue)
                 }
                 .buttonStyle(.dsCardRow)
             }
@@ -640,18 +646,19 @@ struct StorageSettingsView: View {
         .sheet(isPresented: $showingHistory, onDismiss: startPendingRestore) { historySheet }
         .sheet(item: $exportURL) { url in
             ShareSheet(url: url)
+                .dsSheet([.medium, .large])
         }
         .fileImporter(
             isPresented: $showingCSVImport,
-            allowedContentTypes: [.commaSeparatedText, .plainText],
+            allowedContentTypes: [.zip, .commaSeparatedText, .plainText],
             allowsMultipleSelection: false
         ) { result in
-            handleCSVImport(result)
+            handleImport(result)
         }
-        .alert("Import complete", isPresented: $showingImportAlert) {
+        .alert(importTitle, isPresented: $showingImportAlert) {
             Button("OK") {}
         } message: {
-            Text(importMessage ?? "")
+            Text(importMessage)
         }
         .confirmationDialog("Restore from iCloud?", isPresented: $showingRestoreConfirm, titleVisibility: .visible) {
             Button("Restore", role: .destructive) { Haptics.warning(); restoreFromCloud() }
@@ -787,35 +794,69 @@ struct StorageSettingsView: View {
     }
 
     private func exportAllData() {
-        let exporter = DataExporter(appState: appState)
-        exportURL = try? exporter.exportAll()
-        if exportURL == nil { ToastCenter.shared.show("Export failed", style: .error) }
+        isExporting = true
+        Task {
+            do {
+                exportURL = try await DataExporter(appState: appState).exportAll()
+            } catch {
+                ToastCenter.shared.show("Couldn't export your data", style: .error)
+            }
+            isExporting = false
+        }
     }
 
-    private func handleCSVImport(_ result: Result<[URL], Error>) {
+    /// Imports a Currents export (.zip) or a catches CSV, then shows one
+    /// alert with what happened.
+    private func handleImport(_ result: Result<[URL], Error>) {
         switch result {
         case .success(let urls):
             guard let url = urls.first else { return }
             guard url.startAccessingSecurityScopedResource() else {
-                importMessage = "Could not open the selected file."
-                showingImportAlert = true
+                showImportFailure()
                 return
             }
             defer { url.stopAccessingSecurityScopedResource() }
             do {
                 let exporter = DataExporter(appState: appState)
-                let count = try exporter.importCatches(from: url)
-                importMessage = count == 1 ? "Imported 1 catch." : "Imported \(count) catches."
-                ToastCenter.shared.show(count == 1 ? "Imported 1 catch" : "Imported \(count) catches")
+                let outcome: DataExporter.ImportResult
+                if url.pathExtension.lowercased() == "zip" {
+                    outcome = try exporter.importFromZip(at: url)
+                } else {
+                    outcome = try exporter.importCatches(from: url)
+                }
+                showImportResult(outcome)
             } catch {
-                importMessage = "Import failed: \(error.localizedDescription)"
-                ToastCenter.shared.show("Import failed", style: .error)
+                showImportFailure()
             }
-            showingImportAlert = true
-        case .failure(let error):
-            importMessage = "Could not read the file: \(error.localizedDescription)"
-            showingImportAlert = true
+        case .failure:
+            showImportFailure()
         }
+    }
+
+    private func showImportResult(_ outcome: DataExporter.ImportResult) {
+        let added = outcome.imported == 1 ? "1 catch" : "\(outcome.imported) catches"
+        switch (outcome.imported, outcome.skipped) {
+        case (0, 0):
+            importTitle = "No catches found in that file"
+            importMessage = "Choose a Currents export (.zip) or its catches.csv."
+        case (0, let skipped):
+            importTitle = skipped == 1 ? "That catch is already in your Logbook"
+                                       : "All \(skipped) catches are already in your Logbook"
+            importMessage = "Nothing was changed."
+        case (_, 0):
+            importTitle = "Imported \(added)"
+            importMessage = "CSV files carry no photos, so these catches have none."
+        default:
+            importTitle = "Imported \(added), skipped \(outcome.skipped) already in your Logbook"
+            importMessage = "CSV files carry no photos, so these catches have none."
+        }
+        showingImportAlert = true
+    }
+
+    private func showImportFailure() {
+        importTitle = "Couldn't import that file"
+        importMessage = "Choose a Currents export (.zip) or its catches.csv."
+        showingImportAlert = true
     }
 
     /// Manual backup: always writes a local snapshot; also pushes to the
