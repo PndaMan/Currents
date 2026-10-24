@@ -444,19 +444,15 @@ struct DirectionsMenu<Label: View>: View {
     }
 }
 
-/// The satellite cover at the top of a spot or water page.
+/// The satellite cover at the top of a spot or water page: the place's pin
+/// on the satellite map. A water is drawn by the map itself; the bundle has
+/// no outline for it, and a circle of its area would cover the land too.
 struct MapCover: View {
     let coordinate: CLLocationCoordinate2D
     var distance: CLLocationDistance = 2500
-    var radius: CLLocationDistance? = nil
 
     var body: some View {
         Map(initialPosition: .camera(.init(centerCoordinate: coordinate, distance: distance))) {
-            if let radius {
-                MapCircle(center: coordinate, radius: radius)
-                    .foregroundStyle(DS.accent.opacity(0.18))
-                    .stroke(DS.accent.opacity(0.7), lineWidth: 2)
-            }
             Annotation("", coordinate: coordinate) {
                 Circle()
                     .fill(Color.dsScoreSlow)

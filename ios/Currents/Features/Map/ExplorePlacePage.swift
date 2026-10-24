@@ -117,8 +117,7 @@ struct ExplorePlacePage: View {
             VStack(alignment: .leading, spacing: 0) {
                 if style == .page {
                     MapCover(coordinate: coord,
-                             distance: waterbody.map { max($0.approximateRadiusM * 3, 3000) } ?? 2500,
-                             radius: waterbody?.approximateRadiusM)
+                             distance: waterbody.map { max($0.approximateRadiusM * 3, 3000) } ?? 2500)
                         .padding(.top, DS.Space.s2)
                 }
                 header
