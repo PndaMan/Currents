@@ -107,7 +107,8 @@ enum CrewTint {
     static var region: Color { .orange }
     static var calendar: Color { DS.accent }
     static var weight: Color { .purple }
-    static var length: Color { .orange }
+    /// Indigo, as Longest is on Logbook's stats page.
+    static var length: Color { .indigo }
     static var species: Color { .teal }
     static var people: Color { DS.accent }
     static var trophy: Color { .dsScoreFair }

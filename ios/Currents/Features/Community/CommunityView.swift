@@ -975,17 +975,18 @@ private struct AnglerStatsLine: View {
         }
     }
 
-    /// Heaviest and longest, each once there is one.
+    /// Heaviest and longest, each once there is one, in the symbols and
+    /// colours Logbook's stats page gives them.
     static func items(bestWeightKg: Double, bestLengthCm: Double, imperial: Bool) -> [Item] {
         var out: [Item] = []
         if bestWeightKg > 0 {
             let p = Units.weightParts(kg: bestWeightKg, imperial: imperial)
-            out.append(Item(label: "Heaviest", systemImage: "scalemass.fill", tint: CrewTint.weight,
+            out.append(Item(label: "Heaviest", systemImage: "trophy.fill", tint: CrewTint.trophy,
                             value: p.0, unit: p.1))
         }
         if bestLengthCm > 0 {
             let p = Units.lengthParts(cm: bestLengthCm, imperial: imperial)
-            out.append(Item(label: "Longest", systemImage: "ruler.fill", tint: CrewTint.length,
+            out.append(Item(label: "Longest", systemImage: "ruler", tint: CrewTint.length,
                             value: p.0, unit: p.1))
         }
         return out
