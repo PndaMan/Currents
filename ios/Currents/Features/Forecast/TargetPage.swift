@@ -276,13 +276,19 @@ struct TargetPage: View {
         let score = day.result.score
         let reason = day.result.reasons.first.map(ForecastFormat.clean) ?? ForecastFormat.guidance(score)
         let changes = TargetText.changes(for: species, imperial: imperial)
+        // Text and ring side by side; at accessibility sizes the ring drops
+        // under the text, as on Today's hero.
+        let stacked = typeSize.isAccessibilitySize
+        let layout = stacked
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: DS.Space.s4))
+            : AnyLayout(HStackLayout(alignment: .center, spacing: 16))
         return VStack(alignment: .leading, spacing: 0) {
             NavigationLink(value: ForecastRoute.day(offset: 0, hour: nil)) {
                 SectionTitle("Today", chevron: true)
             }
             .buttonStyle(.dim)
 
-            HStack(alignment: .center, spacing: 16) {
+            layout {
                 VStack(alignment: .leading, spacing: 4) {
                     // The page title already names the fish.
                     Text("Bite this hour")
@@ -298,7 +304,7 @@ struct TargetPage: View {
                         .foregroundStyle(.dsText2)
                         .fixedSize(horizontal: false, vertical: true)
                 }
-                Spacer(minLength: 0)
+                if !stacked { Spacer(minLength: 0) }
                 ScoreRing(score: score, size: 84, caption: "of 100")
             }
             .padding(.horizontal, DS.gutter)
@@ -318,9 +324,13 @@ struct TargetPage: View {
     private func bestTimes(_ today: ForecastDay) -> some View {
         let week = (0..<7).map { store.day($0) }
         let best = week.max { $0.peakScore < $1.peakScore }
+        // Two tiles side by side, one above the other at accessibility sizes.
+        let layout = typeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(spacing: 10))
+            : AnyLayout(HStackLayout(alignment: .top, spacing: 10))
         return VStack(alignment: .leading, spacing: 0) {
             SectionTitle("Best times")
-            HStack(alignment: .top, spacing: 10) {
+            layout {
                 if let window = today.bestWindow {
                     NavigationLink(value: ForecastRoute.day(offset: 0, hour: window.startHour)) {
                         StatTile("Best window today", systemImage: ForecastFormat.windowIcon(window.startHour),
@@ -473,6 +483,10 @@ struct TargetPage: View {
         let heaviest = catches.compactMap(\.catchRecord.weightKg).max()
         let released = catches.filter(\.catchRecord.released).count
         let last = catches.max { $0.catchRecord.caughtAt < $1.catchRecord.caughtAt }
+        // Two tiles to a row, one at accessibility sizes.
+        let columns = typeSize.isAccessibilitySize
+            ? [GridItem(.flexible(), alignment: .top)]
+            : [GridItem(.flexible(), spacing: 10, alignment: .top), GridItem(.flexible(), alignment: .top)]
         return VStack(alignment: .leading, spacing: 0) {
             SectionTitle("Your record", detail: catches.isEmpty ? nil : "\(catches.count)")
             if catches.isEmpty {
@@ -481,9 +495,7 @@ struct TargetPage: View {
                                 text: "You have not logged \(species.commonName) yet. Your count, best fish and last catch show here.")
                 }
             } else {
-                LazyVGrid(columns: [GridItem(.flexible(), spacing: 10, alignment: .top),
-                                    GridItem(.flexible(), alignment: .top)],
-                          alignment: .leading, spacing: 10) {
+                LazyVGrid(columns: columns, alignment: .leading, spacing: 10) {
                     StatTile("Caught", systemImage: "fish", tint: species.artTint,
                              value: "\(catches.count)",
                              footnote: released > 0 ? "\(released) released" : "None released", width: nil)
