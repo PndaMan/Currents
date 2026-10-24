@@ -63,7 +63,7 @@ struct AnalyticsView: View {
         }
         .detailScrollEdge()
         .dsScreenBackground()
-        .logbookPageTitle("Stats")
+        .pageTitleFade("Stats")
         // Ticks while scrubbing the month chart, not when the finger lifts.
         .haptic(.selection, trigger: selectedMonth) { _, new in new != nil }
         .task { await loadData() }

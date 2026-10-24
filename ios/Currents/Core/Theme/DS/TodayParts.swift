@@ -16,7 +16,6 @@ struct TodayPage<Content: View>: View {
     var subtitle: String? = nil
     var tint: Color? = nil
     private let content: Content
-    @State private var titleShown = false
 
     init(_ title: String, subtitle: String? = nil, tint: Color? = nil,
          @ViewBuilder content: () -> Content) {
@@ -36,23 +35,45 @@ struct TodayPage<Content: View>: View {
             .pageWidth()
         }
         .detailTint(tint)
-        .onScrollGeometryChange(for: Bool.self) { geo in
-            geo.contentOffset.y + geo.contentInsets.top > 60
-        } action: { _, past in
-            titleShown = past
-        }
-        .navigationTitle(title)
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .principal) {
-                Text(title)
-                    .font(.headline)
-                    .lineLimit(1)
-                    .opacity(titleShown ? 1 : 0)
-                    .animation(.easeOut(duration: DS.Motion.fast), value: titleShown)
-                    .accessibilityHidden(!titleShown)
+        .pageTitleFade(title)
+    }
+}
+
+/// TodayPage's inline title: hidden at rest, faded in once the page has
+/// scrolled 60 pt, so the large title in the page is never doubled. Apply
+/// to the page's ScrollView. Pages that draw their own header (a count or
+/// a hero rather than the page name) use it too.
+struct PageTitleFade: ViewModifier {
+    let title: String
+    @State private var shown = false
+
+    func body(content: Content) -> some View {
+        content
+            .onScrollGeometryChange(for: Bool.self) { geo in
+                geo.contentOffset.y + geo.contentInsets.top > 60
+            } action: { _, past in
+                shown = past
             }
-        }
+            .navigationTitle(title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Text(title)
+                        .font(.headline)
+                        .lineLimit(1)
+                        .opacity(shown ? 1 : 0)
+                        .animation(.easeOut(duration: DS.Motion.fast), value: shown)
+                        .accessibilityHidden(!shown)
+                }
+            }
+    }
+}
+
+extension View {
+    /// The inline title that fades in once the page has scrolled, as on
+    /// TodayPage.
+    func pageTitleFade(_ title: String) -> some View {
+        modifier(PageTitleFade(title: title))
     }
 }
 

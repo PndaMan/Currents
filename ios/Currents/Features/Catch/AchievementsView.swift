@@ -157,7 +157,7 @@ private struct AchievementsPage: View {
             .pageWidth()
         }
         .detailTint(nil)
-        .logbookPageTitle("Badges")
+        .pageTitleFade("Badges")
         .sheet(item: $selected) { badge in
             BadgeDetailView(badge: badge, progress: summary.metrics.progress(for: badge.title))
         }

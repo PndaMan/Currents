@@ -75,45 +75,6 @@ enum LogbookFormat {
     }
 }
 
-// MARK: - Page title
-
-/// TodayPage's inline title for a pushed page that draws its own header (a
-/// count or a hero rather than the page name): hidden at rest, faded in once
-/// the header has scrolled away. Apply to the page's ScrollView.
-private struct LogbookTitleFade: ViewModifier {
-    let title: String
-    @State private var shown = false
-
-    func body(content: Content) -> some View {
-        content
-            .onScrollGeometryChange(for: Bool.self) { geo in
-                geo.contentOffset.y + geo.contentInsets.top > 60
-            } action: { _, past in
-                shown = past
-            }
-            .navigationTitle(title)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .principal) {
-                    Text(title)
-                        .font(.headline)
-                        .lineLimit(1)
-                        .opacity(shown ? 1 : 0)
-                        .animation(.easeOut(duration: DS.Motion.fast), value: shown)
-                        .accessibilityHidden(!shown)
-                }
-            }
-    }
-}
-
-extension View {
-    /// The inline title of a Logbook page, shown only once its header has
-    /// scrolled away, as on TodayPage.
-    func logbookPageTitle(_ title: String) -> some View {
-        modifier(LogbookTitleFade(title: title))
-    }
-}
-
 // MARK: - Catch thumbnail
 
 /// A catch's square thumbnail: its first photo, else the species art on its
