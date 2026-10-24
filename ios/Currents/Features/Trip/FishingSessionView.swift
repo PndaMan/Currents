@@ -419,9 +419,9 @@ struct SessionRow: View {
             TrackThumb(points: trip.allTrackPoints, tint: bestScore.map { DS.scoreColor($0) } ?? DS.accent,
                        photoPath: photoPath)
         } trailing: {
+            // A small ring, as on the Upcoming rows, rather than a bare number.
             if let bestScore {
-                Text("\(bestScore)")
-                    .foregroundStyle(DS.scoreInk(bestScore))
+                ScoreRing(score: bestScore, size: 44)
                     .accessibilityLabel("Best bite score \(bestScore)")
             }
         }
