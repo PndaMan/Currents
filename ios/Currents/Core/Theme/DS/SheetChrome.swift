@@ -8,6 +8,14 @@ extension View {
             .presentationDragIndicator(.visible)
             .presentationBackground(Color.dsBackground)
     }
+
+    /// `dsSheet(_:)` with the current detent bound, for sheets that open at
+    /// one height or move between heights from code.
+    func dsSheet(_ detents: Set<PresentationDetent>, selection: Binding<PresentationDetent>) -> some View {
+        presentationDetents(detents, selection: selection)
+            .presentationDragIndicator(.visible)
+            .presentationBackground(Color.dsBackground)
+    }
 }
 
 /// "Done" for a sheet that has nothing to save. Put it in

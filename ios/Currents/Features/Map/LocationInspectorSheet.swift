@@ -71,10 +71,8 @@ struct LocationInspectorSheet: View {
                 }
             }
         }
-        // dsSheet has no detent selection; the form opens at full height.
-        .presentationDetents([.medium, .large], selection: $detent)
-        .presentationDragIndicator(.visible)
-        .presentationBackground(Color.dsBackground)
+        // The detent is bound so the form opens at full height.
+        .dsSheet([.medium, .large], selection: $detent)
     }
 
     // MARK: - Header

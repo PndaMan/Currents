@@ -636,9 +636,7 @@ struct MapTab: View {
             }
             .id("\(place.id)#\(placeVisit)")
             // Only a drag ticks; showPlace resetting the detent stays quiet.
-            .presentationDetents([.medium, .large], selection: $placeDetent.haptic())
-            .presentationDragIndicator(.visible)
-            .presentationBackground(Color.dsBackground)
+            .dsSheet([.medium, .large], selection: $placeDetent.haptic())
             .presentationBackgroundInteraction(.enabled(upThrough: .medium))
             .presentationContentInteraction(.resizes)
         }

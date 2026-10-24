@@ -70,9 +70,7 @@ struct OfflineDownloadSheet: View {
                 }
             }
         }
-        .presentationDetents([.medium, .large], selection: $detent)
-        .presentationDragIndicator(.visible)
-        .presentationBackground(Color.dsBackground)
+        .dsSheet([.medium, .large], selection: $detent)
         .task(id: planKey) { await plan() }
         .task(id: nameKey) { await suggestName() }
     }
