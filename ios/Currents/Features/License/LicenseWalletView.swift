@@ -1,5 +1,6 @@
 import SwiftUI
 import PDFKit
+import UserNotifications
 
 /// Licences and permits, each shown by its own document (the photo, or the
 /// first page of the PDF), with OCR-assisted details and expiry reminders.
@@ -52,6 +53,11 @@ struct LicenseWalletView: View {
             if let license = licenses.first(where: { $0.id == route.id }) {
                 LicenseDetailView(license: license) { reload() }
             }
+        }
+        // Reload once the detail page has gone, so a deleted licence never
+        // leaves the page blank while it pops.
+        .onChange(of: opened) { _, route in
+            if route == nil { reload() }
         }
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
@@ -119,14 +125,62 @@ struct LicenseWalletView: View {
     private func reload() {
         licenses = (try? appState.licenseRepository.fetchAll()) ?? []
         didLoad = true
-        Task { await NotificationManager.shared.scheduleLicenseExpiryAlerts(licenses: licenses) }
+        let all = licenses
+        Task { await LicenseReminders.reschedule(all) }
     }
 
     private func delete(_ license: FishingLicense) {
-        try? appState.licenseRepository.delete(license)
+        do {
+            try appState.licenseRepository.delete(license)
+        } catch {
+            ToastCenter.shared.show("Couldn't delete the licence", style: .error)
+            return
+        }
         Haptics.warning()
         ToastCenter.shared.show("Licence deleted", style: .info, haptic: false)
         reload()
+    }
+}
+
+// MARK: - Reminders
+
+/// Licence expiry reminders. They are scheduled only once notifications are
+/// already allowed, so opening Licences never brings up the system prompt;
+/// the add sheet asks, with a primer, when the first expiry date is saved.
+enum LicenseReminders {
+    /// Reschedules every reminder, leaving out licences that a renewal has
+    /// replaced. Never asks for permission.
+    static func reschedule(_ licenses: [FishingLicense]) async {
+        guard await isAllowed() else { return }
+        await NotificationManager.shared.scheduleLicenseExpiryAlerts(licenses: current(licenses))
+    }
+
+    static func isAllowed() async -> Bool {
+        let status = await NotificationManager.shared.checkPermissionStatus()
+        return status == .authorized || status == .provisional || status == .ephemeral
+    }
+
+    /// Drops a licence when a newer one with the same title, type and region
+    /// exists: that is its renewal, which carries those fields over.
+    static func current(_ licenses: [FishingLicense]) -> [FishingLicense] {
+        licenses.filter { license in
+            !licenses.contains { other in
+                other.id != license.id && sameLicence(other, license) && isNewer(other, than: license)
+            }
+        }
+    }
+
+    private static func sameLicence(_ a: FishingLicense, _ b: FishingLicense) -> Bool {
+        a.title.trimmingCharacters(in: .whitespaces)
+            .caseInsensitiveCompare(b.title.trimmingCharacters(in: .whitespaces)) == .orderedSame
+            && (a.licenseType ?? "") == (b.licenseType ?? "")
+            && (a.region ?? "") == (b.region ?? "")
+    }
+
+    /// Later expiry when both have one, otherwise the one added later.
+    private static func isNewer(_ a: FishingLicense, than b: FishingLicense) -> Bool {
+        if let ae = a.expiryDate, let be = b.expiryDate, ae != be { return ae > be }
+        return a.createdAt > b.createdAt
     }
 }
 
@@ -199,8 +253,8 @@ struct LicenseThumbnail: View {
     var body: some View {
         // Rendered larger than the frame so a portrait PDF page or a
         // landscape photo still covers the card after cropping.
-        FilePreview(url: license.documentURL, systemImage: "person.text.rectangle",
-                    renderSize: width * 1.5)
+        FilePreview(url: license.documentURL, systemImage: "person.text.rectangle.fill",
+                    renderSize: width * 1.5, tint: .green)
             .frame(width: width, height: width / FishingLicense.cardAspect)
             .accessibilityHidden(true)
     }
@@ -218,6 +272,8 @@ struct LicenseDetailView: View {
     @State private var showingDeleteConfirm = false
     @State private var showingDocument = false
     @State private var titleShown = false
+    /// Set when a renewal was saved, so the page returns to the wallet.
+    @State private var renewalSaved = false
 
     var body: some View {
         ScrollView {
@@ -225,7 +281,13 @@ struct LicenseDetailView: View {
                 if license.fileName != nil {
                     document
                 }
-                DetailHeader(title: license.title, subtitle: license.expiryStatus?.text)
+                DetailHeader(title: license.title, subtitle: license.isRenewalDue ? nil : license.expiryStatus?.text)
+                if license.isRenewalDue, let status = license.expiryStatus {
+                    PFNotice(systemImage: license.isExpired ? "exclamationmark.triangle.fill" : "clock.fill",
+                             tint: status.color, title: status.text,
+                             message: license.isExpired ? "Add the renewal once you have it."
+                                                        : "Add the renewal when you buy it.")
+                }
                 actions
                     .padding(.top, DS.Space.s4)
                 if license.fileName == nil {
@@ -259,8 +321,8 @@ struct LicenseDetailView: View {
         .sheet(isPresented: $showingEdit, onDismiss: refresh) {
             AddLicenseSheet(editing: license)
         }
-        .sheet(isPresented: $showingRenewal, onDismiss: onChange) {
-            AddLicenseSheet(renewing: license)
+        .sheet(isPresented: $showingRenewal, onDismiss: renewalClosed) {
+            AddLicenseSheet(renewing: license, onSaved: { renewalSaved = true })
         }
         .confirmationDialog("Delete this licence?", isPresented: $showingDeleteConfirm, titleVisibility: .visible) {
             Button("Delete licence", role: .destructive) { delete() }
@@ -306,12 +368,28 @@ struct LicenseDetailView: View {
         }
     }
 
+    /// Leaves the page first; the wallet reloads once it has gone, so the
+    /// page never shows blank while it pops.
     private func delete() {
-        try? appState.licenseRepository.delete(license)
+        do {
+            try appState.licenseRepository.delete(license)
+        } catch {
+            ToastCenter.shared.show("Couldn't delete the licence", style: .error)
+            return
+        }
         Haptics.warning()
         ToastCenter.shared.show("Licence deleted", style: .info, haptic: false)
-        onChange()
         dismiss()
+    }
+
+    /// After a renewal is saved the old licence is done with: back to the
+    /// wallet, which reloads as this page pops.
+    private func renewalClosed() {
+        if renewalSaved {
+            dismiss()
+        } else {
+            onChange()
+        }
     }
 
     private func refresh() {
@@ -325,25 +403,17 @@ struct LicenseDetailView: View {
 private struct LicenseFieldsSection: View {
     let license: FishingLicense
 
-    private struct Field: Identifiable {
-        let label: String
-        let value: String
-        var color: Color = .dsText2
-        var id: String { label }
-    }
-
-    private var fields: [Field] {
-        var result: [Field] = []
-        func add(_ label: String, _ value: String?, color: Color = .dsText2) {
-            if let value, !value.isEmpty { result.append(Field(label: label, value: value, color: color)) }
+    private var rows: [(String, String)] {
+        var result: [(String, String)] = []
+        func add(_ label: String, _ value: String?) {
+            if let value, !value.isEmpty { result.append((label, value)) }
         }
         add("Holder", license.holderName)
         add("Number", license.licenseNumber)
         add("Type", license.licenseType)
         add("Region", license.region)
         add("Issued", license.issueDate.map(Self.day))
-        let expiryColor: Color = license.isRenewalDue ? (license.expiryStatus?.color ?? .dsText2) : .dsText2
-        add("Expires", license.expiryDate.map(Self.day), color: expiryColor)
+        add("Expires", license.expiryDate.map(Self.day))
         return result
     }
 
@@ -352,36 +422,13 @@ private struct LicenseFieldsSection: View {
     }
 
     var body: some View {
-        let shown = fields
+        let shown = rows
         if !shown.isEmpty {
             VStack(alignment: .leading, spacing: 0) {
                 SectionTitle("Details")
-                VStack(spacing: 0) {
-                    ForEach(Array(shown.enumerated()), id: \.element.id) { index, field in
-                        fieldRow(field)
-                        if index < shown.count - 1 { PFDivider() }
-                    }
-                }
-                .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
-                .padding(.horizontal, DS.gutter)
+                KeyValueList(rows: shown)
             }
         }
-    }
-
-    private func fieldRow(_ field: Field) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: DS.Space.s4) {
-            Text(field.label)
-                .foregroundStyle(.dsText)
-            Spacer(minLength: DS.Space.s4)
-            Text(field.value)
-                .foregroundStyle(field.color)
-                .multilineTextAlignment(.trailing)
-                .textSelection(.enabled)
-        }
-        .font(.body)
-        .padding(.horizontal, DS.Space.s4)
-        .padding(.vertical, 13)
-        .accessibilityElement(children: .combine)
     }
 }
 
@@ -391,7 +438,6 @@ private struct LicenseFieldsSection: View {
 /// and pinch-zooms) or the photo (pinch-zooms), with a Done button.
 struct LicenseDocumentFullScreen: View {
     let license: FishingLicense
-    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         NavigationStack {
@@ -411,7 +457,7 @@ struct LicenseDocumentFullScreen: View {
             .navigationTitle(license.title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) { SheetDoneButton() }
             }
         }
     }

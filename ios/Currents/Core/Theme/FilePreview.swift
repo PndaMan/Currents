@@ -18,10 +18,14 @@ struct FilePreview: View {
     /// Documents get a tighter corner than photo thumbnails.
     var cornerRadius: CGFloat = DS.Radius.thumb / 2
     var placeholderAspect: CGFloat = 1
+    /// With no document, draws the placeholder as a tinted tile, the way
+    /// `ThumbView` does. Nil keeps the neutral fill.
+    var tint: Color? = nil
 
     @State private var image: UIImage?
     @State private var failed = false
     @Environment(\.displayScale) private var displayScale
+    @Environment(\.colorScheme) private var scheme
 
     private var shape: RoundedRectangle {
         RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
@@ -63,13 +67,19 @@ struct FilePreview: View {
 
     @ViewBuilder
     private var placeholder: some View {
+        let empty = url == nil || failed
         let box = shape
             .fill(Color.dsFill2)
             .overlay {
-                if url == nil || failed {
+                if empty, let tint {
+                    shape.fill(tint.opacity(DS.thumbTintOpacity(scheme)))
+                }
+            }
+            .overlay {
+                if empty {
                     Image(systemName: systemImage)
                         .font(renderSize > 120 ? .largeTitle : .title3)
-                        .foregroundStyle(.dsText2)
+                        .foregroundStyle(tint ?? Color.dsText2)
                 }
             }
         if contentMode == .fit {
