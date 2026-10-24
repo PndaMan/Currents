@@ -166,7 +166,7 @@ struct SpeciesDetailView: View {
         SpeciesTagFlow {
             // `catches` is newest first.
             if let first = catches.last?.catchRecord.caughtAt {
-                SpeciesTag(text: "Found \(LogbookFormat.shortDay(first))",
+                SpeciesTag(text: "Found \(LogbookFormat.fullDate(first))",
                            systemImage: "checkmark.circle.fill", tint: .dsScoreGood)
             } else if loaded {
                 SpeciesTag(text: "Not found yet")
@@ -256,16 +256,12 @@ struct SpeciesDetailView: View {
         rows.append(("Released", "\(records.filter(\.released).count) of \(records.count)"))
         // Newest first, so the last is the first one caught.
         if let first = records.last?.caughtAt {
-            rows.append(("First caught", fullDate(first)))
+            rows.append(("First caught", LogbookFormat.fullDate(first)))
         }
         if records.count > 1, let last = records.first?.caughtAt {
-            rows.append(("Last caught", fullDate(last)))
+            rows.append(("Last caught", LogbookFormat.fullDate(last)))
         }
         return rows
-    }
-
-    private func fullDate(_ date: Date) -> String {
-        date.formatted(.dateTime.day().month(.abbreviated).year())
     }
 
     private var historySection: some View {
