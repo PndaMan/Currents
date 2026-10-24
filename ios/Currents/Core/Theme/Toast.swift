@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// A transient status message shown at the top of the screen.
 struct Toast: Equatable, Identifiable {
@@ -105,21 +106,61 @@ private struct ToastView: View {
     }
 }
 
-private struct ToastHost: ViewModifier {
+/// The toast layer: the current toast at the top of an otherwise clear,
+/// full-screen view. It lives in `ToastWindow`, above every sheet and cover.
+private struct ToastOverlay: View {
     @ObservedObject private var center = ToastCenter.shared
-    func body(content: Content) -> some View {
-        content.overlay(alignment: .top) {
-            if let toast = center.current {
-                ToastView(toast: toast)
-                    .id(toast.id)
-                    .padding(.top, 4)
-                    .transition(.move(edge: .top).combined(with: .opacity))
-                    .onTapGesture { center.dismiss() }
-                    .onAppear {
-                        AccessibilityNotification.Announcement(toast.message).post()
-                    }
+    // The same keys and defaults as CurrentsApp, so the toast window follows
+    // the app's appearance and theme colour.
+    @AppStorage("selectedTheme") private var selectedTheme = ThemeOption.ocean.rawValue
+    @AppStorage("appearanceMode") private var appearanceMode = AppearanceMode.dark.rawValue
+
+    var body: some View {
+        Color.clear
+            .overlay(alignment: .top) {
+                if let toast = center.current {
+                    ToastView(toast: toast)
+                        .id(toast.id)
+                        .padding(.top, 4)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                        .onAppear {
+                            AccessibilityNotification.Announcement(toast.message).post()
+                        }
+                }
             }
+            .preferredColorScheme((AppearanceMode(rawValue: appearanceMode) ?? .dark).colorScheme)
+            .tint(ThemeOption(rawValue: selectedTheme)?.primary ?? .blue)
+    }
+}
+
+/// A second window on the app's scene, one level above the app window, that
+/// draws toasts over every presentation. It never takes touches (they fall
+/// through to the app) and never becomes the key window.
+@MainActor
+final class ToastWindow {
+    static let shared = ToastWindow()
+    private var window: UIWindow?
+
+    func install() {
+        guard window == nil else { return }
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        guard let scene = scenes.first(where: { $0.activationState == .foregroundActive }) ?? scenes.first else {
+            return
         }
+        let host = UIHostingController(rootView: ToastOverlay())
+        host.view.backgroundColor = .clear
+        let window = UIWindow(windowScene: scene)
+        window.windowLevel = UIWindow.Level(rawValue: UIWindow.Level.normal.rawValue + 1)
+        window.rootViewController = host
+        window.isUserInteractionEnabled = false
+        window.isHidden = false
+        self.window = window
+    }
+}
+
+private struct ToastHost: ViewModifier {
+    func body(content: Content) -> some View {
+        content.onAppear { ToastWindow.shared.install() }
     }
 }
 
