@@ -269,6 +269,21 @@ enum ScreenshotSupport {
         screen == .logCatch ? URL(string: "currents://log") : nil
     }
 
+    /// Where a scrolling page opens for the review run's scrolled shots:
+    /// `-uiReviewScroll center` opens it at the middle and
+    /// `-uiReviewScroll bottom` at the end. Nil, the usual top, without the
+    /// argument or outside screenshot mode. The design system's page
+    /// modifiers read it (`reviewScrollAnchor`). x stays 0 so rows that
+    /// scroll sideways still open at their leading edge.
+    static let scrollAnchor: UnitPoint? = {
+        guard isActive else { return nil }
+        switch UserDefaults.standard.string(forKey: "uiReviewScroll") {
+        case "center": return UnitPoint(x: 0, y: 0.5)
+        case "bottom": return UnitPoint(x: 0, y: 1)
+        default: return nil
+        }
+    }()
+
     // MARK: - Records the review screens open
 
     /// The first spot the demo seed saved (Kogel Bay Reef). Spots list newest

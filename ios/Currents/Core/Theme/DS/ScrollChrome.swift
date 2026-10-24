@@ -19,6 +19,14 @@ extension View {
         containerRelativeFrame(.horizontal, alignment: .topLeading)
     }
 
+    /// The UI review run's scrolled shots open a page at its middle or its
+    /// end (see `ScreenshotSupport.scrollAnchor`). Does nothing in normal use.
+    /// `detailTint`, `detailScrollEdge` and `largeTitleChrome` apply it, so
+    /// every page built on them (TodayPage included) is covered.
+    func reviewScrollAnchor() -> some View {
+        modifier(ReviewScrollAnchor())
+    }
+
     /// For a full-bleed map root: a soft fade of the page background behind
     /// the status bar, so the clock stays legible over bright map tiles.
     /// Apply to the root stack that holds the map.
@@ -48,6 +56,7 @@ private struct LargeTitleChrome: ViewModifier {
 
     func body(content: Content) -> some View {
         content
+            .reviewScrollAnchor()
             .toolbar(.hidden, for: .navigationBar)
             .onScrollGeometryChange(for: Int.self) { geo in
                 let y = geo.contentOffset.y + geo.contentInsets.top
@@ -59,6 +68,21 @@ private struct LargeTitleChrome: ViewModifier {
             .safeAreaInset(edge: .top, spacing: 0) {
                 StatusBarBackdrop(title: title, stage: stage, reduceMotion: reduceMotion)
             }
+    }
+}
+
+/// Opens the scroll view at the review run's anchor, both on first layout
+/// and as content loads in, so a bottom shot stays at the bottom. Content
+/// shorter than the screen keeps its usual alignment.
+private struct ReviewScrollAnchor: ViewModifier {
+    func body(content: Content) -> some View {
+        if let anchor = ScreenshotSupport.scrollAnchor {
+            content
+                .defaultScrollAnchor(anchor, for: .initialOffset)
+                .defaultScrollAnchor(anchor, for: .sizeChanges)
+        } else {
+            content
+        }
     }
 }
 
