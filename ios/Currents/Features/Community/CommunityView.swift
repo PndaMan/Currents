@@ -379,8 +379,10 @@ struct CommunityView: View {
                          title: g.name,
                          subtitle: g.teamName.map { "Tournament team \($0)" } ?? "Trip code \(g.code)") {
                 ThumbView(systemImage: g.teamName != nil ? "trophy.fill" : "person.3.fill",
-                          tint: ended ? .dsText2 : .dsScoreLow)
+                          tint: .dsScoreLow)
             }
+            // An ended trip keeps its colour and steps back as a whole.
+            .opacity(ended ? 0.6 : 1)
         }
         .buttonStyle(.dsRow)
         .contextMenu {

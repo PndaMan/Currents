@@ -277,7 +277,7 @@ enum CrewTint {
     static var species: Color { .teal }
     static var people: Color { DS.accent }
     static var trophy: Color { .dsScoreFair }
-    static var lock: Color { .dsText2 }
+    static var lock: Color { .orange }
 }
 
 // MARK: - Title badge art
