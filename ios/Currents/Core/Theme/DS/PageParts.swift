@@ -122,7 +122,8 @@ struct KeyValueList: View {
 
 /// A full-width red tonal button at the foot of a page (Leave crew, End
 /// tournament, Remove friend). The caller confirms with a dialog and sets
-/// the space above it.
+/// the space above it. The label is inked so it keeps its contrast on the
+/// pale red fill in light mode.
 struct DangerButton: View {
     let title: String
     let systemImage: String
@@ -133,7 +134,7 @@ struct DangerButton: View {
         Button(role: .destructive, action: action) {
             Label(title, systemImage: systemImage)
                 .font(.headline)
-                .foregroundStyle(.dsScoreSlow)
+                .foregroundStyle(DS.ink(.dsScoreSlow))
                 .frame(maxWidth: .infinity, minHeight: 52)
                 .background(Color.dsScoreSlow.opacity(scheme == .dark ? 0.18 : 0.12),
                             in: RoundedRectangle(cornerRadius: DS.Radius.button, style: .continuous))

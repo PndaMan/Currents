@@ -118,7 +118,8 @@ private struct ActionTileBody<L: View>: View {
         switch kind {
         case .primary: .dsOnPrimary
         case .tonal: .dsText
-        case .destructive: .dsScoreSlow
+        // Inked so the label keeps its contrast on the pale red fill in light.
+        case .destructive: DS.ink(.dsScoreSlow)
         }
     }
 
