@@ -333,17 +333,7 @@ struct TrackShape: Shape {
     }
 }
 
-// MARK: - Key-value rows
-
-/// Label and value rows. Kept for its callers (species and session pages);
-/// it draws the DS `KeyValueList`, so every list of facts looks the same.
-struct LogbookKeyValueList: View {
-    let rows: [(String, String)]
-
-    var body: some View {
-        KeyValueList(rows: rows)
-    }
-}
+// MARK: - Notes
 
 /// A short explanatory note under a section. Kept for its callers; it draws
 /// the DS `SectionFootnote`, so every note reads in dsText2.
