@@ -60,6 +60,7 @@ struct StreakStats {
 struct StreakView: View {
     let catches: [CatchDetail]
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var typeSize
     @State private var showingPlanner = false
     @State private var selected: BadgeDefinition?
     @State private var appeared = false
@@ -211,7 +212,11 @@ struct StreakView: View {
         if let s = stats.bestStart, stats.best > 1 {
             longestRun = "From \(LogbookFormat.shortDay(s))"
         }
-        return HStack(spacing: 10) {
+        // Stacked at accessibility sizes, where three across would squash.
+        let row = typeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(spacing: 10))
+            : AnyLayout(HStackLayout(spacing: 10))
+        return row {
             StatTile("Current", systemImage: "flame.fill", tint: .dsScoreLow,
                      value: "\(stats.current)", unit: stats.current == 1 ? "week" : "weeks",
                      footnote: since ?? "None yet", width: nil)

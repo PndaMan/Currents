@@ -9,6 +9,7 @@ struct AnalyticsView: View {
     @Environment(AppState.self) private var appState
     @AppStorage("use24HourTime") private var use24HourTime = true
     @AppStorage("units") private var units = "metric"
+    @Environment(\.dynamicTypeSize) private var typeSize
     @State private var personalBests: [PersonalBest] = []
     @State private var monthlyCounts: [(month: String, count: Int)] = []
     @State private var hourCounts: [(hour: Int, count: Int)] = []
@@ -83,6 +84,14 @@ struct AnalyticsView: View {
         return dateRange.map { "\($0), \(count)" } ?? count
     }
 
+    /// Three tiles across, stacked at accessibility sizes where three
+    /// across would squash.
+    private var tileRow: AnyLayout {
+        typeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(spacing: 10))
+            : AnyLayout(HStackLayout(spacing: 10))
+    }
+
     private var totalsTiles: some View {
         let released = allCatches.filter { $0.catchRecord.released }.count
         let rate = allCatches.isEmpty ? 0 : Int((Double(released) / Double(allCatches.count) * 100).rounded())
@@ -91,7 +100,7 @@ struct AnalyticsView: View {
         let biggest = personalBests.compactMap(\.heaviestKg).max()
         let longest = personalBests.compactMap(\.longestCm).max()
         return VStack(spacing: 10) {
-            HStack(spacing: 10) {
+            tileRow {
                 StatTile("Catches", systemImage: "fish.fill", tint: DS.accent,
                          value: "\(totalCatches)", width: nil)
                 StatTile("Species", systemImage: "leaf.fill", tint: .dsScoreGood,
@@ -100,7 +109,7 @@ struct AnalyticsView: View {
                          value: "\(rate)", unit: "%", footnote: "\(released) of \(allCatches.count)", width: nil)
             }
             if biggest != nil || avgWeight != nil || longest != nil {
-                HStack(spacing: 10) {
+                tileRow {
                     if let biggest {
                         let p = Units.weightParts(kg: biggest, imperial: imperial)
                         StatTile("Heaviest", systemImage: "trophy.fill", tint: DS.ink(.dsScoreFair),

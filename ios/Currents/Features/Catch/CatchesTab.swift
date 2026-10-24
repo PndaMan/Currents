@@ -29,6 +29,9 @@ struct CatchesTab: View {
     @State private var planned: [Trip] = []
     @State private var planOutlooks: [String: PlanOutlook] = [:]
     @AppStorage("use24HourTime") private var use24 = true
+    @Environment(\.dynamicTypeSize) private var typeSize
+    /// The show-and-sort and layout buttons grow with the text.
+    @ScaledMetric(relativeTo: .subheadline) private var toolIconSize: CGFloat = 36
     @State private var showingNewSession = false
     @State private var showingPlanner = false
     @State private var planToEdit: Trip?
@@ -366,9 +369,7 @@ struct CatchesTab: View {
                             groupHeader(title, detail: group.detail, count: group.items.count)
                         }
                         if layout == .gallery {
-                            LazyVGrid(columns: [GridItem(.flexible(), spacing: 12),
-                                                GridItem(.flexible(), spacing: 12)],
-                                      alignment: .leading, spacing: 18) {
+                            LazyVGrid(columns: galleryColumns, alignment: .leading, spacing: 18) {
                                 ForEach(group.items) { detail in
                                     galleryTile(detail)
                                 }
@@ -453,7 +454,7 @@ struct CatchesTab: View {
         Image(systemName: systemImage)
             .font(.subheadline.weight(.semibold))
             .foregroundStyle(active ? Color.dsOnPrimary : Color.dsText)
-            .frame(width: 36, height: 36)
+            .frame(width: toolIconSize, height: toolIconSize)
             .background(active ? Color.dsPrimaryButton : Color.dsFill, in: Circle())
             .padding(.leading, 6)
             .animation(.easeOut(duration: DS.Motion.fast), value: active)
@@ -482,6 +483,16 @@ struct CatchesTab: View {
         .accessibilityAddTraits(.isHeader)
     }
 
+    /// Two columns, one at accessibility sizes so names are not cut short.
+    private var galleryColumns: [GridItem] {
+        typeSize.isAccessibilitySize
+            ? [GridItem(.flexible())]
+            : [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)]
+    }
+
+    /// One line per gallery caption, three at accessibility sizes.
+    private var tileLines: Int { typeSize.isAccessibilitySize ? 3 : 1 }
+
     private func galleryTile(_ detail: CatchDetail) -> some View {
         let id = detail.catchRecord.id
         return NavigationLink(value: LogbookRoute.catchDetail(id)) {
@@ -503,17 +514,17 @@ struct CatchesTab: View {
                 Text(detail.species?.commonName ?? "Unknown species")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.dsText)
-                    .lineLimit(1)
+                    .lineLimit(tileLines)
                 if let size = LogbookFormat.size(detail.catchRecord) {
                     Text(size)
                         .font(.footnote)
                         .foregroundStyle(.dsText2)
-                        .lineLimit(1)
+                        .lineLimit(tileLines)
                 }
                 Text(LogbookFormat.relativeDay(detail.catchRecord.caughtAt))
                     .font(.footnote)
                     .foregroundStyle(.dsText2)
-                    .lineLimit(1)
+                    .lineLimit(tileLines)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
