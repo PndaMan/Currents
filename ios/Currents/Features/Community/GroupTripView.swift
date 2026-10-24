@@ -142,13 +142,15 @@ struct GroupTripSetupView: View {
             Button {
                 if t.isPlanned { editingPlan = t } else { Task { await startTrip(from: t) } }
             } label: {
-                ArtRow(over: t.plannedDate.map { planDate($0) },
-                       title: t.name,
-                       subtitle: t.isPlanned ? "Planned" : "Active session") {
+                // Drawn as Today's Up next row draws a plan: the date as the
+                // calendar-glyph subtitle under the name.
+                ArtRow(title: t.name,
+                       subtitle: t.plannedDate.map { planDate($0) } ?? (t.isPlanned ? "Planned" : "Active session"),
+                       subtitleIcon: t.plannedDate == nil ? nil : "calendar") {
                     if t.plannedDate != nil {
-                        ThumbView(systemImage: "calendar.badge.clock", tint: CrewTint.calendar, size: 56)
+                        ThumbView(systemImage: "calendar", tint: CrewTint.calendar)
                     } else {
-                        ThumbView(systemImage: "figure.fishing", tint: .dsScoreGood, size: 56)
+                        ThumbView(systemImage: "figure.fishing", tint: .dsScoreGood)
                     }
                 }
             }
