@@ -220,8 +220,7 @@ struct SettingsView: View {
                                 .foregroundStyle(.dsText2)
                                 .monospacedDigit()
                         }
-                        ProgressView(value: Double(earnedBadges), total: Double(max(totalBadges, 1)))
-                            .tint(DS.accent)
+                        LogbookProgressBar(fraction: Double(earnedBadges) / Double(max(totalBadges, 1)))
                     }
                 }
                 .buttonStyle(.dim)
