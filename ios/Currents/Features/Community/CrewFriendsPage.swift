@@ -358,14 +358,18 @@ struct CrewRequestsPage: View {
                 ThumbView(systemImage: "person.3.fill", tint: CrewTint.region)
             }
             CrewAcceptDecline(acceptTitle: "Join trip") {
-                await svc.acceptInvite(inv)
-                ToastCenter.shared.show("Joined the trip", style: .success)
-                openedTrip = CrewOpenedTrip(code: inv.groupCode, name: inv.tripName)
-                await load()
+                // Only a joined trip opens; a failed join keeps the invite.
+                if let trip = await svc.acceptInvite(inv) {
+                    ToastCenter.shared.show("Joined the trip", style: .success)
+                    openedTrip = CrewOpenedTrip(code: inv.groupCode, name: trip.name)
+                    await load()
+                } else {
+                    ToastCenter.shared.show("Couldn't join. Try again", style: .error)
+                }
             } onDecline: {
                 Haptics.warning()
+                // No result to check, so the reload shows whether it went.
                 await svc.declineInvite(inv)
-                ToastCenter.shared.show("Invite declined", style: .info, haptic: false)
                 await load()
             }
             .padding(.leading, DS.gutter + 64 + 14)
@@ -406,14 +410,23 @@ struct CrewRequestRow: View {
             }
             .buttonStyle(.dsRow)
             CrewAcceptDecline(acceptTitle: "Accept") {
-                await svc.acceptFriendRequest(request)
-                ToastCenter.shared.show("You're now friends with \(request.fromName)", style: .success)
-                await reload()
+                // A failed answer keeps the row so it can be tried again.
+                let ok = await svc.acceptFriendRequest(request)
+                if ok {
+                    ToastCenter.shared.show("You're now friends with \(request.fromName)", style: .success)
+                    await reload()
+                } else {
+                    ToastCenter.shared.show("Couldn't accept. Try again", style: .error)
+                }
             } onDecline: {
                 Haptics.warning()
-                await svc.declineFriendRequest(request)
-                ToastCenter.shared.show("Request declined", style: .info, haptic: false)
-                await reload()
+                let ok = await svc.declineFriendRequest(request)
+                if ok {
+                    ToastCenter.shared.show("Request declined", style: .info, haptic: false)
+                    await reload()
+                } else {
+                    ToastCenter.shared.show("Couldn't decline. Try again", style: .error)
+                }
             }
             .padding(.leading, DS.gutter + 64 + 14)
             .padding(.trailing, DS.gutter)
@@ -426,28 +439,38 @@ struct CrewRequestRow: View {
     }
 }
 
-/// Accept (primary) and decline (tonal), side by side, each busy while its
-/// call runs.
+/// Accept (primary) and decline (tonal), side by side. The tapped one shows
+/// a spinner and both are disabled while its call runs.
 struct CrewAcceptDecline: View {
     var acceptTitle = "Accept"
     let onAccept: () async -> Void
     let onDecline: () async -> Void
-    @State private var busy = false
+    @State private var busy: Answer?
+
+    private enum Answer { case accept, decline }
 
     var body: some View {
         HStack(spacing: DS.Space.s2) {
-            Button(acceptTitle) {
-                busy = true
-                Task { await onAccept(); busy = false }
+            Button { run(.accept, onAccept) } label: {
+                if busy == .accept { ProgressView() } else { Text(acceptTitle) }
             }
             .buttonStyle(PrimaryButtonStyle(fullWidth: true))
-            Button("Decline") {
-                busy = true
-                Task { await onDecline(); busy = false }
+            .accessibilityLabel(acceptTitle)
+            Button { run(.decline, onDecline) } label: {
+                if busy == .decline { ProgressView() } else { Text("Decline") }
             }
             .buttonStyle(TonalButtonStyle(fullWidth: true))
+            .accessibilityLabel("Decline")
         }
-        .disabled(busy)
+        .disabled(busy != nil)
+    }
+
+    private func run(_ answer: Answer, _ action: @escaping () async -> Void) {
+        busy = answer
+        Task {
+            await action()
+            busy = nil
+        }
     }
 }
 
