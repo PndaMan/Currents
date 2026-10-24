@@ -87,6 +87,7 @@ final class ToastCenter: ObservableObject {
 /// other floating controls: tinted symbol, then the message.
 private struct ToastView: View {
     let toast: Toast
+    @Environment(\.dynamicTypeSize) private var typeSize
     var body: some View {
         HStack(spacing: 8) {
             Image(systemName: toast.icon ?? toast.style.icon)
@@ -95,7 +96,7 @@ private struct ToastView: View {
             Text(toast.message)
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(.dsText)
-                .lineLimit(2)
+                .lineLimit(typeSize.isAccessibilitySize ? 4 : 2)
         }
         .padding(.leading, 14)
         .padding(.trailing, 18)
