@@ -286,10 +286,17 @@ extension CommunityService {
 
     /// All comments on one post, oldest first (conversation order).
     func comments(postId: String) async -> [CrewComment] {
+        await loadComments(postId: postId) ?? []
+    }
+
+    /// All comments on one post, oldest first. When the query fails this is
+    /// the cached list, or nil when nothing is cached, so a caller can tell
+    /// "no comments" from "couldn't load them".
+    func loadComments(postId: String) async -> [CrewComment]? {
         let q = CKQuery(recordType: crewCommentType,
                         predicate: NSPredicate(format: "postId == %@", postId))
         guard let res = try? await db.records(matching: q, resultsLimit: 200) else {
-            return CommunityDiskCache.load([CrewComment].self, key: "comments-\(postId)") ?? []
+            return CommunityDiskCache.load([CrewComment].self, key: "comments-\(postId)")
         }
         let list: [CrewComment] = res.matchResults.compactMap { id, r in
             guard let rec = try? r.get() else { return nil }
