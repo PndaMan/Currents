@@ -22,9 +22,9 @@ enum WaterClarity: String, Codable, CaseIterable, Sendable, Identifiable {
     /// Rough visibility, used in copy and to explain the recommendation.
     var detail: String {
         switch self {
-        case .clear:   "See past ~1 m"
-        case .stained: "Green / tea coloured"
-        case .muddy:   "Under ~30 cm"
+        case .clear:   "Clear water lets you see past 1 m."
+        case .stained: "Stained water looks green or the colour of tea."
+        case .muddy:   "In muddy water you see less than 0.3 m."
         }
     }
 
