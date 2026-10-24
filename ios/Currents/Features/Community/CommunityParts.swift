@@ -170,6 +170,13 @@ struct TitleArt {
     ]
 }
 
+extension TitleFlair {
+    /// The title as people read it: sentence case and British spelling
+    /// ("Metre class", "World traveller"). `name` stays the key that stored
+    /// profile titles and the title art look it up by.
+    var displayName: String { BadgeDefinition.displayName(for: name) }
+}
+
 extension BadgeRarity {
     /// The small symbol beside the rarity name on a title badge.
     var badgeSymbol: String {
@@ -337,8 +344,8 @@ struct TitleBadge<Trailing: View>: View {
         }
         .opacity(locked ? 0.55 : 1)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(locked ? "\(flair.name), \(rarity.label) title, locked"
-                                   : "\(flair.name), \(rarity.label) title")
+        .accessibilityLabel(locked ? "\(flair.displayName), \(rarity.label) title, locked"
+                                   : "\(flair.displayName), \(rarity.label) title")
     }
 
     private var words: some View {
@@ -350,7 +357,7 @@ struct TitleBadge<Trailing: View>: View {
                     .font(.footnote.weight(.semibold))
             }
             .foregroundStyle(ink)
-            Text(flair.name)
+            Text(flair.displayName)
                 .font(.title3.weight(.bold))
                 .fontDesign(.rounded)
                 .foregroundStyle(.dsText)
