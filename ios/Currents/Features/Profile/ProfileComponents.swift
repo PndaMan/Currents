@@ -174,7 +174,8 @@ struct PFKeyValueCard: View {
 
 // MARK: - Notice
 
-/// A tinted notice card ("Running low on …", "Expires in 12 days").
+/// A tinted notice card ("Running low on …", "Expires in 12 days"). Pass the
+/// raw hue as `tint`; the glyph is inked so it reads on the pale fill in light.
 struct PFNotice<Accessory: View>: View {
     let systemImage: String
     let tint: Color
@@ -195,7 +196,7 @@ struct PFNotice<Accessory: View>: View {
         HStack(spacing: 14) {
             Image(systemName: systemImage)
                 .font(.title3.weight(.semibold))
-                .foregroundStyle(tint)
+                .foregroundStyle(DS.ink(tint))
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
