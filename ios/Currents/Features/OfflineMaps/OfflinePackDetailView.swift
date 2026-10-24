@@ -72,7 +72,7 @@ struct OfflinePackDetailView: View {
                 }
                 .padding(.horizontal, DS.gutter)
 
-                PFFootnote("\(OfflineTileOverlay.attribution). Works on the Offline map style in Explore.")
+                SectionFootnote("\(OfflineTileOverlay.attribution). Works on the Offline map style in Explore.")
             }
             .padding(.top, DS.Space.s2)
             .padding(.bottom, DS.Space.s8)

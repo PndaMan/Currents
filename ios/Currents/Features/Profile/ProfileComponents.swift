@@ -257,20 +257,6 @@ struct PFSearchField: View {
     }
 }
 
-// MARK: - Footnote under a block
-
-/// The old Profile footnote, now drawn as `SectionFootnote` so it sits on
-/// the gutter with every other footnote. Kept only for the caller outside
-/// Profile (OfflinePackDetailView); use `SectionFootnote`.
-struct PFFootnote: View {
-    let text: String
-    init(_ text: String) { self.text = text }
-
-    var body: some View {
-        SectionFootnote(text)
-    }
-}
-
 // MARK: - Stepper capsule
 
 /// A compact minus / value / plus capsule, for stock counts and lengths.
