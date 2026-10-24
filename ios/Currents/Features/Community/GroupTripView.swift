@@ -5,20 +5,26 @@ import UIKit
 /// Leave a group trip and, if the local session it was linked to never got past
 /// the planned stage (never started, so nothing was tracked or logged), delete
 /// that planned session too. Leaving a group you only planned shouldn't leave
-/// an orphaned plan behind.
+/// an orphaned plan behind. True when the leave reached the server; on false
+/// the trip and its planned session are kept and an error toast shows.
 @MainActor
-func leaveGroupAndCleanup(code: String, tripId: String?, appState: AppState) async {
+@discardableResult
+func leaveGroupAndCleanup(code: String, tripId: String?, appState: AppState) async -> Bool {
     let svc = CommunityService.shared
     // Resolve the linked trip BEFORE leaving (leaving forgets the mapping).
     let linked = tripId ?? svc.tripId(forGroupCode: code)
-    await svc.leaveGroupTrip(code: code, tripId: linked)
+    guard await svc.leaveGroupTrip(code: code, tripId: linked) else {
+        ToastCenter.shared.show("Couldn't leave the group trip", style: .error)
+        return false
+    }
     if let linked,
        let trip = (try? appState.tripRepository.fetch(linked)) ?? nil,
        trip.isPlanned {
         try? appState.tripRepository.delete(trip)
     }
     Haptics.warning()
-    ToastCenter.shared.show("Left the trip", style: .info, haptic: false)
+    ToastCenter.shared.show("Left the group trip", style: .info, haptic: false)
+    return true
 }
 
 // MARK: - Setup: start (pick a trip) or join by code
@@ -324,6 +330,7 @@ struct GroupTripView: View {
     @State private var code: String?
     @Environment(AppState.self) private var appState
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dismiss) private var dismiss
     @StateObject private var svc = CommunityService.shared
     @State private var trip: CommunityService.GroupTrip?
     @State private var members: [CommunityService.GroupMember] = []
@@ -338,6 +345,7 @@ struct GroupTripView: View {
     @State private var lastUpdated: Date?
     @State private var joinCode = ""
     @State private var inviteCode = ""
+    @State private var sendingInvite = false
     @State private var busy = false
     @State private var confirming = false
     @State private var friendProfiles: [CommunityService.Profile] = []
@@ -389,12 +397,15 @@ struct GroupTripView: View {
         svc.joined && !tripMissing && code != nil
     }
 
+    /// Leave, then go back to wherever the trip was opened from. The page
+    /// never falls into its setup state for a trip the angler just left.
     private func leave(code: String) {
+        guard !busy else { return }
+        busy = true
         Task {
-            await leaveGroupAndCleanup(code: code, tripId: tripId, appState: appState)
-            self.code = nil
-            trip = nil; members = []; feed = []
-            tripMissing = false
+            let left = await leaveGroupAndCleanup(code: code, tripId: tripId, appState: appState)
+            busy = false
+            if left { dismiss() }
         }
     }
 
@@ -468,12 +479,18 @@ struct GroupTripView: View {
     }
 
     private func endForAll() {
-        guard let code else { return }
-        Haptics.warning()
+        guard let code, !busy else { return }
+        busy = true
         Task {
-            await service.endGroupTrip(code: code)
-            ToastCenter.shared.show("Trip ended for everyone", style: .info, haptic: false)
-            await refresh()
+            let ok = await service.endGroupTrip(code: code)
+            busy = false
+            if ok {
+                Haptics.warning()
+                ToastCenter.shared.show("Group trip ended for everyone", style: .info, haptic: false)
+                await refresh()
+            } else {
+                ToastCenter.shared.show("Couldn't end the group trip", style: .error)
+            }
         }
     }
 
@@ -1190,8 +1207,12 @@ struct GroupTripView: View {
     private func invite(_ f: CommunityService.Profile, code: String) {
         withAnimation(DS.Motion.spring) { _ = invited.insert(f.id) }
         Task {
-            await service.inviteFriend(f.id, toGroup: code, tripName: trip?.name ?? tripName)
-            ToastCenter.shared.show("Invite sent to \(f.name)", style: .success)
+            if await service.inviteFriend(f.id, toGroup: code, tripName: trip?.name ?? tripName) {
+                ToastCenter.shared.show("Invite sent to \(f.name)", style: .success)
+            } else {
+                withAnimation(DS.Motion.spring) { _ = invited.remove(f.id) }
+                ToastCenter.shared.show("Couldn't send the invite", style: .error)
+            }
         }
     }
 
@@ -1199,22 +1220,40 @@ struct GroupTripView: View {
         VStack(alignment: .leading, spacing: DS.Space.s4) {
             CodeField(text: $inviteCode, placeholder: "Angler code")
             Button {
-                let c = inviteCode.uppercased().trimmingCharacters(in: .whitespaces)
-                inviteCode = ""
-                Task {
-                    await service.inviteFriend(c, toGroup: code, tripName: trip?.name ?? tripName)
-                    ToastCenter.shared.show("Invite sent", style: .success)
-                }
+                Task { await inviteByCode(groupCode: code) }
             } label: {
-                Text("Send invite")
+                if sendingInvite { ProgressView().tint(Color.dsOnPrimary) } else { Text("Send invite") }
             }
             .buttonStyle(.dsPrimary)
-            .disabled(inviteCode.trimmingCharacters(in: .whitespaces).count != 6)
+            .disabled(sendingInvite || inviteCode.trimmingCharacters(in: .whitespaces).count != 6)
             Text("Their angler code is on their profile in the Crew tab.")
                 .font(.footnote)
                 .foregroundStyle(.dsText2)
         }
         .padding(.horizontal, DS.gutter)
+    }
+
+    /// Checks the angler code before sending, so a mistyped code is never
+    /// reported as sent, and offline is never reported as a wrong code.
+    private func inviteByCode(groupCode: String) async {
+        guard !sendingInvite else { return }
+        sendingInvite = true
+        defer { sendingInvite = false }
+        switch await service.lookupProfile(code: inviteCode) {
+        case .found(let angler):
+            if await service.inviteFriend(angler.id, toGroup: groupCode, tripName: trip?.name ?? tripName) {
+                inviteCode = ""
+                ToastCenter.shared.show("Invite sent to \(angler.name)", style: .success)
+            } else {
+                ToastCenter.shared.show("Couldn't send the invite", style: .error)
+            }
+        case .notFound:
+            ToastCenter.shared.show("No angler has that code", style: .error)
+        case .ownCode:
+            ToastCenter.shared.show("That's your own angler code", style: .error)
+        case .failed:
+            ToastCenter.shared.show("Couldn't reach Crew", style: .error)
+        }
     }
 
     // MARK: - Your GPS session
