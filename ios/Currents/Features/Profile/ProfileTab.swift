@@ -988,12 +988,8 @@ struct StorageUsage: Equatable {
         await Task.detached(priority: .utility) {
             let fm = FileManager.default
             var photos: Int64 = 0
-            if let docs = fm.urls(for: .documentDirectory, in: .userDomainMask).first,
-               let files = fm.enumerator(at: docs.appendingPathComponent("catch_photos", isDirectory: true),
-                                         includingPropertiesForKeys: [.fileSizeKey]) {
-                for case let url as URL in files {
-                    photos += Int64((try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
-                }
+            if let docs = fm.urls(for: .documentDirectory, in: .userDomainMask).first {
+                photos = StorageUsage.folderBytes(docs.appendingPathComponent("catch_photos", isDirectory: true))
             }
             var logbook: Int64 = 0
             if let support = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
@@ -1004,6 +1000,18 @@ struct StorageUsage: Equatable {
             }
             return (photos, logbook)
         }.value
+    }
+
+    /// The total size of the files in a folder. Synchronous, because a
+    /// directory enumerator can't be iterated from an async context.
+    private static func folderBytes(_ folder: URL) -> Int64 {
+        guard let files = FileManager.default.enumerator(at: folder, includingPropertiesForKeys: [.fileSizeKey])
+        else { return 0 }
+        var total: Int64 = 0
+        for case let url as URL in files {
+            total += Int64((try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
+        }
+        return total
     }
 }
 
