@@ -10,6 +10,7 @@ struct AlertSettingsView: View {
     @AppStorage("lowStockAlerts") private var lowStockAlerts = true
     /// Read by `NotificationManager.scheduleColdStreakNudge`.
     @AppStorage("coldStreakNudges") private var coldStreakNudges = true
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     @State private var permissionStatus: UNAuthorizationStatus = .notDetermined
     @State private var spots: [Spot] = []
@@ -280,16 +281,25 @@ struct AlertSettingsView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(spot.name)
                     .foregroundStyle(.dsText)
-                    .lineLimit(1)
+                    .lineLimit(typeSize.isAccessibilitySize ? 3 : 2)
                 Text(Self.status(choice, threshold: threshold))
                     .font(.subheadline)
                     .foregroundStyle(.dsText2)
-                    .lineLimit(1)
+                    .lineLimit(typeSize.isAccessibilitySize ? 4 : 2)
             }
             Spacer(minLength: 8)
+            // Labelled, so the ring reads as the score now and not as the
+            // alert threshold beside it.
             if let score = spotScores[spot.id] {
-                ScoreRing(score: score, size: 36)
-                    .accessibilityLabel("Score now \(score)")
+                HStack(spacing: DS.Space.s2) {
+                    Text("Now")
+                        .font(.subheadline)
+                        .foregroundStyle(.dsText2)
+                        .fixedSize()
+                        .accessibilityHidden(true)
+                    ScoreRing(score: score, size: 36)
+                        .accessibilityLabel("Score now \(score)")
+                }
             }
             Image(systemName: "chevron.right")
                 .font(.footnote.weight(.semibold))
