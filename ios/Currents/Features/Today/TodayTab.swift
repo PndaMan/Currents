@@ -136,12 +136,13 @@ struct TodayTab: View {
         .onChange(of: store.species?.id) { _, _ in writeWidget() }
         .task(id: locationKey) {
             let loc = resolvedLocation
-            store.setLocation(loc.coordinate, name: loc.name)
+            let fresh = selectedSpot.flatMap { ThrowSpeciesChoice.isFreshwater($0.type) }
+            store.setLocation(loc.coordinate, name: loc.name, freshwater: fresh)
             await reload(force: false)
             // Name the phone's location after the town, as Explore does.
             // Offline the lookup fails and the line keeps "Current location".
             if loc.name == "Current location", let town = await townName(loc.coordinate), !Task.isCancelled {
-                store.setLocation(loc.coordinate, name: town)
+                store.setLocation(loc.coordinate, name: town, freshwater: fresh)
                 writeWidget()
             }
         }

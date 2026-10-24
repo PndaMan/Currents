@@ -740,26 +740,6 @@ struct CloudBars: View {
     }
 }
 
-// MARK: - Explanations
-
-/// Plain explanatory paragraphs under a condition page.
-struct ExplainText: View {
-    let paragraphs: [String]
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            ForEach(paragraphs, id: \.self) { p in
-                Text(p)
-                    .font(.body)
-                    .foregroundStyle(.dsText2)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, DS.gutter)
-    }
-}
-
 // MARK: - Page title
 
 extension View {

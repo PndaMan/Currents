@@ -124,10 +124,22 @@ final class ForecastStore {
 
     @ObservationIgnored private var cache: [Int: ForecastDay] = [:]
 
-    func setLocation(_ coordinate: CLLocationCoordinate2D, name: String) {
+    /// True at a saved freshwater spot, false at a saltwater one, nil when
+    /// the place does not say (the phone's location, an estuary).
+    private(set) var freshwater: Bool?
+
+    /// Tides matter here: not at a freshwater spot, and not for a target
+    /// that lives in fresh water.
+    var showsTide: Bool {
+        if freshwater == true { return false }
+        return ForecastEngine.SpeciesTraits(species).tide != .ignored
+    }
+
+    func setLocation(_ coordinate: CLLocationCoordinate2D, name: String, freshwater: Bool? = nil) {
         let moved = abs(coordinate.latitude - self.coordinate.latitude) > 0.0001
             || abs(coordinate.longitude - self.coordinate.longitude) > 0.0001
         self.placeName = name
+        self.freshwater = freshwater
         guard moved else { return }
         self.coordinate = coordinate
         invalidate()
