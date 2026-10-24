@@ -935,9 +935,14 @@ struct ConditionPageModel {
         let dawn: String = ConditionText.range(s.dawnGoldenHour, use24: use24)
         let dusk: String = ConditionText.range(s.duskGoldenHour, use24: use24)
 
+        // After sunset the hero shows tomorrow's sunrise, so these rows say
+        // they are today's.
+        let today = day.isToday && Date.now >= s.sunset ? " today" : ""
         var figures: [ConditionFigure] = []
-        figures.append(ConditionFigure(label: "Sunrise", icon: "sunrise", value: ForecastFormat.time(s.sunrise, use24: use24)))
-        figures.append(ConditionFigure(label: "Sunset", icon: "sunset", value: ForecastFormat.time(s.sunset, use24: use24)))
+        figures.append(ConditionFigure(label: "Sunrise" + today, icon: "sunrise",
+                                       value: ForecastFormat.time(s.sunrise, use24: use24)))
+        figures.append(ConditionFigure(label: "Sunset" + today, icon: "sunset",
+                                       value: ForecastFormat.time(s.sunset, use24: use24)))
         figures.append(ConditionFigure(label: "Daylight", icon: "sun.max", value: light))
         figures.append(ConditionFigure(label: "Morning golden hour", icon: "sunrise.fill", detail: dawn))
         figures.append(ConditionFigure(label: "Evening golden hour", icon: "sunset.fill", detail: dusk))
