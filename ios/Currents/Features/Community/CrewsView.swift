@@ -33,8 +33,7 @@ struct CrewsListPage: View {
 
                 if svc.myCrews.isEmpty {
                     CardGroup {
-                        CardRow("No crews yet", subtitle: "Start one or join with its code.",
-                                systemImage: "person.3.fill", tint: CrewTint.people)
+                        CardRow("No crews yet", systemImage: "person.3.fill", tint: CrewTint.people)
                     }
                     .padding(.top, DS.Space.s6)
                 } else {
@@ -63,9 +62,9 @@ struct CrewsListPage: View {
         .sheet(item: $setup) { mode in CrewSetupView(joining: mode == .join) }
     }
 
-    private var crewCountLine: String {
+    private var crewCountLine: String? {
         let n = svc.myCrews.count
-        return n == 0 ? "Start one or join with a code." : (n == 1 ? "1 crew" : "\(n) crews")
+        return n == 0 ? nil : (n == 1 ? "1 crew" : "\(n) crews")
     }
 }
 
@@ -154,7 +153,7 @@ struct CrewSetupView: View {
                 ThumbView(systemImage: "person.3.fill", tint: CrewTint.people, size: 72)
             }
         } else {
-            PageHero(label: "Got a code?", value: "Join a crew", callout: "Ask whoever started it for the code.") {
+            PageHero(label: "Got a code?", value: "Join a crew") {
                 ThumbView(systemImage: "person.badge.plus", tint: .dsScoreGood, size: 72)
             }
         }
@@ -169,17 +168,11 @@ struct CrewSetupView: View {
                     .foregroundStyle(.dsText2)
                 CrewArtPicker(selection: $art)
             }
-            Text("Invite friends once it's made.")
-                .font(.footnote)
-                .foregroundStyle(.dsText2)
         }
     }
 
     private var joinForm: some View {
         VStack(alignment: .leading, spacing: DS.Space.s4) {
-            Text("Enter the 6-character code from your crew.")
-                .font(.body)
-                .foregroundStyle(.dsText2)
             CodeField(text: $joinCode, placeholder: "Crew code")
                 .onChange(of: joinCode) { _, _ in
                     joinError = nil
@@ -610,10 +603,10 @@ struct CrewDetailView: View {
         .buttonStyle(.dsRow)
     }
 
-    /// "Leading: Team name, 42 points" from the current standings.
+    /// "Team name leads with 42 points" from the current standings.
     private var leaderLine: String? {
         guard let top = standings.max(by: { $0.points < $1.points }) else { return nil }
-        return "Leading: \(top.teamName), \(top.points) points"
+        return "\(top.teamName) leads with \(top.points == 1 ? "1 point" : "\(top.points) points")"
     }
 
     // MARK: Recent catches
@@ -697,7 +690,7 @@ struct CrewDetailView: View {
                             text: "The member list loads when you're back online.")
             } else if members.count <= 1 {
                 InlineEmpty(systemImage: "person.badge.plus",
-                            text: "It's just you so far. Send the invite so your crew can join.")
+                            text: "It's just you so far")
             } else {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(alignment: .top, spacing: DS.Space.s2) {
@@ -757,10 +750,7 @@ struct CrewDetailView: View {
     }
 
     private var tournamentHint: String? {
-        guard liveTournament == nil else { return nil }
-        return myRole.canRunTournaments
-            ? "None running. Start one from More."
-            : "None running. A crew admin can start one."
+        liveTournament == nil ? "None running" : nil
     }
 
     // MARK: Settings
@@ -2086,10 +2076,6 @@ struct CrewCommentsSheet: View {
                     Text("No comments yet")
                         .font(.title3.weight(.semibold))
                         .foregroundStyle(.dsText)
-                    Text("Say something about this \(post.species.lowercased()).")
-                        .font(.callout)
-                        .foregroundStyle(.dsText2)
-                        .multilineTextAlignment(.center)
                 }
                 .padding(.horizontal, DS.gutter)
                 .accessibilityElement(children: .combine)
@@ -2515,11 +2501,6 @@ struct JoinCrewConfirmView: View {
                 }
                 .buttonStyle(.dsPrimary)
                 .disabled(joining)
-            }
-            if joined || alreadyIn {
-                Text("It's on your Crew tab.")
-                    .font(.footnote).foregroundStyle(.dsText2)
-                    .frame(maxWidth: .infinity)
             }
         }
         .padding(.horizontal, DS.gutter)
