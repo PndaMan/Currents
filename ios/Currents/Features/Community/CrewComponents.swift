@@ -432,7 +432,9 @@ struct CrewEventRow<Leading: View>: View {
         let rest: Text? = over.map { Text($0).font(.footnote).foregroundStyle(Color.dsText2) }
         guard isLive else { return rest }
         guard let rest else { return CrewLiveLabel.text }
-        return CrewLiveLabel.text + Text(" ").font(.footnote) + rest
+        // Interpolated rather than joined with +, which iOS 26 deprecates;
+        // each part keeps its own font and colour.
+        return Text("\(CrewLiveLabel.text) \(rest)").font(.footnote)
     }
 
     var body: some View {
