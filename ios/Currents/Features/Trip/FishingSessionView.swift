@@ -797,17 +797,25 @@ struct ActiveSessionView: View {
     }
 }
 
-/// A catch inside a session: thumb, species, time and size.
+/// A catch inside a session: thumb, the time over the species, its size,
+/// and a released mark.
 struct SessionCatchRow: View {
     let detail: CatchDetail
     @AppStorage("use24HourTime") private var use24 = true
 
     var body: some View {
         let r = detail.catchRecord
-        let subtitle = [ForecastFormat.time(r.caughtAt, use24: use24), LogbookFormat.size(r), r.released ? "released" : nil]
-            .compactMap { $0 }.joined(separator: ", ")
-        ArtRow(title: detail.species?.commonName ?? "Unknown species", subtitle: subtitle, chevron: true) {
+        ArtRow(over: ForecastFormat.time(r.caughtAt, use24: use24),
+               title: detail.species?.commonName ?? "Unknown species",
+               subtitle: LogbookFormat.size(r), chevron: true) {
             CatchThumb(detail: detail, size: 52)
+        } trailing: {
+            if r.released {
+                Image(systemName: "arrow.uturn.backward")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(DS.ink(.dsScoreLow))
+                    .accessibilityLabel("Released")
+            }
         }
     }
 }
