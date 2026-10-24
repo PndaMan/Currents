@@ -660,14 +660,14 @@ struct StorageSettingsView: View {
             CardSection("Maps") {
                 NavigationLink(value: SettingsRoute.offlineMaps) {
                     CardRow("Offline maps", subtitle: "Downloads and cached tiles", systemImage: "map.fill",
-                            tint: .green, value: usage.map { StorageUsage.format($0.maps) }, chevron: true)
+                            tint: .green, value: usage.map(Self.mapsValue), chevron: true)
                 }
                 .buttonStyle(.dsCardRow)
             }
             backupSection
-            CardSection("Data", note: "The export holds catches, spots and gear. Import adds catches only.") {
+            CardSection("Data", note: "A zip file of your catches, spots and gear. Import adds catches only.") {
                 Button { exportAllData() } label: {
-                    CardRow("Export all data (.zip)", systemImage: "tablecells.fill", tint: .green) {
+                    CardRow("Export all data", systemImage: "tablecells.fill", tint: .green) {
                         if isExporting { ProgressView() }
                     }
                 }
@@ -708,6 +708,11 @@ struct StorageSettingsView: View {
         } message: {
             Text("Close Currents from the app switcher, then open it again to see the restored logbook.")
         }
+    }
+
+    /// Under a megabyte is only a few cached tiles, never a downloaded map.
+    private static func mapsValue(_ usage: StorageUsage) -> String {
+        usage.maps < 1_000_000 ? "None downloaded" : StorageUsage.format(usage.maps)
     }
 
     // MARK: Backups
