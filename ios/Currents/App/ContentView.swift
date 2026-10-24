@@ -141,10 +141,10 @@ struct ContentView: View {
                 }
             }
         }
-        .task {
-            // After the launch animation (about 1.7 seconds, CurrentsApp), so
-            // the planned-session alert never appears behind it.
-            try? await Task.sleep(for: .seconds(2))
+        .task(id: appState.launchFinished) {
+            // Once the launch animation has gone (CurrentsApp), so the
+            // planned-session alert never appears behind it.
+            guard appState.launchFinished else { return }
             checkPlannedSession()
         }
         .task {

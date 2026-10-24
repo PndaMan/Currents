@@ -13,6 +13,11 @@ final class AppState {
     /// Catches tab and CatchesTab presents the log sheet, then resets it.
     var siriRequestedLogCatch = false
 
+    /// True once the opening animation has gone (CurrentsApp), so alerts
+    /// raised at launch never appear behind it. Stays false in screenshot
+    /// mode, which has no opening animation.
+    var launchFinished = false
+
     // MARK: - Deep-link routing (Live Activity taps + notification taps)
 
     /// A deep link (currents://…) received from a notification tap — ContentView

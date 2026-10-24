@@ -16,7 +16,10 @@ struct CurrentsApp: App {
             ContentView()
                 .overlay {
                     if showsLaunch {
-                        LaunchAnimation { showsLaunch = false }
+                        LaunchAnimation {
+                            showsLaunch = false
+                            appState.launchFinished = true
+                        }
                     }
                 }
                 .environment(appState)
