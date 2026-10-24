@@ -331,13 +331,20 @@ struct TargetPage: View {
         return VStack(alignment: .leading, spacing: 0) {
             SectionTitle("Best times")
             layout {
-                if let window = today.bestWindow {
+                if let best = today.bestWindow {
+                    // Once today's best has passed, the best still to come;
+                    // when none is left, the best marked as passed.
+                    let upcoming = today.nextBestWindow
+                    let window = upcoming ?? best
+                    let title = upcoming == nil || !today.bestWindowPassed ? "Best window today" : "Next window today"
+                    let footnote = upcoming == nil
+                        ? "Passed, score \(window.peakScore)"
+                        : "To \(ForecastFormat.hour(window.endHour + 1, use24: use24)), score \(window.peakScore)"
                     NavigationLink(value: ForecastRoute.day(offset: 0, hour: window.startHour)) {
-                        StatTile("Best window today", systemImage: ForecastFormat.windowIcon(window.startHour),
+                        StatTile(title, systemImage: ForecastFormat.windowIcon(window.startHour),
                                  tint: DS.scoreColor(window.peakScore),
                                  value: ForecastFormat.hour(window.startHour, use24: use24),
-                                 footnote: "To \(ForecastFormat.hour(window.endHour + 1, use24: use24)), score \(window.peakScore)",
-                                 width: nil)
+                                 footnote: footnote, width: nil)
                     }
                     .buttonStyle(.dim)
                 } else {
