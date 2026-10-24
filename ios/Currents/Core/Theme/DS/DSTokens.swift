@@ -56,14 +56,22 @@ enum DS {
         }
     }
 
-    /// Score colour for text: in light mode it is mixed 62 percent with the
+    /// Score colour for text: in light mode it is mixed 38 percent toward the
     /// text colour so yellow and green stay readable on white.
     static func scoreInk(_ score: Int) -> Color {
-        let base = UIColor(scoreColor(score))
+        ink(scoreColor(score))
+    }
+
+    /// A colour used as text or a small glyph: unchanged in dark mode, mixed 38%
+    /// toward the text colour in light mode so yellows and light blues stay
+    /// readable on white.
+    static func ink(_ color: Color) -> Color {
+        let base = UIColor(color)
         return Color(uiColor: UIColor { traits in
             guard traits.userInterfaceStyle != .dark else { return base }
-            return base.ds_mixed(with: UIColor(red: 0x11 / 255, green: 0x11 / 255, blue: 0x13 / 255, alpha: 1),
-                                 amount: 0.38)
+            return base.resolvedColor(with: traits)
+                .ds_mixed(with: UIColor(red: 0x11 / 255, green: 0x11 / 255, blue: 0x13 / 255, alpha: 1),
+                          amount: 0.38)
         })
     }
 
