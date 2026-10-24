@@ -103,7 +103,7 @@ final class CommunityService: ObservableObject {
 
     /// First-page crew feed loads in flight. Every open crew screen reloads
     /// the feed on the same revision bump; they share one round of queries.
-    var feedLoads: [String: Task<[CrewPost], Never>] = [:]
+    var feedLoads: [String: Task<[CrewPost]?, Never>] = [:]
     /// Part of the `feedLoads` key, bumped after every write that changes a
     /// feed, so a reload after a write never joins a load started before it.
     private(set) var feedEpoch = 0

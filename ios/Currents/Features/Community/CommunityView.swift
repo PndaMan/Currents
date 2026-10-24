@@ -600,21 +600,25 @@ struct CommunityView: View {
         // refresh would come back empty and wipe it mid-capture.
         if ScreenshotSupport.isActive { feedLoading = false; return }
         feedLoading = true
-        // Offline, a first page is the disk copy, so it says nothing about
+        // A failed first page shows the disk copy, which says nothing about
         // older posts; keep what the last network answer said.
-        let offline = connection.isOffline
         let known = feedHasMore
         var all: [CommunityService.CrewPost] = []
         var hasMore: [String: Bool] = [:]
-        await withTaskGroup(of: (String, [CommunityService.CrewPost]).self) { group in
+        await withTaskGroup(of: (String, [CommunityService.CrewPost]?).self) { group in
             for crew in crews {
                 let code = crew.code
                 group.addTask { (code, await CommunityService.shared.crewFeedPage(code: code)) }
             }
             for await (code, page) in group {
-                all.append(contentsOf: page)
-                // A full page means older posts likely exist behind it.
-                hasMore[code] = offline ? (known[code] ?? false) : page.count >= 30
+                if let page {
+                    all.append(contentsOf: page)
+                    // A full page means older posts likely exist behind it.
+                    hasMore[code] = page.count >= 30
+                } else {
+                    all.append(contentsOf: CommunityDiskCache.loadFeed(code))
+                    hasMore[code] = known[code] ?? false
+                }
             }
         }
         mergedFeed = all.sorted { $0.caughtAt > $1.caughtAt }
@@ -631,12 +635,10 @@ struct CommunityView: View {
         var appended: [CommunityService.CrewPost] = []
         for crew in svc.myCrews where feedHasMore[crew.code] == true {
             let oldest = mergedFeed.filter { $0.crewCode == crew.code }.map(\.caughtAt).min()
-            let page = await svc.crewFeedPage(code: crew.code, before: oldest)
-            // An empty page while offline is a failed request, not the end of
-            // the history; the next scroll to the bottom tries again.
-            if !(page.isEmpty && connection.isOffline) {
-                feedHasMore[crew.code] = page.count >= 30
-            }
+            // A failed page is not the end of the history; the next scroll to
+            // the bottom tries again. Only a short page that came back stops it.
+            guard let page = await svc.crewFeedPage(code: crew.code, before: oldest) else { continue }
+            feedHasMore[crew.code] = page.count >= 30
             appended.append(contentsOf: page)
         }
         let ids = Set(mergedFeed.map(\.id))

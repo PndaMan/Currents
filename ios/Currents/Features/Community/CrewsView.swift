@@ -339,7 +339,8 @@ struct CrewDetailView: View {
                 Task {
                     try? await Task.sleep(nanoseconds: 300_000_000)
                     guard gen == reloadGen else { return }
-                    feed = feed.mergingFirstPage(await svc.crewFeedPage(code: code))
+                    // A failed page keeps what's on screen.
+                    if let page = await svc.crewFeedPage(code: code) { feed = feed.mergingFirstPage(page) }
                 }
             }
             .task {
@@ -821,7 +822,7 @@ struct CrewDetailView: View {
                 await refresh()
                 continue
             }
-            feed = feed.mergingFirstPage(await svc.crewFeedPage(code: code))
+            if let page = await svc.crewFeedPage(code: code) { feed = feed.mergingFirstPage(page) }
             liveTrips = await svc.liveCrewTrips(crewCode: code)
             tournament = await svc.activeTournament(crewCode: code)
             if let t = tournament {
@@ -852,9 +853,11 @@ struct CrewDetailView: View {
         let freshArt = await art
         banner = freshArt.banner
         setIcon(freshArt.icon)
-        let page = await firstPage
-        feed = feed.mergingFirstPage(page)
-        canLoadMore = page.count == pageSize
+        // A failed first page keeps the saved feed loadCached put on screen.
+        if let page = await firstPage {
+            feed = feed.mergingFirstPage(page)
+            canLoadMore = page.count == pageSize
+        }
         liveTrips = await trips
         tournament = await tourney
         if let t = tournament {
@@ -1152,7 +1155,7 @@ private struct CrewCatchesPage: View {
     }
 
     private func reload() async {
-        let page = await svc.crewFeedPage(code: crew.code)
+        guard let page = await svc.crewFeedPage(code: crew.code) else { return }
         feed = feed.mergingFirstPage(page)
     }
 
@@ -1160,10 +1163,13 @@ private struct CrewCatchesPage: View {
         guard canLoadMore, !loadingMore, post.id == feed.last?.id else { return }
         loadingMore = true
         Task {
-            let page = await svc.crewFeedPage(code: crew.code, before: feed.last?.caughtAt)
-            let ids = Set(feed.map(\.id))
-            feed.append(contentsOf: page.filter { !ids.contains($0.id) })
-            canLoadMore = page.count == pageSize
+            // A failed page is not the end of the history; scrolling back to
+            // the bottom tries again.
+            if let page = await svc.crewFeedPage(code: crew.code, before: feed.last?.caughtAt) {
+                let ids = Set(feed.map(\.id))
+                feed.append(contentsOf: page.filter { !ids.contains($0.id) })
+                canLoadMore = page.count == pageSize
+            }
             loadingMore = false
         }
     }

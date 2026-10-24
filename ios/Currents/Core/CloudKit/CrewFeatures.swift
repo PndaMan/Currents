@@ -187,15 +187,17 @@ extension CommunityService {
 
     // MARK: - Paginated crew feed
 
-    /// One page of the crew feed, newest first. Pass the oldest date you have
-    /// as `before` to load the next page — no more loading 1,000 posts to
-    /// show the first screen.
-    func crewFeedPage(code: String, before: Date? = nil, limit: Int = 30) async -> [CrewPost] {
+    /// One page of the crew feed, newest first, or nil when the query
+    /// failed, so a caller can tell the end of the history from a request
+    /// that didn't get through. Pass the oldest date you have as `before` to
+    /// load the next page. A failed first page falls back to the copy on
+    /// disk at the caller, through `CommunityDiskCache.loadFeed`.
+    func crewFeedPage(code: String, before: Date? = nil, limit: Int = 30) async -> [CrewPost]? {
         // The first page is what every open crew screen reloads on a push
         // or poll; concurrent asks share one round of queries.
         guard before == nil else { return await loadCrewFeedPage(code: code, before: before, limit: limit) }
         let key = "\(code)-\(limit)-\(feedEpoch)"
-        let task: Task<[CrewPost], Never>
+        let task: Task<[CrewPost]?, Never>
         if let running = feedLoads[key] {
             task = running
         } else {
@@ -207,7 +209,7 @@ extension CommunityService {
         return posts
     }
 
-    private func loadCrewFeedPage(code: String, before: Date?, limit: Int) async -> [CrewPost] {
+    private func loadCrewFeedPage(code: String, before: Date?, limit: Int) async -> [CrewPost]? {
         var predicate = NSPredicate(format: "crewCode == %@", code)
         if let before {
             predicate = NSPredicate(format: "crewCode == %@ AND caughtAt < %@", code, before as NSDate)
@@ -219,8 +221,7 @@ extension CommunityService {
             desiredKeys: ["crewCode", "authorCode", "authorName", "species", "weightKg",
                           "lengthCm", "caughtAt", "caption", "hasPhoto", "tripName"],
             resultsLimit: limit) else {
-            // Offline: first page comes from disk so the crew still opens.
-            return before == nil ? CommunityDiskCache.loadFeed(code) : []
+            return nil
         }
         var posts = results.matchResults.compactMap { id, res -> CrewPost? in
             guard let r = try? res.get() else { return nil }
