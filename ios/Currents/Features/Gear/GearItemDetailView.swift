@@ -24,7 +24,7 @@ extension OwnedGear.Category {
         case .lure: .green
         case .line: .cyan
         case .bait: .yellow
-        case .hook: .gray
+        case .hook: .pink
         case .accessory: .purple
         }
     }
@@ -104,7 +104,7 @@ struct GearItemDetailView: View {
                     .pageWidth()
             }
         }
-        .detailTint(nil)
+        .detailTint(item?.category.tint)
         .pfTrackScroll($titleShown, threshold: 200)
         .pfScrollTitle(item?.name ?? "Gear", shown: titleShown)
         .task { load() }
@@ -275,7 +275,12 @@ struct GearItemDetailView: View {
 
     private func save(_ gear: OwnedGear) {
         var updated = gear
-        try? appState.ownedGearRepository.save(&updated)
+        do {
+            try appState.ownedGearRepository.save(&updated)
+        } catch {
+            ToastCenter.shared.show("Could not update the stock", style: .error)
+            return
+        }
         item = updated
         if updated.isLowStock {
             Task { await NotificationManager.shared.scheduleLowStockAlert(item: updated) }
@@ -286,7 +291,12 @@ struct GearItemDetailView: View {
 
     private func delete() {
         guard let item else { return }
-        try? appState.ownedGearRepository.delete(item)
+        do {
+            try appState.ownedGearRepository.delete(item)
+        } catch {
+            ToastCenter.shared.show("Could not delete this gear", style: .error)
+            return
+        }
         if let p = item.photoPath { PhotoManager.delete(p) }
         NotificationManager.shared.cancelLowStockAlert(itemId: item.id)
         Haptics.warning()
@@ -304,6 +314,7 @@ struct GearEffectivenessView: View {
     @State private var catches: [CatchDetail] = []
     @State private var didLoad = false
     @State private var titleShown = false
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     private var withGear: [CatchDetail] { catches.filter { $0.gearLoadout != nil } }
 
@@ -344,6 +355,7 @@ struct GearEffectivenessView: View {
 
     @ViewBuilder
     private func bars(_ title: String, _ rows: [(String, Int)], tint: Color, showsLureArt: Bool = false) -> some View {
+        // Long lure names wrap at accessibility sizes instead of truncating.
         if !rows.isEmpty {
             let top = Array(rows.prefix(8))
             let peak = max(top.first?.1 ?? 1, 1)
@@ -358,7 +370,8 @@ struct GearEffectivenessView: View {
                             }
                             VStack(alignment: .leading, spacing: 6) {
                                 HStack {
-                                    Text(name).foregroundStyle(.dsText).lineLimit(1)
+                                    Text(name).foregroundStyle(.dsText)
+                                        .lineLimit(typeSize.isAccessibilitySize ? 3 : 2)
                                     Spacer()
                                     Text("\(count)")
                                         .font(.body.weight(.semibold))
