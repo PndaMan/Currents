@@ -809,9 +809,9 @@ struct GroupTripView: View {
     private func confirmJoin(_ code: String) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             cover
-            PageHero(label: isTournamentTeam ? "Tournament team" : "Group trip invite",
-                     value: trip?.name ?? tripName, callout: hostLine) { heroTileWithoutCover }
-                .padding(.top, DS.Space.s4)
+            DetailHeader(over: isTournamentTeam ? "Tournament team" : "Group trip invite",
+                         title: trip?.name ?? tripName, subtitle: hostLine)
+                .padding(.top, coverSpecies == nil ? 0 : DS.Space.s4)
             if !members.isEmpty {
                 CrewSection(title: "Going", detail: "\(members.count)") { goingStrip }
             }
