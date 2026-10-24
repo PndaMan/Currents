@@ -16,9 +16,10 @@ func eventOrdinal(_ n: Int) -> String {
 
 // MARK: - Times
 
-/// "18:00" today, "Sat 18:00" within the week, "2 Nov, 18:00" further out.
-/// Views pass their `@AppStorage("use24HourTime")` value so they redraw
-/// when the setting changes.
+/// "18:00" today, "Sat 18:00" within the week, "2 Nov, 18:00" further out,
+/// day before month whatever the region. Views pass their
+/// `@AppStorage("use24HourTime")` value so they redraw when the setting
+/// changes.
 func eventTimeText(_ date: Date, now: Date = .now, use24: Bool = ForecastFormat.use24) -> String {
     if Calendar.current.isDate(date, inSameDayAs: now) {
         return ForecastFormat.time(date, use24: use24)
@@ -28,7 +29,7 @@ func eventTimeText(_ date: Date, now: Date = .now, use24: Bool = ForecastFormat.
     if abs(date.timeIntervalSince(now)) < 6 * 86_400 {
         return "\(ForecastFormat.shortDay(date)) \(ForecastFormat.time(date, use24: use24))"
     }
-    return "\(date.formatted(.dateTime.day().month(.abbreviated))), \(ForecastFormat.time(date, use24: use24))"
+    return "\(LogbookFormat.shortDay(date)), \(ForecastFormat.time(date, use24: use24))"
 }
 
 // MARK: - Live tag

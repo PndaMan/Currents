@@ -1082,7 +1082,7 @@ struct TournamentView: View {
 
     /// "23 Oct, 18:00", the time on the 24-hour setting.
     private func ruleTime(_ date: Date) -> String {
-        "\(date.formatted(.dateTime.day().month(.abbreviated))), \(ForecastFormat.time(date, use24: use24))"
+        "\(LogbookFormat.shortDay(date)), \(ForecastFormat.time(date, use24: use24))"
     }
 }
 
@@ -2000,7 +2000,7 @@ struct TeamTournamentDetailView: View {
         return NavigationLink {
             CommunityCatchDetailView(row: row)
         } label: {
-            ArtRow(over: "\(who), \(c.date.formatted(.dateTime.day().month(.abbreviated))), \(ForecastFormat.time(c.date, use24: use24))",
+            ArtRow(over: "\(who), \(eventTimeText(c.date, use24: use24))",
                    title: sizeTitle(c)) {
                 CommunityCatchThumb(row: row, size: 56)
             } trailing: {

@@ -1129,10 +1129,10 @@ struct GroupTripView: View {
         if let trip {
             rows.append(.init(title: "Host", value: trip.hostCode == service.friendCode ? "You" : trip.hostName,
                               systemImage: "person.fill", tint: CrewTint.people))
-            rows.append(.init(title: "Started", value: "\(trip.createdAt.formatted(.dateTime.day().month(.abbreviated))), \(ForecastFormat.time(trip.createdAt, use24: use24))",
+            rows.append(.init(title: "Started", value: eventTimeText(trip.createdAt, use24: use24),
                               systemImage: "play.fill", tint: .dsScoreGood))
             if let endedAt = trip.endedAt {
-                rows.append(.init(title: "Ended", value: "\(endedAt.formatted(.dateTime.day().month(.abbreviated))), \(ForecastFormat.time(endedAt, use24: use24))",
+                rows.append(.init(title: "Ended", value: eventTimeText(endedAt, use24: use24),
                                   systemImage: "flag.checkered", tint: CrewTint.calendar))
             }
             if let crewCode = trip.crewCode, let crew = svc.crew(withCode: crewCode) {
