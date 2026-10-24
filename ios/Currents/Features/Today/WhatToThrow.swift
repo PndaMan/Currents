@@ -73,13 +73,16 @@ enum ThrowText {
 
 // MARK: - One pick
 
-/// A ranked lure: rank, picture, name, colour and how to fish it in one
-/// line. The full version adds depth, the main reason and your own history as
-/// labelled values.
+/// A ranked lure: rank, picture, name, colour and how to fish it. The full
+/// version adds depth, the main reason and your own history as labelled
+/// values.
 struct LureSuggestionRow: View {
     let suggestion: LureEngine.Suggestion
     let rank: Int
     var full: Bool = false
+    /// The short clause on how to fish it instead of the whole technique,
+    /// for Today's glance.
+    var brief: Bool = false
     /// True inside a `CardGroup`, which pads to the card's edge rather than
     /// the page gutter.
     var inCard: Bool = false
@@ -125,10 +128,10 @@ struct LureSuggestionRow: View {
                             .font(.subheadline)
                             .foregroundStyle(.dsText2)
                     }
-                    Text(ThrowText.sentence(suggestion.technique))
+                    Text(ThrowText.sentence(brief ? suggestion.brief : suggestion.technique))
                         .font(.subheadline)
                         .foregroundStyle(.dsText2)
-                        .lineLimit(typeSize.isAccessibilitySize ? 3 : 1)
+                        .fixedSize(horizontal: false, vertical: true)
                         .padding(.top, 2)
                 }
                 if !stacked { Spacer(minLength: 0) }
@@ -380,6 +383,15 @@ struct WhatToThrowSection: View {
     let onClarity: (WaterClarity) -> Void
     @AppStorage("units") private var units = "metric"
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var typeSize
+    /// Matches the rank column in `LureSuggestionRow`.
+    @ScaledMetric(relativeTo: .headline) private var rankWidth: CGFloat = 16
+
+    /// Hairlines start under the lure name, past the rank and the picture;
+    /// at accessibility sizes the row stacks, so they start at the edge.
+    private var pickSeparatorInset: CGFloat {
+        typeSize.isAccessibilitySize ? DS.Space.s4 : DS.Space.s4 + rankWidth + 12 + 56 + 12
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -410,19 +422,23 @@ struct WhatToThrowSection: View {
                 InlineEmpty(text: "No picks yet. They appear once the weather loads.")
                     .padding(.vertical, 12)
             } else {
-                ForEach(Array(suggestions.prefix(3).enumerated()), id: \.element.id) { index, s in
-                    NavigationLink(value: ForecastRoute.lures) {
-                        LureSuggestionRow(suggestion: s, rank: index + 1)
+                // On one card, as on the What to throw page.
+                CardGroup(separatorInset: pickSeparatorInset) {
+                    ForEach(Array(suggestions.prefix(3).enumerated()), id: \.element.id) { index, s in
+                        NavigationLink(value: ForecastRoute.lures) {
+                            LureSuggestionRow(suggestion: s, rank: index + 1, brief: true, inCard: true)
+                        }
+                        .buttonStyle(.dsCardRow)
                     }
-                    .buttonStyle(.dsRow)
                 }
+                .padding(.top, DS.Space.s2)
             }
 
             Text("Colours for \(clarity.label.lowercased()) water")
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(.dsText)
                 .padding(.horizontal, DS.gutter)
-                .padding(.top, 8)
+                .padding(.top, DS.Space.s4)
                 .padding(.bottom, 8)
             LureColourStrip(names: LureEngine.colors(for: clarity, lowLight: ThrowText.isLowLight(weather)))
 
