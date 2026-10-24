@@ -141,12 +141,16 @@ struct CrewThumb: View {
 
 // MARK: - Live label and dot
 
+/// "Live" in red, inked so it reads on white. `text` is a plain `Text`, so an
+/// over-line can follow it in the same run and wrap with it as one line.
 struct CrewLiveLabel: View {
-    var body: some View {
+    static var text: Text {
         Text("Live")
             .font(.subheadline.weight(.semibold))
-            .foregroundStyle(.dsScoreSlow)
+            .foregroundStyle(DS.ink(.dsScoreSlow))
     }
+
+    var body: some View { Self.text }
 }
 
 /// The red dot pinned to a thumbnail's corner while something is live.
@@ -409,7 +413,8 @@ struct CrewSection<Content: View>: View {
 
 /// A row for something with a time attached: a tournament, a live trip, a
 /// planned trip. Live rows get the red dot and label; `endsAt` shows the
-/// time left, updated each minute.
+/// time left, updated each minute. At accessibility sizes the row aligns to
+/// the top and the pill moves under the text.
 struct CrewEventRow<Leading: View>: View {
     var isLive = false
     var over: String? = nil
@@ -421,23 +426,26 @@ struct CrewEventRow<Leading: View>: View {
     @Environment(\.dynamicTypeSize) private var typeSize
     @AppStorage("use24HourTime") private var use24 = true
 
+    /// "Live" and the over-line as one run of text, so at large sizes they
+    /// wrap together rather than side by side in two narrow columns.
+    private var overLine: Text? {
+        let rest: Text? = over.map { Text($0).font(.footnote).foregroundStyle(Color.dsText2) }
+        guard isLive else { return rest }
+        guard let rest else { return CrewLiveLabel.text }
+        return CrewLiveLabel.text + Text(" ").font(.footnote) + rest
+    }
+
     var body: some View {
-        HStack(spacing: 14) {
+        let stacked = typeSize.isAccessibilitySize
+        HStack(alignment: stacked ? .top : .center, spacing: 14) {
             leading()
                 .overlay(alignment: .topTrailing) {
                     if isLive { CrewLiveDot().offset(x: 3, y: -3) }
                 }
             VStack(alignment: .leading, spacing: 2) {
-                if isLive || over != nil {
-                    HStack(spacing: 6) {
-                        if isLive { CrewLiveLabel() }
-                        if let over {
-                            Text(over)
-                                .font(.footnote)
-                                .foregroundStyle(.dsText2)
-                                .lineLimit(typeSize.isAccessibilitySize ? 3 : 1)
-                        }
-                    }
+                if let overLine {
+                    overLine
+                        .lineLimit(stacked ? 3 : 1)
                 }
                 Text(title)
                     .font(.body.weight(.medium))
@@ -458,9 +466,13 @@ struct CrewEventRow<Leading: View>: View {
                         .foregroundStyle(.dsText2)
                         .lineLimit(typeSize.isAccessibilitySize ? 3 : 1)
                 }
+                if stacked, let pill {
+                    CrewPill(text: pill)
+                        .padding(.top, DS.Space.s1)
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            if let pill { CrewPill(text: pill) }
+            if !stacked, let pill { CrewPill(text: pill) }
         }
         .padding(.horizontal, DS.gutter)
         .padding(.vertical, 10)
