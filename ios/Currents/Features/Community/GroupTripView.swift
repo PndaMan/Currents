@@ -37,7 +37,6 @@ struct GroupTripSetupView: View {
     var crewCode: String? = nil
 
     @Environment(AppState.self) private var appState
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage("use24HourTime") private var use24 = true
     private var svc: CommunityService { .shared }
 
@@ -50,9 +49,6 @@ struct GroupTripSetupView: View {
     @State private var showingStartNow = false
     /// The group trip the start sheet just created, opened once it closes.
     @State private var startedCode: String?
-    @FocusState private var joinFocused: Bool
-
-    private static let joinAnchor = "join"
 
     // Trips you can turn into a group: planned or currently-active (not
     // finished) that don't already have a group. A trip with a group is opened
@@ -67,12 +63,10 @@ struct GroupTripSetupView: View {
     }
 
     private var page: some View {
-        ScrollViewReader { proxy in
-            ScrollView { content(proxy) }
-                .scrollDismissesKeyboard(.interactively)
-                .detailTint(nil)
-                .eventPageTitle("Group trip")
-        }
+        ScrollView { content }
+        .scrollDismissesKeyboard(.interactively)
+        .detailTint(nil)
+        .eventPageTitle("Group trip")
         .sheet(isPresented: $showingPlanner) {
             // Planning only schedules the trip locally. You start it (going
             // live + sharing to the crew) from the list when it's time.
@@ -94,7 +88,7 @@ struct GroupTripSetupView: View {
         .task { reloadTrips() }
     }
 
-    private func content(_ proxy: ScrollViewProxy) -> some View {
+    private var content: some View {
         VStack(alignment: .leading, spacing: 0) {
             PageHero(label: crewCode.flatMap { svc.crew(withCode: $0)?.name } ?? "Fish together",
                      value: "Group trip",
@@ -102,7 +96,7 @@ struct GroupTripSetupView: View {
                 ThumbView(systemImage: "person.3.fill", tint: CrewTint.people, size: 92)
             }
             .padding(.top, DS.Space.s2)
-            actions(proxy)
+            actions
                 .padding(.top, DS.Space.s5)
             if !startableTrips.isEmpty {
                 CrewSection(title: "Your sessions") {
@@ -112,13 +106,13 @@ struct GroupTripSetupView: View {
                 }
             }
             CrewSection(title: "Join a friend's trip") { joinForm }
-                .id(Self.joinAnchor)
         }
         .padding(.bottom, DS.Space.s8)
         .pageWidth()
     }
 
-    private func actions(_ proxy: ScrollViewProxy) -> some View {
+    /// Start and Plan; joining has its own form further down the page.
+    private var actions: some View {
         ActionTriple {
             Button { showingStartNow = true } label: {
                 Label("Start now", systemImage: "dot.radiowaves.left.and.right")
@@ -128,15 +122,6 @@ struct GroupTripSetupView: View {
                 Label("Plan", systemImage: "calendar.badge.plus")
             }
             .buttonStyle(ActionTileStyle(.tonal))
-            Button {
-                withAnimation(reduceMotion ? nil : DS.Motion.softSpring) {
-                    proxy.scrollTo(Self.joinAnchor, anchor: .top)
-                }
-                joinFocused = true
-            } label: {
-                Label("Join", systemImage: "person.badge.plus")
-            }
-            .buttonStyle(ActionTileStyle(.tonal))
         }
         .disabled(busy)
     }
@@ -144,7 +129,6 @@ struct GroupTripSetupView: View {
     private var joinForm: some View {
         VStack(alignment: .leading, spacing: DS.Space.s4) {
             CodeField(text: $joinCode, placeholder: "Trip code")
-                .focused($joinFocused)
             Button { Task { await joinTrip() } } label: {
                 if busy { ProgressView() } else { Text("Join trip") }
             }
@@ -161,7 +145,7 @@ struct GroupTripSetupView: View {
             Button {
                 if t.isPlanned { editingPlan = t } else { Task { await startTrip(from: t) } }
             } label: {
-                ArtRow(over: t.plannedDate.map { "\($0.formatted(.dateTime.day().month(.abbreviated))), \(ForecastFormat.time($0, use24: use24))" },
+                ArtRow(over: t.plannedDate.map { planDate($0) },
                        title: t.name,
                        subtitle: t.isPlanned ? "Planned" : "Active session") {
                     if t.plannedDate != nil {
@@ -176,7 +160,7 @@ struct GroupTripSetupView: View {
                 if t.isPlanned {
                     // Begin the planned session live now (+ share to crew).
                     Button { Task { await beginLive(planned: t) } } label: {
-                        Label("Start", systemImage: "play.fill")
+                        Label("Start session", systemImage: "play.fill")
                     }
                 } else {
                     // Already a live session, so just share it.
@@ -185,10 +169,21 @@ struct GroupTripSetupView: View {
                     }
                 }
             }
-            .buttonStyle(PrimaryButtonStyle(fullWidth: false))
+            // Tonal: Start now above is the page's one primary action.
+            .buttonStyle(TonalButtonStyle(fullWidth: false))
             .disabled(busy)
             .padding(.trailing, DS.gutter)
         }
+    }
+
+    /// "Today, 05:30", "Tomorrow, 05:30" or "Saturday 25 October, 05:30",
+    /// as Today shows a plan.
+    private func planDate(_ date: Date) -> String {
+        let cal = Calendar.current
+        let day = cal.isDateInToday(date) ? "Today"
+            : cal.isDateInTomorrow(date) ? "Tomorrow"
+            : ForecastFormat.longDate(date)
+        return "\(day), \(ForecastFormat.time(date, use24: use24))"
     }
 
     private struct IdString: Identifiable, Hashable { let id: String }
