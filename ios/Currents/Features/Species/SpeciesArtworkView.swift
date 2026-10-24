@@ -37,7 +37,7 @@ struct SpeciesArtworkView: View {
                     .resizable()
                     .scaledToFit()
                     .frame(width: size * 0.5, height: size * 0.5)
-                    .foregroundStyle(caught ? species.artTint : Color.secondary)
+                    .foregroundStyle(caught ? species.artTint : Color.dsText3)
                     .frame(width: size, height: size)
             }
         }
