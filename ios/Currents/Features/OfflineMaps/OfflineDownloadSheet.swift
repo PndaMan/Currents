@@ -25,6 +25,8 @@ struct OfflineDownloadSheet: View {
     @State private var nameEdited = false
     /// The last name filled in from the map, to tell it from a typed one.
     @State private var autoName = ""
+    /// The area panel's natural height, so it only scrolls when it must.
+    @State private var panelHeight: CGFloat = 360
 
     private let initialRegion: MKCoordinateRegion?
 
@@ -70,28 +72,40 @@ struct OfflineDownloadSheet: View {
         }
         .presentationDetents([.medium, .large], selection: $detent)
         .presentationDragIndicator(.visible)
+        .presentationBackground(Color.dsBackground)
         .task(id: planKey) { await plan() }
         .task(id: nameKey) { await suggestName() }
     }
 
     // MARK: Layouts
 
-    /// Map with the square on top, choices underneath.
+    /// Map with the square on top, choices underneath. The choices keep
+    /// their natural height and scroll when large text or the keyboard
+    /// leaves too little room, so the map always keeps a usable strip.
     private var areaLayout: some View {
         VStack(spacing: 0) {
             OfflineAreaPicker(area: $area, initial: initialRegion)
-                .frame(maxHeight: .infinity)
-            VStack(alignment: .leading, spacing: DS.Space.s3) {
-                nameField
-                ForEach([OfflineDetail.standard, .maximum], id: \.self) { option in
-                    choice(option)
+                .frame(minHeight: 180, maxHeight: .infinity)
+            ScrollView {
+                VStack(alignment: .leading, spacing: DS.Space.s3) {
+                    nameField
+                    ForEach([OfflineDetail.standard, .maximum], id: \.self) { option in
+                        choice(option)
+                    }
+                    downloadButton
+                    footnote
                 }
-                downloadButton
-                footnote
+                .padding(.horizontal, DS.gutter)
+                .padding(.top, DS.Space.s4)
+                .padding(.bottom, DS.Space.s3)
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { new in
+                    panelHeight = new
+                }
             }
-            .padding(.horizontal, DS.gutter)
-            .padding(.top, DS.Space.s4)
-            .padding(.bottom, DS.Space.s3)
+            .scrollBounceBehavior(.basedOnSize)
+            .scrollDismissesKeyboard(.interactively)
+            .frame(maxHeight: panelHeight)
+            .layoutPriority(1)
             .background(Color.dsBackground)
         }
     }
