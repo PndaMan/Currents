@@ -34,8 +34,14 @@ enum OfflineMapsRoute: Hashable {
 // MARK: - Formatting
 
 enum OfflineFormat {
+    /// A size in figures, never "Zero KB", so a download that has only just
+    /// started still reads as a number. Callers say "None" when there is
+    /// nothing at all.
     static func bytes(_ bytes: Int64) -> String {
-        ByteCountFormatter.string(fromByteCount: max(bytes, 0), countStyle: .file)
+        let formatter = ByteCountFormatter()
+        formatter.countStyle = .file
+        formatter.allowsNonnumericFormatting = false
+        return formatter.string(fromByteCount: max(bytes, 0))
     }
 
     /// "About 85 MB", rounded so an estimate does not look exact.

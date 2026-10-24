@@ -108,26 +108,27 @@ struct OfflineMapsView: View {
     // MARK: Sections
 
     /// Room taken by maps and room left; stacked at accessibility sizes.
+    /// With no maps the Maps tile says "None", and neither tile has a
+    /// footnote, so the row stays one height.
     private var statTiles: some View {
         let layout = typeSize.isAccessibilitySize
             ? AnyLayout(VStackLayout(spacing: DS.Space.s2))
             : AnyLayout(HStackLayout(spacing: DS.Space.s2))
+        let hasMaps = mapsCount > 0
         return layout {
             StatTile("Maps", systemImage: "map.fill", tint: .green,
-                     value: OfflineFormat.bytes(mapsBytes),
-                     footnote: mapsFootnote, width: nil)
+                     value: hasMaps ? OfflineFormat.bytes(mapsBytes) : "None",
+                     footnote: hasMaps ? mapsFootnote : nil, width: nil)
             StatTile("Free", systemImage: "internaldrive", tint: .blue,
                      value: OfflineFormat.bytes(freeBytes),
-                     footnote: "On this phone", width: nil)
+                     footnote: hasMaps ? "On this phone" : nil, width: nil)
         }
         .padding(.horizontal, DS.gutter)
     }
 
     private var downloadSection: some View {
         CardSection("Download a map", note: "Close-ups around water and your spots.") {
-            Button {
-                request = OfflineDownloadRequest(target: .area(nil, name: ""))
-            } label: {
+            Button(action: pickArea) {
                 CardRow("Pick an area on the map", systemImage: "square.dashed", tint: .green)
             }
             .buttonStyle(.dsCardRow)
@@ -179,7 +180,7 @@ struct OfflineMapsView: View {
                           isOn: Binding(get: { manager.downloadOnCellular },
                                         set: { manager.downloadOnCellular = $0 }))
             CardRow("Cached as you browse", systemImage: "internaldrive.fill", tint: .blue,
-                    value: OfflineFormat.bytes(cacheBytes))
+                    value: cacheBytes > 0 ? OfflineFormat.bytes(cacheBytes) : "None")
             Button { confirmClearCache = true } label: {
                 CardRow("Clear map cache", systemImage: "trash.fill", tint: .red)
             }
@@ -261,9 +262,17 @@ struct OfflineMapsView: View {
         manager.packBytes + manager.legacyMaps.reduce(Int64(0)) { $0 + $1.sizeBytes }
     }
 
+    /// Downloaded maps plus older saved regions, the same maps `mapsBytes`
+    /// adds up.
+    private var mapsCount: Int { manager.packs.count + manager.legacyMaps.count }
+
     private var mapsFootnote: String {
-        let n = manager.packs.count
-        return n == 1 ? "1 map" : "\(n) maps"
+        mapsCount == 1 ? "1 map" : "\(mapsCount) maps"
+    }
+
+    /// Opens the download sheet on a square to place on the map.
+    private func pickArea() {
+        request = OfflineDownloadRequest(target: .area(nil, name: ""))
     }
 
     private var headerSubtitle: String {
