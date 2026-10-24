@@ -270,7 +270,7 @@ final class CommunityService: ObservableObject {
         """
         Add me on Currents
         \(friendLink().absoluteString)
-        …or enter my angler code \(friendCode) in Community › Friends.
+        …or enter my angler code \(friendCode) in Crew, then Friends, then Add friend.
         """
     }
 
@@ -1869,9 +1869,9 @@ final class CommunityService: ObservableObject {
 
     func crewInviteMessage(code: String, name: String) -> String {
         """
-        Join my crew “\(name)” on Currents — we share our catches here.
+        Join my crew “\(name)” on Currents. We share our catches there.
         \(crewInviteLink(code: code, name: name).absoluteString)
-        …or open Currents › Community › New Crew › Join and enter code \(code).
+        …or enter crew code \(code) in Crew, then Your crews, then Join crew.
         """
     }
 
@@ -2024,7 +2024,7 @@ final class CommunityService: ObservableObject {
         """
         Join my fishing trip “\(tripName)” on Currents
         \(inviteLink(forGroup: code, tripName: tripName).absoluteString)
-        …or open Currents › Community › Group Trips › Start or join a trip and enter code \(code).
+        …or enter trip code \(code) in Crew, then Plan a group trip, then Join a friend's trip.
         """
     }
 
