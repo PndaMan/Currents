@@ -1,22 +1,28 @@
 name: UI Review Screenshots
 
 # Captures every screen of the app in the iOS Simulator, so a UI pass can be
-# checked without a device. Each screen is shot in dark and in light, then a
-# smaller set is shot again at the largest accessibility text size. Like the
-# App Store run (screenshots.yml), the app is relaunched once per shot in
-# screenshot mode (SCREENSHOT_MODE=1), which seeds fictional demo data and
-# opens the screen named by SCREENSHOT_SCREEN. The appearance is chosen per
-# launch with -appearanceMode, so nothing is stored between shots. Every
-# launch runs on Cape Town time (TZ), matching the simulated location.
+# checked without a device. Each screen is shot in dark and in light, then
+# again in dark scrolled to the middle and to the end of the page, then a
+# smaller set at the largest accessibility text size. Like the App Store run
+# (screenshots.yml), the app is relaunched once per shot in screenshot mode
+# (SCREENSHOT_MODE=1), which seeds fictional demo data and opens the screen
+# named by SCREENSHOT_SCREEN. The appearance is chosen per launch with
+# -appearanceMode and the scroll position with -uiReviewScroll, so nothing is
+# stored between shots. Every launch runs on Cape Town time (TZ), matching
+# the simulated location.
 #
 # Manual only: it never runs on push. Run it from the Actions tab, then
 # download the "ui-review" artifact: dark/ and light/ hold one PNG per screen,
-# large-text/ holds the accessibility-size set (dark). The screen names are the
-# raw values of ScreenshotSupport.Screen; ALL_SCREENS below is the same list.
+# dark-mid/ and dark-end/ hold the scrolled set (every screen except explore,
+# explore-near and log-catch), large-text/ holds the accessibility-size set
+# (dark). The screen names are the raw values of ScreenshotSupport.Screen;
+# ALL_SCREENS below is the same list.
 #
-# macOS minutes bill at 10x. Estimated run time is about 25 minutes with a warm
-# build cache and up to about 40 without one (the timeout is 45). Use the
-# "screens" input to re-shoot just a few screens after a fix.
+# macOS minutes bill at 10x. Each shot takes about 10 seconds. Estimated run
+# time is about 43 minutes with a warm build cache and up to about 58 without
+# one (the timeout is 70); the scrolled set is about 18 of those minutes. Turn
+# off "scrolled" or use the "screens" input to re-shoot just a few screens
+# after a fix.
 
 on:
   workflow_dispatch:
@@ -27,6 +33,10 @@ on:
         default: ""
       large_text:
         description: "Also capture the large-text set at the largest accessibility size"
+        type: boolean
+        default: true
+      scrolled:
+        description: "Also capture each page in dark at its middle and at its end"
         type: boolean
         default: true
 
@@ -41,7 +51,7 @@ jobs:
   capture:
     name: Capture Screens
     runs-on: macos-15
-    timeout-minutes: 45
+    timeout-minutes: 70
     env:
       BUNDLE_ID: com.aidanmcconnon.currents
     defaults:
@@ -222,12 +232,17 @@ jobs:
       - name: Capture each screen
         env:
           LARGE_TEXT: ${{ inputs.large_text }}
+          SCROLLED: ${{ inputs.scrolled }}
         run: |
           OUT=screenshots/review
           mkdir -p "$OUT"
 
           # Screens shot again at the largest text size, in dark only.
           LARGE_TEXT_SCREENS="today explore-near logbook catch log-catch crew leaderboard settings settings-units session gear licences species"
+
+          # Screens left out of the scrolled set: the map fills the screen and
+          # the catch form opens as a sheet, so neither scrolls as a page.
+          SCROLL_SKIP=" explore explore-near log-catch "
 
           # Seconds to let a screen settle. The map screens load tiles.
           settle_for() {
@@ -237,25 +252,32 @@ jobs:
             esac
           }
 
-          # capture <appearance> <screen> <folder>
+          # capture <appearance> <screen> <folder> [center|bottom]
+          # The optional scroll position opens the page at its middle or end.
           # A screen that fails to launch is logged and skipped, never fatal.
           capture() {
-            local appearance="$1" screen="$2" dir="$3"
+            local appearance="$1" screen="$2" dir="$3" scroll="${4:-}"
+            local args=(-appearanceMode "$appearance")
+            local label="$appearance"
+            if [ -n "$scroll" ]; then
+              args+=(-uiReviewScroll "$scroll")
+              label="$appearance, $scroll"
+            fi
             mkdir -p "$dir"
             xcrun simctl terminate "$UDID" "$BUNDLE_ID" 2>/dev/null || true
             sleep 1
             if ! SIMCTL_CHILD_TZ=Africa/Johannesburg \
                  SIMCTL_CHILD_SCREENSHOT_MODE=1 \
                  SIMCTL_CHILD_SCREENSHOT_SCREEN="$screen" \
-                 xcrun simctl launch "$UDID" "$BUNDLE_ID" -appearanceMode "$appearance"; then
-              echo "::warning::Launch failed for $screen ($appearance), skipped"
+                 xcrun simctl launch "$UDID" "$BUNDLE_ID" "${args[@]}"; then
+              echo "::warning::Launch failed for $screen ($label), skipped"
               return 0
             fi
             sleep "$(settle_for "$screen")"
             if xcrun simctl io "$UDID" screenshot "$dir/$screen.png"; then
               echo "Captured $dir/$screen.png"
             else
-              echo "::warning::Screenshot failed for $screen ($appearance)"
+              echo "::warning::Screenshot failed for $screen ($label)"
             fi
           }
 
@@ -274,6 +296,16 @@ jobs:
             done
           done
 
+          # Dark again at the middle and at the end of each page, so what
+          # sits below the first screen is reviewed too.
+          if [ "$SCROLLED" = "true" ]; then
+            for SCREEN in $SCREENS; do
+              case "$SCROLL_SKIP" in *" $SCREEN "*) continue ;; esac
+              capture dark "$SCREEN" "$OUT/dark-mid" center
+              capture dark "$SCREEN" "$OUT/dark-end" bottom
+            done
+          fi
+
           if [ "$LARGE_TEXT" = "true" ]; then
             xcrun simctl ui "$UDID" content_size accessibility-extra-extra-extra-large
             for SCREEN in $LARGE_TEXT_SCREENS; do
@@ -288,6 +320,14 @@ jobs:
               [ -f "$OUT/$APPEARANCE/$SCREEN.png" ] || echo "::warning::Missing $APPEARANCE/$SCREEN.png"
             done
           done
+          if [ "$SCROLLED" = "true" ]; then
+            for SCREEN in $SCREENS; do
+              case "$SCROLL_SKIP" in *" $SCREEN "*) continue ;; esac
+              for DIR in dark-mid dark-end; do
+                [ -f "$OUT/$DIR/$SCREEN.png" ] || echo "::warning::Missing $DIR/$SCREEN.png"
+              done
+            done
+          fi
           COUNT=$(find "$OUT" -name '*.png' | wc -l | tr -d ' ')
           echo "Captured $COUNT screenshots"
           if [ "$COUNT" -eq 0 ]; then
