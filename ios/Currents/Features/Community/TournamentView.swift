@@ -323,7 +323,8 @@ struct TournamentView: View {
                 TournamentScoringSheet(rates: tournament.rates)
             }
             .sheet(isPresented: $showingNewTeam) {
-                NewTeamSheet(hasTeams: !standings.isEmpty, create: createTeam(named:))
+                NewTeamSheet(hasTeams: !standings.isEmpty, runningSession: unlinkedSessionName,
+                             create: createTeam(named:))
             }
             .sheet(isPresented: $showingEnd) { endSheet }
             .task {
@@ -876,22 +877,54 @@ struct TournamentView: View {
 
     // MARK: Start a team
 
-    /// A team IS a live session: start (or adopt) a real GPS-tracked trip
-    /// locally, then share it as the team, so tracking, log-to-trip and the
-    /// session strip all work like any live trip.
+    /// A session already running that no group trip or team uses, so the new
+    /// team sheet asks before it becomes the team's session.
+    private var unlinkedSessionName: String? {
+        guard let active = appState.tripTracker.activeTrip,
+              svc.groupCode(forTripId: active.id) == nil else { return nil }
+        return active.name
+    }
+
+    /// A team IS a live session, so tracking, log-to-trip and the session
+    /// strip all work like any live session. A session already running
+    /// becomes the team's (the sheet asked first). Otherwise the team is
+    /// created first and GPS starts only once that worked, so a failure
+    /// leaves nothing recording.
     private func createTeam(named teamName: String) async -> Bool {
-        let trip = appState.tripTracker.activeTrip
-            ?? appState.tripTracker.start(name: teamName, spotId: nil)
-        let code = await svc.createTeam(named: teamName, tournament: tournament,
-                                        localTripId: trip.id)
-        guard code != nil else {
+        let tracker = appState.tripTracker
+        if let running = tracker.activeTrip {
+            guard svc.groupCode(forTripId: running.id) == nil else {
+                // Already shared as a group trip or another team.
+                ToastCenter.shared.show("End your group trip session first", style: .error)
+                return false
+            }
+            guard await svc.createTeam(named: teamName, tournament: tournament,
+                                       localTripId: running.id) != nil else {
+                ToastCenter.shared.show("Couldn't create the team", style: .error)
+                return false
+            }
+            teamCreated()
+            return true
+        }
+        var trip = Trip(name: teamName, startDate: .now, currentDayStart: .now)
+        guard await svc.createTeam(named: teamName, tournament: tournament,
+                                   localTripId: trip.id) != nil else {
             ToastCenter.shared.show("Couldn't create the team", style: .error)
             return false
         }
-        Haptics.success()
-        ToastCenter.shared.show("Team created. Your session is live.", style: .success, haptic: false)
-        Task { await refresh() }
+        if tracker.startPlanned(trip).id != trip.id {
+            // A session started elsewhere while the team was created: keep a
+            // local trip behind the link so catches still score.
+            try? appState.tripRepository.save(&trip)
+        }
+        teamCreated()
         return true
+    }
+
+    private func teamCreated() {
+        Haptics.success()
+        ToastCenter.shared.show("Team created", style: .success, haptic: false)
+        Task { await refresh() }
     }
 
     // MARK: Assign crewmates (admins)
@@ -1211,11 +1244,15 @@ private struct TeamRankMark: View {
 /// team's live session starts from the button at the foot.
 private struct NewTeamSheet: View {
     let hasTeams: Bool
+    /// The name of a session already running that no group trip uses.
+    /// Starting the team asks before it becomes the team's session.
+    var runningSession: String? = nil
     let create: @MainActor (String) async -> Bool
 
     @Environment(\.dismiss) private var dismiss
     @State private var name = ""
     @State private var busy = false
+    @State private var confirmingSession = false
     @FocusState private var nameFocused: Bool
 
     private var trimmed: String { name.trimmingCharacters(in: .whitespaces) }
@@ -1226,6 +1263,12 @@ private struct NewTeamSheet: View {
                 .safeAreaInset(edge: .bottom, spacing: 0) { startBar }
                 .eventSheetTitle("New team", close: "Cancel")
                 .onAppear { nameFocused = true }
+                .confirmationDialog("Use your current session for this team?",
+                                    isPresented: $confirmingSession, titleVisibility: .visible) {
+                    Button("Use current session", action: commit)
+                } message: {
+                    Text("\(runningSession ?? "Your session") keeps recording as the team's session. Catches you log in it score for the team.")
+                }
         }
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
@@ -1276,6 +1319,16 @@ private struct NewTeamSheet: View {
     }
 
     private func start() {
+        guard !busy, !trimmed.isEmpty else { return }
+        if runningSession != nil {
+            nameFocused = false
+            confirmingSession = true
+        } else {
+            commit()
+        }
+    }
+
+    private func commit() {
         guard !busy, !trimmed.isEmpty else { return }
         busy = true
         let teamName = trimmed
