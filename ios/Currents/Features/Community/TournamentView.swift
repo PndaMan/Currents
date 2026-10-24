@@ -272,6 +272,9 @@ struct TournamentView: View {
     @State private var trophyBounce = 0
     /// The result pattern plays once per visit, not on every return to the page.
     @State private var celebratedResult = false
+    @Environment(\.dynamicTypeSize) private var typeSize
+    /// Highlight cards grow with the text size, like Today's day cards.
+    @ScaledMetric(relativeTo: .headline) private var highlightWidth: CGFloat = 168
 
     init(tournament: CommunityService.Tournament, crew: CommunityService.Crew) {
         self.crew = crew
@@ -984,8 +987,9 @@ struct TournamentView: View {
         }
     }
 
-    /// One highlight as a Today day card: the moment's symbol on its colour,
-    /// what it was, and who landed it.
+    /// One highlight as a Today day card (dsFill on the card radius, the
+    /// same padding): the moment's symbol on its colour, what it was, and
+    /// who landed it.
     private func highlightCard(_ h: CommunityService.TournamentHighlight) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
@@ -1004,10 +1008,10 @@ struct TournamentView: View {
                 Text(h.anglerCode == svc.friendCode ? "You, \(h.teamName)" : "\(h.anglerName), \(h.teamName)")
                     .font(.footnote)
                     .foregroundStyle(.dsText2)
-                    .lineLimit(1)
+                    .lineLimit(typeSize.isAccessibilitySize ? 3 : 1)
             }
         }
-        .frame(width: 168, alignment: .leading)
+        .frame(width: highlightWidth, alignment: .leading)
         .padding(14)
         .frame(maxHeight: .infinity, alignment: .top)
         .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
