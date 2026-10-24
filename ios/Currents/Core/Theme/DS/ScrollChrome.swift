@@ -29,7 +29,10 @@ extension View {
 
     /// For a full-bleed map root: a soft fade of the page background behind
     /// the status bar, so the clock stays legible over bright map tiles.
-    /// Apply to the root stack that holds the map.
+    /// Apply to the root stack that holds the map. Pages whose hero runs
+    /// under the bar use it too: it turns off the opaque bar backdrop of
+    /// `detailTint` and `detailScrollEdge` inside it, which would cover the
+    /// hero (see `pageBarBackdrop(_:)`).
     func statusBarScrim() -> some View {
         safeAreaInset(edge: .top, spacing: 0) {
             Color.clear
@@ -43,6 +46,7 @@ extension View {
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
         }
+        .environment(\.pageHasStatusBarScrim, true)
     }
 }
 
