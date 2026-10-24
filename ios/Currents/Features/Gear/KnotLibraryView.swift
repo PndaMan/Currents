@@ -137,7 +137,8 @@ enum KnotFavourites {
 
 
 /// The knot's bundled line art drawn in the text colour on the cyan tint,
-/// or its category symbol.
+/// or its category symbol. The whole plate fits inside the tile, as on the
+/// knot's page: filling the square cut tall plates to meaningless slices.
 struct KnotThumb: View {
     let knot: KnotEntry
     var size: CGFloat = 56
@@ -147,8 +148,9 @@ struct KnotThumb: View {
             ThumbView(tint: .cyan, size: size) {
                 Image(uiImage: art)
                     .renderingMode(.template)
-                    .resizable().scaledToFill()
+                    .resizable().scaledToFit()
                     .foregroundStyle(Color.dsText)
+                    .padding(size * 0.1)
                     .frame(width: size, height: size)
             }
             .accessibilityHidden(true)
