@@ -92,7 +92,7 @@ struct ForecastDayPage: View {
             let live = await store.load(force: true)
             ForecastStore.refreshFeedback(live)
         }
-        .sheet(isPresented: $showPlanner) { PlanSessionSheet() }
+        .sheet(isPresented: $showPlanner) { PlanSessionSheet(initialDate: store.day(offset).date) }
         .navigationDestination(isPresented: $showAlerts) { AlertSettingsView() }
     }
 

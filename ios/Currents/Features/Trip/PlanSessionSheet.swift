@@ -20,9 +20,14 @@ struct PlanSessionSheet: View {
     /// Called with the saved trip's id (useful for linking a group trip).
     var onSaved: ((String) -> Void)?
 
-    init(editingTrip: Trip? = nil, onSaved: ((String) -> Void)? = nil) {
+    /// `initialDate` opens a new plan on that day (planning from a forecast
+    /// day). It is ignored when editing a trip.
+    init(editingTrip: Trip? = nil, initialDate: Date? = nil, onSaved: ((String) -> Void)? = nil) {
         self.editingTrip = editingTrip
         self.onSaved = onSaved
+        if editingTrip == nil, let initialDate {
+            _date = State(initialValue: Self.planDate(on: initialDate))
+        }
     }
 
     @State private var name = SessionFormat.defaultName()
@@ -457,5 +462,15 @@ struct PlanSessionSheet: View {
         let cal = Calendar.current
         let tomorrow = cal.date(byAdding: .day, value: 1, to: .now) ?? .now
         return cal.date(bySettingHour: 6, minute: 0, second: 0, of: tomorrow) ?? tomorrow
+    }
+
+    /// 06:00 on the given day, or the next whole hour when that has already
+    /// gone (planning from today's forecast).
+    private static func planDate(on day: Date) -> Date {
+        let cal = Calendar.current
+        let six = cal.date(bySettingHour: 6, minute: 0, second: 0, of: day) ?? day
+        guard six < .now else { return six }
+        return cal.nextDate(after: .now, matching: DateComponents(minute: 0),
+                            matchingPolicy: .nextTime) ?? .now
     }
 }
