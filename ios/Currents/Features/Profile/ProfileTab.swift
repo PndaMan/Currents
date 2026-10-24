@@ -1088,6 +1088,15 @@ struct UnitsSettingsView: View {
     @AppStorage("units") private var units = "metric"
     @AppStorage("use24HourTime") private var use24HourTime = true
     @State private var titleShown = false
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    /// The two choice cards sit side by side, and stack at accessibility
+    /// sizes so neither name breaks mid-word.
+    private var cardLayout: AnyLayout {
+        typeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(spacing: DS.Space.s3))
+            : AnyLayout(HStackLayout(spacing: DS.Space.s3))
+    }
 
     var body: some View {
         ScrollView {
@@ -1096,7 +1105,7 @@ struct UnitsSettingsView: View {
 
                 VStack(alignment: .leading, spacing: DS.Space.s3) {
                     SectionTitle("Measurements")
-                    HStack(spacing: DS.Space.s3) {
+                    cardLayout {
                         systemCard("Metric", tag: "metric")
                         systemCard("Imperial", tag: "imperial")
                     }
@@ -1142,7 +1151,7 @@ struct UnitsSettingsView: View {
                 Text("\(Units.weight(kg: 1.2, imperial: imperial)), water \(Units.temperature(18, imperial: imperial))")
                     .font(.subheadline)
                     .foregroundStyle(.dsText2)
-                    .lineLimit(2)
+                    .lineLimit(typeSize.isAccessibilitySize ? nil : 2)
                     .fixedSize(horizontal: false, vertical: true)
             }
             .padding(DS.Space.s4)
