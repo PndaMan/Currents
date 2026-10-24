@@ -247,6 +247,9 @@ struct RegulationDetailView: View {
                     }
                 }
                 .padding(.horizontal, DS.gutter)
+                if let limitNote {
+                    SectionFootnote(limitNote)
+                }
             }
 
             if let notes = reg.notes, !notes.isEmpty {
@@ -322,7 +325,8 @@ struct RegulationDetailView: View {
     }
 
     /// Minimum, maximum and daily bag as big numbers, side by side, stacked
-    /// at accessibility sizes.
+    /// at accessibility sizes. No tile has a footnote, so the row stays one
+    /// height; what the numbers measure goes in `limitNote` under them.
     @ViewBuilder private var limitTiles: some View {
         let layout = typeSize.isAccessibilitySize
             ? AnyLayout(VStackLayout(spacing: DS.Space.s2))
@@ -331,16 +335,25 @@ struct RegulationDetailView: View {
         layout {
             StatTile("Minimum", systemImage: "ruler", tint: .purple,
                      value: minimum?.0 ?? "None",
-                     unit: minimum?.1,
-                     footnote: minimum == nil ? nil : "Total length", width: nil)
+                     unit: minimum?.1, width: nil)
             if let mx = reg.maxSizeCm {
                 let maximum = Units.lengthParts(cm: mx, imperial: imperial)
                 StatTile("Maximum", systemImage: "ruler", tint: .purple,
-                         value: maximum.0, unit: maximum.1, footnote: "Total length", width: nil)
+                         value: maximum.0, unit: maximum.1, width: nil)
             }
             StatTile("Daily bag", systemImage: "basket.fill", tint: reg.bagLimit == 0 ? Color.dsScoreSlow : Color.purple,
-                     value: reg.bagLimit.map { $0 == 0 ? "No take" : "\($0)" } ?? "None",
-                     footnote: (reg.bagLimit ?? 0) > 0 ? "Per person" : nil, width: nil)
+                     value: reg.bagLimit.map { $0 == 0 ? "No take" : "\($0)" } ?? "None", width: nil)
+        }
+    }
+
+    /// What the limit tiles measure, said once for the row.
+    private var limitNote: String? {
+        let perPerson = (reg.bagLimit ?? 0) > 0
+        switch (hasSizeRule, perPerson) {
+        case (true, true): return "Sizes are total length, and the bag is per person."
+        case (true, false): return "Sizes are total length."
+        case (false, true): return "The bag is per person."
+        case (false, false): return nil
         }
     }
 
