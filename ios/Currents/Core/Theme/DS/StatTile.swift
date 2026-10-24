@@ -1,8 +1,10 @@
 import SwiftUI
 
 /// A Logbook top card: icon and label, big bold number with optional unit,
-/// and a footnote pinned to the bottom. 148 pt wide by default (pass nil to
-/// fill), fill background, card radius.
+/// and an optional footnote pinned to the bottom. 148 pt wide by default
+/// (pass nil to fill), fill background, card radius. Only a tile with a
+/// footnote keeps the 112 pt minimum height; without one the tile hugs its
+/// number, so in a row either every tile has a footnote or none does.
 struct StatTile: View {
     let label: String
     let systemImage: String
@@ -51,8 +53,8 @@ struct StatTile: View {
                         .foregroundStyle(.dsText2)
                 }
             }
-            Spacer(minLength: 0)
             if let footnote {
+                Spacer(minLength: 0)
                 Text(footnote)
                     .font(.footnote)
                     .foregroundStyle(.dsText2)
@@ -62,10 +64,13 @@ struct StatTile: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
         .frame(width: width, alignment: .topLeading)
-        .frame(maxWidth: width == nil ? CGFloat.infinity : nil, minHeight: 112, alignment: .topLeading)
+        .frame(maxWidth: width == nil ? CGFloat.infinity : nil, minHeight: minHeight, alignment: .topLeading)
         .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
         .accessibilityElement(children: .combine)
     }
+
+    /// The footnote band's height is reserved only when there is a footnote.
+    private var minHeight: CGFloat? { footnote == nil ? nil : 112 }
 
     /// One line in the tile, two at accessibility sizes rather than truncating.
     private var textLines: Int { typeSize.isAccessibilitySize ? 2 : 1 }
