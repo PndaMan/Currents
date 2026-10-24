@@ -1236,10 +1236,13 @@ struct ProfileEditView: View {
 
     /// The photo, centred, with a camera badge; tap to pick a new one.
     private var avatarPicker: some View {
-        PhotosPicker(selection: $avatarItem, matching: .images) {
+        // Read on the main actor here: PhotosPicker's label closure is not
+        // main-actor isolated.
+        let shownName = name.isEmpty ? svc.myName : name
+        return PhotosPicker(selection: $avatarItem, matching: .images) {
             VStack(spacing: DS.Space.s2) {
                 ZStack(alignment: .bottomTrailing) {
-                    CrewAvatar(image: avatar, name: name.isEmpty ? svc.myName : name, size: 104)
+                    CrewAvatar(image: avatar, name: shownName, size: 104)
                     Image(systemName: "camera.fill")
                         .font(.footnote.weight(.semibold))
                         .foregroundStyle(.dsOnPrimary)
