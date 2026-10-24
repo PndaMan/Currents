@@ -15,10 +15,7 @@ struct CrewsListPage: View {
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
-                PageHero(label: "Fish together", value: "Your crews", callout: crewCountLine) {
-                    ThumbView(systemImage: "person.3.fill", tint: CrewTint.people, size: 92)
-                }
-                .padding(.top, DS.Space.s2)
+                DetailHeader(title: "Your crews", subtitle: crewCountLine)
                 ActionTriple {
                     Button { setup = .start } label: {
                         Label("New crew", systemImage: "plus")

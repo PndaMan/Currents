@@ -90,12 +90,9 @@ struct GroupTripSetupView: View {
 
     private var content: some View {
         VStack(alignment: .leading, spacing: 0) {
-            PageHero(label: crewCode.flatMap { svc.crew(withCode: $0)?.name } ?? "Fish together",
-                     value: "Group trip",
-                     callout: "Everyone sees every catch, live") {
-                ThumbView(systemImage: "person.3.fill", tint: CrewTint.people, size: 92)
-            }
-            .padding(.top, DS.Space.s2)
+            DetailHeader(over: crewCode.flatMap { svc.crew(withCode: $0)?.name },
+                         title: "Group trip",
+                         subtitle: "Everyone sees every catch, live")
             actions
                 .padding(.top, DS.Space.s5)
             if !startableTrips.isEmpty {
@@ -608,18 +605,11 @@ struct GroupTripView: View {
     // MARK: - Shared page parts
 
     /// The heaviest fish's art across the top. Before there is one there is
-    /// no cover, so the header's faces or people tile is the one visual.
+    /// no cover, and the header's faces are the one visual.
     @ViewBuilder private var cover: some View {
         if let coverSpecies {
             EventCover(species: coverSpecies, systemImage: "person.3.sequence.fill", tint: DS.accent)
                 .padding(.top, DS.Space.s2)
-        }
-    }
-
-    /// The people tile for a hero that has no cover above it.
-    @ViewBuilder private var heroTileWithoutCover: some View {
-        if coverSpecies == nil {
-            ThumbView(systemImage: "person.3.fill", tint: CrewTint.people, size: 92)
         }
     }
 
@@ -632,8 +622,8 @@ struct GroupTripView: View {
         return host
     }
 
-    /// Today's hero: status over the trip name, the host, and the anglers'
-    /// faces on the right.
+    /// Status over the trip name at the 34 pt title size the other pushed
+    /// pages use, the host under it, and the anglers' faces on the right.
     private var tripHeader: some View {
         HStack(alignment: .center, spacing: DS.Space.s4) {
             VStack(alignment: .leading, spacing: 4) {
@@ -642,7 +632,7 @@ struct GroupTripView: View {
                     .foregroundStyle(.dsText2)
                     .lineLimit(typeSize.isAccessibilitySize ? 3 : 1)
                 Text(trip?.name ?? tripName)
-                    .font(.title.bold())
+                    .font(.largeTitle.bold())
                     .foregroundStyle(.dsText)
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityAddTraits(.isHeader)
@@ -672,10 +662,9 @@ struct GroupTripView: View {
         }
     }
 
+    /// The first anglers' faces; before anyone has joined, nothing.
     @ViewBuilder private var heroVisual: some View {
-        if members.isEmpty {
-            ThumbView(systemImage: "person.3.fill", tint: CrewTint.people, size: 92)
-        } else {
+        if !members.isEmpty {
             EventAvatarStack(images: members.prefix(3).map { memberAvatars[$0.id] }, size: 52)
         }
     }
@@ -714,10 +703,7 @@ struct GroupTripView: View {
     /// session still ticking against it, and offer one-tap cleanup.
     private func tripMissingView(_ code: String) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            PageHero(label: "No longer available", value: trip?.name ?? tripName) {
-                ThumbView(systemImage: "flag.slash.fill", tint: .dsScoreSlow, size: 72)
-            }
-            .padding(.top, DS.Space.s4)
+            DetailHeader(over: "No longer available", title: trip?.name ?? tripName)
             InlineEmpty(systemImage: "flag.slash",
                         text: "This group trip was deleted, usually with its tournament. Your catches are still in your Logbook.")
                 .padding(.top, DS.Space.s5)
@@ -743,9 +729,9 @@ struct GroupTripView: View {
     private var joinGate: some View {
         VStack(alignment: .leading, spacing: 0) {
             cover
-            PageHero(label: "Group trip invite", value: trip?.name ?? tripName,
-                     callout: "Pick a name to join. No account needed.") { heroTileWithoutCover }
-                .padding(.top, DS.Space.s4)
+            DetailHeader(over: "Group trip invite", title: trip?.name ?? tripName,
+                         subtitle: "Pick a name to join. No account needed.")
+                .padding(.top, coverSpecies == nil ? 0 : DS.Space.s4)
             CrewJoinForm(buttonTitle: "Join and continue") { await afterProfileJoin() }
                 .padding(.horizontal, DS.gutter)
                 .padding(.top, DS.Space.s6)
@@ -769,11 +755,8 @@ struct GroupTripView: View {
 
     private var setup: some View {
         VStack(alignment: .leading, spacing: 0) {
-            PageHero(label: "Group trip", value: tripName,
-                     callout: "Everyone you invite sees every catch, live") {
-                ThumbView(systemImage: "person.3.fill", tint: CrewTint.people, size: 92)
-            }
-            .padding(.top, DS.Space.s2)
+            DetailHeader(over: "Group trip", title: tripName,
+                         subtitle: "Everyone you invite sees every catch, live")
             Button { Task { await startShared() } } label: {
                 if busy { ProgressView() } else { Text("Start group trip") }
             }

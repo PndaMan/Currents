@@ -157,13 +157,12 @@ struct CrewFriendsPage: View {
 
     private static let faceSize: CGFloat = 48
 
-    /// Today's hero: your code over the title, the count, and up to three of
-    /// your friends' faces, evenly overlapped, on the right.
+    /// Up to three of your friends' faces, evenly overlapped, over your code
+    /// and the title, as Leaderboard puts the crew's art over its header.
+    /// The counts sit on the sections below.
     private var hero: some View {
-        PageHero(label: "Angler code \(svc.friendCode)", value: "Friends", callout: heroLine) {
-            if friends.isEmpty {
-                ThumbView(systemImage: "person.2.fill", tint: CrewTint.people, size: 92)
-            } else {
+        VStack(alignment: .leading, spacing: DS.Space.s3) {
+            if !friends.isEmpty {
                 HStack(spacing: -Self.faceSize * 0.3) {
                     ForEach(Array(friends.prefix(3))) { friend in
                         CrewAvatar(image: friend.avatar, name: friend.name, size: Self.faceSize)
@@ -171,17 +170,11 @@ struct CrewFriendsPage: View {
                     }
                 }
                 .accessibilityHidden(true)
+                .padding(.horizontal, DS.gutter)
             }
+            DetailHeader(over: "Angler code \(svc.friendCode)", title: "Friends")
         }
-        .accessibilityAddTraits(.isHeader)
-        .padding(.top, DS.Space.s2)
-    }
-
-    private var heroLine: String {
-        let n = svc.friends.count
-        let base = n == 0 ? "No friends yet" : (n == 1 ? "1 friend" : "\(n) friends")
-        guard !requests.isEmpty else { return base }
-        return "\(base), \(requests.count) waiting"
+        .padding(.top, friends.isEmpty ? 0 : DS.Space.s3)
     }
 
     private var actions: some View {
@@ -282,12 +275,8 @@ struct CrewRequestsPage: View {
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
-                PageHero(label: "Friends and trips", value: "Requests", callout: subtitle) {
-                    ThumbView(systemImage: "bell.fill", tint: CrewTint.trophy, size: 92)
-                }
-                .accessibilityAddTraits(.isHeader)
-                .padding(.top, DS.Space.s2)
-                .padding(.bottom, DS.Space.s2)
+                DetailHeader(over: "Friends and trips", title: "Requests", subtitle: subtitle)
+                    .padding(.bottom, DS.Space.s2)
                 if connection.isOffline {
                     EventNotice("Offline. New requests and invites show when you're back online.",
                                 systemImage: "wifi.slash") { EmptyView() }
