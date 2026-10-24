@@ -340,15 +340,20 @@ enum ConditionText {
     static func airMeaning(_ day: ForecastDay, imperial: Bool = Units.isImperial) -> String {
         guard let w = day.weather else { return "No reading yet" }
         let ahead = day.isToday ? day.hours.filter { $0.date > .now } : day.hours
-        guard let hi = ahead.map(\.temperatureC).max(), let lo = ahead.map(\.temperatureC).min() else {
+        // Today reads the hours left before midnight. Late in the evening
+        // too few are left to call a trend, so it gives the day's range,
+        // as later days do.
+        let trend = day.isToday && ahead.count >= 4
+        let span = trend || !day.isToday ? ahead : day.hours
+        guard let hi = span.map(\.temperatureC).max(), let lo = span.map(\.temperatureC).min() else {
             return ForecastFormat.condition(w.condition)
         }
         let high = Units.temperature(hi, imperial: imperial)
         let low = Units.temperature(lo, imperial: imperial)
-        if !day.isToday { return "High \(high), low \(low)" }
+        if !trend { return "High \(high), low \(low)" }
         if hi - w.temperatureC >= 2 { return "Warming to \(high). Shallows heat up" }
         if w.temperatureC - lo >= 2 { return "Cooling to \(low). Fish drop deeper" }
-        return "Steady. Little change today"
+        return "Steady until midnight"
     }
 
     static func windMeaning(_ kmh: Double) -> String {
