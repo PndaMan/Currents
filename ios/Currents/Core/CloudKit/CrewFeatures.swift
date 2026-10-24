@@ -980,20 +980,20 @@ enum TournamentPoints {
         return (points, catches.count, weight, seen.count)
     }
 
+    /// The rules as plain sentences, one per line.
     static func explanation(rates: Rates = standard) -> String {
-        var out = """
-        How points work:
-        • \(rates.perFish) points for every fish landed
-        • +\(rates.perKg) point\(rates.perKg == 1 ? "" : "s") per kilogram of each fish (rounded)
-        • +\(rates.newSpeciesBonus) points the first time your team lands a new species
-
-        Points update live as catches are logged. When the tournament ends, an \
-        admin confirms the winner — the top team is highlighted, but the call is \
-        theirs.
-        """
+        func points(_ n: Int) -> String { n == 1 ? "1 point" : "\(n) points" }
+        var lines = [
+            "\(points(rates.perFish)) for every fish landed.",
+            "\(points(rates.perKg)) per kg of each fish, rounded.",
+            "\(points(rates.newSpeciesBonus)) the first time your team lands a new species.",
+            "Points update live as catches are logged.",
+            "When the tournament ends, an admin confirms the winner.",
+            "The top team is highlighted, but the call is theirs.",
+        ]
         if rates != standard {
-            out += "\n\nThis tournament uses custom scoring set by its host."
+            lines.append("This tournament uses custom scoring set by its host.")
         }
-        return out
+        return lines.joined(separator: "\n")
     }
 }
