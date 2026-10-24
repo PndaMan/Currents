@@ -102,15 +102,13 @@ def stem(epithet: str) -> str:
 
 def habitat(fresh: int | None, brack: int | None, salt: int | None) -> str | None:
     f, b, s = bool(fresh), bool(brack), bool(salt)
-    if b and f == s:
-        return "brackish"
     if f and s:
         return "brackish"
     if f:
         return "freshwater"
     if s:
         return "marine"
-    return None
+    return "brackish" if b else None
 
 
 class FishBase:
