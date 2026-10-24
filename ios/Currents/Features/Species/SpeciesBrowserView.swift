@@ -1,4 +1,5 @@
 import SwiftUI
+import CoreLocation
 
 /// Wrapper to avoid `Int64` collisions in navigationDestination.
 struct SpeciesNavID: Hashable {
@@ -21,6 +22,12 @@ struct SpeciesBrowserView: View {
     @State private var month: Int = SpeciesSeason.currentMonth
     @State private var habitat: HabitatFilter = .all
     @AppStorage("seasonalSortOrder") private var sortOrder: SortOrder = .match
+
+    /// Whether the forecast's place is south of the equator, read on each
+    /// load. Starts from the time zone until then.
+    @State private var southern = SpeciesSeason.isSouthern(latitude: nil)
+    /// The hemisphere `scoresById` was worked out for.
+    @State private var scoredSouthern: Bool?
 
     // Cached so filtering 1,500 species doesn't re-run on every frame.
     @State private var scoresById: [Int64: [Int]] = [:]
@@ -55,7 +62,8 @@ struct SpeciesBrowserView: View {
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
-                DetailHeader(over: SpeciesSeason.hemisphereName, title: "Species guide", subtitle: subtitle)
+                DetailHeader(over: loaded ? SpeciesSeason.hemisphereName(southern: southern) : nil,
+                             title: "Species guide", subtitle: subtitle)
 
                 PFSearchField(prompt: "Search by name or family", text: $searchText)
                     .padding(.top, DS.Space.s4)
@@ -138,13 +146,13 @@ struct SpeciesBrowserView: View {
     private var subtitle: String? {
         guard loaded else { return nil }
         let name = SpeciesSeason.fullMonths[month - 1]
-        let water = Units.temperature(SpeciesSeason.waterTemp(for: month))
+        let water = Units.temperature(SpeciesSeason.waterTemp(for: month, southern: southern))
         return "\(inSeasonTotal.formatted()) of \(species.count.formatted()) in season in \(name), water about \(water)."
     }
 
     /// In season this month across the whole guide, ignoring search and habitat.
     private var inSeasonTotal: Int {
-        species.reduce(0) { $0 + (SpeciesSeason.isInSeason($1, month: month) ? 1 : 0) }
+        species.reduce(0) { $0 + (SpeciesSeason.isInSeason($1, month: month, southern: southern) ? 1 : 0) }
     }
 
     // MARK: - List
@@ -200,13 +208,21 @@ struct SpeciesBrowserView: View {
     // MARK: - Data
 
     private func load() async {
+        // The forecast's place, read on every appear rather than once, so
+        // the hemisphere follows the place Today forecasts for.
+        let place = SpeciesSeason.forecastCoordinate(appState)
+        let isSouth = SpeciesSeason.isSouthern(latitude: place?.latitude)
         if species.isEmpty {
             species = (try? appState.speciesRepository.fetchAll()) ?? []
+        }
+        if scoredSouthern != isSouth || scoresById.count != species.count {
             var scores: [Int64: [Int]] = [:]
             scores.reserveCapacity(species.count)
-            for sp in species { scores[sp.id] = SpeciesSeason.scores(sp) }
+            for sp in species { scores[sp.id] = SpeciesSeason.scores(sp, southern: isSouth) }
             scoresById = scores
+            scoredSouthern = isSouth
         }
+        southern = isSouth
         caughtIds = (try? appState.speciesRepository.caughtSpeciesIds()) ?? []
         recompute()
         loaded = true
@@ -241,7 +257,7 @@ struct SpeciesBrowserView: View {
         case .temp:
             sorted = result.sorted { ($0.optimalTempC ?? 0) < ($1.optimalTempC ?? 0) }
         }
-        inSeason = sorted.filter { SpeciesSeason.isInSeason($0, month: month) }
-        offSeason = sorted.filter { !SpeciesSeason.isInSeason($0, month: month) }
+        inSeason = sorted.filter { SpeciesSeason.isInSeason($0, month: month, southern: southern) }
+        offSeason = sorted.filter { !SpeciesSeason.isInSeason($0, month: month, southern: southern) }
     }
 }

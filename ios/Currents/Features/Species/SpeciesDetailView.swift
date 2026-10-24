@@ -23,6 +23,9 @@ struct SpeciesDetailView: View {
     @State private var titleShown = false
     @State private var showingAllCatches = false
     @State private var showingRangeMap = false
+    /// Whether the forecast's place is south of the equator, read on each
+    /// load. Starts from the time zone until then.
+    @State private var southern = SpeciesSeason.isSouthern(latitude: nil)
     @AppStorage("units") private var units = "metric"
     /// Shared with Today's target species (0 means any species).
     @AppStorage("targetSpeciesId") private var targetSpeciesId: Int = 0
@@ -33,8 +36,8 @@ struct SpeciesDetailView: View {
     private static let limitsTint: Color = .purple
     private var isTargeted: Bool { targetSpeciesId == Int(species.id) }
     private var month: Int { SpeciesSeason.currentMonth }
-    private var seasonScores: [Int] { SpeciesSeason.scores(species) }
-    private var inSeasonNow: Bool { SpeciesSeason.isInSeason(species, month: month) }
+    private var seasonScores: [Int] { SpeciesSeason.scores(species, southern: southern) }
+    private var inSeasonNow: Bool { SpeciesSeason.isInSeason(species, month: month, southern: southern) }
 
     var body: some View {
         ScrollView {
@@ -130,6 +133,7 @@ struct SpeciesDetailView: View {
     }
 
     private func load() async {
+        southern = SpeciesSeason.isSouthernHemisphere(appState)
         catches = (try? appState.catchRepository.fetchForSpecies(species.id)) ?? []
         loaded = true
         if info == nil {
@@ -315,7 +319,7 @@ struct SpeciesDetailView: View {
     private var seasonSection: some View {
         section("Season") {
             SeasonChart(scores: seasonScores,
-                        inSeason: (1...12).map { SpeciesSeason.isInSeason(species, month: $0) },
+                        inSeason: (1...12).map { SpeciesSeason.isInSeason(species, month: $0, southern: southern) },
                         tint: tint)
             SectionFootnote(SpeciesSeason.peakText(seasonScores).map { "\($0), estimated from typical water temperatures." }
                         ?? "Estimated from typical water temperatures.")
@@ -327,7 +331,7 @@ struct SpeciesDetailView: View {
     @ViewBuilder
     private var temperatureSection: some View {
         if let band = SpeciesSeason.band(species) {
-            let water = SpeciesSeason.waterTemp(for: month)
+            let water = SpeciesSeason.waterTemp(for: month, southern: southern)
             section("Water temperature") {
                 LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible())], spacing: 10) {
                     ConditionTile("Water in \(SpeciesSeason.fullMonths[month - 1])",
