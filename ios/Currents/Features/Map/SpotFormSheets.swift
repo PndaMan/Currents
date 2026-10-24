@@ -309,8 +309,9 @@ private struct SpotFormBody: View {
         .detailScrollEdge()
         .scrollDismissesKeyboard(.interactively)
         .background(Color.dsBackground)
-        .sheet(isPresented: $showingLocationPicker) {
-            LocationPickerSheet(coordinate: $coordinate, pinLabel: "Spot")
+        // Pushed inside the form's own stack rather than stacked as a sheet.
+        .navigationDestination(isPresented: $showingLocationPicker) {
+            LocationPickerSheet(coordinate: $coordinate, pinLabel: "Spot", isPushed: true)
         }
     }
 

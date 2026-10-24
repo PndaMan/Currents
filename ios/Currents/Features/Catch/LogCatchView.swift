@@ -2203,6 +2203,9 @@ struct LocationPickerSheet: View {
     /// What the pin is FOR — "Forecast Location" in the trip planner, "Spot"
     /// on the map — so the label under the pin never lies about its purpose.
     let pinLabel: String
+    /// Pushed inside another sheet's stack (the spot form): no stack or
+    /// sheet chrome of its own, and Back leaves the pin where it was.
+    private let isPushed: Bool
     @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss
     @State private var cameraPosition: MapCameraPosition
@@ -2214,9 +2217,11 @@ struct LocationPickerSheet: View {
     @State private var searchFailed = false
     @FocusState private var searchFocused: Bool
 
-    init(coordinate: Binding<CLLocationCoordinate2D?>, pinLabel: String = "Catch location") {
+    init(coordinate: Binding<CLLocationCoordinate2D?>, pinLabel: String = "Catch location",
+         isPushed: Bool = false) {
         _coordinate = coordinate
         self.pinLabel = pinLabel
+        self.isPushed = isPushed
         // Open centred on the existing pin when there is one (e.g. editing a
         // spot or catch far from where the user is standing right now),
         // otherwise on the user's current location.
@@ -2247,43 +2252,52 @@ struct LocationPickerSheet: View {
     }
 
     var body: some View {
-        NavigationStack {
-            Map(position: $cameraPosition) {
-                UserAnnotation()
-            }
-            .mapStyle(.hybrid(elevation: .realistic))
-            .mapControls {
-                MapUserLocationButton()
-                MapCompass()
-            }
-            // One pin fixed at the centre: move the map under it. The pin's
-            // tip sits on the exact centre point that gets saved.
-            .overlay {
-                Image(systemName: "mappin")
-                    .font(.largeTitle.weight(.semibold))
-                    .foregroundStyle(Color.dsScoreSlow)
-                    .alignmentGuide(VerticalAlignment.center) { $0[.bottom] }
-                    .allowsHitTesting(false)
-                    .accessibilityHidden(true)
-            }
-            .safeAreaInset(edge: .top, spacing: 0) { searchPanel }
-            .safeAreaInset(edge: .bottom, spacing: 0) { confirmPanel }
-            .navigationTitle("Drop pin")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                // "Use this place" keeps the pin; Cancel leaves it where it was.
+        if isPushed {
+            picker
+        } else {
+            NavigationStack { picker }
+                .dsSheet()
+        }
+    }
+
+    private var picker: some View {
+        Map(position: $cameraPosition) {
+            UserAnnotation()
+        }
+        .mapStyle(.hybrid(elevation: .realistic))
+        .mapControls {
+            MapUserLocationButton()
+            MapCompass()
+        }
+        // One pin fixed at the centre: move the map under it. The pin's
+        // tip sits on the exact centre point that gets saved.
+        .overlay {
+            Image(systemName: "mappin")
+                .font(.largeTitle.weight(.semibold))
+                .foregroundStyle(Color.dsScoreSlow)
+                .alignmentGuide(VerticalAlignment.center) { $0[.bottom] }
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+        }
+        .safeAreaInset(edge: .top, spacing: 0) { searchPanel }
+        .safeAreaInset(edge: .bottom, spacing: 0) { confirmPanel }
+        .navigationTitle("Drop pin")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            // "Use this place" keeps the pin; Cancel (Back when pushed)
+            // leaves it where it was.
+            if !isPushed {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
                 }
             }
-            // Track the centre continuously so the pin always reflects the
-            // live crosshair position — `.onEnd` can miss the final resting
-            // spot and leave a stale coordinate behind on Confirm.
-            .onMapCameraChange(frequency: .continuous) { context in
-                pinPosition = context.camera.centerCoordinate
-            }
         }
-        .dsSheet()
+        // Track the centre continuously so the pin always reflects the
+        // live crosshair position — `.onEnd` can miss the final resting
+        // spot and leave a stale coordinate behind on Confirm.
+        .onMapCameraChange(frequency: .continuous) { context in
+            pinPosition = context.camera.centerCoordinate
+        }
     }
 
     /// Search bar plus type-ahead results, floating over the map (same
