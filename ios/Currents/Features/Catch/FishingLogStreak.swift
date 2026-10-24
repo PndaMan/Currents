@@ -10,16 +10,24 @@ enum BadgeRarity: Int, CaseIterable {
     /// secret ones).
     case mythic = 5
 
+    /// Each tier's hue. Common is bronze rather than grey, so an earned
+    /// common medal never reads as a locked one. The medal deepens its rim
+    /// and symbol on light pages; use `DS.ink(color)` where it is text.
     var color: Color {
         switch self {
-        case .common:    return .dsText2
+        case .common:    return Self.bronze
         case .uncommon:  return .dsScoreGood
-        case .rare:      return .cyan
-        case .epic:      return .purple
+        case .rare:      return Self.ocean
+        case .epic:      return Self.violet
         case .legendary: return .dsScoreFair
-        case .mythic:    return .pink
+        case .mythic:    return Self.coral
         }
     }
+
+    private static let bronze = Color(red: 0.80, green: 0.50, blue: 0.20) // ui-lint: allow, badge rarity hue
+    private static let ocean = Color(red: 0.20, green: 0.66, blue: 0.90) // ui-lint: allow, badge rarity hue
+    private static let violet = Color(red: 0.66, green: 0.36, blue: 0.88) // ui-lint: allow, badge rarity hue
+    private static let coral = Color(red: 0.96, green: 0.27, blue: 0.42) // ui-lint: allow, badge rarity hue
 
     var label: String {
         switch self {
