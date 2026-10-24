@@ -293,7 +293,14 @@ enum OfflineSuggestions {
             watersById[id] = water
             catchesByWater[id, default: 0] += 1
         }
-        for (id, count) in catchesByWater.sorted(by: { $0.value > $1.value }) {
+        // Most catches first, ties by name, so the order holds between launches.
+        let ranked = catchesByWater.sorted { a, b in
+            if a.value != b.value { return a.value > b.value }
+            let nameA = watersById[a.key]?.name ?? "", nameB = watersById[b.key]?.name ?? ""
+            if nameA != nameB { return nameA.localizedStandardCompare(nameB) == .orderedAscending }
+            return a.key < b.key
+        }
+        for (id, count) in ranked {
             guard let water = watersById[id] else { continue }
             square("water-\(id)", water.name, count == 1 ? "1 catch logged here" : "\(count) catches logged here",
                    "fish.fill", .teal, CLLocationCoordinate2D(latitude: water.latitude, longitude: water.longitude),
