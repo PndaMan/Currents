@@ -528,7 +528,9 @@ struct ExplorePlacePage: View {
             if let local = fish.localSpecies {
                 ThumbView(species: local, size: 56)
             } else {
-                ThumbView(systemImage: "fish", tint: .blue, size: 56)
+                // A fish the guide has no record of: the neutral silhouette
+                // the size limits use, not a bright stand-in colour.
+                ThumbView(systemImage: "fish.fill", tint: Color.dsText3, size: 56)
             }
         }
     }

@@ -526,7 +526,7 @@ struct ExploreSearchPane: View {
             if let sp = allSpecies.first(where: { String($0.id) == recent.key }) {
                 ThumbView(species: sp, size: 48)
             } else {
-                ThumbView(systemImage: "fish", tint: .blue, size: 48)
+                ThumbView(systemImage: "fish.fill", tint: Color.dsText3, size: 48)
             }
         case .place:
             PlaceSnapshotThumb(coordinate: recent.coordinate, size: 48)
