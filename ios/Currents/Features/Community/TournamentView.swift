@@ -723,7 +723,7 @@ struct TournamentView: View {
                 ThumbView(tint: .dsScoreFair, size: 56) {
                     Image(systemName: "trophy.fill")
                         .font(.title2)
-                        .foregroundStyle(Color.dsScoreFair)
+                        .foregroundStyle(DS.ink(.dsScoreFair))
                         .symbolEffect(.bounce, value: trophyBounce)
                 }
             }
@@ -756,7 +756,7 @@ struct TournamentView: View {
         ThumbView(tint: DS.accent, size: 56) {
             Text(eventOrdinal(place))
                 .font(.headline.monospacedDigit())
-                .foregroundStyle(DS.accent)
+                .foregroundStyle(DS.ink(DS.accent))
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)
                 .contentTransition(.numericText())

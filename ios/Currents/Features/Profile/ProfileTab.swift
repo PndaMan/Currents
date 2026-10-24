@@ -1345,7 +1345,7 @@ private struct BlurRadiusPreview: View {
             if radiusKm == 0 {
                 Image(systemName: "mappin")
                     .font(.title3.weight(.semibold))
-                    .foregroundStyle(tint)
+                    .foregroundStyle(DS.ink(tint))
                     .transition(.opacity)
             } else {
                 Circle()
