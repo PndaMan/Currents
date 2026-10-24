@@ -114,7 +114,7 @@ enum CrewChallengeEngine {
                           progress: weekPosts.count),
             CrewChallenge(id: "variety", title: "Species safari",
                           detail: "Land \(clamp(members + 1, 2, 8)) different species",
-                          icon: "sparkles",
+                          icon: "square.grid.2x2.fill",
                           target: clamp(members + 1, 2, 8),
                           progress: Set(weekPosts.map { $0.species.lowercased() }).count)
         ]
@@ -133,8 +133,8 @@ enum CrewChallengeEngine {
         if let target = speciesHistory.randomElement(using: &rng) {
             let n = clamp(members / 2, 1, 4)
             pool.append(
-                CrewChallenge(id: "target", title: "Target: \(target)",
-                              detail: "Land \(n) \(target)\(n == 1 ? "" : "s"). A crew favourite",
+                CrewChallenge(id: "target", title: "Crew favourite",
+                              detail: "Land \(n) \(target.lowercased())",
                               icon: "scope",
                               target: n,
                               progress: weekPosts.filter { $0.species.caseInsensitiveCompare(target) == .orderedSame }.count))
@@ -149,13 +149,13 @@ enum CrewChallengeEngine {
                           progress: weekPosts.contains { ($0.weightKg ?? 0) >= tier } ? 1 : 0))
         pool.append(
             CrewChallenge(id: "dawn", title: "Dawn patrol",
-                          detail: "\(clamp(members, 2, 6)) fish landed before 8 AM",
+                          detail: "\(clamp(members, 2, 6)) fish landed before \(ForecastFormat.hour(8, use24: ForecastFormat.use24))",
                           icon: "sunrise.fill",
                           target: clamp(members, 2, 6),
                           progress: weekPosts.filter { hour($0.caughtAt) < 8 }.count))
         pool.append(
             CrewChallenge(id: "night", title: "Night shift",
-                          detail: "\(clamp(members, 2, 6)) fish landed after 8 PM",
+                          detail: "\(clamp(members, 2, 6)) fish landed after \(ForecastFormat.hour(20, use24: ForecastFormat.use24))",
                           icon: "moon.stars.fill",
                           target: clamp(members, 2, 6),
                           progress: weekPosts.filter { hour($0.caughtAt) >= 20 }.count))
