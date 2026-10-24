@@ -329,7 +329,9 @@ struct TitleMedallion: View {
 /// A worn title as a badge: the medallion, the rarity in its colour, the
 /// title in bold type and an optional line under it, on a card
 /// tinted with the rarity colour. Rare and up get a rarity stroke; epic and
-/// up a faint repeating pattern of the title's symbol behind it.
+/// up a faint repeating pattern of the title's symbol behind it. At
+/// accessibility sizes the medallion sits above the words, so the title gets
+/// the card's full width, and the trailing mark moves to the top corner.
 struct TitleBadge<Trailing: View>: View {
     let flair: TitleFlair
     var subtitle: String? = nil
@@ -338,6 +340,7 @@ struct TitleBadge<Trailing: View>: View {
     private let trailing: Trailing
 
     @Environment(\.colorScheme) private var scheme
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     init(flair: TitleFlair, subtitle: String? = nil, medallionSize: CGFloat = 56, locked: Bool = false,
          @ViewBuilder trailing: () -> Trailing) {
@@ -359,24 +362,37 @@ struct TitleBadge<Trailing: View>: View {
     }
 
     var body: some View {
-        HStack(spacing: 14) {
-            TitleMedallion(flair: flair, size: medallionSize, locked: locked)
-            words
-                .frame(maxWidth: .infinity, alignment: .leading)
-            trailing
+        layout
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .background { backdrop }
+            .clipShape(shape)
+            .overlay {
+                shape.strokeBorder(tint.opacity(rarity.rawValue >= BadgeRarity.rare.rawValue && !locked ? 0.5 : 0.18),
+                                   lineWidth: 1)
+            }
+            .opacity(locked ? 0.55 : 1)
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(locked ? "\(flair.displayName), \(rarity.label) title, locked"
+                                       : "\(flair.displayName), \(rarity.label) title")
+    }
+
+    @ViewBuilder private var layout: some View {
+        if typeSize.isAccessibilitySize {
+            VStack(alignment: .leading, spacing: 10) {
+                TitleMedallion(flair: flair, size: medallionSize, locked: locked)
+                words
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .overlay(alignment: .topTrailing) { trailing }
+        } else {
+            HStack(spacing: 14) {
+                TitleMedallion(flair: flair, size: medallionSize, locked: locked)
+                words
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                trailing
+            }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
-        .background { backdrop }
-        .clipShape(shape)
-        .overlay {
-            shape.strokeBorder(tint.opacity(rarity.rawValue >= BadgeRarity.rare.rawValue && !locked ? 0.5 : 0.18),
-                               lineWidth: 1)
-        }
-        .opacity(locked ? 0.55 : 1)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(locked ? "\(flair.displayName), \(rarity.label) title, locked"
-                                   : "\(flair.displayName), \(rarity.label) title")
     }
 
     private var words: some View {
