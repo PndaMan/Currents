@@ -70,7 +70,11 @@ final class LogCatchCaptureModel: NSObject, ObservableObject, AVCapturePhotoCapt
     }
 
     func photoOutput(_ output: AVCapturePhotoOutput, didFinishProcessingPhoto photo: AVCapturePhoto, error: Error?) {
-        guard error == nil, let data = photo.fileDataRepresentation(), let image = UIImage(data: data) else { return }
+        guard error == nil, let data = photo.fileDataRepresentation(), let image = UIImage(data: data) else {
+            DispatchQueue.main.async { [weak self] in self?.onPhoto = nil }
+            Task { @MainActor in ToastCenter.shared.show("Couldn't take the photo", style: .error) }
+            return
+        }
         DispatchQueue.main.async { [weak self] in
             self?.onPhoto?(image)
             self?.onPhoto = nil
@@ -245,7 +249,10 @@ struct LogCatchCameraView: View {
             }
             .padding(.horizontal, 30)
 
-            Label(adding ? "Location is removed from every photo." : "Species ID runs on your phone. No signal needed.",
+            // "No signal needed" is only true once the model is on the phone.
+            Label(adding || !FishModelStatus.shared.isInstalled
+                  ? "Location is removed from every photo."
+                  : "Species ID runs on your phone. No signal needed.",
                   systemImage: "checkmark.shield")
                 .font(.footnote)
                 .foregroundStyle(.white.opacity(0.7))
