@@ -1261,26 +1261,26 @@ struct TitleFlairPickerSheet: View {
             .navigationTitle("Title")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) { SheetDoneButton() }
             }
         }
-        .presentationDetents([.medium, .large])
-        .presentationDragIndicator(.visible)
+        .dsSheet([.medium, .large])
     }
 
     private var noTitleRow: some View {
-        Button {
-            selection = ""
-            dismiss()
-        } label: {
-            GroupedCard {
-                IconRow("No title", subtitle: "Show only your name", systemImage: "xmark", tint: .gray) {
+        CardGroup {
+            Button {
+                selection = ""
+                dismiss()
+            } label: {
+                CardRow("No title", subtitle: "Show only your name", systemImage: "xmark", tint: .red) {
                     if selected == nil { checkmark }
                 }
             }
+            .buttonStyle(.dsCardRow)
+            .buttonHaptic(.selection)
+            .accessibilityAddTraits(selected == nil ? .isSelected : [])
         }
-        .buttonStyle(.dim)
-        .buttonHaptic(.selection)
     }
 
     private func badges(_ list: [TitleFlair], locked: Bool) -> some View {
@@ -1346,6 +1346,8 @@ struct FriendProfileView: View {
     @State private var confirmRemove = false
     @State private var requestSent = false
     @State private var sendingRequest = false
+    /// A sharing menu changed while the sheet was open; said once on close.
+    @State private var sharingChanged = false
     @State private var showAllCatches = false
     /// Own catches with full local detail, for the real achievements card when
     /// the profile being viewed is yours.
@@ -1391,8 +1393,7 @@ struct FriendProfileView: View {
         .sheet(isPresented: $showingSettings) { friendSettingsSheet }
         .sheet(item: $selectedSpot) { s in
             NavigationStack { SharedSpotDetailView(spot: s, friendName: profile?.name ?? "a friend") }
-                .presentationDetents([.medium, .large])
-                .presentationDragIndicator(.visible)
+                .dsSheet([.medium, .large])
         }
         .confirmationDialog("Remove \(displayName)?", isPresented: $confirmRemove, titleVisibility: .visible) {
             Button("Remove friend", role: .destructive) {
@@ -1722,13 +1723,13 @@ struct FriendProfileView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
-                    CommunityHero(label: "Sharing with", title: displayName, line: sharingSummary) {
+                    PageHero(label: "Sharing with", value: displayName, callout: sharingSummary) {
                         CrewAvatar(image: profile?.avatar, name: displayName, size: 64)
                     }
+                    .accessibilityAddTraits(.isHeader)
                     .padding(.top, DS.Space.s2)
-                    SectionTitle("Nickname")
+                    CardSection("Nickname") { nicknameRow }
                         .padding(.top, DS.Space.s6)
-                    GroupedCard { nicknameRow }
                     if isFriend { shareSection }
                 }
                 .padding(.bottom, DS.Space.s8)
@@ -1740,27 +1741,31 @@ struct FriendProfileView: View {
             .navigationTitle("Sharing")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { showingSettings = false }
-                }
+                ToolbarItem(placement: .confirmationAction) { SheetDoneButton() }
             }
             .onChange(of: override) { _, o in
                 // The initial .task assignment lands here too; only react to
                 // changes the user actually made.
                 guard overrideLoaded else { return }
                 svc.setOverride(o, for: code)
-                ToastCenter.shared.show("Sharing updated", style: .success, haptic: false)
+                sharingChanged = true
                 let spots = (try? appState.spotRepository.fetchAll()) ?? []
                 Task { await svc.applyPrivacy(for: code, spots: spots) }
             }
-            .onDisappear { svc.setNickname(privacy.nickname, for: code) }
+            .onDisappear {
+                svc.setNickname(privacy.nickname, for: code)
+                if sharingChanged {
+                    sharingChanged = false
+                    ToastCenter.shared.show("Sharing updated", style: .success, haptic: false)
+                }
+            }
         }
-        .presentationDetents([.medium, .large])
-        .presentationDragIndicator(.visible)
+        .dsSheet([.medium, .large])
     }
 
     private var nicknameRow: some View {
-        IconRow("Nickname", systemImage: "person.text.rectangle.fill", tint: DS.accent) {
+        CardRow("Nickname", systemImage: "person.text.rectangle.fill", tint: DS.accent,
+                combinesChildren: false) {
             TextField("Only you see it", text: $privacy.nickname)
                 .multilineTextAlignment(.trailing)
                 .foregroundStyle(.dsText)
@@ -1771,21 +1776,15 @@ struct FriendProfileView: View {
     }
 
     private var shareSection: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            SectionTitle("What you share")
-                .padding(.top, DS.Space.s6)
-            GroupedCard {
-                overrideRow("Catches", systemImage: "fish.fill", tint: CrewTint.fish,
-                            globalOn: svc.shareCatchesWithFriends, value: $override.shareCatches)
-                CardDivider()
-                overrideRow("Spots", systemImage: "mappin.and.ellipse", tint: CrewTint.spot,
-                            globalOn: svc.shareSpotsWithFriends, value: $override.shareSpots)
-                CardDivider()
-                overrideRow("Exact locations", systemImage: "scope", tint: CrewTint.exact,
-                            globalOn: svc.shareSpotExactLocations, value: $override.shareExactLocations)
-            }
-            SectionFootnote("Default follows your privacy settings.")
+        CardSection("What you share", note: "Default follows your privacy settings.") {
+            overrideRow("Catches", systemImage: "fish.fill", tint: CrewTint.fish,
+                        globalOn: svc.shareCatchesWithFriends, value: $override.shareCatches)
+            overrideRow("Spots", systemImage: "mappin.and.ellipse", tint: CrewTint.spot,
+                        globalOn: svc.shareSpotsWithFriends, value: $override.shareSpots)
+            overrideRow("Exact locations", systemImage: "scope", tint: CrewTint.exact,
+                        globalOn: svc.shareSpotExactLocations, value: $override.shareExactLocations)
         }
+        .padding(.top, DS.Space.s6)
     }
 
     /// What the friend gets, in one line for the hero.
@@ -1805,8 +1804,8 @@ struct FriendProfileView: View {
     /// Share or Hide, as a menu on the right of a coloured icon row.
     private func overrideRow(_ title: String, systemImage: String, tint: Color, globalOn: Bool,
                              value: Binding<Bool?>) -> some View {
-        IconRow(title, subtitle: overrideSubtitle(value.wrappedValue, globalOn: globalOn),
-                systemImage: systemImage, tint: tint) {
+        CardRow(title, subtitle: overrideSubtitle(value.wrappedValue, globalOn: globalOn),
+                systemImage: systemImage, tint: tint, combinesChildren: false) {
             Picker(title, selection: Binding(
                 get: { value.wrappedValue == nil ? 0 : (value.wrappedValue! ? 1 : 2) },
                 set: { value.wrappedValue = $0 == 0 ? nil : ($0 == 1) }
@@ -1918,10 +1917,13 @@ private struct FriendBadgesSheet: View {
                 .pageWidth()
             }
             .detailTint(nil)
-            .eventSheetTitle("Achievements")
+            .navigationTitle("Badges")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) { SheetDoneButton() }
+            }
         }
-        .presentationDetents([.medium, .large])
-        .presentationDragIndicator(.visible)
+        .dsSheet([.medium, .large])
         .sheet(item: $selected) { badge in
             BadgeDetailView(badge: badge)
         }
@@ -1937,8 +1939,9 @@ struct SharedSpotDetailView: View {
     let spot: CommunityService.SharedSpot
     let friendName: String
     @Environment(AppState.self) private var appState
-    @Environment(\.dismiss) private var dismiss
     @State private var copied = false
+
+    private var kind: String { (Spot.SpotType(rawValue: spot.type) ?? .general).label }
 
     var body: some View {
         ScrollView {
@@ -1951,7 +1954,7 @@ struct SharedSpotDetailView: View {
                         Annotation(spot.name, coordinate: coord) {
                             Image(systemName: "mappin.circle.fill")
                                 .font(.title2).foregroundStyle(DS.accent)
-                                .background(Circle().fill(.white))
+                                .background(Circle().fill(Color.dsBackground))
                         }
                         if spot.isApproximate {
                             MapCircle(center: coord, radius: 4500)
@@ -1974,17 +1977,17 @@ struct SharedSpotDetailView: View {
                     .padding(.top, DS.Space.s2)
                 }
 
-                CommunityHero(label: "Shared by \(friendName)", title: spot.name,
-                              line: spot.type) {
+                PageHero(label: "Shared by \(friendName)", value: spot.name, callout: kind) {
                     ThumbView(systemImage: "mappin.and.ellipse", tint: CrewTint.spot, size: 72)
                 }
+                .accessibilityAddTraits(.isHeader)
                 .padding(.top, DS.Space.s4)
 
                 if spot.coordinate != nil {
                     Button {
                         copySpot()
                     } label: {
-                        Label(copied ? "Saved to my spots" : "Save to my spots",
+                        Label(copied ? "Saved to your spots" : "Save to your spots",
                               systemImage: copied ? "checkmark" : "square.and.arrow.down")
                     }
                     .buttonStyle(.dsPrimary)
@@ -2022,24 +2025,21 @@ struct SharedSpotDetailView: View {
         }
         .dsScreenBackground()
         .detailScrollEdge()
-        .navigationTitle("")
+        .navigationTitle("Shared spot")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+        .toolbar { ToolbarItem(placement: .confirmationAction) { SheetDoneButton() } }
     }
 
     /// Who shared it and how precise the pin is, as
     /// coloured rows on one card.
     private var spotFacts: some View {
-        GroupedCard {
-            IconRow("Shared by", systemImage: "person.fill", tint: CrewTint.people) {
-                Text(friendName).foregroundStyle(.dsText2).lineLimit(1)
-            }
-            CardDivider()
+        CardGroup {
+            CardRow("Shared by", systemImage: "person.fill", tint: CrewTint.people, value: friendName)
             if spot.isApproximate {
-                IconRow("Approximate area", subtitle: "\(friendName) kept the exact pin private",
+                CardRow("Approximate area", subtitle: "\(friendName) kept the exact pin private",
                         systemImage: "eye.slash.fill", tint: CrewTint.lock)
             } else {
-                IconRow("Exact pin", subtitle: "Shared to the metre",
+                CardRow("Exact pin", subtitle: "Shared to the metre",
                         systemImage: "scope", tint: CrewTint.exact)
             }
         }
@@ -2058,16 +2058,23 @@ struct SharedSpotDetailView: View {
             ToastCenter.shared.show("Already in your spots", style: .info)
             return
         }
+        // The name stays the friend's; an approximate pin says so in the
+        // notes instead.
+        let notes = spot.notes.isEmpty ? "Shared by \(friendName)" : spot.notes
         var newSpot = Spot(
-            name: spot.isApproximate ? "\(spot.name) (approx)" : spot.name,
+            name: spot.name,
             latitude: coord.latitude,
             longitude: coord.longitude,
-            notes: spot.notes.isEmpty ? "Shared by \(friendName)" : spot.notes,
+            notes: spot.isApproximate ? "Approximate area. \(notes)" : notes,
             spotType: Spot.SpotType(rawValue: spot.type) ?? .general
         )
-        try? appState.spotRepository.save(&newSpot)
-        copied = true
-        Haptics.success()
+        do {
+            try appState.spotRepository.save(&newSpot)
+            copied = true
+            ToastCenter.shared.show("Spot saved to your spots", style: .success, icon: "bookmark.fill")
+        } catch {
+            ToastCenter.shared.show("Couldn't save the spot", style: .error)
+        }
     }
 }
 
