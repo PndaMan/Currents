@@ -66,26 +66,12 @@ private struct EventPageTitle: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .navigationTitle(title)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .principal) {
-                    Text(title)
-                        .font(.headline)
-                        .lineLimit(1)
-                        .opacity(showsTitle ? 1 : 0)
-                        .animation(.easeOut(duration: DS.Motion.fast), value: showsTitle)
-                        .accessibilityHidden(!showsTitle)
-                }
-            }
-            .onScrollGeometryChange(for: Bool.self) { geo in
-                geo.contentOffset.y + geo.contentInsets.top > 110
-            } action: { _, new in
-                showsTitle = new
-            }
+            .pageTitleTracking($showsTitle, threshold: 110)
             // A firm edge under the bar once the page scrolls, so rows never
             // read through the title (Luma's bar turns solid at this point).
             .detailScrollEdge()
+            // Outside the bar backdrop, so its hairline draws over it.
+            .pageInlineTitle(title, shown: showsTitle)
     }
 }
 
