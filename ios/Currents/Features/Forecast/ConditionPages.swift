@@ -1007,6 +1007,7 @@ struct ConditionHeader<Accessory: View>: View {
     let tint: Color
     private let accessory: Accessory
     @ScaledMetric(relativeTo: .largeTitle) private var valueSize: CGFloat = 52
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     init(over: String, value: String, unit: String?, subtitle: String, tint: Color,
          @ViewBuilder accessory: () -> Accessory) {
@@ -1019,7 +1020,12 @@ struct ConditionHeader<Accessory: View>: View {
     }
 
     var body: some View {
-        HStack(alignment: .center, spacing: 12) {
+        // The visual sits beside the value, under it at accessibility sizes.
+        let stacked = typeSize.isAccessibilitySize
+        let layout = stacked
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 12))
+            : AnyLayout(HStackLayout(alignment: .center, spacing: 12))
+        layout {
             VStack(alignment: .leading, spacing: 2) {
                 Text(over)
                     .font(.subheadline)
@@ -1045,7 +1051,7 @@ struct ConditionHeader<Accessory: View>: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
-            Spacer(minLength: 0)
+            if !stacked { Spacer(minLength: 0) }
             accessory
         }
         .padding(.horizontal, DS.gutter)
