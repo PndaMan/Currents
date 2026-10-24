@@ -148,7 +148,7 @@ struct SettingsView: View {
         CardSection("Kit and reference") {
             row(AppRoute.gear, "Tackle box", "shippingbox.fill", .orange,
                 value: lowStockCount > 0 ? "\(lowStockCount) running low" : "\(gearCount) items",
-                valueTint: lowStockCount > 0 ? .dsScoreLow : .dsText2)
+                valueTint: lowStockCount > 0 ? DS.ink(.dsScoreLow) : .dsText2)
             row(AppRoute.licenses, "Licences", "person.text.rectangle.fill", .green,
                 value: licenceValue.text, valueTint: licenceValue.color)
             row(SettingsRoute.knots, "Knots", "link", .cyan,
@@ -280,7 +280,7 @@ struct SettingsView: View {
 
     private var licenceValue: (text: String, color: Color) {
         if let lic = soonestLicence, let days = lic.daysUntilExpiry {
-            return (days == 0 ? "Expires today" : (days == 1 ? "1 day left" : "\(days) days left"), .dsScoreLow)
+            return (days == 0 ? "Expires today" : (days == 1 ? "1 day left" : "\(days) days left"), DS.ink(.dsScoreLow))
         }
         return (licenceCount == 0 ? "" : "\(licenceCount)", .dsText2)
     }
