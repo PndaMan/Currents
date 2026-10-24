@@ -102,7 +102,7 @@ struct CatchDetailView: View {
             actions
                 .padding(.top, DS.Space.s6)
 
-            regulationNote
+            regulationSection
             whereSection
             conditionsSection
             gearSection
@@ -329,47 +329,62 @@ struct CatchDetailView: View {
 
     // MARK: - Regulation
 
+    /// The size and bag rules on file for this species, one row each. A rule
+    /// this fish breaks has a red icon and says so.
     @ViewBuilder
-    private var regulationNote: some View {
-        let result = RegulationsService.shared.verdict(
-            species: detail.species,
-            lengthCm: record.lengthCm
-        )
-        if let reg = result.reg {
-            let warn: Bool = {
-                switch result.verdict {
-                case .tooSmall, .tooBig: return true
-                default: return false
+    private var regulationSection: some View {
+        let result = RegulationsService.shared.verdict(species: detail.species, lengthCm: record.lengthCm)
+        if let reg = result.reg,
+           reg.minSizeCm != nil || reg.maxSizeCm != nil || reg.bagLimit != nil
+            || !(reg.closedSeason ?? "").isEmpty {
+            let verdict = result.verdict
+            CardSection("Size and bag limits",
+                        note: "Rules for \(reg.region). Check local rules before you keep a fish.") {
+                if let mn = reg.minSizeCm {
+                    CardRow("Minimum size", subtitle: sizeNote(verdict, broken: isTooSmall(verdict)),
+                            systemImage: "ruler", tint: ruleTint(verdict, broken: isTooSmall(verdict)),
+                            value: Units.length(cm: mn, imperial: imperial))
                 }
-            }()
-            let text: String = {
-                var parts: [String] = []
-                switch result.verdict {
-                case .legal:
-                    if let mn = reg.minSizeCm {
-                        parts.append("Legal size to keep in \(reg.region), minimum \(Units.length(cm: mn, imperial: imperial)).")
-                    } else {
-                        parts.append("Legal size to keep in \(reg.region).")
-                    }
-                case .tooSmall(let mn):
-                    parts.append("Undersized. The minimum to keep in \(reg.region) is \(Units.length(cm: mn, imperial: imperial)).")
-                case .tooBig(let mx):
-                    parts.append("Over the slot. The maximum to keep in \(reg.region) is \(Units.length(cm: mx, imperial: imperial)).")
-                case .unknownSize:
-                    parts.append("Add a length to check it against the \(reg.region) limit.")
-                case .noRegulation:
-                    break
+                if let mx = reg.maxSizeCm {
+                    CardRow("Maximum size", subtitle: sizeNote(verdict, broken: isTooBig(verdict)),
+                            systemImage: "ruler", tint: ruleTint(verdict, broken: isTooBig(verdict)),
+                            value: Units.length(cm: mx, imperial: imperial))
                 }
-                if let bag = reg.bagLimit { parts.append("Bag limit \(bag) per person per day.") }
-                if let closed = reg.closedSeason, !closed.isEmpty { parts.append("Closed season: \(closed).") }
-                return parts.joined(separator: " ")
-            }()
-            if !text.isEmpty {
-                RegulationNote(text: text, warn: warn)
-                    .padding(.horizontal, DS.gutter)
-                    .padding(.top, DS.Space.s5)
+                if let bag = reg.bagLimit {
+                    CardRow("Bag limit", systemImage: "basket.fill",
+                            tint: bag == 0 ? .dsScoreSlow : DS.accent,
+                            value: bag == 0 ? "None kept" : "\(bag) a day")
+                }
+                if let closed = reg.closedSeason, !closed.isEmpty {
+                    CardRow("Closed season", subtitle: closed, systemImage: "calendar", tint: .dsScoreLow)
+                }
             }
+            .padding(.top, DS.Space.s8)
         }
+    }
+
+    private func isTooSmall(_ verdict: KeepVerdict) -> Bool {
+        if case .tooSmall = verdict { return true }
+        return false
+    }
+
+    private func isTooBig(_ verdict: KeepVerdict) -> Bool {
+        if case .tooBig = verdict { return true }
+        return false
+    }
+
+    /// Red for the rule this fish breaks, green when it was measured and kept
+    /// to the rule, accent when there is no length to check.
+    private func ruleTint(_ verdict: KeepVerdict, broken: Bool) -> Color {
+        if broken { return .dsScoreSlow }
+        if case .unknownSize = verdict { return DS.accent }
+        return .dsScoreGood
+    }
+
+    private func sizeNote(_ verdict: KeepVerdict, broken: Bool) -> String? {
+        if broken { return isTooSmall(verdict) ? "This fish is under it" : "This fish is over it" }
+        if case .unknownSize = verdict { return "Add a length to check this fish" }
+        return nil
     }
 
     // MARK: - Where
@@ -411,9 +426,11 @@ struct CatchDetailView: View {
                 .buttonStyle(.dsRow)
                 .padding(.top, DS.Space.s2)
             }
-            DirectionsButton(coordinate: place, name: detail.spot?.name ?? speciesName)
-                .padding(.horizontal, DS.gutter)
-                .padding(.top, DS.Space.s3)
+            DirectionsMenu(coordinate: place, name: detail.spot?.name ?? speciesName) {
+                ActionTileLabel("Directions", systemImage: "location.north.line")
+            }
+            .padding(.horizontal, DS.gutter)
+            .padding(.top, DS.Space.s3)
         }
     }
 
@@ -758,40 +775,6 @@ private struct CatchConditionGrid: View {
             }
         }
         .padding(.horizontal, DS.gutter)
-    }
-}
-
-// MARK: - Regulation note
-
-/// The size and bag rules for this fish, amber when it was outside them.
-private struct RegulationNote: View {
-    let text: String
-    let warn: Bool
-    @Environment(\.colorScheme) private var scheme
-
-    private var fill: Color {
-        warn ? Color.dsScoreSlow.opacity(scheme == .dark ? 0.18 : 0.12) : Color.dsFill
-    }
-
-    var body: some View {
-        HStack(alignment: .top, spacing: DS.Space.s3) {
-            Image(systemName: warn ? "exclamationmark.triangle.fill" : "checkmark.seal.fill")
-                .font(.body)
-                .foregroundStyle(warn ? Color.dsScoreSlow : Color.dsScoreGood)
-            VStack(alignment: .leading, spacing: DS.Space.s1) {
-                Text(text)
-                    .font(.subheadline)
-                    .foregroundStyle(.dsText)
-                    .fixedSize(horizontal: false, vertical: true)
-                Text("Check local rules before you keep a fish.")
-                    .font(.footnote)
-                    .foregroundStyle(.dsText2)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .padding(DS.Space.s4)
-        .background(fill, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
-        .accessibilityElement(children: .combine)
     }
 }
 
