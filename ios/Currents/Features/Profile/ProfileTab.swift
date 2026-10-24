@@ -1669,22 +1669,23 @@ struct AboutView: View {
 }
 
 /// The open-source packages Currents is built with (ios/project.yml), each
-/// with its licence and a link to its repository.
+/// opening its licence text and a link to its repository.
 struct AcknowledgementsView: View {
-    private struct Package: Identifiable {
+    fileprivate struct Package: Identifiable {
         let name: String
         let licence: String
+        let text: String
         let url: URL
         let tint: Color
         var id: String { name }
     }
 
     private let packages: [Package] = [
-        Package(name: "GRDB", licence: "MIT License",
+        Package(name: "GRDB", licence: "MIT License", text: AcknowledgementTexts.grdb,
                 url: URL(string: "https://github.com/groue/GRDB.swift")!, tint: .blue),
-        Package(name: "Nuke", licence: "MIT License",
+        Package(name: "Nuke", licence: "MIT License", text: AcknowledgementTexts.nuke,
                 url: URL(string: "https://github.com/kean/Nuke")!, tint: .orange),
-        Package(name: "ZIPFoundation", licence: "MIT License",
+        Package(name: "ZIPFoundation", licence: "MIT License", text: AcknowledgementTexts.zipFoundation,
                 url: URL(string: "https://github.com/weichsel/ZIPFoundation")!, tint: .green),
     ]
 
@@ -1692,13 +1693,42 @@ struct AcknowledgementsView: View {
         TodayPage("Acknowledgements", subtitle: "Open-source software in Currents") {
             CardSection(note: "Thank you to everyone who builds and maintains these.") {
                 ForEach(packages) { package in
-                    Link(destination: package.url) {
+                    NavigationLink {
+                        LicenceTextPage(package: package)
+                    } label: {
                         CardRow(package.name, subtitle: package.licence,
                                 systemImage: "shippingbox.fill", tint: package.tint, chevron: true)
                     }
                     .buttonStyle(.dsCardRow)
-                    .accessibilityHint("Opens its repository")
+                    .accessibilityHint("Opens its licence")
                 }
+            }
+        }
+    }
+}
+
+/// One package's licence, word for word, and a link to its repository.
+private struct LicenceTextPage: View {
+    let package: AcknowledgementsView.Package
+
+    var body: some View {
+        TodayPage(package.name, subtitle: package.licence) {
+            CardGroup {
+                Text(package.text)
+                    .font(.footnote)
+                    .foregroundStyle(.dsText)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(DS.Space.s4)
+            }
+            CardGroup {
+                Link(destination: package.url) {
+                    CardRow("Repository", subtitle: package.url.host() ?? package.url.absoluteString,
+                            systemImage: "link", tint: package.tint, chevron: true)
+                }
+                .buttonStyle(.dsCardRow)
+                .accessibilityHint("Opens its repository")
             }
         }
     }
