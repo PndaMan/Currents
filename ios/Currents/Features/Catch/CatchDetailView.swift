@@ -15,9 +15,11 @@ struct CatchDetailView: View {
     @State private var detail: CatchDetail
     @State private var showingDeleteConfirm = false
     @State private var showingEdit = false
-    @State private var isGeneratingShareCard = false
     @State private var isPostingToCrew = false
-    @State private var shareItem: CatchShareItem?
+    /// The share card, drawn once the photos are in so Share opens at once.
+    @State private var shareCard: RenderedShareCard?
+    /// Moves on each load, so an edit redraws the card.
+    @State private var shareVersion = 0
     @State private var trip: Trip?
     @State private var showingPhotoViewer = false
     @State private var carouselIndex = 0
@@ -78,9 +80,6 @@ struct CatchDetailView: View {
                 }
             }
         }
-        .sheet(item: $shareItem) { item in
-            ImageShareSheet(image: item.image, filename: item.filename)
-        }
         .fullScreenCover(isPresented: $showingPhotoViewer) {
             FullscreenPhotoViewer(
                 photoPaths: detail.catchRecord.allPhotoPaths,
@@ -89,6 +88,9 @@ struct CatchDetailView: View {
         }
         .task(id: detail.catchRecord.id) {
             await load()
+        }
+        .task(id: shareKey) {
+            await renderShareCard()
         }
     }
 
@@ -188,13 +190,7 @@ struct CatchDetailView: View {
 
     private var actions: some View {
         ActionTriple {
-            Button {
-                share()
-            } label: {
-                Label(isGeneratingShareCard ? "Preparing" : "Share", systemImage: "square.and.arrow.up")
-            }
-            .buttonStyle(ActionTileStyle(.primary))
-            .disabled(isGeneratingShareCard)
+            shareButton
 
             Button {
                 showingEdit = true
@@ -212,6 +208,35 @@ struct CatchDetailView: View {
             .buttonStyle(ActionTileStyle(.tonal))
             .buttonHaptic(.toggle)
             .accessibilityValue(isFavorite ? "On" : "Off")
+        }
+    }
+
+    /// The system share sheet with the card for the photo on screen, or a
+    /// "Preparing" tile while that card is drawn.
+    @ViewBuilder
+    private var shareButton: some View {
+        if let card = shareCard, card.key == shareKey {
+            if let rendered = card.image {
+                let image = Image(uiImage: rendered)
+                ShareLink(item: image, preview: SharePreview(speciesName, image: image)) {
+                    Label("Share", systemImage: "square.and.arrow.up")
+                }
+                .buttonStyle(ActionTileStyle(.primary))
+            } else {
+                Button {
+                    ToastCenter.shared.show("Couldn't make the share card", style: .error)
+                } label: {
+                    Label("Share", systemImage: "square.and.arrow.up")
+                }
+                .buttonStyle(ActionTileStyle(.primary))
+            }
+        } else {
+            Button {} label: {
+                Label("Preparing", systemImage: "square.and.arrow.up")
+            }
+            .buttonStyle(ActionTileStyle(.primary))
+            .disabled(true)
+            .accessibilityLabel("Preparing the share card")
         }
     }
 
@@ -295,6 +320,7 @@ struct CatchDetailView: View {
         photos = await Task.detached { paths.compactMap { PhotoManager.load($0) } }.value
         if carouselIndex >= photos.count { carouselIndex = 0 }
         photosLoaded = true
+        shareVersion += 1
         await backfillWeather()
     }
 
@@ -314,17 +340,26 @@ struct CatchDetailView: View {
         Task { await load() }
     }
 
-    private func share() {
-        isGeneratingShareCard = true
-        Task {
-            // Share the photo the angler is looking at in the carousel.
-            if let image = await CatchActions.shareImage(for: detail, photoIndex: carouselIndex) {
-                shareItem = CatchShareItem(image: image, filename: CatchActions.shareFilename(for: detail))
-            } else {
-                ToastCenter.shared.show("This catch has nothing to share yet", style: .info)
-            }
-            isGeneratingShareCard = false
+    /// Which card is wanted: the photo on screen in the latest load.
+    private var shareKey: String { "\(shareVersion)-\(carouselIndex)" }
+
+    /// Draws the share card for the photo the angler is looking at. The
+    /// photos were decoded off the main actor in `load()`; only the drawing,
+    /// which ImageRenderer keeps on the main actor, runs here. Falls back to
+    /// the species art, then to a fish symbol.
+    private func renderShareCard() async {
+        guard photosLoaded else { return }
+        let key = shareKey
+        let image: UIImage?
+        if photos.indices.contains(carouselIndex) {
+            image = await CatchShareCard.render(detail: detail, photo: photos[carouselIndex])
+        } else if let species = detail.species, let art = UIImage(named: species.artworkAssetName) {
+            image = await CatchShareCard.render(detail: detail, photo: art, isArtwork: true)
+        } else {
+            image = await CatchShareCard.render(detail: detail)
         }
+        guard !Task.isCancelled else { return }
+        shareCard = RenderedShareCard(key: key, image: image)
     }
 
     // MARK: - Regulation
@@ -813,6 +848,15 @@ private struct ConfidenceBar: View {
         }
         .accessibilityElement(children: .combine)
     }
+}
+
+// MARK: - Share card
+
+/// A drawn share card and the load and photo it was drawn for. A nil image
+/// means drawing failed.
+private struct RenderedShareCard {
+    let key: String
+    let image: UIImage?
 }
 
 // MARK: - Weather Snapshot (for decoding weatherSnapshot JSON)

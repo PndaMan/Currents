@@ -12,13 +12,20 @@ enum CatchShareCard {
     static func render(detail: CatchDetail, photo: UIImage, isArtwork: Bool = false) async -> UIImage? {
         ShareCardRenderer.image(CatchShareCardView(detail: detail, photo: photo, isArtwork: isArtwork))
     }
+
+    /// Render the card with a fish symbol as the cover, for a catch with no
+    /// photo and no species art.
+    static func render(detail: CatchDetail) async -> UIImage? {
+        ShareCardRenderer.image(CatchShareCardView(detail: detail, photo: nil, isArtwork: false))
+    }
 }
 
 // MARK: - Card
 
 private struct CatchShareCardView: View {
     let detail: CatchDetail
-    let photo: UIImage
+    /// Nil draws the fish symbol cover the other share cards use.
+    let photo: UIImage?
     let isArtwork: Bool
 
     private var record: Catch { detail.catchRecord }
@@ -73,8 +80,18 @@ private struct CatchShareCardView: View {
         }
     }
 
-    /// The photo cropped to fill, or the species art fitted on its colour.
+    /// The photo cropped to fill, the species art fitted on its colour, or
+    /// a fish symbol when there is neither.
+    @ViewBuilder
     private var cover: some View {
+        if let photo {
+            photoCover(photo)
+        } else {
+            ShareCardCover(systemImage: "fish.fill", tint: detail.species?.artTint ?? DS.accent, height: 224)
+        }
+    }
+
+    private func photoCover(_ photo: UIImage) -> some View {
         Color.clear
             .frame(maxWidth: .infinity)
             .frame(height: 224)

@@ -23,6 +23,8 @@ struct CatchesTab: View {
     @State private var catchToDelete: CatchDetail?
     @State private var catchToEdit: CatchDetail?
     @State private var shareItem: CatchShareItem?
+    /// A share card is being drawn for the long-press menu's Share.
+    @State private var isPreparingShare = false
 
     // Sessions and plans
     @State private var sessions: [Trip] = []
@@ -218,7 +220,9 @@ struct CatchesTab: View {
             }
         }
         .sheet(item: $shareItem) { item in
+            // The system share sheet's own heights.
             ImageShareSheet(image: item.image, filename: item.filename)
+                .presentationDetents([.medium, .large])
         }
         .sheet(isPresented: $showingNewSession, onDismiss: reload) { NewSessionSheet() }
         .sheet(isPresented: $showingPlanner, onDismiss: reload) { PlanSessionSheet() }
@@ -576,8 +580,9 @@ struct CatchesTab: View {
         Button {
             share(detail)
         } label: {
-            Label("Share", systemImage: "square.and.arrow.up")
+            Label(isPreparingShare ? "Preparing" : "Share", systemImage: "square.and.arrow.up")
         }
+        .disabled(isPreparingShare)
         Button {
             catchToEdit = detail
         } label: {
@@ -900,12 +905,23 @@ struct CatchesTab: View {
         }
     }
 
+    /// The menu closes on tap, so a toast says the card is on its way. A
+    /// catch with no photo and no species art gets the fish symbol card.
     private func share(_ detail: CatchDetail) {
-        Task {
-            if let image = await CatchActions.shareImage(for: detail) {
+        guard !isPreparingShare else { return }
+        isPreparingShare = true
+        ToastCenter.shared.show("Preparing the share card", style: .info, haptic: false,
+                                icon: "square.and.arrow.up")
+        Task { @MainActor in
+            var image = await CatchActions.shareImage(for: detail)
+            if image == nil {
+                image = await CatchShareCard.render(detail: detail)
+            }
+            isPreparingShare = false
+            if let image {
                 shareItem = CatchShareItem(image: image, filename: CatchActions.shareFilename(for: detail))
             } else {
-                ToastCenter.shared.show("This catch has nothing to share yet", style: .info)
+                ToastCenter.shared.show("Couldn't make the share card", style: .error)
             }
         }
     }
