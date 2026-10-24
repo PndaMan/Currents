@@ -981,6 +981,56 @@ private struct AnglerStatsLine: View {
     }
 }
 
+/// An angler's catches as rows of square art, newest first: ten, then a
+/// button for the rest. Each row opens the catch. Your own profile and an
+/// angler's page both use it.
+private struct AnglerCatchRows: View {
+    let rows: [CommunityService.LeaderRow]
+    @State private var showAll = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(showAll ? rows : Array(rows.prefix(10))) { c in
+                NavigationLink { CommunityCatchDetailView(row: c) } label: {
+                    ArtRow(over: LogbookFormat.relativeDay(c.date),
+                           title: CrewText.catchTitle(species: c.species, lengthCm: c.lengthCm, weightKg: c.weightKg),
+                           subtitle: c.region.isEmpty ? nil : c.region,
+                           chevron: true) {
+                        CommunityCatchThumb(row: c, size: 64)
+                    }
+                }
+                .buttonStyle(.dsRow)
+            }
+            if rows.count > 10 && !showAll {
+                Button("Show all \(rows.count) catches") {
+                    withAnimation(DS.Motion.spring) { showAll = true }
+                }
+                .buttonStyle(TonalButtonStyle())
+                .padding(.horizontal, DS.gutter)
+                .padding(.top, DS.Space.s2)
+            }
+        }
+    }
+
+    /// Your logged catches as Crew catch rows, in the order given.
+    @MainActor static func ownRows(_ details: [CatchDetail]) -> [CommunityService.LeaderRow] {
+        let svc = CommunityService.shared
+        return details.map {
+            CommunityService.LeaderRow(
+                id: "me-\($0.catchRecord.id)",
+                anglerName: svc.myName,
+                friendCode: svc.friendCode,
+                species: $0.species?.commonName ?? "Fish",
+                weightKg: $0.catchRecord.weightKg,
+                lengthCm: $0.catchRecord.lengthCm,
+                catchCount: nil,
+                region: svc.myRegion,
+                date: $0.catchRecord.caughtAt,
+                localPhotoPath: $0.catchRecord.photoPath)
+        }
+    }
+}
+
 // MARK: - Connection
 
 /// Whether the phone has a connection, for the Crew pages' offline notices.
@@ -1475,7 +1525,6 @@ struct FriendProfileView: View {
     @State private var sendingRequest = false
     /// A sharing menu changed while the sheet was open; said once on close.
     @State private var sharingChanged = false
-    @State private var showAllCatches = false
     /// Own catches with full local detail, for the real achievements card when
     /// the profile being viewed is yours.
     @State private var ownDetails: [CatchDetail] = []
@@ -1588,19 +1637,7 @@ struct FriendProfileView: View {
         let all = ownDetails.isEmpty
             ? ((try? appState.catchRepository.fetchAll(limit: 2000)) ?? [])
             : ownDetails
-        return all.map {
-            CommunityService.LeaderRow(
-                id: "me-\($0.catchRecord.id)",
-                anglerName: svc.myName,
-                friendCode: svc.friendCode,
-                species: $0.species?.commonName ?? "Fish",
-                weightKg: $0.catchRecord.weightKg,
-                lengthCm: $0.catchRecord.lengthCm,
-                catchCount: nil,
-                region: svc.myRegion,
-                date: $0.catchRecord.caughtAt,
-                localPhotoPath: $0.catchRecord.photoPath)
-        }
+        return AnglerCatchRows.ownRows(all)
     }
 
     /// A profile built from local data, for an owner who never published one.
@@ -1792,18 +1829,17 @@ struct FriendProfileView: View {
 
     // MARK: Catches
 
-    private var visibleCatches: [CommunityService.LeaderRow] {
-        showAllCatches ? catches : Array(catches.prefix(10))
-    }
-
     /// Offline, or the grant check couldn't reach iCloud: with nothing saved,
     /// neither "not shared" nor "no catches" is known to be true.
     private var catchesUnconfirmed: Bool {
         !isSelf && (catchesRefreshFailed || connection.isOffline)
     }
 
+    /// Titled "Shared catches" on someone else's page: the header counts every
+    /// catch they've logged, and this is only what they share with you.
     private var catchesSection: some View {
-        CrewSection(title: "Catches", detail: catchAccess && !catches.isEmpty ? "\(catches.count)" : nil) {
+        CrewSection(title: isSelf ? "Catches" : "Shared catches",
+                    detail: catchAccess && !catches.isEmpty ? "\(catches.count)" : nil) {
             if catches.isEmpty && catchesLoading {
                 FishLoader(message: "Reeling in their catches")
                     .frame(height: 84).frame(maxWidth: .infinity)
@@ -1826,25 +1862,7 @@ struct FriendProfileView: View {
             } else if catches.isEmpty {
                 InlineEmpty(systemImage: "fish", text: "No catches shared yet.")
             } else {
-                ForEach(visibleCatches) { c in
-                    NavigationLink { CommunityCatchDetailView(row: c) } label: {
-                        ArtRow(over: c.date.formatted(date: .abbreviated, time: .omitted),
-                               title: CrewText.catchTitle(species: c.species, lengthCm: c.lengthCm, weightKg: c.weightKg),
-                               subtitle: c.region.isEmpty ? nil : c.region,
-                               chevron: true) {
-                            CommunityCatchThumb(row: c, size: 64)
-                        }
-                    }
-                    .buttonStyle(.dsRow)
-                }
-                if catches.count > 10 && !showAllCatches {
-                    Button("Show all \(catches.count) catches") {
-                        withAnimation(DS.Motion.spring) { showAllCatches = true }
-                    }
-                    .buttonStyle(TonalButtonStyle())
-                    .padding(.horizontal, DS.gutter)
-                    .padding(.top, DS.Space.s2)
-                }
+                AnglerCatchRows(rows: catches)
             }
         }
     }
