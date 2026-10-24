@@ -233,7 +233,7 @@ private struct SpotFormBody: View {
 
                 field("Type") {
                     FilterChips(Spot.SpotType.allCases, selection: $spotType,
-                                title: { $0.rawValue }, systemImage: { $0.icon })
+                                title: { $0.label }, systemImage: { $0.icon })
                 }
 
                 field("Notes") {

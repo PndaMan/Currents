@@ -288,7 +288,7 @@ struct PlanDetailView: View {
             if let spot {
                 Button { appState.pendingDeepLink = MapLink.spot(spot) } label: {
                     ArtRow(title: spot.name,
-                           subtitle: spot.type == .general ? nil : spot.type.rawValue,
+                           subtitle: spot.type == .general ? nil : spot.type.label,
                            chevron: true) {
                         PlaceSnapshotThumb(spot: spot, size: 52)
                     }

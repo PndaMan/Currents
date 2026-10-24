@@ -119,7 +119,7 @@ enum ExploreFormat {
     }
 
     static func spotType(_ spot: Spot) -> String {
-        spot.type == .general ? "Spot" : spot.type.rawValue
+        spot.type.label
     }
 
     static func habitat(_ h: Species.Habitat?) -> String {

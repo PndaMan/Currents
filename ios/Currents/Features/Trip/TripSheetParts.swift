@@ -142,7 +142,7 @@ struct SpotChoices: View {
     }
 
     private func subtitle(_ spot: Spot) -> String? {
-        guard let here else { return spot.type == .general ? nil : spot.type.rawValue }
+        guard let here else { return spot.type == .general ? nil : spot.type.label }
         return "\(Units.distance(m: distance(spot, here))) away"
     }
 }

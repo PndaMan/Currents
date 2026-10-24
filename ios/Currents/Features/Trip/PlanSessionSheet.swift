@@ -165,7 +165,7 @@ struct PlanSessionSheet: View {
 
     private func spotSubtitle(_ spot: Spot) -> String? {
         guard let here = appState.locationManager.currentLocation else {
-            return spot.type == .general ? nil : spot.type.rawValue
+            return spot.type == .general ? nil : spot.type.label
         }
         let metres = CLLocation(latitude: spot.latitude, longitude: spot.longitude).distance(from: here)
         return "\(Units.distance(m: metres)) away"

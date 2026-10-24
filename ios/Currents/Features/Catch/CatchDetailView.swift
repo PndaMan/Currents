@@ -374,7 +374,7 @@ struct CatchDetailView: View {
                 // The spot opens on the Explore map in its sheet.
                 Button { appState.pendingDeepLink = MapLink.spot(spot) } label: {
                     ArtRow(over: "Spot", title: spot.name,
-                           subtitle: spot.type == .general ? nil : spot.type.rawValue,
+                           subtitle: spot.type == .general ? nil : spot.type.label,
                            chevron: true) {
                         PlaceSnapshotThumb(spot: spot, size: 52)
                     }

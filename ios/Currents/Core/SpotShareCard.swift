@@ -63,7 +63,7 @@ private struct SpotShareCardView: View {
             mapPanel
             HStack(spacing: DS.Space.s2) {
                 Image(systemName: spot.type.icon)
-                Text(spot.type == .general ? "Fishing spot" : spot.type.rawValue)
+                Text(spot.type == .general ? "Fishing spot" : spot.type.label)
                     .lineLimit(1)
             }
             .font(.subheadline)

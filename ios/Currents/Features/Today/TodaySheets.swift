@@ -99,7 +99,7 @@ struct TodayLocationSheet: View {
                                 onSelect(spot.id)
                                 dismiss()
                             } label: {
-                                ArtRow(title: spot.name, subtitle: spot.type.rawValue) {
+                                ArtRow(title: spot.name, subtitle: spot.type.label) {
                                     PlaceSnapshotThumb(spot: spot, size: 44)
                                 } trailing: {
                                     if spot.id == selectedSpotId {
