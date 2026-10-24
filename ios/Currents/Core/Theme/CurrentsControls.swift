@@ -223,7 +223,7 @@ struct PhotoWell: View {
         } else if let category {
             GearDraftArt(category: category, name: name, size: height)
         } else {
-            ThumbView(systemImage: "camera.fill", tint: .gray, size: height)
+            ThumbView(systemImage: "camera.fill", tint: DS.accent, size: height)
         }
     }
 
