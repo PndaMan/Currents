@@ -357,9 +357,18 @@ struct TitleBadge<Trailing: View>: View {
     private var shape: RoundedRectangle { RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous) }
 
     /// Rarity colour for text: in light mode mixed toward the text colour so
-    /// yellow and cyan stay readable on white.
+    /// it stays readable on the tinted card. Yellow and green, the palest
+    /// rarities, mix further to keep about 4.5:1.
     private var ink: Color {
-        scheme == .dark ? tint : tint.mix(with: .dsText, by: 0.4)
+        scheme == .dark ? tint : tint.mix(with: .dsText, by: isPale ? 0.55 : 0.4)
+    }
+
+    private var isPale: Bool {
+        guard !locked else { return false }
+        switch rarity {
+        case .legendary, .uncommon: return true
+        default: return false
+        }
     }
 
     var body: some View {
@@ -423,7 +432,8 @@ struct TitleBadge<Trailing: View>: View {
     private var backdrop: some View {
         ZStack {
             Color.dsFill
-            tint.opacity(scheme == .dark ? 0.14 : 0.10)
+            // Paler wash for yellow and green in light, so the card is not cream.
+            tint.opacity(scheme == .dark ? 0.14 : (isPale ? 0.06 : 0.10))
             if rarity.rawValue >= BadgeRarity.epic.rawValue && !locked {
                 // Fainter in light, where a yellow pattern turns the card khaki.
                 TitlePattern(symbol: TitleArt.of(flair).symbol, color: tint,
