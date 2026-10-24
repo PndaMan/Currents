@@ -818,6 +818,14 @@ enum ScreenshotSupport {
         // CommunityService.fetchAllLeaderCatches builds it.
         let boardCodes = Set(demoCrewMembers(code: crewCode).map(\.id)).union([me.code]).sorted()
         CommunityDiskCache.save(all, key: "leadercatches-\(boardCodes.joined(separator: "-"))")
+
+        // A friend's page lists their catches from "angler-catches-<code>"
+        // (CommunityService.cachedAnglerCatches), newest first: the photo
+        // rows above, which hold every catch the crew feed shows.
+        for mate in mates {
+            let theirs = rows.filter { $0.friendCode == mate.code }.sorted { $0.date > $1.date }
+            CommunityDiskCache.save(theirs, key: "angler-catches-\(mate.code)")
+        }
     }
 
     private static var demoTournament: CommunityService.Tournament {
