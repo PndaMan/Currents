@@ -24,6 +24,7 @@ struct PlanDetailView: View {
     @State private var confirmingDelete = false
     @State private var titleShown = false
     @FocusState private var addingItem: Bool
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     private var tracker: TripTracker { appState.tripTracker }
 
@@ -161,16 +162,23 @@ struct PlanDetailView: View {
             }
             .padding(.horizontal, DS.gutter)
 
-            LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible())], spacing: 10) {
+            // One row of three, as the streak tiles are, so the tiles share a
+            // height and their footnotes line up. Stacked at accessibility sizes.
+            let tileRow = typeSize.isAccessibilitySize
+                ? AnyLayout(VStackLayout(spacing: 10))
+                : AnyLayout(HStackLayout(alignment: .top, spacing: 10))
+            tileRow {
                 let planned = forecast.hourlyScores.filter { window.contains($0.hour) }.map(\.score)
+                // The readout above shows one hour, so this says it is the
+                // best of the planned hours rather than a second "Your hours".
                 ConditionTile("Your hours", systemImage: "clock", iconTint: DS.accent,
-                              value: planned.max().map { "\($0)" } ?? "\(forecast.score)",
+                              value: planned.max().map { "\($0)" } ?? "\(forecast.score)", unit: "best",
                               footnote: "\(ForecastFormat.hour(window.lowerBound, use24: use24)) to \(ForecastFormat.hour(window.upperBound + 1, use24: use24))")
                 if let solunar {
-                    ConditionTile("Sunrise", systemImage: "sunrise.fill", iconTint: .dsScoreLow,
+                    ConditionTile("Sunrise", systemImage: "sunrise.fill", iconTint: DS.ink(.dsScoreLow),
                                   value: ForecastFormat.time(solunar.sunrise, use24: use24),
                                   footnote: "Sunset \(ForecastFormat.time(solunar.sunset, use24: use24))")
-                    ConditionTile("Moon", systemImage: "moon.fill", iconTint: .dsScoreFair,
+                    ConditionTile("Moon", systemImage: "moon.fill", iconTint: DS.ink(.dsScoreFair),
                                   value: "\(Int((solunar.moonIllumination * 100).rounded()))", unit: "%",
                                   footnote: CatchDetailView.sentenceCase(solunar.moonPhase.displayName)) {
                         Image(systemName: solunar.moonPhase.symbolName)
@@ -180,6 +188,7 @@ struct PlanDetailView: View {
                     }
                 }
             }
+            .fixedSize(horizontal: false, vertical: true)
             .padding(.horizontal, DS.gutter)
             .padding(.top, DS.Space.s4)
         } else {
