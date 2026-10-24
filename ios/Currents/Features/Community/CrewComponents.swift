@@ -228,7 +228,7 @@ struct CrewAvatar: View {
     var size: CGFloat = 44
 
     private static var palette: [Color] {
-        [DS.accent, .dsScoreSlow, .dsScoreLow, .dsScoreFair, .dsScoreGood, .dsText2]
+        [DS.accent, .dsScoreSlow, .dsScoreLow, .dsScoreFair, .dsScoreGood]
     }
 
     private var colour: Color {
