@@ -131,9 +131,10 @@ final class AppState {
         // Apple Watch companion link.
         PhoneConnectivity.shared.activate()
 
-        // Refresh licence-expiry reminders from stored licences.
+        // Refresh licence-expiry reminders from stored licences, without
+        // asking for notification permission.
         if let licenses = try? licenseRepository.fetchAll(), !licenses.isEmpty {
-            Task { await NotificationManager.shared.scheduleLicenseExpiryAlerts(licenses: licenses) }
+            Task { await LicenseReminders.reschedule(licenses) }
         }
 
         // App Store screenshot capture (CI only — gated on SCREENSHOT_MODE env).
