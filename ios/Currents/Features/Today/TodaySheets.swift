@@ -3,40 +3,20 @@ import CoreLocation
 
 // MARK: - Clarity
 
-/// Clear, stained or muddy as a segmented control with a sliding thumb.
-struct ClaritySegments: View {
+/// Clear, stained or muddy as filter chips. Applies straight away; the picks
+/// below move with the change.
+struct ClarityChips: View {
     let selection: WaterClarity
+    var reduceMotion: Bool = false
     let onSelect: (WaterClarity) -> Void
-    @Namespace private var ns
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        HStack(spacing: 0) {
-            ForEach(WaterClarity.allCases) { c in
-                let on = c == selection
-                Button {
-                    if !on { Haptics.selection() }
-                    withAnimation(reduceMotion ? nil : DS.Motion.softSpring) { onSelect(c) }
-                } label: {
-                    Label(c.label, systemImage: c.icon)
-                        .font(.subheadline.weight(on ? .semibold : .regular))
-                        .foregroundStyle(on ? Color.dsText : Color.dsText2)
-                        .frame(maxWidth: .infinity, minHeight: 36)
-                        .background {
-                            if on {
-                                RoundedRectangle(cornerRadius: DS.Radius.thumb - 2, style: .continuous)
-                                    .fill(Color.dsFill2)
-                                    .matchedGeometryEffect(id: "thumb", in: ns)
-                            }
-                        }
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityAddTraits(on ? .isSelected : [])
-            }
-        }
-        .padding(3)
-        .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.thumb + 1, style: .continuous))
+        FilterChips(WaterClarity.allCases,
+                    selection: Binding(get: { selection }, set: { onSelect($0) })
+                        .animation(reduceMotion ? nil : DS.Motion.softSpring),
+                    title: { $0.label }, systemImage: { $0.icon })
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("Water clarity")
     }
 }
 

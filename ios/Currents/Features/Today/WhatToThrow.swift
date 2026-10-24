@@ -46,6 +46,13 @@ enum ThrowText {
         return joined + "."
     }
 
+    /// A reason as a value: capitalised, with no full stop at the end.
+    static func phrase(_ text: String) -> String {
+        var trimmed = text.trimmingCharacters(in: .whitespaces)
+        while trimmed.hasSuffix(".") { trimmed.removeLast() }
+        return capitalised(trimmed)
+    }
+
     private static func capitalised(_ text: String) -> String {
         guard let first = text.first else { return text }
         return String(first).uppercased() + text.dropFirst()
@@ -66,12 +73,16 @@ enum ThrowText {
 
 // MARK: - One pick
 
-/// A ranked lure: rank, picture, name, colour and how to fish it. The full
-/// version adds depth, the reason and your own history as labelled values.
+/// A ranked lure: rank, picture, name, colour and how to fish it in one
+/// line. The full version adds depth, the main reason and your own history as
+/// labelled values.
 struct LureSuggestionRow: View {
     let suggestion: LureEngine.Suggestion
     let rank: Int
     var full: Bool = false
+    /// True inside a `CardGroup`, which pads to the card's edge rather than
+    /// the page gutter.
+    var inCard: Bool = false
 
     @Environment(\.dynamicTypeSize) private var typeSize
     @ScaledMetric(relativeTo: .headline) private var rankWidth: CGFloat = 16
@@ -105,17 +116,9 @@ struct LureSuggestionRow: View {
                 }
 
                 VStack(alignment: .leading, spacing: 3) {
-                    HStack(spacing: 6) {
-                        Text(suggestion.lure)
-                            .font(.headline)
-                            .foregroundStyle(.dsText)
-                        if suggestion.isOwned {
-                            Image(systemName: "checkmark.seal.fill")
-                                .font(.subheadline)
-                                .foregroundStyle(Color.dsScoreGood)
-                                .accessibilityLabel("In your tackle box")
-                        }
-                    }
+                    Text(suggestion.lure)
+                        .font(.headline)
+                        .foregroundStyle(.dsText)
                     HStack(spacing: 6) {
                         LureColorSwatch(name: suggestion.color, size: 12)
                         Text(suggestion.color)
@@ -125,8 +128,7 @@ struct LureSuggestionRow: View {
                     Text(ThrowText.sentence(suggestion.technique))
                         .font(.subheadline)
                         .foregroundStyle(.dsText2)
-                        .lineLimit(full ? nil : 2)
-                        .fixedSize(horizontal: false, vertical: true)
+                        .lineLimit(typeSize.isAccessibilitySize ? 3 : 1)
                         .padding(.top, 2)
                 }
                 if !stacked { Spacer(minLength: 0) }
@@ -137,8 +139,10 @@ struct LureSuggestionRow: View {
                     if !suggestion.depth.isEmpty {
                         ThrowValue(label: "Depth", value: suggestion.depth)
                     }
+                    // The first reason only; the engine puts the most
+                    // specific one first.
                     if let reason = ThrowText.reason(suggestion) {
-                        ThrowValue(label: "Why", value: ThrowText.sentence(reason))
+                        ThrowValue(label: "Why", value: ThrowText.phrase(reason))
                     }
                     if !stacked { Spacer(minLength: 0) }
                 }
@@ -158,7 +162,7 @@ struct LureSuggestionRow: View {
                 }
             }
         }
-        .padding(.horizontal, DS.gutter)
+        .padding(.horizontal, inCard ? DS.Space.s4 : DS.gutter)
         .padding(.vertical, 12)
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
@@ -375,6 +379,7 @@ struct WhatToThrowSection: View {
     let hasGear: Bool
     let onClarity: (WaterClarity) -> Void
     @AppStorage("units") private var units = "metric"
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -389,14 +394,16 @@ struct WhatToThrowSection: View {
                     .font(.subheadline)
                     .foregroundStyle(.dsText2)
                     .fixedSize(horizontal: false, vertical: true)
-                ClaritySegments(selection: clarity, onSelect: onClarity)
+                    .padding(.horizontal, DS.gutter)
+                // The chips pad to the gutter themselves.
+                ClarityChips(selection: clarity, reduceMotion: reduceMotion, onSelect: onClarity)
                 if clarityIsGuess {
                     Text("Clarity is a guess from recent rain. Tap what you see.")
                         .font(.footnote)
                         .foregroundStyle(.dsText3)
+                        .padding(.horizontal, DS.gutter)
                 }
             }
-            .padding(.horizontal, DS.gutter)
             .padding(.bottom, 4)
 
             if suggestions.isEmpty {
@@ -446,8 +453,18 @@ struct WhatToThrowPage: View {
     @State private var history: [CatchDetail] = []
     @State private var loaded = false
     @State private var titleShown = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var typeSize
+    /// Matches the rank column in `LureSuggestionRow`.
+    @ScaledMetric(relativeTo: .headline) private var rankWidth: CGFloat = 16
 
     private var weather: WeatherService.WeatherData? { store.weather(for: 0) }
+
+    /// Hairlines start under the lure name, past the rank and the picture;
+    /// at accessibility sizes the row stacks, so they start at the edge.
+    private var pickSeparatorInset: CGFloat {
+        typeSize.isAccessibilitySize ? DS.Space.s4 : DS.Space.s4 + rankWidth + 12 + 64 + 12
+    }
 
     /// Today's weather when it is a real reading, as on Today: an offline
     /// estimate only has a real barometer.
@@ -482,26 +499,24 @@ struct WhatToThrowPage: View {
                 if let note = store.staleNote { SectionFootnote(note) }
 
                 VStack(alignment: .leading, spacing: 8) {
-                    ClaritySegments(selection: clarity) { clarityOverride = $0.rawValue }
+                    // The chips pad to the gutter themselves.
+                    ClarityChips(selection: clarity, reduceMotion: reduceMotion) { clarityOverride = $0.rawValue }
                     Text(ThrowText.clarityNote(clarity, imperial: imperial))
                         .font(.footnote)
                         .foregroundStyle(.dsText2)
                         .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, DS.gutter)
                 }
-                .padding(.horizontal, DS.gutter)
                 .padding(.top, 20)
                 .padding(.bottom, 24)
 
                 SectionTitle("Best picks", detail: picks.isEmpty ? nil : "\(picks.count)")
                 if picks.isEmpty && loaded {
                     InlineEmpty(text: "No picks yet. They appear once the weather loads.")
-                } else {
-                    ForEach(Array(picks.enumerated()), id: \.element.id) { index, s in
-                        LureSuggestionRow(suggestion: s, rank: index + 1, full: true)
-                        if index < picks.count - 1 {
-                            Divider()
-                                .overlay(Color.dsSeparator)
-                                .padding(.leading, DS.gutter + 28 + 64 + 12)
+                } else if !picks.isEmpty {
+                    CardGroup(separatorInset: pickSeparatorInset) {
+                        ForEach(Array(picks.enumerated()), id: \.element.id) { index, s in
+                            LureSuggestionRow(suggestion: s, rank: index + 1, full: true, inCard: true)
                         }
                     }
                 }
