@@ -269,6 +269,7 @@ struct TournamentView: View {
     @State private var shareImage: UIImage?
     @State private var showingShare = false
     @State private var confirmingDelete = false
+    @State private var deleting = false
     @State private var trophyBounce = 0
     /// The result pattern plays once per visit, not on every return to the page.
     @State private var celebratedResult = false
@@ -375,9 +376,10 @@ struct TournamentView: View {
             }
             .padding(.top, DS.Space.s8)
         } else if tournament.isEnded && role.canManage {
-            DangerButton(title: "Delete tournament", systemImage: "trash") {
+            DangerButton(title: deleting ? "Deleting" : "Delete tournament", systemImage: "trash") {
                 confirmingDelete = true
             }
+            .disabled(deleting)
             .padding(.top, DS.Space.s8)
         }
     }
@@ -410,7 +412,10 @@ struct TournamentView: View {
     }
 
     private func deleteTournament() {
+        guard !deleting else { return }
+        deleting = true
         Task {
+            defer { deleting = false }
             if await svc.deleteTournament(tournament, crew: crew) {
                 Haptics.warning()
                 TournamentActivityManager.shared.end()
@@ -1528,6 +1533,7 @@ struct TournamentHistoryView: View {
     let crew: CommunityService.Crew
 
     @StateObject private var svc = CommunityService.shared
+    @ObservedObject private var connection = CrewConnection.shared
     @State private var list: [CommunityService.Tournament] = []
     @State private var loading = true
     @State private var tournamentToDelete: CommunityService.Tournament?
@@ -1543,6 +1549,11 @@ struct TournamentHistoryView: View {
                 Group {
                     if loading {
                         EventSkeletonRows(count: 4, thumbSize: 56, label: "Loading tournaments")
+                    } else if connection.isOffline {
+                        // Nothing saved on this phone and no connection:
+                        // say so instead of "No tournaments yet".
+                        InlineEmpty(systemImage: "wifi.slash", text: "Tournaments need a connection",
+                                    actionTitle: "Try again") { Task { await load() } }
                     } else {
                         InlineEmpty(systemImage: "trophy", text: "No tournaments yet. Results land here when the crew runs one.")
                     }
