@@ -250,6 +250,12 @@ extension FishingLicense {
         if days <= 30 { return (days == 1 ? "1 day left" : "\(days) days left", DS.scoreInk(30)) }
         return ("Valid until \(expiryDate.formatted(date: .abbreviated, time: .omitted))", .dsText2)
     }
+
+    /// The renewal notice's tint: the raw colour of the score `expiryStatus`
+    /// inks for its text, since the notice inks its own glyph.
+    var renewalTint: Color {
+        DS.scoreColor((daysUntilExpiry ?? 0) <= 0 ? 0 : 30)
+    }
 }
 
 // MARK: - Row
@@ -323,7 +329,7 @@ struct LicenseDetailView: View {
                 DetailHeader(title: license.title, subtitle: license.isRenewalDue ? nil : license.expiryStatus?.text)
                 if license.isRenewalDue, let status = license.expiryStatus {
                     PFNotice(systemImage: license.isExpired ? "exclamationmark.triangle.fill" : "clock.fill",
-                             tint: status.color, title: status.text,
+                             tint: license.renewalTint, title: status.text,
                              message: license.isExpired ? "Add the renewal once you have it."
                                                         : "Add the renewal when you buy it.")
                 }
