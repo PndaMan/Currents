@@ -1002,31 +1002,26 @@ struct MapTab: View {
 
     private var sideButtons: some View {
         VStack(spacing: 10) {
-            Button { afterClosingPlace { showingLayers = true } } label: {
-                glassCircle("square.3.layers.3d", dot: overlaysOn || mapStyle != .standard ? DS.accent : nil)
+            mapButton("Map layers", systemImage: "square.3.layers.3d",
+                      dot: overlaysOn || mapStyle != .standard ? DS.accent : nil) {
+                afterClosingPlace { showingLayers = true }
             }
-            .buttonStyle(.dim)
-            .accessibilityLabel("Map layers")
 
-            Button { locateMe() } label: {
-                glassCircle("location")
+            mapButton("Show my location", systemImage: "location") {
+                locateMe()
             }
-            .buttonStyle(.dim)
-            .accessibilityLabel("Show my location")
 
-            Button {
+            mapButton("Add spot", systemImage: "mappin.and.ellipse") {
                 isPlaceOpen = false
                 isDropping = true
-            } label: {
-                glassCircle("mappin.and.ellipse")
             }
-            .buttonStyle(.dim)
             .buttonHaptic(.press)
-            .accessibilityLabel("Add spot")
 
             // Start or resume a fishing session.
             if FeatureFlags.liveTrips {
-                Button {
+                mapButton(appState.tripTracker.isTracking ? "Open live session" : "Start session",
+                          systemImage: appState.tripTracker.isTracking ? "figure.fishing" : "play.fill",
+                          dot: appState.tripTracker.isTracking ? Color.dsScoreSlow : nil) {
                     afterClosingPlace {
                         if appState.tripTracker.isTracking {
                             showingLiveTrip = true
@@ -1034,19 +1029,30 @@ struct MapTab: View {
                             showingNewTrip = true
                         }
                     }
-                } label: {
-                    glassCircle(appState.tripTracker.isTracking ? "figure.fishing" : "play.fill",
-                                dot: appState.tripTracker.isTracking ? Color.dsScoreSlow : nil)
                 }
-                .buttonStyle(.dim)
-                .accessibilityLabel(appState.tripTracker.isTracking ? "Open live session" : "Start session")
             }
+        }
+    }
+
+    /// A floating map button. Like bar icons it keeps its size at large
+    /// text; a long press shows the enlarged icon and name instead.
+    private func mapButton(_ label: String, systemImage: String, dot: Color? = nil,
+                           action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            glassCircle(systemImage, dot: dot)
+        }
+        .buttonStyle(.dim)
+        .accessibilityLabel(label)
+        .accessibilityShowsLargeContentViewer {
+            Label(label, systemImage: systemImage)
         }
     }
 
     private func glassCircle(_ systemImage: String, dot: Color? = nil) -> some View {
         Image(systemName: systemImage)
             .font(.title3.weight(.medium))
+            // The glyph stays at the default text size so it fits its circle.
+            .dynamicTypeSize(.large)
             .foregroundStyle(.dsText)
             .frame(width: 46, height: 46)
             .contentShape(Circle())
