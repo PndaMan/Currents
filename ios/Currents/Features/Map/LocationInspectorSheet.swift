@@ -35,7 +35,7 @@ struct LocationInspectorSheet: View {
     @State private var isLoadingWater = true
     @State private var showingSaveForm = false
     /// The spot saved here, from this sheet or before it opened. Once set,
-    /// Save spot shows "Saved" and cannot save a second time.
+    /// Save spot shows "Saved" and opens that spot instead of saving again.
     @State private var savedSpot: Spot?
     @State private var detent: PresentationDetent = .medium
 
@@ -117,7 +117,12 @@ struct LocationInspectorSheet: View {
     private var content: some View {
         ActionTriple {
             Button {
-                guard savedSpot == nil, !showingSaveForm else { return }
+                // Saved here already: the tile opens that spot.
+                if let savedSpot {
+                    onOpen(.spot(SpotRef(savedSpot)))
+                    return
+                }
+                guard !showingSaveForm else { return }
                 detent = .large
                 showingSaveForm = true
             } label: {
@@ -125,8 +130,7 @@ struct LocationInspectorSheet: View {
                       systemImage: savedSpot == nil ? "bookmark" : "bookmark.fill")
             }
             .buttonStyle(ActionTileStyle(savedSpot == nil ? .primary : .tonal))
-            .disabled(savedSpot != nil)
-            .accessibilityHint(savedSpot == nil ? "Adds this place to your spots" : "This place is in your spots")
+            .accessibilityHint(savedSpot == nil ? "Adds this place to your spots" : "Opens this spot")
             DirectionsMenu(coordinate: coordinate, name: heading) {
                 ActionTileLabel("Directions", systemImage: "location.north.line")
             }
