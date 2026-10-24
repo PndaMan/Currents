@@ -11,7 +11,6 @@ struct LicenseWalletView: View {
     @State private var showingAdd = false
     @State private var didLoad = false
     @State private var loadFailed = false
-    @State private var titleShown = false
     @State private var toDelete: FishingLicense?
     @State private var opened: LicenseRoute?
 
@@ -58,8 +57,7 @@ struct LicenseWalletView: View {
         }
         .dsPlainList()
         .detailTint(nil)
-        .pfTrackScroll($titleShown, threshold: 60)
-        .pfScrollTitle("Licences", shown: titleShown)
+        .pageTitleFade("Licences")
         .navigationDestination(item: $opened) { route in
             if let license = licenses.first(where: { $0.id == route.id }) {
                 LicenseDetailView(license: license) { reload() }
@@ -331,7 +329,6 @@ struct LicenseDetailView: View {
     @State private var showingRenewal = false
     @State private var showingDeleteConfirm = false
     @State private var showingDocument = false
-    @State private var titleShown = false
     /// Set when a renewal was saved, so the page returns to the wallet.
     @State private var renewalSaved = false
 
@@ -376,8 +373,7 @@ struct LicenseDetailView: View {
             .pageWidth()
         }
         .detailTint(nil)
-        .pfTrackScroll($titleShown, threshold: license.fileName == nil ? 60 : 300)
-        .pfScrollTitle(license.title, shown: titleShown)
+        .pageTitleFade(license.title, threshold: license.fileName == nil ? nil : 300)
         .sheet(isPresented: $showingEdit, onDismiss: refresh) {
             AddLicenseSheet(editing: license)
         }
