@@ -1,4 +1,5 @@
 import Foundation
+import CoreLocation
 
 /// Season estimates for the species guide and species pages.
 ///
@@ -31,8 +32,14 @@ enum SpeciesSeason {
 
     static var currentMonth: Int { Calendar.current.component(.month, from: .now) }
 
-    /// Whether the device is in the southern hemisphere (rough heuristic via time zone).
+    /// The phone's last known latitude, read once. Nil without location
+    /// permission or before the first fix.
+    private static let lastKnownLatitude: Double? = CLLocationManager().location?.coordinate.latitude
+
+    /// Whether the angler is in the southern hemisphere: from the last known
+    /// location, falling back to the time zone.
     static var isSouthernHemisphere: Bool {
+        if let latitude = lastKnownLatitude { return latitude < 0 }
         let tz = TimeZone.current.identifier.lowercased()
         let southern = ["australia", "auckland", "wellington", "buenos_aires",
                         "santiago", "johannesburg", "harare", "perth",
