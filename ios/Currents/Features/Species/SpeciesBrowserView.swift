@@ -227,6 +227,7 @@ struct SpeciesBrowserView: View {
         let year = await SpeciesSeason.waterYear(appState)
         if species.isEmpty {
             species = (try? appState.speciesRepository.fetchAll()) ?? []
+            FishdexNumbers.count(species)
         }
         if scoredWater != year || scoresById.count != species.count {
             var scores: [Int64: [Int]] = [:]

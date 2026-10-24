@@ -327,6 +327,7 @@ struct FishCollectionView: View {
     private func load() async {
         if species.isEmpty {
             species = (try? appState.speciesRepository.fetchAll()) ?? []
+            FishdexNumbers.count(species)
         }
         caughtIds = (try? appState.speciesRepository.caughtSpeciesIds()) ?? []
         let bests = (try? appState.catchRepository.personalBests()) ?? []

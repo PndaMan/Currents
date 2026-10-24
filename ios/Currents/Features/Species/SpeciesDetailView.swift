@@ -137,6 +137,7 @@ struct SpeciesDetailView: View {
     }
 
     private func load() async {
+        FishdexNumbers.countIfNeeded(appState.speciesRepository)
         water = await SpeciesSeason.waterYear(appState)
         catches = (try? appState.catchRepository.fetchForSpecies(species.id)) ?? []
         loaded = true

@@ -193,6 +193,35 @@ struct SpeciesTempBar: View {
 }
 
 extension Species {
-    /// "#0046", the Fishdex number.
-    var fishdexNumber: String { String(format: "#%04d", id) }
+    /// "#0046", the Fishdex number: the species' place in the seed's order,
+    /// so the numbers run from 1 with no gaps. The record id until the dex
+    /// has been counted (`FishdexNumbers`).
+    @MainActor
+    var fishdexNumber: String { String(format: "#%04d", FishdexNumbers.position(of: id)) }
+}
+
+/// Fishdex numbers by seed order. The seed lists species by rising id, with
+/// gaps where records were dropped, so a species' number is its rank among
+/// the ids, counted from 1.
+@MainActor
+enum FishdexNumbers {
+    private static var positions: [Int64: Int] = [:]
+
+    /// Numbers every species from the full list, in any order.
+    static func count(_ species: [Species]) {
+        let ids = species.map(\.id).sorted()
+        var numbers: [Int64: Int] = [:]
+        numbers.reserveCapacity(ids.count)
+        for (index, id) in ids.enumerated() { numbers[id] = index + 1 }
+        positions = numbers
+    }
+
+    /// Counts from the database the first time a page needs a number and
+    /// neither the guide nor the Fishdex has counted yet.
+    static func countIfNeeded(_ repository: SpeciesRepository) {
+        guard positions.isEmpty else { return }
+        count((try? repository.fetchAll()) ?? [])
+    }
+
+    static func position(of id: Int64) -> Int { positions[id] ?? Int(id) }
 }
