@@ -238,30 +238,50 @@ struct SpeciesDetailView: View {
         .buttonStyle(.dsRow)
     }
 
+    /// Count, heaviest, longest and released as tiles, as on a place page,
+    /// then when the first and the latest were caught. No tile has a
+    /// footnote, so the row stays one height.
     private var statsSection: some View {
-        section("Your stats") {
-            KeyValueList(rows: statRows)
-        }
-    }
-
-    private var statRows: [(String, String)] {
         let records = catches.map(\.catchRecord)
-        var rows: [(String, String)] = [("Caught", "\(records.count)")]
-        if let heaviest = records.compactMap(\.weightKg).max() {
-            rows.append(("Heaviest", Units.weight(kg: heaviest, imperial: imperial)))
-        }
-        if let longest = records.compactMap(\.lengthCm).max() {
-            rows.append(("Longest", Units.length(cm: longest, imperial: imperial)))
-        }
-        rows.append(("Released", "\(records.filter(\.released).count) of \(records.count)"))
+        let released = records.filter(\.released).count
+        let heaviest = records.compactMap(\.weightKg).max()
+        let longest = records.compactMap(\.lengthCm).max()
         // Newest first, so the last is the first one caught.
-        if let first = records.last?.caughtAt {
-            rows.append(("First caught", LogbookFormat.fullDate(first)))
+        let first = records.last?.caughtAt
+        let latest = records.count > 1 ? records.first?.caughtAt : nil
+        return section("Your stats") {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 10) {
+                    StatTile("Caught", systemImage: "fish.fill", value: "\(records.count)")
+                    if let heaviest {
+                        let parts = Units.weightParts(kg: heaviest, imperial: imperial)
+                        StatTile("Heaviest", systemImage: "trophy.fill", tint: DS.ink(.dsScoreFair),
+                                 value: parts.0, unit: parts.1)
+                    }
+                    if let longest {
+                        let parts = Units.lengthParts(cm: longest, imperial: imperial)
+                        StatTile("Longest", systemImage: "ruler", tint: .indigo,
+                                 value: parts.0, unit: parts.1)
+                    }
+                    StatTile("Released", systemImage: "arrow.uturn.backward", tint: .dsScoreGood,
+                             value: "\(released)", unit: "of \(records.count)")
+                }
+                .padding(.horizontal, DS.gutter)
+            }
+            if first != nil || latest != nil {
+                CardGroup {
+                    if let first {
+                        CardRow("First caught", systemImage: "flag.fill", tint: .green,
+                                value: LogbookFormat.fullDate(first))
+                    }
+                    if let latest {
+                        CardRow("Last caught", systemImage: "clock.fill", tint: .blue,
+                                value: LogbookFormat.fullDate(latest))
+                    }
+                }
+                .padding(.top, DS.Space.s3)
+            }
         }
-        if records.count > 1, let last = records.first?.caughtAt {
-            rows.append(("Last caught", LogbookFormat.fullDate(last)))
-        }
-        return rows
     }
 
     private var historySection: some View {
