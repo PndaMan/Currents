@@ -362,7 +362,9 @@ struct TitleBadge<Trailing: View>: View {
     }
 
     var body: some View {
+        // A locked title dims its content; the card keeps its full fill.
         layout
+            .opacity(locked ? 0.55 : 1)
             .padding(.horizontal, 14)
             .padding(.vertical, 12)
             .background { backdrop }
@@ -372,7 +374,6 @@ struct TitleBadge<Trailing: View>: View {
                                        ? ink.opacity(0.5) : tint.opacity(0.18),
                                    lineWidth: 1)
             }
-            .opacity(locked ? 0.55 : 1)
             .accessibilityElement(children: .combine)
             .accessibilityLabel(locked ? "\(flair.displayName), \(rarity.label) title, locked"
                                        : "\(flair.displayName), \(rarity.label) title")
