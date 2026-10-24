@@ -2738,7 +2738,7 @@ final class CommunityService: ObservableObject {
                 options: [.firesOnRecordCreation])
             trips.notificationInfo = info(
                 title: "\(crew.emoji) \(crew.name)",
-                key: "%1$@ started a live trip — jump in",
+                key: "%1$@ started a live group trip. Jump in",
                 args: ["hostName"],
                 desiredKeys: ["hostCode", "crewCode"])
             subs.append(trips)
