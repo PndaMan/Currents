@@ -47,13 +47,13 @@ enum CrewText {
         }
     }
 
-    /// "4d 08:09:23", "08:09:23", or "Overtime" once past due.
-    static func clock(to end: Date, now: Date) -> String {
-        let s = Int(end.timeIntervalSince(now))
-        guard s > 0 else { return "Overtime" }
-        let d = s / 86_400, h = (s / 3600) % 24, m = (s / 60) % 60, sec = s % 60
-        let hms = String(format: "%02d:%02d:%02d", h, m, sec)
-        return d > 0 ? "\(d)d \(hms)" : hms
+    /// "Ends in 17 h 58 min" inside the last day, "Ends Sat 18:00" or
+    /// "Ends 2 Nov, 18:00" before that, "In overtime" once past due.
+    static func ends(_ end: Date, now: Date, use24: Bool) -> String {
+        let left = end.timeIntervalSince(now)
+        guard left > 0 else { return "In overtime" }
+        return left < 86_400 ? "Ends in \(ForecastFormat.elapsed(left))"
+            : "Ends \(eventTimeText(end, now: now, use24: use24))"
     }
 
     /// "Species, 44 cm" or "Species, 2.1 kg" or just the species.
@@ -408,8 +408,8 @@ struct CrewSection<Content: View>: View {
 }
 
 /// A row for something with a time attached: a tournament, a live trip, a
-/// planned trip. Live rows get the red dot and label; `endsAt` ticks a
-/// countdown every second.
+/// planned trip. Live rows get the red dot and label; `endsAt` shows the
+/// time left, updated each minute.
 struct CrewEventRow<Leading: View>: View {
     var isLive = false
     var over: String? = nil
@@ -419,6 +419,7 @@ struct CrewEventRow<Leading: View>: View {
     var pill: String? = nil
     @ViewBuilder var leading: () -> Leading
     @Environment(\.dynamicTypeSize) private var typeSize
+    @AppStorage("use24HourTime") private var use24 = true
 
     var body: some View {
         HStack(spacing: 14) {
@@ -443,11 +444,12 @@ struct CrewEventRow<Leading: View>: View {
                     .foregroundStyle(.dsText)
                     .lineLimit(typeSize.isAccessibilitySize ? 4 : 2)
                 if let endsAt {
-                    TimelineView(.periodic(from: .now, by: 1)) { ctx in
-                        Text(endsAt > ctx.date ? "Ends in \(CrewText.clock(to: endsAt, now: ctx.date))" : "In overtime")
+                    TimelineView(.periodic(from: .now, by: 60)) { ctx in
+                        Text(CrewText.ends(endsAt, now: ctx.date, use24: use24))
                             .font(.subheadline)
                             .monospacedDigit()
                             .foregroundStyle(.dsText2)
+                            .lineLimit(typeSize.isAccessibilitySize ? 3 : 1)
                             .contentTransition(.numericText())
                     }
                 } else if let subtitle, !subtitle.isEmpty {
