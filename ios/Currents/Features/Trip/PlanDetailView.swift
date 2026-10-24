@@ -22,7 +22,6 @@ struct PlanDetailView: View {
     @State private var showingEdit = false
     @State private var confirmingStart = false
     @State private var confirmingDelete = false
-    @State private var showingActive = false
     @FocusState private var addingItem: Bool
 
     private var tracker: TripTracker { appState.tripTracker }
@@ -60,9 +59,6 @@ struct PlanDetailView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("The plan and its checklist are removed.")
-        }
-        .navigationDestination(isPresented: $showingActive) {
-            ActiveSessionView()
         }
         .task(id: tripId) { load() }
     }
@@ -410,12 +406,15 @@ struct PlanDetailView: View {
         }
     }
 
+    /// Starts the plan, leaves this page (it is a session now, not a plan)
+    /// and opens the live session on Explore, as the launch prompt does.
     private func start() {
         guard let trip else { return }
         Haptics.success()
         _ = tracker.startPlanned(trip)
         ToastCenter.shared.show("Session started", icon: "play.fill")
-        showingActive = true
+        dismiss()
+        appState.pendingDeepLink = URL(string: "currents://session")
     }
 
     private func delete() {
