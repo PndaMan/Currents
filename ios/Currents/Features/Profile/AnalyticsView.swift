@@ -494,12 +494,10 @@ struct AnalyticsView: View {
         if !personalBests.isEmpty {
             SectionTitle("Personal bests")
                 .padding(.top, DS.Space.s8)
+            let byId = speciesById
             ForEach(personalBests, id: \.speciesId) { pb in
                 let best = bestCatch(pb)
-                let subtitle = [pb.heaviestKg.map { Units.weight(kg: $0, imperial: imperial) },
-                                pb.longestCm.map { Units.length(cm: $0, imperial: imperial) },
-                                "\(pb.totalCatches) caught"]
-                    .compactMap { $0 }.joined(separator: ", ")
+                let subtitle = bestSubtitle(pb)
                 if let best {
                     NavigationLink {
                         CatchDetailView(detail: best)
@@ -511,16 +509,43 @@ struct AnalyticsView: View {
                     .buttonStyle(.dsRow)
                 } else {
                     ArtRow(title: pb.commonName, subtitle: subtitle) {
-                        ThumbView(systemImage: "fish.fill", tint: DS.accent, size: 52)
+                        if let species = byId[pb.speciesId] {
+                            ThumbView(species: species, size: 52)
+                        } else {
+                            ThumbView(systemImage: "fish.fill", tint: DS.accent, size: 52)
+                        }
                     }
                 }
             }
         }
     }
 
+    /// "9.8 kg, 99.5 cm, 1 caught", rounded as the Heaviest and Longest
+    /// tiles round, so one fish reads the same in both places.
+    private func bestSubtitle(_ pb: PersonalBest) -> String {
+        var parts: [String] = []
+        if let kg = pb.heaviestKg {
+            let p = Units.weightParts(kg: kg, imperial: imperial)
+            parts.append("\(p.0) \(p.1)")
+        }
+        if let cm = pb.longestCm {
+            let p = Units.lengthParts(cm: cm, imperial: imperial)
+            parts.append("\(p.0) \(p.1)")
+        }
+        parts.append("\(pb.totalCatches) caught")
+        return parts.joined(separator: ", ")
+    }
+
+    /// The catch a personal best row opens: the heaviest of the species,
+    /// else the longest, else the latest. The query leaves the catch ids
+    /// empty, so they are matched here from the log.
     private func bestCatch(_ pb: PersonalBest) -> CatchDetail? {
-        let id = pb.heaviestCatchId ?? pb.longestCatchId
-        return id.flatMap { id in allCatches.first { $0.catchRecord.id == id } }
+        let mine = allCatches.filter { $0.catchRecord.speciesId == pb.speciesId }
+        let heaviest = mine.filter { $0.catchRecord.weightKg != nil }
+            .max { ($0.catchRecord.weightKg ?? 0) < ($1.catchRecord.weightKg ?? 0) }
+        let longest = mine.filter { $0.catchRecord.lengthCm != nil }
+            .max { ($0.catchRecord.lengthCm ?? 0) < ($1.catchRecord.lengthCm ?? 0) }
+        return heaviest ?? longest ?? mine.first
     }
 
     // MARK: - Helpers
