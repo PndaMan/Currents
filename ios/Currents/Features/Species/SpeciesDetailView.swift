@@ -188,7 +188,8 @@ struct SpeciesDetailView: View {
                 Label(isTargeted ? "Targeting" : "Target", systemImage: "scope")
                     .contentTransition(.symbolEffect(.replace))
             }
-            .buttonStyle(ActionTileStyle(.primary))
+            // As the place pages' Save tile: primary to set, tonal once set.
+            .buttonStyle(ActionTileStyle(isTargeted ? .tonal : .primary))
             .accessibilityHint("Sets this species as the target for your bite forecast")
 
             Button {
