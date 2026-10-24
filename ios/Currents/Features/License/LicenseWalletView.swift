@@ -80,10 +80,13 @@ struct LicenseWalletView: View {
     }
 
     /// One line under the title: what needs doing, or how many are kept.
+    /// Each row carries its own expiry status, so this only counts.
     private var summary: String? {
         guard didLoad, !licenses.isEmpty else { return nil }
-        if let due = current.first(where: \.isRenewalDue), let status = due.expiryStatus {
-            return "\(due.title): \(status.text.lowercased())"
+        let due = current.filter(\.isRenewalDue).count
+        if due > 0 { return due == 1 ? "1 licence to renew" : "\(due) licences to renew" }
+        if current.isEmpty {
+            return expired.count == 1 ? "1 expired licence" : "\(expired.count) expired licences"
         }
         return current.count == 1 ? "1 valid licence" : "\(current.count) valid licences"
     }
