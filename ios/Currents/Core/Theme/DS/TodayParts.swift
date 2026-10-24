@@ -43,24 +43,39 @@ struct TodayPage<Content: View>: View {
 /// `DetailHeader` over line and large title have scrolled under the bar, so
 /// the large title is never doubled. Apply to the page's ScrollView. Pages
 /// that draw their own header (a count or a hero rather than the page name)
-/// use it too; without a `DetailHeader` it waits for one large title line.
+/// use it too; without a `DetailHeader` it waits for one large title line,
+/// and a page whose header sits below other content passes a `threshold`.
 struct PageTitleFade: ViewModifier {
     let title: String
+    var threshold: CGFloat? = nil
     @State private var shown = false
+
+    func body(content: Content) -> some View {
+        content
+            .modifier(PageTitleTracking(shown: $shown, threshold: threshold))
+            .pageInlineTitle(title, shown: shown)
+    }
+}
+
+/// Sets `shown` once the page has scrolled past its header: `threshold`
+/// points when given, otherwise what the page's `DetailHeader` reports,
+/// otherwise one large title line.
+private struct PageTitleTracking: ViewModifier {
+    @Binding var shown: Bool
+    let threshold: CGFloat?
     /// What the page's `DetailHeader` reports; 0 until it does.
     @State private var headerHeight: CGFloat = 0
     @ScaledMetric(relativeTo: .largeTitle) private var titleLine: CGFloat = 41
 
     func body(content: Content) -> some View {
-        let threshold = headerHeight > 0 ? headerHeight : titleLine
+        let limit = threshold ?? (headerHeight > 0 ? headerHeight : titleLine)
         content
             .onPreferenceChange(DetailHeaderTitleHeightKey.self) { headerHeight = $0 }
             .onScrollGeometryChange(for: Bool.self) { geo in
-                geo.contentOffset.y + geo.contentInsets.top >= threshold
+                geo.contentOffset.y + geo.contentInsets.top >= limit
             } action: { _, past in
                 shown = past
             }
-            .pageInlineTitle(title, shown: shown)
     }
 }
 
@@ -103,9 +118,18 @@ private struct PageInlineTitle: ViewModifier {
 
 extension View {
     /// The inline title that fades in once the page's header has scrolled
-    /// away, as on TodayPage.
-    func pageTitleFade(_ title: String) -> some View {
-        modifier(PageTitleFade(title: title))
+    /// away, as on TodayPage. Leave `threshold` out to follow the page's
+    /// `DetailHeader`; pass one, in points of scroll, when the header sits
+    /// below a hero, an avatar or an icon.
+    func pageTitleFade(_ title: String, threshold: CGFloat? = nil) -> some View {
+        modifier(PageTitleFade(title: title, threshold: threshold))
+    }
+
+    /// Sets `shown` once the page has scrolled past its header, by the same
+    /// rule as `pageTitleFade`, for pages that show the title themselves
+    /// (with `pageInlineTitle`). Apply to the page's ScrollView.
+    func pageTitleTracking(_ shown: Binding<Bool>, threshold: CGFloat? = nil) -> some View {
+        modifier(PageTitleTracking(shown: shown, threshold: threshold))
     }
 
     /// A pushed page's inline title and the hairline under the bar, shown
