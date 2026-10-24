@@ -1984,6 +1984,8 @@ struct CrewCommentsSheet: View {
     /// Composer modes: replying attaches to a thread; editing rewrites in place.
     @State private var replyingTo: CommunityService.CrewComment?
     @State private var editing: CommunityService.CrewComment?
+    /// The comment waiting on the delete confirmation.
+    @State private var commentToDelete: CommunityService.CrewComment?
 
     private var canModerate: Bool { crew.map { svc.myRole(in: $0).canModerate } ?? false }
     private var draftEmpty: Bool { draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
@@ -2060,6 +2062,15 @@ struct CrewCommentsSheet: View {
         .navigationTitle("Comments")
         .navigationBarTitleDisplayMode(.inline)
         .task { await load() }
+        .confirmationDialog("Delete this comment?",
+                            isPresented: Binding(get: { commentToDelete != nil },
+                                                 set: { if !$0 { commentToDelete = nil } }),
+                            titleVisibility: .visible,
+                            presenting: commentToDelete) { comment in
+            Button("Delete comment", role: .destructive) { delete(comment) }
+        } message: { _ in
+            Text("It disappears for everyone in the crew.")
+        }
     }
 
     /// Loads the thread. A failed load with nothing cached leaves the count
@@ -2126,7 +2137,7 @@ struct CrewCommentsSheet: View {
                             Label("Edit", systemImage: "pencil")
                         }
                     }
-                    Button(role: .destructive) { delete(comment) } label: {
+                    Button(role: .destructive) { commentToDelete = comment } label: {
                         Label("Delete comment", systemImage: "trash")
                     }
                 } label: {
