@@ -407,6 +407,10 @@ struct GroupTripView: View {
     @State private var showingInvite = false
     @State private var confirmingEndForAll = false
     @State private var confirmingLeave = false
+    /// Ending my own GPS session is confirmed, as on Today.
+    @State private var confirmingEndSession = false
+    /// Removing a deleted trip while its GPS session still runs.
+    @State private var confirmingRemoveMissing = false
     /// The trip's record is confirmed GONE from the server (deleted, not just
     /// unreachable), so show the dead-end screen instead of a join form.
     @State private var tripMissing = false
@@ -483,6 +487,24 @@ struct GroupTripView: View {
                 }
             } message: {
                 Text("You can rejoin with the trip code while it's still live.")
+            }
+            .confirmationDialog("End your session?", isPresented: $confirmingEndSession,
+                                titleVisibility: .visible) {
+                Button("End my session", role: .destructive, action: endMySession)
+                Button("Keep fishing", role: .cancel) {}
+            } message: {
+                Text(ended ? "It will be saved to your Logbook."
+                           : "It will be saved to your Logbook. The group trip carries on for everyone else.")
+            }
+            .confirmationDialog("End your session and remove the trip?", isPresented: $confirmingRemoveMissing,
+                                titleVisibility: .visible) {
+                Button("End session and remove", role: .destructive) {
+                    endMySession()
+                    if let code { leave(code: code) }
+                }
+                Button("Keep fishing", role: .cancel) {}
+            } message: {
+                Text("Your session will be saved to your Logbook.")
             }
             // No pull-to-refresh: it would swallow the sheet's pull-down-to-
             // collapse gesture. The feed auto-polls every 15s.
@@ -689,12 +711,14 @@ struct GroupTripView: View {
                         text: "This trip was deleted, usually with its tournament. Your catches are still in your logbook.")
                 .padding(.top, DS.Space.s5)
             DangerButton(title: "Remove from my trips", systemImage: "trash") {
-                // End a local GPS session still linked to the dead trip.
+                // A local GPS session still linked to the dead trip is ended
+                // too, so that is confirmed first.
                 if let localId = tripId ?? service.tripId(forGroupCode: code),
                    appState.tripTracker.activeTrip?.id == localId {
-                    _ = appState.tripTracker.end()
+                    confirmingRemoveMissing = true
+                } else {
+                    leave(code: code)
                 }
-                leave(code: code)
             }
             .padding(.top, DS.Space.s8)
         }
@@ -1357,7 +1381,7 @@ struct GroupTripView: View {
         case .endedStillTracking:
             InlineEmpty(text: "The trip has ended. Your GPS session is still running.",
                         systemImage: "flag.checkered")
-            endSessionButton("End my session")
+            endSessionButton
                 .padding(.horizontal, DS.gutter)
                 .padding(.top, DS.Space.s3)
         case .tracking:
@@ -1375,7 +1399,7 @@ struct GroupTripView: View {
                     Label("Start next day", systemImage: "sun.max.fill")
                 }
                 .buttonStyle(.dsPrimary)
-                endSessionButton("End trip")
+                endSessionButton
             }
             .padding(.horizontal, DS.gutter)
             .padding(.top, DS.Space.s3)
@@ -1400,15 +1424,20 @@ struct GroupTripView: View {
         }
     }
 
-    private func endSessionButton(_ title: String) -> some View {
+    /// Ends only my own GPS session; the group trip carries on. Confirmed.
+    private var endSessionButton: some View {
         Button(role: .destructive) {
-            Haptics.warning()
-            _ = appState.tripTracker.end()
+            confirmingEndSession = true
         } label: {
-            Label(title, systemImage: "stop.circle")
+            Label("End my session", systemImage: "stop.circle")
                 .foregroundStyle(.dsScoreSlow)
         }
         .buttonStyle(.dsTonal)
+    }
+
+    private func endMySession() {
+        Haptics.warning()
+        _ = appState.tripTracker.end()
     }
 
     private var trackingStats: some View {
@@ -1443,17 +1472,12 @@ struct GroupTripView: View {
                     tracker.endDay()
                 } label: { Label("End for the day", systemImage: "moon.zzz.fill") }
                 Button(role: .destructive) {
-                    Haptics.warning()
-                    _ = appState.tripTracker.end()
+                    confirmingEndSession = true
                 } label: { Label("End my session", systemImage: "stop.circle") }
             } label: {
-                Label("Finish", systemImage: "flag.checkered")
-                    .font(.headline)
-                    .foregroundStyle(.dsText)
-                    .frame(maxWidth: .infinity, minHeight: 52)
-                    .background(Color.dsTonal, in: RoundedRectangle(cornerRadius: DS.Radius.button, style: .continuous))
+                Label("End session", systemImage: "flag.checkered")
             }
-            .buttonStyle(.dim)
+            .buttonStyle(.dsPrimary)
         }
     }
 
