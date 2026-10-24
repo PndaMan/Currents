@@ -114,14 +114,14 @@ struct AnalyticsView: View {
                 StatTile("Species", systemImage: "leaf.fill", tint: .dsScoreGood,
                          value: "\(personalBests.count)", footnote: "\(speciesThisYear) this year", width: nil)
                 StatTile("Released", systemImage: "arrow.uturn.backward", tint: .dsScoreLow,
-                         value: "\(rate)", unit: "%", footnote: "\(released) of \(allCatches.count)", width: nil)
+                         value: "\(rate)%", footnote: "\(released) of \(allCatches.count)", width: nil)
             }
             if heaviest != nil || avgWeight != nil || longest != nil {
                 tileRow {
                     if let heaviest, let kg = heaviest.heaviestKg {
                         let p = Units.weightParts(kg: kg, imperial: imperial)
                         StatTile("Heaviest", systemImage: "trophy.fill", tint: .dsScoreFair,
-                                 value: p.0, unit: p.1, footnote: heaviest.commonName, width: nil)
+                                 value: p.0, unit: p.1, footnote: tileName(heaviest.commonName), width: nil)
                     }
                     if let avgWeight {
                         let p = Units.weightParts(kg: oneDecimal(avgWeight), imperial: imperial)
@@ -131,13 +131,24 @@ struct AnalyticsView: View {
                     if let longest, let cm = longest.longestCm {
                         let p = Units.lengthParts(cm: cm, imperial: imperial)
                         StatTile("Longest", systemImage: "ruler", tint: .indigo,
-                                 value: p.0, unit: p.1, footnote: longest.commonName, width: nil)
+                                 value: p.0, unit: p.1, footnote: tileName(longest.commonName), width: nil)
                     }
                 }
             }
         }
         .padding(.horizontal, DS.gutter)
         .padding(.top, DS.Space.s5)
+    }
+
+    /// A species name short enough for a third-width footnote: "Leervis"
+    /// for "Leervis (Garrick)", and "Bass" for "Largemouth Bass", rather
+    /// than a name cut off mid-word. Whole at accessibility sizes, where the
+    /// footnote wraps.
+    private func tileName(_ name: String) -> String {
+        let plain = name.range(of: " (").map { String(name[..<$0.lowerBound]) } ?? name
+        guard !typeSize.isAccessibilitySize, plain.count > 12,
+              let last = plain.split(separator: " ").last else { return plain }
+        return String(last)
     }
 
     /// An average weight rounded to one decimal in the shown unit: two
