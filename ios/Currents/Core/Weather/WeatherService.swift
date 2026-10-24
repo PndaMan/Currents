@@ -138,7 +138,7 @@ actor WeatherService {
         }
 
         // Try fetching from Open-Meteo
-        let urlString = "https://api.open-meteo.com/v1/forecast?latitude=\(coordinate.latitude)&longitude=\(coordinate.longitude)&current=temperature_2m,relative_humidity_2m,pressure_msl,surface_pressure,wind_speed_10m,wind_direction_10m,cloud_cover,precipitation,weather_code,uv_index&hourly=pressure_msl&forecast_hours=7&daily=temperature_2m_mean&timezone=auto"
+        let urlString = "https://api.open-meteo.com/v1/forecast?latitude=\(coordinate.latitude)&longitude=\(coordinate.longitude)&current=temperature_2m,relative_humidity_2m,pressure_msl,surface_pressure,wind_speed_10m,wind_direction_10m,cloud_cover,precipitation,weather_code,uv_index&hourly=pressure_msl&past_hours=6&forecast_hours=1&daily=temperature_2m_mean&timezone=auto"
 
         guard let url = URL(string: urlString) else { return (cache[key]?.data, false) }
 
@@ -160,13 +160,7 @@ actor WeatherService {
             let uvIndex = current["uv_index"] as? Double ?? 0
             let weatherCode = current["weather_code"] as? Int ?? 0
 
-            // Compute 6h pressure change from hourly data
-            var pressureChange6h = 0.0
-            if let hourly = json?["hourly"] as? [String: Any],
-               let pressures = hourly["pressure_msl"] as? [Double],
-               pressures.count >= 7 {
-                pressureChange6h = pressures.last! - pressures.first!
-            }
+            let pressureChange6h = Self.pressureChange6h(hourly: json?["hourly"] as? [String: Any]) ?? 0
 
             // Water comes from the days' mean air temperature, on the same
             // basis as the outlook, so today matches its first day.
@@ -325,6 +319,16 @@ actor WeatherService {
             // Offline — serve the persisted outlook (any age) instead of nothing.
             return dailyCache[key]?.days ?? []
         }
+    }
+
+    /// The pressure change over the last six hours, from the hourly
+    /// `pressure_msl` series requested as `past_hours=6&forecast_hours=1`:
+    /// seven values running from six hours ago to this hour. Now minus six
+    /// hours ago; nil when the series is short.
+    nonisolated static func pressureChange6h(hourly: [String: Any]?) -> Double? {
+        guard let pressures = hourly?["pressure_msl"] as? [Double], pressures.count >= 7,
+              let now = pressures.last else { return nil }
+        return now - pressures[pressures.count - 7]
     }
 
     /// Water lags air: a 5-day running mean of daily mean air temperature, seeded from the first day, moving at most 1 °C a day, never below 0 °C.
