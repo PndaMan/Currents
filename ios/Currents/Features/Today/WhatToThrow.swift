@@ -5,11 +5,26 @@ import SwiftUI
 enum ThrowText {
     /// One line on what the picks are based on: water temperature, clarity,
     /// light and pressure.
-    static func why(_ w: WeatherService.WeatherData?, clarity: WaterClarity) -> String {
+    static func why(_ w: WeatherService.WeatherData?, clarity: WaterClarity,
+                    imperial: Bool = Units.isImperial) -> String {
         let water = clarity.label.lowercased() + " water"
-        guard let w else { return "Picked for \(water). The rest fills in when the weather loads." }
-        let temp = w.waterTempC.map { "\(Int($0.rounded()))° " } ?? ""
+        guard let w else { return "Picked for \(water). Temperature and light fill in when the weather loads." }
+        let temp = w.waterTempC.map { Units.temperature($0, imperial: imperial) + " " } ?? ""
         return "Picked for \(temp)\(water), \(light(w.cloudCoverPct)) and \(pressure(w.pressureChange6h))."
+    }
+
+    /// What each clarity looks like, as a sentence in the user's units.
+    static func clarityNote(_ clarity: WaterClarity, imperial: Bool = Units.isImperial) -> String {
+        switch clarity {
+        case .clear: "Clear water lets you see past \(Units.depth(m: 1, imperial: imperial))."
+        case .stained: "Stained water looks green or the colour of tea."
+        case .muddy: "In muddy water you see less than \(Units.depth(m: 0.3, imperial: imperial))."
+        }
+    }
+
+    /// Colour names say "and" between colours; the swatch splits on "/".
+    static func swatchName(_ name: String) -> String {
+        name.replacingOccurrences(of: " and ", with: "/")
     }
 
     static func light(_ cloud: Int) -> String {
@@ -41,11 +56,6 @@ enum ThrowText {
         return String(first).uppercased() + text.dropFirst()
     }
 
-    /// "0.5–2 m" reads as "0.5 to 2 m".
-    static func depth(_ text: String) -> String {
-        text.replacingOccurrences(of: "–", with: " to ")
-    }
-
     /// The first reason that is about the conditions; ownership and your
     /// own catches have their own labelled values.
     static func reason(_ s: LureEngine.Suggestion) -> String? {
@@ -68,18 +78,36 @@ struct LureSuggestionRow: View {
     let rank: Int
     var full: Bool = false
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .top, spacing: 12) {
-                Text("\(rank)")
-                    .font(.headline)
-                    .monospacedDigit()
-                    .foregroundStyle(.dsText2)
-                    .frame(minWidth: 16, alignment: .leading)
-                    .padding(.top, 2)
-                    .accessibilityLabel("Pick \(rank)")
+    @Environment(\.dynamicTypeSize) private var typeSize
+    @ScaledMetric(relativeTo: .headline) private var rankWidth: CGFloat = 16
 
-                LureArtView(name: suggestion.lure, size: full ? 64 : 56)
+    /// Lines the values up under the name; at accessibility sizes the row
+    /// stacks, so they start at the edge.
+    private var valueIndent: CGFloat {
+        typeSize.isAccessibilitySize ? 0 : rankWidth + 12 + 64 + 12
+    }
+
+    var body: some View {
+        let stacked = typeSize.isAccessibilitySize
+        let layout = stacked
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8))
+            : AnyLayout(HStackLayout(alignment: .top, spacing: 12))
+        let values = stacked
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 12))
+            : AnyLayout(HStackLayout(alignment: .top, spacing: 20))
+        VStack(alignment: .leading, spacing: 12) {
+            layout {
+                HStack(alignment: .top, spacing: 12) {
+                    Text("\(rank)")
+                        .font(.headline)
+                        .monospacedDigit()
+                        .foregroundStyle(.dsText2)
+                        .frame(minWidth: rankWidth, alignment: .leading)
+                        .padding(.top, 2)
+                        .accessibilityLabel("Pick \(rank)")
+
+                    LureArtView(name: suggestion.lure, size: full ? 64 : 56)
+                }
 
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 6) {
@@ -94,7 +122,7 @@ struct LureSuggestionRow: View {
                         }
                     }
                     HStack(spacing: 6) {
-                        LureColorSwatch(name: suggestion.color, size: 12)
+                        LureColorSwatch(name: ThrowText.swatchName(suggestion.color), size: 12)
                         Text(suggestion.color)
                             .font(.subheadline)
                             .foregroundStyle(.dsText2)
@@ -106,30 +134,32 @@ struct LureSuggestionRow: View {
                         .fixedSize(horizontal: false, vertical: true)
                         .padding(.top, 2)
                 }
-                Spacer(minLength: 0)
+                if !stacked { Spacer(minLength: 0) }
             }
 
             if full {
-                HStack(alignment: .top, spacing: 20) {
-                    ThrowValue(label: "Depth", value: ThrowText.depth(suggestion.depth))
+                values {
+                    if !suggestion.depth.isEmpty {
+                        ThrowValue(label: "Depth", value: suggestion.depth)
+                    }
                     if let reason = ThrowText.reason(suggestion) {
                         ThrowValue(label: "Why", value: ThrowText.sentence(reason))
                     }
-                    Spacer(minLength: 0)
+                    if !stacked { Spacer(minLength: 0) }
                 }
-                .padding(.leading, 28 + 64 + 12)
+                .padding(.leading, valueIndent)
 
                 if suggestion.personalCatches > 0 || suggestion.ownedName != nil {
-                    HStack(alignment: .top, spacing: 20) {
+                    values {
                         if suggestion.personalCatches > 0 {
                             ThrowValue(label: "Your catches", value: "\(suggestion.personalCatches)")
                         }
                         if let owned = suggestion.ownedName {
                             ThrowValue(label: "In your tackle box", value: owned)
                         }
-                        Spacer(minLength: 0)
+                        if !stacked { Spacer(minLength: 0) }
                     }
-                    .padding(.leading, 28 + 64 + 12)
+                    .padding(.leading, valueIndent)
                 }
             }
         }
@@ -167,7 +197,7 @@ struct LureColourStrip: View {
             HStack(spacing: 8) {
                 ForEach(names, id: \.self) { name in
                     HStack(spacing: 8) {
-                        LureColorSwatch(name: name, size: 18)
+                        LureColorSwatch(name: ThrowText.swatchName(name), size: 18)
                         Text(name)
                             .font(.subheadline)
                             .foregroundStyle(.dsText)
@@ -349,6 +379,7 @@ struct WhatToThrowSection: View {
     let clarityIsGuess: Bool
     let hasGear: Bool
     let onClarity: (WaterClarity) -> Void
+    @AppStorage("units") private var units = "metric"
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -359,7 +390,7 @@ struct WhatToThrowSection: View {
             .accessibilityHint("Shows every pick and the colours to use")
 
             VStack(alignment: .leading, spacing: 12) {
-                Text(ThrowText.why(weather, clarity: clarity))
+                Text(ThrowText.why(weather, clarity: clarity, imperial: units == "imperial"))
                     .font(.subheadline)
                     .foregroundStyle(.dsText2)
                     .fixedSize(horizontal: false, vertical: true)
@@ -374,10 +405,7 @@ struct WhatToThrowSection: View {
             .padding(.bottom, 4)
 
             if suggestions.isEmpty {
-                Text("No picks yet. They appear once the weather loads.")
-                    .font(.subheadline)
-                    .foregroundStyle(.dsText2)
-                    .padding(.horizontal, DS.gutter)
+                InlineEmpty(text: "No picks yet. They appear once the weather loads.")
                     .padding(.vertical, 12)
             } else {
                 ForEach(Array(suggestions.prefix(3).enumerated()), id: \.element.id) { index, s in
@@ -418,22 +446,30 @@ struct WhatToThrowPage: View {
 
     @Environment(AppState.self) private var appState
     @AppStorage("waterClarityOverride") private var clarityOverride = ""
+    @AppStorage("units") private var units = "metric"
     @State private var ownedGear: [OwnedGear] = []
     @State private var history: [CatchDetail] = []
     @State private var loaded = false
+    @State private var titleShown = false
 
     private var weather: WeatherService.WeatherData? { store.weather(for: 0) }
 
+    /// Today's weather when it is a real reading, as on Today: an offline
+    /// estimate only has a real barometer.
+    private var measuredWeather: WeatherService.WeatherData? {
+        store.weatherIsEstimate ? nil : weather
+    }
+
     private var clarity: WaterClarity {
-        WaterClarity(rawValue: clarityOverride) ?? WaterClarity.inferred(precipMm: weather?.precipMm)
+        WaterClarity(rawValue: clarityOverride) ?? WaterClarity.inferred(precipMm: measuredWeather?.precipMm)
     }
 
     private var suggestions: [LureEngine.Suggestion] {
         let conditions = LureEngine.Conditions(
-            waterTempC: weather?.waterTempC,
+            waterTempC: measuredWeather?.waterTempC,
             clarity: clarity,
-            cloudCoverPct: weather?.cloudCoverPct,
-            windSpeedKmh: weather?.windSpeedKmh,
+            cloudCoverPct: measuredWeather?.cloudCoverPct,
+            windSpeedKmh: measuredWeather?.windSpeedKmh,
             pressureChange6h: weather?.pressureChange6h
         )
         return LureEngine.recommend(conditions: conditions, species: store.species,
@@ -442,17 +478,20 @@ struct WhatToThrowPage: View {
 
     var body: some View {
         let picks = suggestions
+        let imperial = units == "imperial"
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 DetailHeader(over: store.species.map { "Targeting \($0.commonName)" } ?? store.placeName,
                              title: "What to throw",
-                             subtitle: ThrowText.why(weather, clarity: clarity))
+                             subtitle: ThrowText.why(measuredWeather, clarity: clarity, imperial: imperial))
+                if let note = store.staleNote { SectionFootnote(note) }
 
                 VStack(alignment: .leading, spacing: 8) {
                     ClaritySegments(selection: clarity) { clarityOverride = $0.rawValue }
-                    Text("\(clarity.label): \(clarity.detail.lowercased()).")
+                    Text(ThrowText.clarityNote(clarity, imperial: imperial))
                         .font(.footnote)
                         .foregroundStyle(.dsText2)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 .padding(.horizontal, DS.gutter)
                 .padding(.top, 20)
@@ -460,9 +499,7 @@ struct WhatToThrowPage: View {
 
                 SectionTitle("Best picks", detail: picks.isEmpty ? nil : "\(picks.count)")
                 if picks.isEmpty && loaded {
-                    ContentUnavailableView("No picks yet", systemImage: "fish",
-                                           description: Text("Picks appear once the weather has loaded."))
-                        .padding(.vertical, 20)
+                    InlineEmpty(text: "No picks yet. They appear once the weather loads.")
                 } else {
                     ForEach(Array(picks.enumerated()), id: \.element.id) { index, s in
                         LureSuggestionRow(suggestion: s, rank: index + 1, full: true)
@@ -476,23 +513,32 @@ struct WhatToThrowPage: View {
 
                 SectionTitle("Colours for \(clarity.label.lowercased()) water")
                     .padding(.top, 24)
-                LureColourStrip(names: LureEngine.colors(for: clarity, lowLight: ThrowText.isLowLight(weather)))
+                LureColourStrip(names: LureEngine.colors(for: clarity, lowLight: ThrowText.isLowLight(measuredWeather)))
 
-                Text(ownedGear.isEmpty
-                     ? "Add your tackle in Profile and the lures you own rank first."
-                     : "Lures you own rank first.")
-                    .font(.footnote)
-                    .foregroundStyle(.dsText2)
-                    .padding(.horizontal, DS.gutter)
+                if ownedGear.isEmpty && loaded {
+                    NavigationLink(value: AppRoute.gear) {
+                        ArtRow(title: "Add your tackle", subtitle: "Lures you own rank first", chevron: true) {
+                            ThumbView(systemImage: "shippingbox", tint: DS.accent, size: 52)
+                        }
+                    }
+                    .buttonStyle(.dsRow)
                     .padding(.top, 20)
+                } else if loaded {
+                    SectionFootnote("Lures you own rank first.")
+                        .padding(.top, 12)
+                }
             }
             .padding(.top, 8)
             .padding(.bottom, 40)
             .pageWidth()
         }
+        .forecastTracksTitle($titleShown)
         .detailTint(nil)
-        .navigationTitle("What to throw")
-        .navigationBarTitleDisplayMode(.inline)
+        .forecastInlineTitle("What to throw", shown: titleShown)
+        .refreshable {
+            let live = await store.load(force: true)
+            ForecastStore.refreshFeedback(live)
+        }
         .task {
             ownedGear = (try? appState.ownedGearRepository.fetchAll()) ?? []
             history = (try? appState.catchRepository.fetchAll(limit: 200)) ?? []
