@@ -373,10 +373,14 @@ struct LocationInspectorSheet: View {
     }
 
     /// The reason that is about this fish (its water temperature, or feeding
-    /// after dark), else the strongest general one.
+    /// after dark), else the strongest general one. The row's title already
+    /// names the fish, so "Water at 17°C is ideal for Galjoen" reads "Water
+    /// at 17°C is ideal".
     private static func why(_ result: ForecastEngine.ForecastResult, species: Species) -> String {
         let own = result.reasons.first { $0.contains(species.commonName) }
-        let line = own ?? result.reasons.first ?? BiteWindows.guidance(forScore: result.score)
+        var line = own ?? result.reasons.first ?? BiteWindows.guidance(forScore: result.score)
+        let named = " for \(species.commonName)"
+        if line.hasSuffix(named) { line = String(line.dropLast(named.count)) }
         return ExploreFormat.sentence(line)
     }
 
