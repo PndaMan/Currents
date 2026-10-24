@@ -95,9 +95,9 @@ struct GroupTripSetupView: View {
 
     private func content(_ proxy: ScrollViewProxy) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            CommunityHero(label: crewCode.flatMap { svc.crew(withCode: $0)?.name } ?? "Fish together",
-                          title: "Group trip",
-                          line: "Everyone sees every catch, live.") {
+            PageHero(label: crewCode.flatMap { svc.crew(withCode: $0)?.name } ?? "Fish together",
+                     value: "Group trip",
+                     callout: "Everyone sees every catch, live") {
                 ThumbView(systemImage: "person.3.fill", tint: CrewTint.region, size: 92)
             }
             .padding(.top, DS.Space.s2)
@@ -384,6 +384,7 @@ struct GroupTripView: View {
     @Environment(AppState.self) private var appState
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dynamicTypeSize) private var typeSize
     @StateObject private var svc = CommunityService.shared
     @State private var trip: CommunityService.GroupTrip?
     @State private var members: [CommunityService.GroupMember] = []
@@ -703,7 +704,7 @@ struct GroupTripView: View {
     /// session still ticking against it, and offer one-tap cleanup.
     private func tripMissingView(_ code: String) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            CommunityHero(label: "No longer available", title: trip?.name ?? tripName) {
+            PageHero(label: "No longer available", value: trip?.name ?? tripName) {
                 ThumbView(systemImage: "flag.slash.fill", tint: .dsScoreSlow, size: 72)
             }
             .padding(.top, DS.Space.s4)
@@ -732,8 +733,8 @@ struct GroupTripView: View {
     private var joinGate: some View {
         VStack(alignment: .leading, spacing: 0) {
             cover
-            CommunityHero(label: "Trip invite", title: trip?.name ?? tripName,
-                          line: "Pick a name to join. No account needed.")
+            PageHero(label: "Group trip invite", value: trip?.name ?? tripName,
+                     callout: "Pick a name to join. No account needed.") { EmptyView() }
                 .padding(.top, DS.Space.s4)
             CrewJoinForm(buttonTitle: "Join and continue") { await afterProfileJoin() }
                 .padding(.horizontal, DS.gutter)
@@ -758,8 +759,8 @@ struct GroupTripView: View {
 
     private var setup: some View {
         VStack(alignment: .leading, spacing: 0) {
-            CommunityHero(label: "Group trip", title: tripName,
-                          line: "Everyone you invite sees every catch, live.") {
+            PageHero(label: "Group trip", value: tripName,
+                     callout: "Everyone you invite sees every catch, live") {
                 ThumbView(systemImage: "person.3.fill", tint: CrewTint.region, size: 92)
             }
             .padding(.top, DS.Space.s2)
@@ -817,8 +818,8 @@ struct GroupTripView: View {
     private func confirmJoin(_ code: String) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             cover
-            CommunityHero(label: isTournamentTeam ? "Tournament team" : "Trip invite",
-                          title: trip?.name ?? tripName, line: hostLine)
+            PageHero(label: isTournamentTeam ? "Tournament team" : "Group trip invite",
+                     value: trip?.name ?? tripName, callout: hostLine) { EmptyView() }
                 .padding(.top, DS.Space.s4)
             if !members.isEmpty {
                 CrewSection(title: "Going", detail: "\(members.count)") { goingStrip }
@@ -1189,15 +1190,15 @@ struct GroupTripView: View {
     @ViewBuilder private var detailCard: some View {
         let items = detailItems
         if !items.isEmpty {
-            GroupedCard {
-                ForEach(Array(items.enumerated()), id: \.offset) { i, item in
-                    if i > 0 { CardDivider() }
-                    IconRow(item.title, systemImage: item.systemImage, tint: item.tint) {
+            CardGroup {
+                ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+                    CardRow(item.title, systemImage: item.systemImage, tint: item.tint) {
                         Text(item.value)
+                            .font(.body)
                             .foregroundStyle(.dsText2)
-                            .lineLimit(1)
+                            .multilineTextAlignment(.trailing)
+                            .lineLimit(typeSize.isAccessibilitySize ? 3 : 1)
                     }
-                    .accessibilityElement(children: .combine)
                 }
             }
         }
