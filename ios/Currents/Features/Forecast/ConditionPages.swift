@@ -87,7 +87,17 @@ struct ConditionGrid: View {
         switch slot {
         case .rain:
             if w != nil && day.hours.count > 1 {
-                Sparkline(values: day.hours.map(\.precipMm), tint: ForecastCondition.tide.ink, fill: true)
+                let rain = day.hours.map(\.precipMm)
+                // A dry day is a faint baseline; a line along the bottom in
+                // the rain colour reads as a full bar.
+                if rain.contains(where: { $0 > 0 }) {
+                    Sparkline(values: rain, tint: ForecastCondition.tide.ink, fill: true)
+                } else {
+                    Capsule()
+                        .fill(Color.dsFill2)
+                        .frame(height: 2)
+                        .frame(maxHeight: .infinity, alignment: .bottom)
+                }
             }
         case .condition(let c):
             switch c {
