@@ -447,8 +447,7 @@ struct NewSessionSheet: View {
             }
             .task { spots = (try? appState.spotRepository.fetchAll()) ?? [] }
         }
-        .presentationDetents([.medium, .large])
-        .presentationDragIndicator(.visible)
+        .dsSheet([.medium, .large])
     }
 
     private func start() {

@@ -105,7 +105,7 @@ struct PlanSessionSheet: View {
                 if !outlook.contains(where: { $0.date == day }) { recompute() }
             }
         }
-        .presentationDragIndicator(.visible)
+        .dsSheet([.large])
     }
 
     // MARK: - Name
@@ -124,7 +124,7 @@ struct PlanSessionSheet: View {
                 .padding(.top, DS.Space.s8)
             HStack(spacing: 14) {
                 ThumbView(systemImage: "calendar", tint: DS.accent, size: 44)
-                DatePicker("Starts", selection: $date, displayedComponents: [.date, .hourAndMinute])
+                DatePicker("Starts", selection: $date, in: Date.now..., displayedComponents: [.date, .hourAndMinute])
                     .font(.body.weight(.medium))
                     .foregroundStyle(.dsText)
             }
@@ -140,20 +140,10 @@ struct PlanSessionSheet: View {
             SectionTitle("Where")
                 .padding(.top, DS.Space.s8)
 
-            ChoiceRow(title: "My location",
-                      subtitle: appState.locationManager.currentLocation == nil ? "Location is off" : "Wherever you are",
-                      systemImage: "location.fill",
-                      selected: spotId == nil && forecastPin == nil) {
-                spotId = nil
-                forecastPin = nil
-            }
-
-            ForEach(spots) { spot in
-                ChoiceRow(spot: spot, subtitle: spotSubtitle(spot), selected: spotId == spot.id) {
-                    spotId = spot.id
-                    forecastPin = CLLocationCoordinate2D(latitude: spot.latitude, longitude: spot.longitude)
-                }
-            }
+            SpotChoices(spotId: spotChoice, spots: spots,
+                        noneTitle: "My location",
+                        noneSubtitle: appState.locationManager.currentLocation == nil ? "Location is off" : "Wherever you are",
+                        noneSelected: spotId == nil && forecastPin == nil)
 
             let pinned = spotId == nil && forecastPin != nil
             ChoiceRow(title: pinned ? "Dropped pin" : "Drop a pin",
@@ -164,12 +154,14 @@ struct PlanSessionSheet: View {
         }
     }
 
-    private func spotSubtitle(_ spot: Spot) -> String? {
-        guard let here = appState.locationManager.currentLocation else {
-            return spot.type == .general ? nil : spot.type.label
-        }
-        let metres = CLLocation(latitude: spot.latitude, longitude: spot.longitude).distance(from: here)
-        return "\(Units.distance(m: metres)) away"
+    /// Picking a saved spot also moves the forecast there; My location
+    /// clears both.
+    private var spotChoice: Binding<String?> {
+        Binding(get: { spotId }, set: { id in
+            spotId = id
+            forecastPin = id.flatMap { chosen in spots.first { $0.id == chosen } }
+                .map { CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude) }
+        })
     }
 
     // MARK: - Bite outlook
@@ -358,12 +350,19 @@ struct PlanSessionSheet: View {
         let h = cal.component(.hour, from: date)
         let m = cal.component(.minute, from: date)
         let new = cal.date(bySettingHour: h, minute: m, second: 0, of: day.date) ?? day.date
-        withAnimation(reduceMotion ? nil : DS.Motion.softSpring) { date = new }
+        withAnimation(reduceMotion ? nil : DS.Motion.softSpring) { date = notPast(new) }
     }
 
     private func setStart(hour: Int) {
         let new = Calendar.current.date(bySettingHour: hour, minute: 0, second: 0, of: date) ?? date
-        withAnimation(reduceMotion ? nil : DS.Motion.softSpring) { date = new }
+        withAnimation(reduceMotion ? nil : DS.Motion.softSpring) { date = notPast(new) }
+    }
+
+    /// Plans start ahead: a time already gone moves to the next whole hour.
+    private func notPast(_ d: Date) -> Date {
+        guard d < .now else { return d }
+        return Calendar.current.nextDate(after: .now, matching: DateComponents(minute: 0),
+                                         matchingPolicy: .nextTime) ?? .now
     }
 
     /// Two weeks from today, or a week around the plan's day when it falls
@@ -389,22 +388,10 @@ struct PlanSessionSheet: View {
         }
     }
 
-    /// The nearest few saved spots, plus the plan's own spot when editing.
+    /// Every saved spot. SpotChoices shows the nearest three and the plan's
+    /// own spot, with the rest a tap away.
     private func loadSpots() {
-        let all = (try? appState.spotRepository.fetchAll()) ?? []
-        var nearest = all
-        if let here = appState.locationManager.currentLocation {
-            nearest.sort {
-                CLLocation(latitude: $0.latitude, longitude: $0.longitude).distance(from: here)
-                    < CLLocation(latitude: $1.latitude, longitude: $1.longitude).distance(from: here)
-            }
-        }
-        var picked = Array(nearest.prefix(3))
-        if let id = spotId, !picked.contains(where: { $0.id == id }),
-           let own = all.first(where: { $0.id == id }) {
-            picked.insert(own, at: 0)
-        }
-        spots = picked
+        spots = (try? appState.spotRepository.fetchAll()) ?? []
     }
 
     private func addChecklistItem() {

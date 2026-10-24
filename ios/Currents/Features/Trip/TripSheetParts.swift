@@ -86,28 +86,27 @@ extension ChoiceRow where Thumb == PlaceSnapshotThumb {
     }
 }
 
-/// "No spot" plus the nearest saved spots as tick rows, with the rest one
-/// tap away.
+/// "No spot" plus the three nearest saved spots as tick rows. "Show all N
+/// spots" pushes a searchable list of every spot, so the sheet that uses
+/// this must sit in a NavigationStack.
 struct SpotChoices: View {
     @Binding var spotId: String?
     let spots: [Spot]
     var noneTitle = "No spot"
     var noneSubtitle: String? = "Tracks wherever you go"
     var noneIcon = "location.fill"
+    /// Overrides the tick on the first row, for a caller with a choice that
+    /// is neither a spot nor none (the planner's dropped pin).
+    var noneSelected: Bool? = nil
     @Environment(AppState.self) private var appState
-    @State private var showingAll = false
 
-    private static let shortList = 4
+    private static let shortList = 3
 
     private var here: CLLocation? { appState.locationManager.currentLocation }
 
-    private var sorted: [Spot] {
-        guard let here else { return spots }
-        return spots.sorted { distance($0, here) < distance($1, here) }
-    }
+    private var sorted: [Spot] { SpotChoices.nearestFirst(spots, from: here) }
 
     private var shown: [Spot] {
-        guard !showingAll else { return sorted }
         var list = Array(sorted.prefix(Self.shortList))
         // Keep the chosen spot on screen even when it is further away.
         if let id = spotId, !list.contains(where: { $0.id == id }),
@@ -120,30 +119,88 @@ struct SpotChoices: View {
     var body: some View {
         VStack(spacing: 0) {
             ChoiceRow(title: noneTitle, subtitle: noneSubtitle, systemImage: noneIcon,
-                      selected: spotId == nil) { spotId = nil }
+                      selected: noneSelected ?? (spotId == nil)) { spotId = nil }
             ForEach(shown) { spot in
-                ChoiceRow(spot: spot, subtitle: subtitle(spot), selected: spotId == spot.id) { spotId = spot.id }
+                ChoiceRow(spot: spot, subtitle: SpotChoices.awayLabel(spot, from: here),
+                          selected: spotId == spot.id) { spotId = spot.id }
             }
-            if showingAll || spots.count > shown.count {
-                Button(showingAll ? "Show fewer spots" : "Show all \(spots.count) spots") {
-                    withAnimation(DS.Motion.softSpring) { showingAll.toggle() }
+            if spots.count > shown.count {
+                NavigationLink {
+                    SpotPickerList(spotId: $spotId, spots: sorted)
+                } label: {
+                    ArtRow(title: "Show all \(spots.count) spots", chevron: true) {
+                        ThumbView(systemImage: "list.bullet", tint: DS.accent, size: 44)
+                    }
                 }
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(DS.accent)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, DS.gutter)
-                .padding(.vertical, DS.Space.s3)
+                .buttonStyle(.dsRow)
             }
         }
     }
 
-    private func distance(_ spot: Spot, _ from: CLLocation) -> CLLocationDistance {
+    /// Spots nearest to `here` first, or as given when location is off.
+    static func nearestFirst(_ spots: [Spot], from here: CLLocation?) -> [Spot] {
+        guard let here else { return spots }
+        return spots.sorted { metres($0, here) < metres($1, here) }
+    }
+
+    static func metres(_ spot: Spot, _ from: CLLocation) -> CLLocationDistance {
         CLLocation(latitude: spot.latitude, longitude: spot.longitude).distance(from: from)
     }
 
-    private func subtitle(_ spot: Spot) -> String? {
+    /// "2.4 km away", or the spot's type when location is off.
+    static func awayLabel(_ spot: Spot, from here: CLLocation?) -> String? {
         guard let here else { return spot.type == .general ? nil : spot.type.label }
-        return "\(Units.distance(m: distance(spot, here))) away"
+        return "\(Units.distance(m: metres(spot, here))) away"
+    }
+}
+
+/// Every saved spot, nearest first, with a search field under the title.
+/// Picking one ticks it and goes back.
+struct SpotPickerList: View {
+    @Binding var spotId: String?
+    let spots: [Spot]
+    @Environment(AppState.self) private var appState
+    @Environment(\.dismiss) private var dismiss
+    @State private var query = ""
+    @State private var titleShown = false
+
+    private var filtered: [Spot] {
+        let q = query.trimmingCharacters(in: .whitespaces)
+        guard !q.isEmpty else { return spots }
+        return spots.filter { $0.name.localizedCaseInsensitiveContains(q) }
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                DetailHeader(title: "All spots", subtitle: "\(spots.count) saved")
+                PFSearchField(prompt: "Search spots", text: $query)
+                    .padding(.top, DS.Space.s4)
+                    .padding(.bottom, DS.Space.s2)
+                if filtered.isEmpty {
+                    InlineEmpty(systemImage: "magnifyingglass", text: "No spots match your search.")
+                        .padding(.top, DS.Space.s2)
+                } else {
+                    LazyVStack(spacing: 0) {
+                        ForEach(filtered) { spot in
+                            ChoiceRow(spot: spot,
+                                      subtitle: SpotChoices.awayLabel(spot, from: appState.locationManager.currentLocation),
+                                      selected: spotId == spot.id) {
+                                spotId = spot.id
+                                dismiss()
+                            }
+                        }
+                    }
+                }
+            }
+            .padding(.bottom, DS.Space.s6)
+            .pageWidth()
+        }
+        .scrollDismissesKeyboard(.interactively)
+        .detailScrollEdge()
+        .dsScreenBackground()
+        .pfTrackScroll($titleShown, threshold: 60)
+        .pfScrollTitle("All spots", shown: titleShown)
     }
 }
 
