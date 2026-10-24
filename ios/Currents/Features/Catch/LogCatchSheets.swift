@@ -6,13 +6,24 @@ import MapKit
 
 // MARK: - Shared chrome
 
-/// Title, close button and an optional Done button pinned to the bottom, on
-/// the plain page background like every other list and form.
+/// The Explore sheet header: inline title, Cancel and Done, on the page
+/// background with a grabber. Edits apply as they are made; Done keeps them
+/// and Cancel runs `onCancel`, which puts back the values the sheet opened
+/// with, then closes.
 struct LogCatchSheetChrome<Content: View>: View {
     let title: String
-    var showsDone: Bool = true
-    @ViewBuilder var content: () -> Content
+    let detents: Set<PresentationDetent>
+    let onCancel: () -> Void
+    private let content: () -> Content
     @Environment(\.dismiss) private var dismiss
+
+    init(title: String, detents: Set<PresentationDetent> = [.large], onCancel: @escaping () -> Void,
+         @ViewBuilder content: @escaping () -> Content) {
+        self.title = title
+        self.detents = detents
+        self.onCancel = onCancel
+        self.content = content
+    }
 
     var body: some View {
         NavigationStack {
@@ -21,71 +32,69 @@ struct LogCatchSheetChrome<Content: View>: View {
                 .navigationTitle(title)
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Button { dismiss() } label: { Image(systemName: "xmark") }
-                            .accessibilityLabel("Close")
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Cancel") {
+                            onCancel()
+                            dismiss()
+                        }
                     }
-                }
-                .safeAreaInset(edge: .bottom) {
-                    if showsDone {
+                    ToolbarItem(placement: .confirmationAction) {
                         Button("Done") { dismiss() }
-                            .buttonStyle(.dsPrimary)
-                            .padding(.horizontal, DS.gutter)
-                            .padding(.top, DS.Space.s2)
-                            .padding(.bottom, DS.Space.s2)
                     }
                 }
         }
-        .presentationDragIndicator(.visible)
+        .dsSheet(detents)
     }
 }
 
-/// A grouped list row: tinted icon, title, trailing value, optional chevron.
-struct LogCatchListRow: View {
-    let title: String
-    var systemImage: String? = nil
-    var tint: Color = .dsText2
-    var value: String? = nil
-    var chevron: Bool = false
-    var checked: Bool = false
-    /// A lure or bait name to show as a small picture before the value.
-    var lureArt: String? = nil
+/// A selection mark for the trailing edge of a `CardRow`.
+private struct RowCheckmark: View {
+    let isOn: Bool
 
     var body: some View {
-        HStack(spacing: DS.Space.s3) {
-            if let systemImage {
-                Image(systemName: systemImage)
-                    .font(.body.weight(.medium))
-                    .foregroundStyle(tint)
-                    .frame(width: 26)
-            }
-            Text(title)
-                .foregroundStyle(Color.dsText)
-                .lineLimit(1)
-            Spacer(minLength: DS.Space.s2)
-            if let lureArt, !lureArt.isEmpty {
-                LureArtView(name: lureArt, size: 28)
-                    .accessibilityHidden(true)
-            }
-            if let value {
-                Text(value)
-                    .foregroundStyle(Color.dsText2)
-                    .lineLimit(1)
-            }
-            if checked {
-                Image(systemName: "checkmark")
-                    .font(.body.weight(.semibold))
-                    .foregroundStyle(DS.accent)
-            }
-            if chevron {
-                Image(systemName: "chevron.right")
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(Color.dsText3)
-            }
+        if isOn {
+            Image(systemName: "checkmark")
+                .font(.body.weight(.semibold))
+                .foregroundStyle(DS.accent)
+                .accessibilityLabel("Selected")
         }
-        .padding(.horizontal, 14)
-        .frame(minHeight: 48)
-        .contentShape(Rectangle())
+    }
+}
+
+/// The trailing value of a menu row, with the menu's up-down chevron.
+private struct MenuValue: View {
+    let text: String
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Text(text)
+                .font(.body)
+                .foregroundStyle(Color.dsText2)
+                .lineLimit(1)
+            Image(systemName: "chevron.up.chevron.down")
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(Color.dsText3)
+        }
+    }
+}
+
+/// A text field laid out like a `CardRow`: icon tile, then the field.
+private struct CardFieldRow: View {
+    let placeholder: String
+    let systemImage: String
+    let tint: Color
+    @Binding var text: String
+
+    var body: some View {
+        HStack(spacing: 14) {
+            TintIcon(systemImage: systemImage, tint: tint)
+            TextField(placeholder, text: $text)
+                .font(.body)
+                .foregroundStyle(Color.dsText)
+        }
+        .padding(.horizontal, DS.Space.s4)
+        .padding(.vertical, 10)
+        .frame(minHeight: 54)
     }
 }
 
@@ -112,25 +121,28 @@ struct LogCatchFootnote: View {
 }
 
 /// The map tile used on the composer and in the spot sheet. Not interactive.
+/// Under 100 pt tall it is a thumbnail, with the thumbnail radius.
 struct LogCatchMapPreview: View {
     let coordinate: CLLocationCoordinate2D?
     var isPin: Bool = false
     var height: CGFloat = 120
 
+    private var isThumbnail: Bool { height < 100 }
+
     var body: some View {
         Group {
             if let coordinate {
-                Map(position: .constant(.camera(.init(centerCoordinate: coordinate, distance: 2500)))) {
+                Map(position: .constant(.camera(.init(centerCoordinate: coordinate, distance: isThumbnail ? 1500 : 2500)))) {
                     Annotation("", coordinate: coordinate) {
                         if isPin {
                             Image(systemName: "mappin.circle.fill")
-                                .font(.title)
+                                .font(isThumbnail ? .body : .title)
                                 .foregroundStyle(.white, Color.dsScoreSlow)
                         } else {
                             Circle()
                                 .fill(DS.accent)
-                                .frame(width: 18, height: 18)
-                                .overlay(Circle().stroke(.white, lineWidth: 3))
+                                .frame(width: isThumbnail ? 12 : 18, height: isThumbnail ? 12 : 18)
+                                .overlay(Circle().stroke(.white, lineWidth: isThumbnail ? 2 : 3))
                         }
                     }
                 }
@@ -139,14 +151,19 @@ struct LogCatchMapPreview: View {
             } else {
                 ZStack {
                     Color.dsFill
-                    Label("Waiting for your location", systemImage: "location.slash")
-                        .font(.subheadline)
-                        .foregroundStyle(Color.dsText2)
+                    if isThumbnail {
+                        Image(systemName: "location.slash")
+                            .foregroundStyle(Color.dsText2)
+                    } else {
+                        Label("No location yet", systemImage: "location.slash")
+                            .font(.subheadline)
+                            .foregroundStyle(Color.dsText2)
+                    }
                 }
             }
         }
         .frame(height: height)
-        .clipShape(RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: isThumbnail ? DS.Radius.thumb : DS.Radius.card, style: .continuous))
     }
 }
 
@@ -155,14 +172,19 @@ struct LogCatchMapPreview: View {
 struct LogCatchTimeSheet: View {
     @Binding var caughtAt: Date
     let photoDate: Date?
+    /// Editing keeps the conditions saved with the catch, so the footnote
+    /// promising an update is left out.
+    var isEditing: Bool = false
+    @AppStorage("use24HourTime") private var use24 = true
     @ScaledMetric(relativeTo: .largeTitle) private var clockSize: CGFloat = 52
+    @State private var original: Date?
 
     private var days: [Date] {
         (0..<4).compactMap { Calendar.current.date(byAdding: .day, value: -$0, to: .now) }
     }
 
     var body: some View {
-        LogCatchSheetChrome(title: "Caught at") {
+        LogCatchSheetChrome(title: "Caught at", detents: [.medium, .large], onCancel: revert) {
             ScrollView {
                 VStack(spacing: DS.Space.s4) {
                     ScrollView(.horizontal, showsIndicators: false) {
@@ -178,7 +200,7 @@ struct LogCatchTimeSheet: View {
 
                     HStack(spacing: 22) {
                         stepButton(-60, systemImage: "minus", label: "An hour earlier")
-                        Text(ForecastFormat.time(caughtAt))
+                        Text(ForecastFormat.time(caughtAt, use24: use24))
                             .font(.system(size: clockSize, weight: .bold, design: .rounded)) // ui-lint: allow, clock numeral scaled with @ScaledMetric
                             .monospacedDigit()
                             .contentTransition(.numericText())
@@ -204,36 +226,43 @@ struct LogCatchTimeSheet: View {
                     }
                     .padding(.horizontal, DS.gutter)
 
-                    VStack(spacing: 0) {
-                        DatePicker(selection: $caughtAt, in: ...Date.now, displayedComponents: [.date, .hourAndMinute]) {
-                            Label("Another day", systemImage: "calendar")
-                                .foregroundStyle(Color.dsText)
-                        }
-                        .padding(.horizontal, 14)
-                        .frame(minHeight: 48)
-                        if let photoDate {
-                            Divider().padding(.leading, 14)
-                            Button {
-                                caughtAt = min(photoDate, .now)
-                                ToastCenter.shared.show("Time set from the photo", icon: "photo")
-                            } label: {
-                                LogCatchListRow(title: "Use the photo's time", systemImage: "photo", tint: DS.accent,
-                                                value: ForecastFormat.time(photoDate))
+                    VStack(alignment: .leading, spacing: 0) {
+                        CardGroup {
+                            DatePicker(selection: $caughtAt, in: ...Date.now, displayedComponents: [.date, .hourAndMinute]) {
+                                HStack(spacing: 14) {
+                                    TintIcon(systemImage: "calendar", tint: .dsScoreLow)
+                                    Text("Another day")
+                                        .foregroundStyle(Color.dsText)
+                                }
                             }
-                            .buttonStyle(.dim)
+                            .padding(.horizontal, DS.Space.s4)
+                            .padding(.vertical, 10)
+                            .frame(minHeight: 54)
+                            if let photoDate {
+                                Button {
+                                    caughtAt = min(photoDate, .now)
+                                    ToastCenter.shared.show("Time set from the photo", icon: "photo")
+                                } label: {
+                                    CardRow("Use the photo's time", systemImage: "photo", tint: DS.accent,
+                                            value: ForecastFormat.time(photoDate, use24: use24))
+                                }
+                                .buttonStyle(.dsCardRow)
+                            }
+                        }
+                        if !isEditing {
+                            SectionFootnote("Conditions and the bite score update to match.")
                         }
                     }
-                    .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
-                    .padding(.horizontal, DS.gutter)
-
-                    LogCatchFootnote(text: "Conditions and the bite score update to match.")
-                        .padding(.horizontal, DS.gutter)
                 }
                 .padding(.vertical, DS.Space.s3)
                 .pageWidth()
             }
         }
-        .presentationDetents([.medium, .large])
+        .onAppear { if original == nil { original = caughtAt } }
+    }
+
+    private func revert() {
+        if let original { caughtAt = original }
     }
 
     private func stepButton(_ minutes: Int, systemImage: String, label: String) -> some View {
@@ -281,46 +310,92 @@ struct LogCatchWaterSheet: View {
     @Binding var clarity: WaterClarity?
     @Binding var depthText: String
     let imperial: Bool
+    @ScaledMetric(relativeTo: .largeTitle) private var numeralSize: CGFloat = 40
+    @FocusState private var depthFocused: Bool
+    @State private var original: (clarity: WaterClarity?, depth: String)?
 
-    private var depthLabel: String {
-        guard let d = depthText.measurementValue, d > 0 else { return "Not set" }
-        return "\(String(format: d == d.rounded() ? "%.0f" : "%.1f", d)) \(imperial ? "ft" : "m")"
+    /// "Not set" first, so clarity can be cleared.
+    private var clarityOptions: [WaterClarity?] {
+        [nil] + WaterClarity.allCases.map { Optional($0) }
     }
 
     var body: some View {
-        LogCatchSheetChrome(title: "Water") {
+        LogCatchSheetChrome(title: "Water", detents: [.medium, .large], onCancel: revert) {
             ScrollView {
-                VStack(alignment: .leading, spacing: DS.Space.s3) {
-                    Text("Clarity")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(Color.dsText2)
-                    ClarityPicker(selection: $clarity, allowsDeselect: true)
-
-                    Text("Depth")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(Color.dsText2)
-                        .padding(.top, DS.Space.s3)
-                    HStack {
-                        Text(depthLabel)
-                            .font(.body.monospacedDigit())
-                            .foregroundStyle(depthText.measurementValue == nil ? Color.dsText2 : Color.dsText)
-                            .contentTransition(.numericText())
-                        Spacer()
-                        depthButton(-1, systemImage: "minus", label: "Shallower")
-                        depthButton(1, systemImage: "plus", label: "Deeper")
+                VStack(alignment: .leading, spacing: 0) {
+                    SectionTitle("Clarity")
+                    FilterChips(clarityOptions, selection: $clarity,
+                                title: { $0?.label ?? "Not set" },
+                                systemImage: { $0?.icon })
+                    if let clarity {
+                        SectionFootnote(clarity.detail)
                     }
-                    .padding(.horizontal, 14)
-                    .frame(minHeight: 52)
-                    .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
 
-                    LogCatchFootnote(text: "Optional. Recording clarity sharpens your lure and colour suggestions.")
+                    SectionTitle("Depth")
+                        .padding(.top, DS.Space.s6)
+                    depthTile
+                        .padding(.horizontal, DS.gutter)
+                    if let problem = LogCatchView.depthIssue(text: depthText, imperial: imperial) {
+                        LogCatchFootnote(text: problem, systemImage: "exclamationmark.triangle",
+                                         tint: DS.ink(.dsScoreLow))
+                            .padding(.horizontal, DS.gutter)
+                            .padding(.top, DS.Space.s2)
+                    }
+
+                    SectionFootnote("Optional. Recording clarity sharpens your lure and colour suggestions.")
+                        .padding(.top, DS.Space.s2)
                 }
-                .padding(.horizontal, DS.gutter)
                 .padding(.vertical, DS.Space.s3)
                 .pageWidth()
             }
+            .scrollDismissesKeyboard(.interactively)
+            .toolbar {
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("Done") { depthFocused = false }
+                }
+            }
         }
-        .presentationDetents([.medium, .large])
+        .onAppear { if original == nil { original = (clarity, depthText) } }
+    }
+
+    /// The size tile from the composer: type the number, or step it.
+    private var depthTile: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Depth")
+                .font(.footnote)
+                .foregroundStyle(Color.dsText2)
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                TextField("0", text: $depthText)
+                    .keyboardType(.decimalPad)
+                    .focused($depthFocused)
+                    .font(.system(size: numeralSize, weight: .bold, design: .rounded)) // ui-lint: allow, big numeral scaled with @ScaledMetric
+                    .monospacedDigit()
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+                Text(imperial ? "ft" : "m")
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(Color.dsText2)
+                    .fixedSize()
+                Spacer(minLength: 0)
+            }
+            HStack(spacing: DS.Space.s2) {
+                depthButton(-1, systemImage: "minus", label: "Shallower")
+                depthButton(1, systemImage: "plus", label: "Deeper")
+            }
+            .padding(.top, 6)
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
+        .contentShape(Rectangle())
+        .onTapGesture { depthFocused = true }
+    }
+
+    private func revert() {
+        guard let original else { return }
+        clarity = original.clarity
+        depthText = original.depth
     }
 
     private func depthButton(_ direction: Double, systemImage: String, label: String) -> some View {
@@ -328,13 +403,13 @@ struct LogCatchWaterSheet: View {
             let step = imperial ? 1.0 : 0.5
             let next = max(0, (depthText.measurementValue ?? 0) + direction * step)
             withAnimation(DS.Motion.easeOut) {
-                depthText = next > 0 ? String(format: next == next.rounded() ? "%.0f" : "%.1f", next) : ""
+                depthText = next > 0 ? LogCatchView.fieldText(next, maxDecimals: 1) : ""
             }
         } label: {
             Image(systemName: systemImage)
                 .font(.body.weight(.semibold))
                 .foregroundStyle(Color.dsText)
-                .frame(width: 44, height: 36)
+                .frame(maxWidth: .infinity, minHeight: 36)
                 .background(Color.dsFill2, in: RoundedRectangle(cornerRadius: DS.Radius.thumb, style: .continuous))
         }
         .buttonStyle(.dim)
@@ -355,61 +430,166 @@ struct LogCatchGearSheet: View {
     @Binding var lureColor: String
     @Binding var technique: String
 
+    private struct Snapshot {
+        var gearId: String?
+        var rod, reel, lure, lureColor, technique: String
+    }
+
+    private enum Field: Hashable { case rod, reel, technique }
+
+    @State private var original: Snapshot?
+    /// Fields switched from the menu to typing, because the value isn't one
+    /// of the listed choices.
+    @State private var typing: Set<Field> = []
+
     var body: some View {
-        LogCatchSheetChrome(title: "Gear") {
-            List {
-                Section {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: DS.Space.s2) {
-                            Chip("None", isSelected: selectedGearId == nil && isEmpty) { applyNone() }
-                            ForEach(presets) { preset in
-                                Chip(preset.name, isSelected: selectedGearId == preset.id) { apply(preset) }
+        LogCatchSheetChrome(title: "Gear", onCancel: revert) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: DS.Space.s6) {
+                    VStack(alignment: .leading, spacing: 0) {
+                        SectionTitle("Preset")
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 6) {
+                                Chip("None", isSelected: selectedGearId == nil && isEmpty) { applyNone() }
+                                ForEach(presets) { preset in
+                                    Chip(preset.name, isSelected: selectedGearId == preset.id) { apply(preset) }
+                                }
                             }
-                            if selectedGearId == nil && !isEmpty {
-                                Chip("Custom", isSelected: true) {}
+                            .padding(.horizontal, DS.gutter)
+                            .padding(.vertical, 4)
+                        }
+                        .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
+                    }
+
+                    CardSection("Rod and reel") {
+                        gearRow(.rod, title: "Rod", systemImage: "line.diagonal", tint: .brown, selection: $rod)
+                        if typing.contains(.rod) {
+                            CardFieldRow(placeholder: "Type the rod", systemImage: "pencil", tint: .brown, text: $rod)
+                        }
+                        gearRow(.reel, title: "Reel", systemImage: "circle.circle", tint: .indigo, selection: $reel)
+                        if typing.contains(.reel) {
+                            CardFieldRow(placeholder: "Type the reel", systemImage: "pencil", tint: .indigo, text: $reel)
+                        }
+                    }
+
+                    VStack(alignment: .leading, spacing: 0) {
+                        SectionTitle("Lure or bait")
+                        if !lureCandidates.isEmpty {
+                            lureCarousel
+                                .padding(.bottom, DS.Space.s2)
+                        }
+                        CardGroup {
+                            CardFieldRow(placeholder: lureCandidates.isEmpty ? "Lure or bait" : "Or type one",
+                                         systemImage: "fish", tint: .orange, text: $lure)
+                            if !lure.isEmpty {
+                                CardFieldRow(placeholder: "Lure colour", systemImage: "paintpalette.fill", tint: .pink,
+                                             text: $lureColor)
                             }
                         }
-                        .padding(.horizontal, DS.Space.s4)
-                        .padding(.vertical, DS.Space.s2)
                     }
-                    .listRowInsets(EdgeInsets())
-                } header: {
-                    Text("Preset")
-                }
-                .pfRows()
 
-                Section {
-                    field(.rod, selection: $rod, placeholder: "Rod")
-                    field(.reel, selection: $reel, placeholder: "Reel")
-                } header: {
-                    Text("Rod and reel")
-                }
-                .pfRows()
-
-                Section {
-                    if !lureCandidates.isEmpty {
-                        lureCarousel
-                            .listRowInsets(EdgeInsets())
+                    CardSection("Technique", note: "Changes here only apply to this catch.") {
+                        techniqueRow
+                        if typing.contains(.technique) {
+                            CardFieldRow(placeholder: "Type the technique", systemImage: "pencil", tint: .teal,
+                                         text: $technique)
+                        }
                     }
-                    TextField(lureCandidates.isEmpty ? "Lure or bait" : "Or type one", text: $lure)
-                    if !lure.isEmpty {
-                        TextField("Lure colour", text: $lureColor)
-                    }
-                } header: {
-                    Text("Lure or bait")
                 }
-                .pfRows()
-
-                Section {
-                    TechniquePicker(selection: $technique)
-                } footer: {
-                    Text("Changes here only apply to this catch.")
-                }
-                .pfRows()
+                .padding(.vertical, DS.Space.s3)
+                .pageWidth()
             }
-            .gearFormStyle()
+            .scrollDismissesKeyboard(.interactively)
         }
-        .presentationDetents([.large])
+        .onAppear {
+            guard original == nil else { return }
+            original = Snapshot(gearId: selectedGearId, rod: rod, reel: reel, lure: lure,
+                                lureColor: lureColor, technique: technique)
+            // Resume typing for a value that isn't one of the listed choices.
+            if !rod.isEmpty, !owned(.rod).contains(where: { $0.displayName == rod }) { typing.insert(.rod) }
+            if !reel.isEmpty, !owned(.reel).contains(where: { $0.displayName == reel }) { typing.insert(.reel) }
+            if !technique.isEmpty, !FishingTechniques.presets.contains(technique) { typing.insert(.technique) }
+        }
+    }
+
+    private func revert() {
+        guard let original else { return }
+        selectedGearId = original.gearId
+        rod = original.rod
+        reel = original.reel
+        lure = original.lure
+        lureColor = original.lureColor
+        technique = original.technique
+    }
+
+    private func owned(_ category: OwnedGear.Category) -> [OwnedGear] {
+        ownedGear.filter { $0.category == category }
+    }
+
+    /// A rod or reel: a menu of the tackle box when there is any, otherwise
+    /// a field to type in.
+    @ViewBuilder
+    private func gearRow(_ field: Field, title: String, systemImage: String, tint: Color,
+                         selection: Binding<String>) -> some View {
+        let category: OwnedGear.Category = field == .rod ? .rod : .reel
+        let items = owned(category)
+        if items.isEmpty {
+            CardFieldRow(placeholder: title, systemImage: systemImage, tint: tint, text: selection)
+        } else {
+            Menu {
+                Picker(title, selection: menuChoice(field, selection: selection,
+                                                    known: items.map(\.displayName))) {
+                    Text("None").tag("")
+                    ForEach(items) { item in
+                        Text(item.displayName).tag(item.displayName)
+                    }
+                    Text("Type one").tag(GearFieldPicker.customTag)
+                }
+            } label: {
+                CardRow(title, systemImage: systemImage, tint: tint) {
+                    MenuValue(text: typing.contains(field) ? "Typed"
+                                  : (selection.wrappedValue.isEmpty ? "None" : selection.wrappedValue))
+                }
+            }
+            .buttonStyle(.dsCardRow)
+        }
+    }
+
+    private var techniqueRow: some View {
+        Menu {
+            Picker("Technique", selection: menuChoice(.technique, selection: $technique,
+                                                      known: FishingTechniques.presets)) {
+                Text("None").tag("")
+                ForEach(FishingTechniques.presets, id: \.self) { technique in
+                    Text(FishingTechniques.label(for: technique)).tag(technique)
+                }
+                Text("Type one").tag(GearFieldPicker.customTag)
+            }
+        } label: {
+            CardRow("Technique", systemImage: "figure.fishing", tint: .teal) {
+                MenuValue(text: typing.contains(.technique) ? "Typed"
+                              : (technique.isEmpty ? "None" : FishingTechniques.label(for: technique)))
+            }
+        }
+        .buttonStyle(.dsCardRow)
+    }
+
+    /// The menu's selection: "Type one" switches the field to typing and
+    /// keeps a typed value; a listed choice switches typing off.
+    private func menuChoice(_ field: Field, selection: Binding<String>, known: [String]) -> Binding<String> {
+        Binding(
+            get: { typing.contains(field) ? GearFieldPicker.customTag : selection.wrappedValue },
+            set: { newValue in
+                Haptics.selection()
+                if newValue == GearFieldPicker.customTag {
+                    typing.insert(field)
+                    if known.contains(selection.wrappedValue) { selection.wrappedValue = "" }
+                } else {
+                    typing.remove(field)
+                    selection.wrappedValue = newValue
+                }
+            }
+        )
     }
 
     private struct LureChoice: Identifiable {
@@ -441,8 +621,8 @@ struct LogCatchGearSheet: View {
                     lureTile(item.name, owned: item.owned)
                 }
             }
-            .padding(.horizontal, DS.Space.s4)
-            .padding(.vertical, DS.Space.s3)
+            .padding(.horizontal, DS.gutter)
+            .padding(.vertical, DS.Space.s1)
         }
     }
 
@@ -465,7 +645,7 @@ struct LogCatchGearSheet: View {
                 if owned {
                     Text("In your box")
                         .font(.caption)
-                        .foregroundStyle(Color.dsScoreGood)
+                        .foregroundStyle(DS.ink(.dsScoreGood))
                 }
             }
             .frame(width: 84)
@@ -488,21 +668,16 @@ struct LogCatchGearSheet: View {
         lure = preset.lure ?? ""
         lureColor = preset.lureColor ?? ""
         technique = preset.technique ?? ""
+        typing = []
+        if !rod.isEmpty, !owned(.rod).contains(where: { $0.displayName == rod }) { typing.insert(.rod) }
+        if !reel.isEmpty, !owned(.reel).contains(where: { $0.displayName == reel }) { typing.insert(.reel) }
+        if !technique.isEmpty, !FishingTechniques.presets.contains(technique) { typing.insert(.technique) }
     }
 
     private func applyNone() {
         selectedGearId = nil
         rod = ""; reel = ""; lure = ""; lureColor = ""; technique = ""
-    }
-
-    @ViewBuilder
-    private func field(_ category: OwnedGear.Category, selection: Binding<String>, placeholder: String) -> some View {
-        let items = ownedGear.filter { $0.category == category }
-        if items.isEmpty {
-            TextField(placeholder, text: selection)
-        } else {
-            GearFieldPicker(placeholder: placeholder, items: items, selection: selection)
-        }
+        typing = []
     }
 }
 
@@ -515,6 +690,8 @@ struct LogCatchSessionSheet: View {
     let canStart: Bool
     var onStart: () -> Void
     @Environment(\.dismiss) private var dismiss
+    @AppStorage("use24HourTime") private var use24 = true
+    @State private var original: String??
 
     private var recent: [Trip] {
         trips.filter { !$0.isPlanned && $0.id != activeTrip?.id }
@@ -524,73 +701,68 @@ struct LogCatchSessionSheet: View {
     }
 
     var body: some View {
-        LogCatchSheetChrome(title: "Session", showsDone: false) {
-            List {
-                if let activeTrip {
-                    Section {
-                        row(activeTrip.id, title: "Current session",
-                            subtitle: "Started \(ForecastFormat.time(activeTrip.startDate))")
-                    } footer: {
-                        Text("Catches made while it records join it.")
-                    }
-                    .pfRows()
-                } else {
-                    Section {
-                        ForEach(recent) { trip in
-                            row(trip.id, title: trip.name, subtitle: range(trip))
+        LogCatchSheetChrome(title: "Session", detents: [.medium, .large], onCancel: revert) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    if let activeTrip {
+                        CardSection(note: "Catches made while it records join it.") {
+                            CardRow("Current session",
+                                    subtitle: "Started \(ForecastFormat.time(activeTrip.startDate, use24: use24))",
+                                    systemImage: "record.circle", tint: .dsScoreGood) {
+                                RowCheckmark(isOn: true)
+                            }
                         }
-                        row(nil, title: "None", subtitle: "Keep it as a single catch")
-                    }
-                    .pfRows()
-                    if canStart {
-                        Section {
+                    } else {
+                        CardSection(recent.isEmpty ? nil : "Recent sessions") {
+                            ForEach(recent) { trip in
+                                row(trip.id, title: trip.name, subtitle: range(trip),
+                                    systemImage: "figure.fishing", tint: .dsScoreGood)
+                            }
+                            row(nil, title: "None", subtitle: "Keep it as a single catch",
+                                systemImage: "fish.fill", tint: DS.accent)
+                        }
+                        if canStart {
                             Button {
                                 onStart()
                                 dismiss()
                             } label: {
-                                Label("Start a session now", systemImage: "play.fill")
-                                    .foregroundStyle(Color.dsText)
+                                Label("Start session", systemImage: "play.fill")
                             }
-                            .tint(Color.dsScoreGood)
+                            .buttonStyle(.dsTonal)
+                            .padding(.horizontal, DS.gutter)
+                            .padding(.top, DS.Space.s6)
                         }
-                        .pfRows()
                     }
                 }
+                .padding(.vertical, DS.Space.s3)
+                .pageWidth()
             }
-            .gearFormStyle()
         }
-        .presentationDetents([.medium, .large])
+        .onAppear { if original == nil { original = .some(selectedTripId) } }
     }
 
-    private func row(_ id: String?, title: String, subtitle: String) -> some View {
+    private func revert() {
+        if let original { selectedTripId = original }
+    }
+
+    private func row(_ id: String?, title: String, subtitle: String, systemImage: String, tint: Color) -> some View {
         Button {
             selectedTripId = id
-            dismiss()
         } label: {
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(title).foregroundStyle(Color.dsText)
-                    Text(subtitle).font(.subheadline).foregroundStyle(Color.dsText2)
-                }
-                Spacer()
-                if (activeTrip?.id ?? selectedTripId) == id {
-                    Image(systemName: "checkmark")
-                        .font(.body.weight(.semibold))
-                        .foregroundStyle(DS.accent)
-                }
+            CardRow(title, subtitle: subtitle, systemImage: systemImage, tint: tint) {
+                RowCheckmark(isOn: selectedTripId == id)
             }
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.dim)
+        .buttonStyle(.dsCardRow)
         .buttonHaptic(.selection)
-        .disabled(activeTrip != nil)
+        .accessibilityAddTraits(selectedTripId == id ? .isSelected : [])
     }
 
     private func range(_ trip: Trip) -> String {
         let day = trip.startDate.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated))
-        let start = ForecastFormat.time(trip.startDate)
+        let start = ForecastFormat.time(trip.startDate, use24: use24)
         guard let end = trip.endDate else { return "\(day), \(start)" }
-        return "\(day), \(start) to \(ForecastFormat.time(end))"
+        return "\(day), \(start) to \(ForecastFormat.time(end, use24: use24))"
     }
 }
 
@@ -603,22 +775,30 @@ struct LogCatchSpotSheet: View {
     @Binding var pinCoordinate: CLLocationCoordinate2D?
     let currentLocation: CLLocation?
     @Binding var newSpotName: String
+    /// Spots named in this composer, written only with the catch.
+    var pendingSpotIds: Set<String> = []
+    /// Set when location is off: asks for it, or opens Settings.
+    var onTurnOnLocation: (() -> Void)? = nil
     var onSaveSpot: () -> Void
 
+    private struct Snapshot {
+        var mode: LogCatchView.LocationMode
+        var spotId: String?
+        var pin: CLLocationCoordinate2D?
+        var name: String
+    }
+
+    @State private var original: Snapshot?
     @State private var showingPinPicker = false
     @State private var naming = false
     @FocusState private var nameFocused: Bool
 
     var body: some View {
-        LogCatchSheetChrome(title: "Spot") {
+        LogCatchSheetChrome(title: "Spot", onCancel: revert) {
             ScrollView {
                 VStack(alignment: .leading, spacing: DS.Space.s3) {
-                    Picker("Location", selection: $mode) {
-                        ForEach(LogCatchView.LocationMode.allCases, id: \.self) { m in
-                            Text(m.rawValue).tag(m)
-                        }
-                    }
-                    .pickerStyle(.segmented)
+                    FilterChips(LogCatchView.LocationMode.allCases, selection: $mode,
+                                title: { $0.rawValue }, systemImage: { modeIcon($0) })
 
                     switch mode {
                     case .current: hereContent
@@ -626,49 +806,85 @@ struct LogCatchSpotSheet: View {
                     case .pin: pinContent
                     }
                 }
-                .padding(.horizontal, DS.gutter)
                 .padding(.vertical, DS.Space.s3)
                 .pageWidth()
             }
+            .scrollDismissesKeyboard(.interactively)
             .haptic(.selection, trigger: mode)
             .sheet(isPresented: $showingPinPicker) {
                 LocationPickerSheet(coordinate: $pinCoordinate)
             }
         }
-        .presentationDetents([.large])
+        .onAppear {
+            if original == nil {
+                original = Snapshot(mode: mode, spotId: selectedSpotId, pin: pinCoordinate, name: newSpotName)
+            }
+        }
+    }
+
+    private func revert() {
+        guard let original else { return }
+        mode = original.mode
+        selectedSpotId = original.spotId
+        pinCoordinate = original.pin
+        newSpotName = original.name
+    }
+
+    private func modeIcon(_ mode: LogCatchView.LocationMode) -> String {
+        switch mode {
+        case .current: "location.fill"
+        case .spot: "bookmark.fill"
+        case .pin: "mappin"
+        }
     }
 
     @ViewBuilder
     private var hereContent: some View {
-        LogCatchMapPreview(coordinate: currentLocation?.coordinate, height: 200)
         if let loc = currentLocation {
+            LogCatchMapPreview(coordinate: loc.coordinate, height: 200)
+                .padding(.horizontal, DS.gutter)
             LogCatchFootnote(text: "Using your location. Accurate to \(max(1, Int(loc.horizontalAccuracy))) m.",
                              systemImage: "location.fill")
+                .padding(.horizontal, DS.gutter)
+        } else if let onTurnOnLocation {
+            CardGroup {
+                Button(action: onTurnOnLocation) {
+                    CardRow("Turn on location", subtitle: "Location is off, so the catch has no place yet.",
+                            systemImage: "location.fill", tint: DS.accent, chevron: true)
+                }
+                .buttonStyle(.dsCardRow)
+                Button { mode = .pin } label: {
+                    CardRow("Drop a pin", systemImage: "mappin", tint: .dsScoreSlow, chevron: true)
+                }
+                .buttonStyle(.dsCardRow)
+            }
         } else {
-            LogCatchFootnote(text: "Waiting for your location. You can also drop a pin.", systemImage: "location.slash")
+            InlineEmpty(systemImage: "location", text: "Waiting for your location.",
+                        actionTitle: "Drop a pin") { mode = .pin }
         }
     }
 
     @ViewBuilder
     private var savedContent: some View {
         if spots.isEmpty {
-            ContentUnavailableView("No saved spots yet", systemImage: "bookmark",
-                                   description: Text("Drop a pin and save it as a new spot."))
+            InlineEmpty(systemImage: "bookmark", text: "No saved spots yet. Drop a pin and name it as a new spot.",
+                        actionTitle: "Drop a pin") { mode = .pin }
         } else {
-            VStack(spacing: 0) {
-                ForEach(Array(spots.enumerated()), id: \.element.id) { index, spot in
-                    if index > 0 { Divider().padding(.leading, 52) }
+            CardGroup {
+                ForEach(spots) { spot in
                     Button {
                         selectedSpotId = spot.id
                     } label: {
-                        LogCatchListRow(title: spot.name, systemImage: "bookmark.fill", tint: DS.accent,
-                                        checked: selectedSpotId == spot.id)
+                        CardRow(spot.name, subtitle: pendingSpotIds.contains(spot.id) ? "New, not saved yet" : nil,
+                                systemImage: "bookmark.fill", tint: DS.accent) {
+                            RowCheckmark(isOn: selectedSpotId == spot.id)
+                        }
                     }
-                    .buttonStyle(.dim)
+                    .buttonStyle(.dsCardRow)
                     .buttonHaptic(.selection)
+                    .accessibilityAddTraits(selectedSpotId == spot.id ? .isSelected : [])
                 }
             }
-            .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
         }
     }
 
@@ -678,40 +894,52 @@ struct LogCatchSpotSheet: View {
             LogCatchMapPreview(coordinate: pinCoordinate ?? currentLocation?.coordinate, isPin: true, height: 200)
         }
         .buttonStyle(.dim)
+        .padding(.horizontal, DS.gutter)
         .accessibilityLabel("Move the pin")
         Button { showingPinPicker = true } label: {
             Label(pinCoordinate == nil ? "Choose on the map" : "Move the pin", systemImage: "hand.point.up.left")
         }
         .buttonStyle(.dsTonal)
+        .padding(.horizontal, DS.gutter)
 
-        if naming {
-            HStack(spacing: DS.Space.s2) {
-                Image(systemName: "bookmark")
-                    .foregroundStyle(Color.dsText2)
-                TextField("Name this spot", text: $newSpotName)
-                    .focused($nameFocused)
-                    .submitLabel(.done)
-                    .onSubmit(save)
+        VStack(alignment: .leading, spacing: 0) {
+            CardGroup {
+                if naming {
+                    HStack(spacing: 14) {
+                        TintIcon(systemImage: "bookmark", tint: DS.accent)
+                        TextField("Name this spot", text: $newSpotName)
+                            .font(.body)
+                            .foregroundStyle(Color.dsText)
+                            .focused($nameFocused)
+                            .submitLabel(.done)
+                            .onSubmit(save)
+                    }
+                    .padding(.horizontal, DS.Space.s4)
+                    .padding(.vertical, 10)
+                    .frame(minHeight: 54)
+                } else {
+                    Button {
+                        naming = true
+                        nameFocused = true
+                    } label: {
+                        CardRow("Save as a new spot", systemImage: "bookmark", tint: DS.accent, chevron: true)
+                    }
+                    .buttonStyle(.dsCardRow)
+                    .disabled(pinCoordinate == nil)
+                }
             }
-            .padding(.horizontal, 14)
-            .frame(minHeight: 48)
-            .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.button, style: .continuous))
-            Button(action: save) {
-                Label("Save spot", systemImage: "bookmark.fill")
+            if naming {
+                Button(action: save) {
+                    Label("Save spot", systemImage: "bookmark.fill")
+                }
+                .buttonStyle(.dsTonal)
+                .padding(.horizontal, DS.gutter)
+                .padding(.top, DS.Space.s3)
+                .disabled(newSpotName.trimmingCharacters(in: .whitespaces).isEmpty || pinCoordinate == nil)
             }
-            .buttonStyle(.dsTonal)
-            .disabled(newSpotName.trimmingCharacters(in: .whitespaces).isEmpty || pinCoordinate == nil)
-        } else {
-            Button {
-                naming = true
-                nameFocused = true
-            } label: {
-                LogCatchListRow(title: "Save as a new spot", systemImage: "bookmark", tint: DS.accent, chevron: true)
-                    .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
-            }
-            .buttonStyle(.dim)
-            .disabled(pinCoordinate == nil)
+            SectionFootnote("A new spot is saved when you save the catch.")
         }
+        .padding(.top, DS.Space.s3)
     }
 
     private func save() {

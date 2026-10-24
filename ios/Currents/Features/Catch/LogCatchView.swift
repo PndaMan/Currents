@@ -27,7 +27,9 @@ struct LogCatchView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dynamicTypeSize) private var typeSize
+    @Environment(\.openURL) private var openURL
     @AppStorage("units") private var units = "metric"
+    @AppStorage("use24HourTime") private var use24 = true
     /// Shared with Today's target species (0 means any species).
     @AppStorage("targetSpeciesId") private var targetSpeciesId: Int = 0
     /// Length/weight fields hold values in the user's chosen unit; converted to
@@ -120,6 +122,11 @@ struct LogCatchView: View {
     @State private var locationMode: LocationMode = .current
     @State private var pinCoordinate: CLLocationCoordinate2D?
     @State private var newSpotName = ""
+    /// Spots named in the spot sheet. The one the catch is filed under is
+    /// written with the catch, so discarding the composer leaves nothing behind.
+    @State private var pendingSpots: [Spot] = []
+    /// The session started from this composer, so discard can offer to end it.
+    @State private var startedSessionId: String?
 
     // Sharing (new catches only)
     @State private var crews: [CommunityService.Crew] = []
@@ -131,6 +138,9 @@ struct LogCatchView: View {
     @State private var showingDiscard = false
     @State private var baseline: String?
     @State private var didLoad = false
+    /// The size fields as an edit opened them, to tell a changed value from
+    /// one that was only shown.
+    @State private var loadedSizeText = (length: "", weight: "", depth: "")
     @FocusState private var focusedField: Field?
 
     // Data
@@ -146,6 +156,7 @@ struct LogCatchView: View {
     @State private var lastWeatherKey = ""
     @State private var priors: [Catch] = []
     @State private var conditions: Conditions?
+    @State private var conditionsLoading = false
 
     enum LocationMode: String, CaseIterable {
         case current = "Here"
@@ -154,7 +165,7 @@ struct LogCatchView: View {
     }
 
     private enum ComposerSheet: String, Identifiable {
-        case species, time, gear, water, session, spot
+        case species, time, gear, water, session, spot, pin
         var id: String { rawValue }
     }
 
@@ -222,6 +233,8 @@ struct LogCatchView: View {
             if showingCamera {
                 cameraLayer
                     .transition(reduceMotion ? .opacity : .move(edge: .bottom))
+                    // The camera covers the form; keep VoiceOver inside it.
+                    .accessibilityAddTraits(.isModal)
             }
         }
         .interactiveDismissDisabled(isDirty)
@@ -231,9 +244,16 @@ struct LogCatchView: View {
                 Haptics.warning()
                 dismiss()
             }
+            if startedSessionIsRunning {
+                Button("End session", role: .destructive) {
+                    Haptics.warning()
+                    appState.tripTracker.end()
+                    dismiss()
+                }
+            }
             Button("Keep editing", role: .cancel) {}
         } message: {
-            Text(isEditing ? "The catch stays as it was." : "Nothing has been saved yet.")
+            Text(discardMessage)
         }
         .sheet(item: $activeSheet) { sheet in
             sheetContent(sheet)
@@ -460,9 +480,12 @@ struct LogCatchView: View {
                         .foregroundStyle(Color.dsText)
                         .frame(width: 30, height: 30)
                         .background(Color.dsElevated, in: Circle())
+                        // 30 pt to look at, 44 pt to hit.
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.dim)
-                .padding(10)
+                .padding(3)
                 .accessibilityLabel("Remove photo \(index + 1)")
             }
             .matchedGeometryEffect(id: index == 0 ? "cover" : photo.id.uuidString, in: coverSpace)
@@ -495,8 +518,37 @@ struct LogCatchView: View {
         case confidence(String, Color)
     }
 
-    private var isDownloadingModel: Bool {
-        hasScanned && !modelReady && speciesMatches.isEmpty && !photos.isEmpty
+    /// A photo was scanned before the species ID model was on the phone.
+    private var modelMissing: Bool {
+        hasScanned && !modelReady && speciesMatches.isEmpty && !photos.isEmpty && !FishModelStatus.shared.isInstalled
+    }
+
+    /// The model's state in words: the over line, the banner text and its
+    /// symbol, and whether "Try again" can help.
+    private var modelNotice: (overLine: String, text: String, systemImage: String, canRetry: Bool) {
+        switch FishModelStatus.shared.phase {
+        case .needsInternet:
+            return ("Species ID needs internet once",
+                    "Species ID downloads once, about 90 MB, then works with no signal. Pick the species yourself for now.",
+                    "wifi.slash", true)
+        case .failed:
+            return ("Species ID didn't download",
+                    "The species ID download didn't finish. Try again, or pick the species yourself.",
+                    "exclamationmark.icloud", true)
+        case .downloading(let progress?):
+            return ("Downloading species ID, \(Int((progress * 100).rounded()))%",
+                    "Species ID is downloading, about 90 MB. Pick the species yourself for now.",
+                    "icloud.and.arrow.down", false)
+        case .downloading, .unknown, .installed:
+            return ("Downloading species ID",
+                    "Species ID is downloading, about 90 MB. Pick the species yourself for now.",
+                    "icloud.and.arrow.down", false)
+        }
+    }
+
+    private var modelProgress: Double? {
+        if case .downloading(let progress) = FishModelStatus.shared.phase { return progress }
+        return nil
     }
 
     private var noConfidentMatch: Bool {
@@ -513,7 +565,7 @@ struct LogCatchView: View {
             if let editing, editing.catchRecord.speciesId == id { return .plain(loggedLine(editing.catchRecord.caughtAt)) }
             return .plain("Picked by you")
         }
-        if isDownloadingModel { return .icon("icloud.and.arrow.down", "Species ID is still downloading") }
+        if modelMissing { return .icon(modelNotice.systemImage, modelNotice.overLine) }
         if noConfidentMatch { return .icon("questionmark.circle", "No confident match") }
         return .plain("Species")
     }
@@ -573,19 +625,26 @@ struct LogCatchView: View {
                 .padding(.top, DS.Space.s2)
             }
 
-            if isDownloadingModel {
-                HStack(alignment: .top, spacing: DS.Space.s3) {
-                    Image(systemName: "icloud.and.arrow.down")
-                        .foregroundStyle(Color.dsText2)
-                    Text("The ID model is about 90 MB and needs internet once. Pick the species yourself for now.")
-                        .font(.subheadline)
-                        .foregroundStyle(Color.dsText2)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Spacer(minLength: 0)
-                    Button("Try again") { retryDownload() }
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(DS.accent)
-                        .buttonStyle(.dim)
+            if modelMissing {
+                let notice = modelNotice
+                VStack(alignment: .leading, spacing: DS.Space.s3) {
+                    HStack(alignment: .top, spacing: DS.Space.s3) {
+                        Image(systemName: notice.systemImage)
+                            .foregroundStyle(Color.dsText2)
+                        Text(notice.text)
+                            .font(.subheadline)
+                            .foregroundStyle(Color.dsText2)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Spacer(minLength: 0)
+                    }
+                    if let progress = modelProgress {
+                        LogbookProgressBar(fraction: progress, height: 6)
+                            .animation(DS.Motion.easeOut, value: progress)
+                    }
+                    if notice.canRetry {
+                        Button("Try again") { retryDownload() }
+                            .buttonStyle(.dsTonal)
+                    }
                 }
                 .padding(14)
                 .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
@@ -840,7 +899,7 @@ struct LogCatchView: View {
     /// Hard limits in the stored metric units. Nothing caught on a rod comes
     /// close, so a value above one is a typo. The Species table has no
     /// per-species maximum, so these are the only checks.
-    private enum SizeLimit {
+    enum SizeLimit {
         static let lengthCm = 400.0
         static let weightKg = 500.0
         static let depthM = 300.0
@@ -848,8 +907,8 @@ struct LogCatchView: View {
 
     /// Why a typed size can't be saved, or nil when it can (an empty field
     /// is fine). `metric` is the parsed value in the stored unit.
-    private func sizeProblem(text: String, metric: Double?, name: String, cap: Double,
-                             capLabel: String) -> String? {
+    static func sizeProblem(text: String, metric: Double?, name: String, cap: Double,
+                            capLabel: String) -> String? {
         guard !text.trimmingCharacters(in: .whitespaces).isEmpty else { return nil }
         guard let metric else { return "Enter the \(name) as a number." }
         guard metric > 0 else { return "The \(name) has to be more than 0." }
@@ -858,19 +917,26 @@ struct LogCatchView: View {
     }
 
     private var lengthProblem: String? {
-        sizeProblem(text: lengthCm, metric: lengthInCm, name: "length", cap: SizeLimit.lengthCm,
+        Self.sizeProblem(text: lengthCm, metric: lengthInCm, name: "length", cap: SizeLimit.lengthCm,
                     capLabel: Units.length(cm: SizeLimit.lengthCm, imperial: imperial))
     }
 
     private var weightProblem: String? {
-        sizeProblem(text: weightKg, metric: weightInKg, name: "weight", cap: SizeLimit.weightKg,
+        Self.sizeProblem(text: weightKg, metric: weightInKg, name: "weight", cap: SizeLimit.weightKg,
                     capLabel: imperial ? "\(Int((SizeLimit.weightKg * 2.2046226).rounded())) lb"
                                        : Units.weight(kg: SizeLimit.weightKg, imperial: false))
     }
 
     private var depthProblem: String? {
-        sizeProblem(text: depthText, metric: depthInM, name: "depth", cap: SizeLimit.depthM,
-                    capLabel: Units.depth(m: SizeLimit.depthM, imperial: imperial))
+        Self.depthIssue(text: depthText, imperial: imperial)
+    }
+
+    /// The depth check, shared with the Water sheet. `text` is in metres, or
+    /// feet when imperial.
+    static func depthIssue(text: String, imperial: Bool) -> String? {
+        let metres = text.measurementValue.map { imperial ? $0 * 0.3048 : $0 }
+        return sizeProblem(text: text, metric: metres, name: "depth", cap: SizeLimit.depthM,
+                           capLabel: Units.depth(m: SizeLimit.depthM, imperial: imperial))
     }
 
     /// What stops Save, in the order the angler would fix it.
@@ -939,75 +1005,94 @@ struct LogCatchView: View {
             if let loc = appState.locationManager.currentLocation {
                 return "Your location, accurate to \(max(1, Int(loc.horizontalAccuracy))) m"
             }
-            return "Waiting for your location"
+            return appState.locationManager.isAuthorized ? "Waiting for your location" : "Location is off"
         case .spot:
+            if pendingSpots.contains(where: { $0.id == selectedSpotId }) { return "New spot, saved with the catch" }
             return "Saved spot"
         case .pin:
-            if let c = pinCoordinate { return String(format: "%.4f, %.4f", c.latitude, c.longitude) }
+            if let c = spotCoordinate { return String(format: "%.4f, %.4f", c.latitude, c.longitude) }
             return "Choose a place on the map"
         }
     }
 
-    private var spotCoordinate: CLLocationCoordinate2D? {
-        let (lat, lon) = resolveLocation()
-        guard lat != 0 || lon != 0 else { return nil }
-        return CLLocationCoordinate2D(latitude: lat, longitude: lon)
+    private var spotIcon: (systemImage: String, tint: Color) {
+        switch locationMode {
+        case .current: return ("location.fill", DS.accent)
+        case .spot: return ("bookmark.fill", DS.accent)
+        case .pin: return ("mappin", Color.dsScoreSlow)
+        }
     }
+
+    private var spotCoordinate: CLLocationCoordinate2D? { resolvedCoordinate }
 
     private var spotSection: some View {
         VStack(alignment: .leading, spacing: 0) {
             SectionTitle("Spot")
-            Button { activeSheet = .spot } label: {
-                HStack(alignment: .center) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(spotTitle)
-                            .font(.body.weight(.medium))
-                            .foregroundStyle(Color.dsText)
-                        Text(spotSubtitle)
-                            .font(.subheadline)
-                            .foregroundStyle(Color.dsText2)
+            CardGroup {
+                Button { openSheet(.spot) } label: {
+                    CardRow(spotTitle, subtitle: spotSubtitle, systemImage: spotIcon.systemImage,
+                            tint: spotIcon.tint, chevron: true) {
+                        if let coordinate = spotCoordinate {
+                            LogCatchMapPreview(coordinate: coordinate, isPin: locationMode == .pin, height: 52)
+                                .frame(width: 52)
+                                .accessibilityHidden(true)
+                        }
                     }
-                    Spacer()
-                    Text("Change")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(DS.accent)
                 }
-                .padding(.horizontal, DS.gutter)
-                .padding(.bottom, 10)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.dim)
+                .buttonStyle(.dsCardRow)
+                .accessibilityHint("Changes the spot")
 
-            Button { activeSheet = .spot } label: {
-                LogCatchMapPreview(coordinate: spotCoordinate, isPin: locationMode == .pin)
-            }
-            .buttonStyle(.dim)
-            .padding(.horizontal, DS.gutter)
-            .accessibilityLabel("Change the spot")
-
-            // Standing at a saved spot: one tap files the catch under it.
-            if locationMode == .current, let near = nearbySpot, near.metres < 300 {
-                Button {
-                    withAnimation(DS.Motion.easeOut) {
-                        selectedSpotId = near.spot.id
-                        locationMode = .spot
+                // No fix: say why, and offer the two ways out. Saving without
+                // a location still works.
+                if spotCoordinate == nil {
+                    if !appState.locationManager.isAuthorized {
+                        Button(action: turnOnLocation) {
+                            CardRow("Turn on location", systemImage: "location.fill", tint: DS.accent, chevron: true)
+                        }
+                        .buttonStyle(.dsCardRow)
                     }
-                } label: {
-                    Label("Log it at \(near.spot.name)", systemImage: "bookmark")
-                        .lineLimit(1)
+                    Button { openSheet(.pin) } label: {
+                        CardRow("Drop a pin", systemImage: "mappin", tint: .dsScoreSlow, chevron: true)
+                    }
+                    .buttonStyle(.dsCardRow)
                 }
-                .buttonStyle(.dsTonal)
-                .padding(.horizontal, DS.gutter)
-                .padding(.top, 10)
-                .transition(.opacity)
+
+                // Standing at a saved spot: one tap files the catch under it.
+                if locationMode == .current, let near = nearbySpot, near.metres < 300 {
+                    Button {
+                        withAnimation(DS.Motion.easeOut) {
+                            selectedSpotId = near.spot.id
+                            locationMode = .spot
+                        }
+                    } label: {
+                        CardRow("Log it at \(near.spot.name)", systemImage: "bookmark", tint: DS.accent)
+                    }
+                    .buttonStyle(.dsCardRow)
+                    .buttonHaptic(.selection)
+                }
             }
         }
+    }
+
+    /// Asks for location the first time; after a refusal only Settings can
+    /// turn it back on.
+    private func turnOnLocation() {
+        if appState.locationManager.authorizationStatus == .notDetermined {
+            appState.locationManager.requestPermission()
+        } else if let url = URL(string: UIApplication.openSettingsURLString) {
+            openURL(url)
+        }
+    }
+
+    private func openSheet(_ sheet: ComposerSheet) {
+        focusedField = nil
+        activeSheet = sheet
     }
 
     // MARK: - Details
 
     private var caughtValue: String {
-        let time = ForecastFormat.time(caughtAt)
+        let time = ForecastFormat.time(caughtAt, use24: use24)
         if Calendar.current.isDateInToday(caughtAt) { return "Today, \(time)" }
         if Calendar.current.isDateInYesterday(caughtAt) { return "Yesterday, \(time)" }
         return "\(caughtAt.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated))), \(time)"
@@ -1037,35 +1122,29 @@ struct LogCatchView: View {
     }
 
     private var detailsSection: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            SectionTitle("Details")
-            VStack(spacing: 0) {
-                detailRow("Caught", systemImage: "clock", tint: .dsScoreLow, value: caughtValue, sheet: .time)
-                Divider().padding(.leading, 52)
-                detailRow("Gear", systemImage: "shippingbox", tint: .purple, value: gearValue, sheet: .gear,
-                          lureArt: gearLure)
-                Divider().padding(.leading, 52)
-                detailRow("Water", systemImage: "drop", tint: DS.accent, value: waterValue, sheet: .water)
-                if FeatureFlags.liveTrips {
-                    Divider().padding(.leading, 52)
-                    detailRow("Session", systemImage: "figure.fishing", tint: .dsScoreGood, value: sessionValue, sheet: .session)
-                }
+        CardSection("Details") {
+            detailRow("Caught", systemImage: "clock.fill", tint: .dsScoreLow, value: caughtValue, sheet: .time)
+            detailRow("Gear", systemImage: "shippingbox.fill", tint: .purple, value: gearValue, sheet: .gear,
+                      lureArt: gearLure)
+            detailRow("Water", systemImage: "drop.fill", tint: DS.accent, value: waterValue, sheet: .water)
+            if FeatureFlags.liveTrips {
+                detailRow("Session", systemImage: "figure.fishing", tint: .dsScoreGood, value: sessionValue,
+                          sheet: .session)
             }
-            .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
-            .padding(.horizontal, DS.gutter)
         }
     }
 
     private func detailRow(_ title: String, systemImage: String, tint: Color, value: String,
                            sheet: ComposerSheet, lureArt: String? = nil) -> some View {
-        Button {
-            focusedField = nil
-            activeSheet = sheet
-        } label: {
-            LogCatchListRow(title: title, systemImage: systemImage, tint: tint, value: value, chevron: true,
-                            lureArt: lureArt)
+        Button { openSheet(sheet) } label: {
+            CardRow(title, systemImage: systemImage, tint: tint, value: value, chevron: true) {
+                if let lureArt, !lureArt.isEmpty {
+                    LureArtView(name: lureArt, size: 28)
+                        .accessibilityHidden(true)
+                }
+            }
         }
-        .buttonStyle(.dim)
+        .buttonStyle(.dsCardRow)
     }
 
     // MARK: - Conditions
@@ -1079,80 +1158,90 @@ struct LogCatchView: View {
     private var conditionsSection: some View {
         VStack(alignment: .leading, spacing: 0) {
             SectionTitle("Conditions")
-            let c = conditions
-            if c != nil {
-                KeyValueList(rows: conditionRows(c))
+            let cells = conditions.map(conditionCells) ?? []
+            if !cells.isEmpty {
+                LazyVGrid(columns: conditionColumns, spacing: DS.Space.s3) {
+                    ForEach(cells) { cell in
+                        ConditionTile(cell.label, systemImage: cell.systemImage, iconTint: cell.iconTint,
+                                      value: cell.value, unit: cell.unit, footnote: cell.footnote)
+                    }
+                }
+                .padding(.horizontal, DS.gutter)
             }
 
-            LogCatchFootnote(text: conditionsFootnote, systemImage: c == nil ? "info.circle" : "checkmark.circle")
+            LogCatchFootnote(text: conditionsFootnote, systemImage: cells.isEmpty ? "info.circle" : "checkmark.circle")
                 .padding(.horizontal, DS.gutter)
                 .padding(.top, 10)
         }
     }
 
+    private var conditionColumns: [GridItem] {
+        Array(repeating: GridItem(.flexible(), spacing: DS.Space.s3), count: typeSize.isAccessibilitySize ? 1 : 2)
+    }
+
+    /// Says why the tiles are empty, or where they came from.
     private var conditionsFootnote: String {
         if isEditing {
             return conditions == nil ? "No weather was saved with this catch." : "Recorded when the catch was logged."
         }
-        if conditions == nil { return "Filled in from the forecast once your location is known." }
-        return "Filled in from the forecast for \(ForecastFormat.time(caughtAt)). Saved with the catch."
-    }
-
-    // Each tile says what the number means for fishing, not just the number:
-    // water against the species' comfort band, the pressure trend, the
-    // wind direction, and the bite score in its score colour.
-
-    private func waterTempValue(_ c: Conditions?) -> String {
-        c?.waterC.map { Units.temperature($0, imperial: imperial) } ?? "–"
-    }
-
-    private func waterTempLabel(_ c: Conditions?) -> String {
-        guard let t = c?.waterC, let lo = selectedSpecies?.minTempC, let hi = selectedSpecies?.maxTempC,
-              hi > lo else { return "Water" }
-        if t < lo { return "Water, cold" }
-        if t > hi { return "Water, warm" }
-        return "Water, in range"
-    }
-
-    private func windValue(_ c: Conditions?) -> String {
-        guard let kmh = c?.windKmh else { return "–" }
-        let speed: Double = imperial ? kmh * 0.62137119 : kmh
-        return Self.fieldText(speed.rounded(), maxDecimals: 0)
-    }
-
-    private func windLabel(_ c: Conditions?) -> String {
-        guard let deg = c?.windDeg else { return Units.speedSymbol }
-        return "\(Units.speedSymbol) \(compass(deg))"
-    }
-
-    private func pressureValue(_ c: Conditions?) -> String {
-        guard let hpa = c?.pressureHpa else { return "–" }
-        return "\(Int(hpa.rounded()))"
-    }
-
-    private func pressureLabel(_ c: Conditions?) -> String {
-        guard let trend = c?.pressureTrend else { return "hPa" }
-        if trend <= -1 { return "hPa, falling" }
-        if trend >= 1 { return "hPa, rising" }
-        return "hPa, steady"
-    }
-
-    /// Each row says what the number means for fishing, not just the number.
-    private func conditionRows(_ c: Conditions?) -> [KeyValueList.Row] {
-        var rows: [KeyValueList.Row] = []
-        if c?.waterC != nil {
-            rows.append(.init(label: waterTempLabel(c), value: waterTempValue(c)))
+        if spotCoordinate == nil { return "Add a location to fill in conditions." }
+        if conditions == nil {
+            return conditionsLoading
+                ? "Getting the weather for this spot."
+                : "No weather for this spot right now, so the catch saves without it."
         }
-        if c?.windKmh != nil {
-            rows.append(.init(label: "Wind", value: "\(windValue(c)) \(windLabel(c))"))
+        return "From the forecast for \(ForecastFormat.time(caughtAt, use24: use24)). Saved with the catch."
+    }
+
+    /// One condition tile: a value, its unit and what it means for fishing.
+    private struct ConditionCell: Identifiable {
+        let label: String
+        let systemImage: String
+        var iconTint: Color = .dsText2
+        let value: String
+        var unit: String? = nil
+        var footnote: String? = nil
+        var id: String { label }
+    }
+
+    private func conditionCells(_ c: Conditions) -> [ConditionCell] {
+        var cells: [ConditionCell] = []
+        if let t = c.waterC {
+            cells.append(ConditionCell(label: "Water", systemImage: "drop.fill", iconTint: ForecastCondition.water.tint,
+                                       value: Units.temperature(t, imperial: imperial), footnote: waterNote(t)))
         }
-        if c?.pressureHpa != nil {
-            rows.append(.init(label: "Pressure", value: "\(pressureValue(c)) \(pressureLabel(c))"))
+        if let kmh = c.windKmh {
+            let speed = imperial ? kmh * 0.62137119 : kmh
+            cells.append(ConditionCell(label: "Wind", systemImage: "wind", iconTint: ForecastCondition.wind.tint,
+                                       value: Self.fieldText(speed.rounded(), maxDecimals: 0),
+                                       unit: imperial ? "mph" : "km/h",
+                                       footnote: c.windDeg.map { "From the \(compass($0))" }))
         }
-        if let score = c?.score {
-            rows.append(.init(label: "Bite score", value: "\(score) of 100", emphasized: true))
+        if let hpa = c.pressureHpa {
+            let parts = Units.pressureParts(hpa: hpa, imperial: imperial)
+            cells.append(ConditionCell(label: "Pressure", systemImage: "gauge.with.dots.needle.33percent",
+                                       iconTint: ForecastCondition.pressure.tint, value: parts.0, unit: parts.1,
+                                       footnote: c.pressureTrend.map(pressureNote)))
         }
-        return rows
+        if let score = c.score {
+            cells.append(ConditionCell(label: "Bite score", systemImage: "fish.fill", iconTint: DS.scoreInk(score),
+                                       value: "\(score)", unit: "of 100", footnote: ForecastFormat.grade(score)))
+        }
+        return cells
+    }
+
+    /// The water against the chosen species' comfort band, when it has one.
+    private func waterNote(_ t: Double) -> String? {
+        guard let lo = selectedSpecies?.minTempC, let hi = selectedSpecies?.maxTempC, hi > lo else { return nil }
+        if t < lo { return "Below its best range" }
+        if t > hi { return "Above its best range" }
+        return "In its best range"
+    }
+
+    private func pressureNote(_ trend: Double) -> String {
+        if trend <= -1 { return "Falling" }
+        if trend >= 1 { return "Rising" }
+        return "Steady"
     }
 
     private func compass(_ deg: Double) -> String {
@@ -1163,13 +1252,17 @@ struct LogCatchView: View {
 
     private func refreshConditions() async {
         guard !isEditing else { return }
+        // No location, no conditions: nothing is worked out for 0,0.
         guard let coord = spotCoordinate else {
             conditions = nil
+            conditionsLoading = false
             return
         }
         let key = conditionsKey
+        conditionsLoading = true
         let wx = await WeatherService.shared.current(for: coord)
         guard !Task.isCancelled else { return }
+        conditionsLoading = false
         guard let wx else {
             conditions = nil
             lastWeather = nil
@@ -1218,47 +1311,19 @@ struct LogCatchView: View {
     @ViewBuilder
     private var sharingSection: some View {
         if !isEditing && (!crews.isEmpty || iNatAvailable) {
-            VStack(alignment: .leading, spacing: 0) {
-                SectionTitle("Sharing")
-                VStack(spacing: 0) {
-                    ForEach(Array(crews.enumerated()), id: \.element.code) { index, crew in
-                        if index > 0 { Divider().padding(.leading, 52) }
-                        shareRow("Post to \(crew.name)", systemImage: "person.3", tint: .dsScoreGood,
-                                 isOn: Binding(get: { crewShare[crew.code] ?? false },
-                                               set: { crewShare[crew.code] = $0 }))
-                    }
-                    if iNatAvailable {
-                        if !crews.isEmpty { Divider().padding(.leading, 52) }
-                        shareRow("Add to iNaturalist", systemImage: "leaf", tint: .green, isOn: $shareToINat)
-                    }
+            CardSection("Sharing",
+                        note: "Crew posts and the leaderboard show the area, never the exact spot. Photos lose their location before they leave your phone.") {
+                ForEach(crews, id: \.code) { crew in
+                    CardToggleRow("Post to \(crew.name)", systemImage: "person.3.fill", tint: .dsScoreGood,
+                                  isOn: Binding(get: { crewShare[crew.code] ?? false },
+                                                set: { crewShare[crew.code] = $0 }))
                 }
-                .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
-                .padding(.horizontal, DS.gutter)
-
-                LogCatchFootnote(text: "Crew posts and the leaderboard show the area, never the exact spot. Photos lose their location before they leave your phone.",
-                                 systemImage: "lock.shield")
-                    .padding(.horizontal, DS.gutter)
-                    .padding(.top, 10)
+                if iNatAvailable {
+                    CardToggleRow("Add to iNaturalist", systemImage: "leaf.fill", tint: .green, isOn: $shareToINat)
+                }
             }
             .padding(.top, DS.Space.s8)
         }
-    }
-
-    private func shareRow(_ title: String, systemImage: String, tint: Color, isOn: Binding<Bool>) -> some View {
-        Toggle(isOn: isOn) {
-            HStack(spacing: DS.Space.s3) {
-                Image(systemName: systemImage)
-                    .font(.body.weight(.medium))
-                    .foregroundStyle(tint)
-                    .frame(width: 26)
-                Text(title)
-                    .foregroundStyle(Color.dsText)
-                    .lineLimit(1)
-            }
-        }
-        .tint(Color.dsScoreGood)
-        .padding(.horizontal, 14)
-        .frame(minHeight: 48)
     }
 
     // MARK: - Save bar
@@ -1313,12 +1378,12 @@ struct LogCatchView: View {
                 matchesAreUncertain: lowConfidence,
                 caughtIds: caughtIds,
                 targetId: targetSpecies?.id,
-                modelDownloading: isDownloadingModel,
+                modelMissing: modelMissing,
                 onRescan: photos.isEmpty ? nil : { rescan() },
                 onRetryDownload: { retryDownload() }
             )
         case .time:
-            LogCatchTimeSheet(caughtAt: $caughtAt, photoDate: photoDate)
+            LogCatchTimeSheet(caughtAt: $caughtAt, photoDate: photoDate, isEditing: isEditing)
         case .gear:
             LogCatchGearSheet(presets: allGear, ownedGear: ownedGear, selectedGearId: $selectedGearId,
                               rod: $gearRod, reel: $gearReel, lure: $gearLure,
@@ -1330,7 +1395,9 @@ struct LogCatchView: View {
                                  activeTrip: isEditing ? nil : appState.tripTracker.activeTrip,
                                  selectedTripId: $selectedTripId,
                                  canStart: !isEditing) {
+                let wasRunning = appState.tripTracker.activeTrip != nil
                 let trip = appState.tripTracker.start(name: SessionFormat.defaultName(), spotId: selectedSpotId)
+                if !wasRunning { startedSessionId = trip.id }
                 selectedTripId = trip.id
                 if !allTrips.contains(where: { $0.id == trip.id }) { allTrips.insert(trip, at: 0) }
                 ToastCenter.shared.show("Session started", icon: "play.fill")
@@ -1340,7 +1407,17 @@ struct LogCatchView: View {
                               pinCoordinate: $pinCoordinate,
                               currentLocation: appState.locationManager.currentLocation,
                               newSpotName: $newSpotName,
+                              pendingSpotIds: Set(pendingSpots.map(\.id)),
+                              onTurnOnLocation: appState.locationManager.isAuthorized ? nil : { turnOnLocation() },
                               onSaveSpot: saveNewSpot)
+        case .pin:
+            LocationPickerSheet(coordinate: Binding(
+                get: { pinCoordinate },
+                set: { coordinate in
+                    pinCoordinate = coordinate
+                    if coordinate != nil { locationMode = .pin }
+                }
+            ))
         }
     }
 
@@ -1367,6 +1444,22 @@ struct LogCatchView: View {
     private func close() {
         focusedField = nil
         if isDirty { showingDiscard = true } else { dismiss() }
+    }
+
+    /// A session started from this composer is still recording.
+    private var startedSessionIsRunning: Bool {
+        guard let startedSessionId else { return false }
+        return appState.tripTracker.activeTrip?.id == startedSessionId
+    }
+
+    /// What discarding leaves behind. A named spot is only written with the
+    /// catch, so the only thing that can outlive a discard is a session.
+    private var discardMessage: String {
+        if isEditing { return "The catch stays as it was." }
+        if startedSessionIsRunning {
+            return "Nothing has been saved yet. The session you started keeps recording unless you end it."
+        }
+        return "Nothing has been saved yet."
     }
 
     // MARK: - Loading
@@ -1426,12 +1519,17 @@ struct LogCatchView: View {
         caughtAt = c.caughtAt
         waterClarity = c.clarity
         depthText = c.depthM.map { Self.fieldText(imperial ? $0 * 3.2808399 : $0, maxDecimals: 1) } ?? ""
+        loadedSizeText = (length: lengthCm, weight: weightKg, depth: depthText)
         selectedSpeciesId = c.speciesId
         selectedSpeciesName = detail.species?.commonName ?? ""
         selectedSpotId = c.spotId
         selectedTripId = c.tripId
         selectedGearId = c.gearLoadoutId
-        pinCoordinate = CLLocationCoordinate2D(latitude: c.latitude, longitude: c.longitude)
+        // 0,0 is the stored "no location": open with no pin rather than one
+        // in the Gulf of Guinea.
+        if c.latitude != 0 || c.longitude != 0 {
+            pinCoordinate = CLLocationCoordinate2D(latitude: c.latitude, longitude: c.longitude)
+        }
         locationMode = c.spotId != nil ? .spot : .pin
         if let loadout = detail.gearLoadout {
             gearRod = loadout.rod ?? ""
@@ -1466,7 +1564,10 @@ struct LogCatchView: View {
         Task {
             var newImages: [UIImage] = []
             var extractedDate: Date?
+            var failed = 0
             for item in items {
+                // An iCloud photo that won't download, or a file that isn't
+                // an image, is counted and reported below.
                 if let data = try? await item.loadTransferable(type: Data.self),
                    let uiImage = UIImage(data: data) {
                     newImages.append(uiImage)
@@ -1474,6 +1575,8 @@ struct LogCatchView: View {
                     if extractedDate == nil {
                         extractedDate = Self.extractDateFromEXIF(data: data)
                     }
+                } else {
+                    failed += 1
                 }
             }
             libraryItems = []
@@ -1482,7 +1585,10 @@ struct LogCatchView: View {
                 ToastCenter.shared.show("Up to 10 photos per catch", style: .info, icon: "photo.on.rectangle")
             }
             let added = Array(newImages.prefix(room))
-            guard !added.isEmpty else { return }
+            guard !added.isEmpty else {
+                if failed > 0 { ToastCenter.shared.show("Couldn't add the photo", style: .error) }
+                return
+            }
             let wasEmpty = photos.isEmpty
             withAnimation(DS.Motion.softSpring) {
                 photos.append(contentsOf: added.map { LogCatchPhoto(image: $0) })
@@ -1492,7 +1598,10 @@ struct LogCatchView: View {
                 photoDate = date
                 if !isEditing { caughtAt = min(date, .now) }
             }
-            if !wasEmpty || isEditing {
+            if failed > 0 {
+                ToastCenter.shared.show(failed == 1 ? "Couldn't add 1 photo" : "Couldn't add \(failed) photos",
+                                        style: .error)
+            } else if !wasEmpty || isEditing {
                 ToastCenter.shared.show(added.count == 1 ? "Photo added" : "\(added.count) photos added", icon: "photo")
             }
             if wasEmpty, let first = added.first {
@@ -1540,9 +1649,14 @@ struct LogCatchView: View {
         classifyImage(first.image)
     }
 
+    /// Starts the model download again. The banner follows its state, so
+    /// there is no toast promising a download that may not start.
     private func retryDownload() {
-        ToastCenter.shared.show("Downloading the species model, about 90 MB", style: .info, icon: "icloud.and.arrow.down")
-        if let first = photos.first { classifyImage(first.image) }
+        if let first = photos.first {
+            classifyImage(first.image)
+        } else {
+            Task { await appState.fishModelDownloader.ensureModelDownloaded() }
+        }
     }
 
     private func classifyImage(_ image: UIImage) {
@@ -1570,11 +1684,9 @@ struct LogCatchView: View {
             // Region/season prior: nudge scores toward species whose thermal
             // band brackets the local water temperature. Best-effort — no
             // location, offline or a weak signal just means no nudge.
-            let (lat, lon) = resolveLocation()
             var waterTemp: Double? = lastWeather?.waterTempC
-            if waterTemp == nil, lat != 0 || lon != 0 {
-                waterTemp = await Self.quickWeather(
-                    for: CLLocationCoordinate2D(latitude: lat, longitude: lon), seconds: 2)?.waterTempC
+            if waterTemp == nil, let coord = resolvedCoordinate {
+                waterTemp = await Self.quickWeather(for: coord, seconds: 2)?.waterTempC
             }
             let prior = thermalPrior(waterTempC: waterTemp)
 
@@ -1646,21 +1758,39 @@ struct LogCatchView: View {
 
     // MARK: - Save
 
+    /// Names the dropped pin as a new spot. Nothing is written yet: the spot
+    /// is saved with the catch, so a discarded catch leaves no spot behind.
     private func saveNewSpot() {
         let name = newSpotName.trimmingCharacters(in: .whitespaces)
-        guard let coord = pinCoordinate, !name.isEmpty else { return }
-        var spot = Spot(
+        guard let coord = pinCoordinate, coord.latitude != 0 || coord.longitude != 0, !name.isEmpty else { return }
+        let spot = Spot(
             name: name,
             latitude: coord.latitude,
             longitude: coord.longitude,
             isPrivate: true
         )
-        try? appState.spotRepository.save(&spot)
+        pendingSpots.append(spot)
         allSpots.insert(spot, at: 0)
         selectedSpotId = spot.id
         locationMode = .spot
         newSpotName = ""
-        ToastCenter.shared.show("\(name) saved to your spots", icon: "bookmark.fill")
+    }
+
+    /// Writes the named spot the catch is filed under. Named spots that were
+    /// not chosen are never written. False, with an error toast, when the
+    /// write fails; nothing else has been saved.
+    private func savePendingSpot() -> Bool {
+        guard locationMode == .spot,
+              let index = pendingSpots.firstIndex(where: { $0.id == selectedSpotId }) else { return true }
+        var spot = pendingSpots[index]
+        do {
+            try appState.spotRepository.save(&spot)
+        } catch {
+            ToastCenter.shared.show("Couldn't save the spot", style: .error)
+            return false
+        }
+        pendingSpots.remove(at: index)
+        return true
     }
 
     /// Codable matching CatchDetailView's WeatherSnapshot keys so the stored
@@ -1680,7 +1810,7 @@ struct LogCatchView: View {
     /// did). If the effective gear differs from the preset, snapshot it onto a
     /// HIDDEN loadout so the catch keeps exactly what was used — the named
     /// preset stays untouched, and the Presets tab isn't polluted.
-    private func resolveGearId() -> String? {
+    private func resolveGearId() throws -> String? {
         let hasIndividualGear = !gearRod.isEmpty || !gearReel.isEmpty || !gearLure.isEmpty || !gearTechnique.isEmpty
         if let selected = selectedGearId,
            let preset = allGear.first(where: { $0.id == selected }) {
@@ -1703,7 +1833,7 @@ struct LogCatchView: View {
                 technique: gearTechnique.isEmpty ? nil : gearTechnique,
                 isAutoCreated: true
             )
-            try? appState.gearRepository.save(&hidden)
+            try appState.gearRepository.save(&hidden)
             return hidden.id
         }
         if hasIndividualGear {
@@ -1716,7 +1846,7 @@ struct LogCatchView: View {
                 technique: gearTechnique.isEmpty ? nil : gearTechnique,
                 isAutoCreated: true
             )
-            try? appState.gearRepository.save(&hidden)
+            try appState.gearRepository.save(&hidden)
             return hidden.id
         }
         return nil
@@ -1730,33 +1860,59 @@ struct LogCatchView: View {
         }
     }
 
-    /// Same contract as the old EditCatchSheet: the caller persists and
-    /// re-publishes the updated record.
+    /// Saves the edit with `CatchActions.saveEditChecked`, then hands the
+    /// saved record to `onEditSave` so the caller can refresh. A failed
+    /// write keeps the composer open with everything as typed.
     private func saveEdits(_ detail: CatchDetail) {
-        guard !isSaving else { return }
+        guard !isSaving, saveBlocker == nil else { return }
         isSaving = true
         var updated = detail.catchRecord
 
-        // Photos: delete removed originals, persist newly-added images, then
-        // combine in the order shown. New files get unique names so they
-        // never overwrite an existing photo of this catch.
-        let kept = Set(photos.compactMap(\.savedPath) + unloadablePaths)
-        for path in detail.catchRecord.allPhotoPaths where !kept.contains(path) { PhotoManager.delete(path) }
+        // New photos first, under unique names so they never overwrite an
+        // existing photo of this catch. Removed photos are only deleted once
+        // the database no longer points at them.
         var allPhotos: [String] = []
-        for photo in photos {
-            if let path = photo.savedPath {
-                allPhotos.append(path)
-            } else if let path = try? PhotoManager.save(photo.image,
-                                                         id: "\(updated.id)_\(UUID().uuidString.prefix(8))") {
-                allPhotos.append(path)
+        var written: [String] = []
+        do {
+            for photo in photos {
+                if let path = photo.savedPath {
+                    allPhotos.append(path)
+                } else {
+                    let path = try PhotoManager.save(photo.image, id: "\(updated.id)_\(UUID().uuidString.prefix(8))")
+                    allPhotos.append(path)
+                    written.append(path)
+                }
             }
+        } catch {
+            PhotoManager.deleteAll(written)
+            isSaving = false
+            ToastCenter.shared.show("Couldn't add the photo", style: .error)
+            return
         }
         allPhotos.append(contentsOf: unloadablePaths)
+
+        guard savePendingSpot() else {
+            PhotoManager.deleteAll(written)
+            isSaving = false
+            return
+        }
+        let gearId: String?
+        do {
+            gearId = try resolveGearId()
+        } catch {
+            PhotoManager.deleteAll(written)
+            isSaving = false
+            ToastCenter.shared.show("Couldn't save the gear", style: .error)
+            return
+        }
+
         updated.photoPath = allPhotos.first
         updated.photoPaths = Catch.encodePhotoPaths(allPhotos)
-
-        updated.weightKg = weightKg.measurementValue.map { imperial ? $0 / 2.2046226 : $0 }
-        updated.lengthCm = lengthCm.measurementValue.map { imperial ? $0 * 2.54 : $0 }
+        // An untouched field keeps its stored value, so opening and saving
+        // an edit never nudges a size through a unit round trip.
+        if weightKg != loadedSizeText.weight { updated.weightKg = weightInKg }
+        if lengthCm != loadedSizeText.length { updated.lengthCm = lengthInCm }
+        if depthText != loadedSizeText.depth { updated.depthM = depthInM }
         updated.notes = notes.isEmpty ? nil : notes
         updated.released = released
         updated.isFavorite = isFavorite
@@ -1765,16 +1921,24 @@ struct LogCatchView: View {
         updated.spotId = locationMode == .spot ? selectedSpotId : nil
         updated.tripId = selectedTripId
         updated.clarity = waterClarity
-        updated.depthM = depthText.measurementValue.map { imperial ? $0 * 0.3048 : $0 }
-        let (lat, lon) = resolveLocation()
-        if lat != 0 || lon != 0 {
-            updated.latitude = lat
-            updated.longitude = lon
-            updated.geohash = Geohash.encode(latitude: lat, longitude: lon, precision: 7)
+        // No location keeps whatever the catch had (0,0 stays "no location").
+        if let coord = resolvedCoordinate {
+            updated.latitude = coord.latitude
+            updated.longitude = coord.longitude
+            updated.geohash = Geohash.encode(latitude: coord.latitude, longitude: coord.longitude, precision: 7)
         }
-        updated.gearLoadoutId = resolveGearId()
+        updated.gearLoadoutId = gearId
 
-        onEditSave?(updated)
+        guard let saved = CatchActions.saveEditChecked(updated, appState: appState) else {
+            PhotoManager.deleteAll(written)
+            isSaving = false
+            ToastCenter.shared.show("Couldn't save the catch", style: .error)
+            return
+        }
+        let kept = Set(allPhotos)
+        for path in detail.catchRecord.allPhotoPaths where !kept.contains(path) { PhotoManager.delete(path) }
+
+        onEditSave?(saved)
         ToastCenter.shared.show("Catch updated")
         dismiss()
     }
@@ -1783,37 +1947,51 @@ struct LogCatchView: View {
         // Re-entrancy guard: a rapid double-tap creates two Tasks; the second
         // sees isSaving == true (set synchronously before any await) and bails,
         // so we never save the same catch twice.
-        guard !isSaving else { return }
+        guard !isSaving, saveBlocker == nil else { return }
         isSaving = true
-        let (lat, lon) = resolveLocation()
-        let coord = CLLocationCoordinate2D(latitude: lat, longitude: lon)
+        let coord = resolvedCoordinate
+        // The columns aren't optional: 0,0 is the stored marker for "no
+        // location", and nothing below is worked out for it.
+        let lat = coord?.latitude ?? 0
+        let lon = coord?.longitude ?? 0
         let catchId = UUID().uuidString
 
-        // Save multiple photos
+        // Photos are named after the catch: the first is the id, then _1, _2.
+        // One that won't save stops the save, with the composer kept open.
         var photoPaths: [String] = []
-        if !photos.isEmpty {
-            photoPaths = (try? PhotoManager.saveMultiple(photos.map(\.image), catchId: catchId)) ?? []
+        do {
+            for (index, photo) in photos.enumerated() {
+                photoPaths.append(try PhotoManager.save(photo.image, id: index == 0 ? catchId : "\(catchId)_\(index)"))
+            }
+        } catch {
+            PhotoManager.deleteAll(photoPaths)
+            isSaving = false
+            ToastCenter.shared.show("Couldn't add the photo", style: .error)
+            return
         }
 
         // Capture the actual conditions at the catch (weather + real bite
         // score). Reuse the reading behind the Conditions tiles; otherwise a
         // short, capped fetch, so a weak signal never holds up the save.
+        // With no location there is no weather and no score.
         var wx: WeatherService.WeatherData? = lastWeatherKey == conditionsKey ? lastWeather : nil
-        if wx == nil, lat != 0 || lon != 0 {
+        if wx == nil, let coord {
             wx = await Self.quickWeather(for: coord, seconds: 3)
         }
         let species = allSpecies.first(where: { $0.id == selectedSpeciesId })
-        let forecast = ForecastEngine.forecast(
-            date: caughtAt,
-            coordinate: coord,
-            currentPressureHpa: wx?.pressureHpa,
-            pressureChange6h: wx?.pressureChange6h,
-            waterTempC: wx?.waterTempC,
-            windSpeedKmh: wx?.windSpeedKmh,
-            windDirection: wx?.windDirectionDeg,
-            species: species,
-            isInSpawningZone: false
-        )
+        let score: Int? = coord.map { coord in
+            ForecastEngine.forecast(
+                date: caughtAt,
+                coordinate: coord,
+                currentPressureHpa: wx?.pressureHpa,
+                pressureChange6h: wx?.pressureChange6h,
+                waterTempC: wx?.waterTempC,
+                windSpeedKmh: wx?.windSpeedKmh,
+                windDirection: wx?.windDirectionDeg,
+                species: species,
+                isInSpawningZone: false
+            ).score
+        }
         let weatherJSON: String? = wx.flatMap {
             let snap = WxSnap(temperatureC: $0.temperatureC, waterTempC: $0.waterTempC,
                               windSpeedKmh: $0.windSpeedKmh, windDirectionDeg: $0.windDirectionDeg,
@@ -1823,7 +2001,20 @@ struct LogCatchView: View {
         }
         // Any fish logged while a session is recording belongs to that session.
         let tripId = appState.tripTracker.activeTrip?.id ?? selectedTripId
-        let gearId = resolveGearId()
+        guard savePendingSpot() else {
+            PhotoManager.deleteAll(photoPaths)
+            isSaving = false
+            return
+        }
+        let gearId: String?
+        do {
+            gearId = try resolveGearId()
+        } catch {
+            PhotoManager.deleteAll(photoPaths)
+            isSaving = false
+            ToastCenter.shared.show("Couldn't save the gear", style: .error)
+            return
+        }
 
         var catchRecord = Catch(
             id: catchId,
@@ -1832,13 +2023,13 @@ struct LogCatchView: View {
             caughtAt: caughtAt,
             latitude: lat,
             longitude: lon,
-            lengthCm: lengthCm.measurementValue.map { imperial ? $0 * 2.54 : $0 },
-            weightKg: weightKg.measurementValue.map { imperial ? $0 / 2.2046226 : $0 },
+            lengthCm: lengthInCm,
+            weightKg: weightInKg,
             released: released,
             photoPath: photoPaths.first,
             photoPaths: Catch.encodePhotoPaths(photoPaths),
             mlConfidence: speciesMatches.first.map { Double($0.confidence) },
-            forecastScoreAtCapture: forecast.score,
+            forecastScoreAtCapture: score,
             weatherSnapshot: weatherJSON,
             gearLoadoutId: gearId,
             tripId: tripId,
@@ -1846,7 +2037,7 @@ struct LogCatchView: View {
             isFavorite: isFavorite,
             waterClarity: waterClarity,
             // Stored in metres regardless of the angler's display units.
-            depthM: depthText.measurementValue.map { imperial ? $0 * 0.3048 : $0 }
+            depthM: depthInM
         )
 
         // Judge first-species / personal-best BEFORE the save, against what's
@@ -1866,7 +2057,7 @@ struct LogCatchView: View {
             // angler entered, and drop the photo files saved for it.
             for path in photoPaths { PhotoManager.delete(path) }
             isSaving = false
-            ToastCenter.shared.show("The catch couldn't be saved. Try again.", style: .error)
+            ToastCenter.shared.show("Couldn't save the catch", style: .error)
             return
         }
 
@@ -1915,11 +2106,17 @@ struct LogCatchView: View {
         if !shareCrews.isEmpty {
             let codes = shareCrews.map(\.code)
             Task {
+                var allPosted = true
                 for code in codes {
                     // Tag the post with the crew's live trip, if one is running.
                     let trip = CommunityService.shared.activeTrip(forCrew: code)?.name ?? ""
-                    await CommunityService.shared.postCatch(crewCatch, speciesName: crewName,
-                                                            toCrew: code, caption: "", tripName: trip)
+                    let posted = await CommunityService.shared.postCatch(crewCatch, speciesName: crewName,
+                                                                         toCrew: code, caption: "", tripName: trip)
+                    if !posted { allPosted = false }
+                }
+                // The catch is saved either way; only the share failed.
+                if !allPosted {
+                    ToastCenter.shared.show("Saved. Couldn't share to your crew", style: .error)
                 }
             }
         }
@@ -1940,36 +2137,39 @@ struct LogCatchView: View {
         dismiss()
     }
 
-    /// "Largemouth Bass saved, 38 cm. Posted to Dawn Patrol."
+    /// "Largemouth Bass saved, 38 cm. Sharing with Dawn Patrol." The crew
+    /// posts are still going out when this shows; a failure gets its own toast.
     private func savedMessage(name: String, lengthCm: Double?, crews: [CommunityService.Crew]) -> String {
         let size = lengthCm.map { ", \(Units.length(cm: $0, imperial: imperial))" } ?? ""
         let saved = "\(name) saved\(size)."
-        if crews.count == 1, let crew = crews.first { return "\(saved) Posted to \(crew.name)." }
-        if crews.count > 1 { return "\(saved) Posted to \(crews.count) crews." }
+        if crews.count == 1, let crew = crews.first { return "\(saved) Sharing with \(crew.name)." }
+        if crews.count > 1 { return "\(saved) Sharing with \(crews.count) crews." }
         return saved
     }
 
-    private func resolveLocation() -> (Double, Double) {
+    /// Where the catch is, or nil when there is no fix, pin or spot. A 0,0
+    /// reading counts as none. Editing never falls back to where the angler
+    /// is standing now, so an edit can't move an old catch.
+    private var resolvedCoordinate: CLLocationCoordinate2D? {
+        let here = isEditing ? nil : appState.locationManager.currentLocation?.coordinate
+        let coord: CLLocationCoordinate2D?
         switch locationMode {
         case .current:
-            let loc = appState.locationManager.currentLocation
-            return (loc?.coordinate.latitude ?? 0, loc?.coordinate.longitude ?? 0)
+            coord = appState.locationManager.currentLocation?.coordinate
         case .spot:
             if let spot = allSpots.first(where: { $0.id == selectedSpotId }) {
-                return (spot.latitude, spot.longitude)
+                coord = CLLocationCoordinate2D(latitude: spot.latitude, longitude: spot.longitude)
+            } else if let editing {
+                coord = CLLocationCoordinate2D(latitude: editing.catchRecord.latitude,
+                                               longitude: editing.catchRecord.longitude)
+            } else {
+                coord = here
             }
-            if let editing {
-                return (editing.catchRecord.latitude, editing.catchRecord.longitude)
-            }
-            let loc = appState.locationManager.currentLocation
-            return (loc?.coordinate.latitude ?? 0, loc?.coordinate.longitude ?? 0)
         case .pin:
-            if let coord = pinCoordinate {
-                return (coord.latitude, coord.longitude)
-            }
-            let loc = appState.locationManager.currentLocation
-            return (loc?.coordinate.latitude ?? 0, loc?.coordinate.longitude ?? 0)
+            coord = pinCoordinate ?? here
         }
+        guard let coord, coord.latitude != 0 || coord.longitude != 0 else { return nil }
+        return coord
     }
 
     private var pageTint: Color? {
@@ -2010,6 +2210,8 @@ struct LocationPickerSheet: View {
     @State private var searchText = ""
     @State private var searchModel = MapSearchCompleter()
     @State private var isSearching = false
+    /// The last place lookup failed, most often for want of signal.
+    @State private var searchFailed = false
     @FocusState private var searchFocused: Bool
 
     init(coordinate: Binding<CLLocationCoordinate2D?>, pinLabel: String = "Catch location") {
@@ -2069,9 +2271,9 @@ struct LocationPickerSheet: View {
             .navigationTitle("Drop pin")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button { dismiss() } label: { Image(systemName: "xmark") }
-                        .accessibilityLabel("Close")
+                // "Use this place" keeps the pin; Cancel leaves it where it was.
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
                 }
             }
             // Track the centre continuously so the pin always reflects the
@@ -2081,6 +2283,7 @@ struct LocationPickerSheet: View {
                 pinPosition = context.camera.centerCoordinate
             }
         }
+        .dsSheet()
     }
 
     /// Search bar plus type-ahead results, floating over the map (same
@@ -2102,6 +2305,7 @@ struct LocationPickerSheet: View {
                         searchFocused = false
                     }
                     .onChange(of: searchText) { _, newValue in
+                        searchFailed = false
                         searchModel.update(
                             query: newValue,
                             near: pinPosition ?? appState.locationManager.currentLocation?.coordinate
@@ -2136,12 +2340,12 @@ struct LocationPickerSheet: View {
                                 Text(completion.title)
                                     .font(.subheadline.weight(.medium))
                                     .foregroundStyle(Color.dsText)
-                                    .lineLimit(1)
+                                    .lineLimit(2)
                                 if !completion.subtitle.isEmpty {
                                     Text(completion.subtitle)
                                         .font(.footnote)
                                         .foregroundStyle(Color.dsText2)
-                                        .lineLimit(1)
+                                        .lineLimit(2)
                                 }
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -2156,6 +2360,12 @@ struct LocationPickerSheet: View {
                     }
                 }
                 .glassEffect(.regular, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
+            }
+
+            if searchFailed {
+                InlineEmpty(systemImage: "wifi.slash", text: "Search needs a connection")
+                    // InlineEmpty brings its own gutter; this panel has one.
+                    .padding(.horizontal, -DS.gutter)
             }
         }
         .padding(.horizontal, DS.Space.s4)
@@ -2194,12 +2404,17 @@ struct LocationPickerSheet: View {
         searchFocused = false
         isSearching = true
         searchText = completion.title
+        searchFailed = false
         Task {
             let search = MKLocalSearch(request: MKLocalSearch.Request(completion: completion))
-            let response = try? await search.start()
-            if let coord = response?.mapItems.first?.placemark.location?.coordinate {
-                cameraPosition = .camera(.init(centerCoordinate: coord, distance: 5000))
-                pinPosition = coord
+            do {
+                let response = try await search.start()
+                if let coord = response.mapItems.first?.placemark.location?.coordinate {
+                    cameraPosition = .camera(.init(centerCoordinate: coord, distance: 5000))
+                    pinPosition = coord
+                }
+            } catch {
+                searchFailed = true
             }
             searchModel.clear()
             isSearching = false
@@ -2222,7 +2437,8 @@ struct SpeciesPickerSheet: View {
     var caughtIds: Set<Int64> = []
     /// The angler's target species, listed first.
     var targetId: Int64? = nil
-    var modelDownloading: Bool = false
+    /// The model wasn't on the phone when the photo was scanned.
+    var modelMissing: Bool = false
     var onRescan: (() -> Void)? = nil
     var onRetryDownload: (() -> Void)? = nil
 
@@ -2234,7 +2450,7 @@ struct SpeciesPickerSheet: View {
         case all = "All"
         case freshwater = "Freshwater"
         case marine = "Saltwater"
-        case brackish = "Brackish"
+        case brackish = "Estuary"
 
         var habitat: Species.Habitat? {
             switch self {
@@ -2277,7 +2493,7 @@ struct SpeciesPickerSheet: View {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     if showsMatches {
                         matchesSection
-                    } else if modelDownloading && searchText.isEmpty {
+                    } else if modelMissing && searchText.isEmpty {
                         downloadNotice
                     }
 
@@ -2331,13 +2547,13 @@ struct SpeciesPickerSheet: View {
                         }
                     }
                 }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button { dismiss() } label: { Image(systemName: "xmark") }
-                        .accessibilityLabel("Close")
+                // Picking a row saves it, so Done only closes.
+                ToolbarItem(placement: .confirmationAction) {
+                    SheetDoneButton()
                 }
             }
         }
-        .presentationDragIndicator(.visible)
+        .dsSheet()
     }
 
     @ViewBuilder
@@ -2359,23 +2575,34 @@ struct SpeciesPickerSheet: View {
         }
     }
 
+    /// What the model is doing, in the same words as the composer banner.
     private var downloadNotice: some View {
-        HStack(alignment: .top, spacing: DS.Space.s3) {
-            Image(systemName: "icloud.and.arrow.down")
+        let phase = FishModelStatus.shared.phase
+        let canRetry = phase == .needsInternet || phase == .failed
+        let text: String
+        switch phase {
+        case .needsInternet:
+            text = "Species ID needs internet once to download, then works with no signal."
+        case .failed:
+            text = "The species ID download didn't finish. Try again, or pick from the list."
+        default:
+            text = "Species ID is downloading. Pick from the list for now."
+        }
+        return HStack(alignment: .top, spacing: DS.Space.s3) {
+            Image(systemName: phase == .needsInternet ? "wifi.slash"
+                  : phase == .failed ? "exclamationmark.icloud" : "icloud.and.arrow.down")
                 .foregroundStyle(Color.dsText2)
             VStack(alignment: .leading, spacing: DS.Space.s2) {
-                Text("Species ID is still downloading. It needs internet once, then works anywhere.")
+                Text(text)
                     .font(.subheadline)
                     .foregroundStyle(Color.dsText2)
                     .fixedSize(horizontal: false, vertical: true)
-                if let onRetryDownload {
+                if canRetry, let onRetryDownload {
                     Button("Try again") {
                         onRetryDownload()
                         dismiss()
                     }
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(DS.accent)
-                    .buttonStyle(.dim)
+                    .buttonStyle(TonalButtonStyle(fullWidth: false))
                 }
             }
             Spacer(minLength: 0)
@@ -2387,13 +2614,8 @@ struct SpeciesPickerSheet: View {
     }
 
     private func header(_ text: String) -> some View {
-        Text(text)
-            .font(.subheadline)
-            .foregroundStyle(Color.dsText2)
-            .padding(.horizontal, DS.gutter)
+        SectionTitle(text)
             .padding(.top, DS.Space.s4)
-            .padding(.bottom, DS.Space.s1)
-            .accessibilityAddTraits(.isHeader)
     }
 
     private func confidenceLabel(_ c: Float) -> String {
@@ -2410,7 +2632,7 @@ struct SpeciesPickerSheet: View {
         switch sp.habitat {
         case .freshwater: place = "Freshwater"
         case .marine: place = "Saltwater"
-        case .brackish: place = "Brackish"
+        case .brackish: place = "Estuary"
         default: place = sp.family ?? "Fish"
         }
         if let lo = sp.minTempC, let hi = sp.maxTempC, hi > lo {
