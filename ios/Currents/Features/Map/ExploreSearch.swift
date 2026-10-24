@@ -474,7 +474,7 @@ struct ExploreSearchPane: View {
             ExploreSearchRow(title: Self.highlight(water.name, query),
                              subtitle: waterSubtitle(water),
                              trailing: distance.map { Units.distance(m: $0) }) {
-                PlaceSnapshotThumb(water: water, size: 48)
+                ThumbView(water: water, size: 48)
             }
         }
         .buttonStyle(.dsRow)
@@ -485,7 +485,7 @@ struct ExploreSearchPane: View {
             ExploreSearchRow(title: Self.highlight(ramp.name, query),
                              subtitle: rampService.side(of: ramp) ?? ramp.kind.label,
                              trailing: distanceText(to: ramp.coordinate)) {
-                PlaceSnapshotThumb(place: ramp, size: 48)
+                ThumbView(place: ramp, size: 48)
             }
         }
         .buttonStyle(.dsRow)
@@ -519,9 +519,10 @@ struct ExploreSearchPane: View {
                 PlaceSnapshotThumb(coordinate: recent.coordinate, size: 48)
             }
         case .water:
-            recentWaterThumb(recent)
+            let type = Waterbody.WaterbodyType(rawValue: recent.extra ?? "") ?? .lake
+            ThumbView(systemImage: ExploreFormat.waterIcon(type), tint: Color.exploreWater, size: 48)
         case .ramp:
-            PlaceSnapshotThumb(place: ramp(from: recent), size: 48)
+            ThumbView(place: ramp(from: recent), size: 48)
         case .species:
             if let sp = allSpecies.first(where: { String($0.id) == recent.key }) {
                 ThumbView(species: sp, size: 48)
@@ -530,20 +531,6 @@ struct ExploreSearchPane: View {
             }
         case .place:
             PlaceSnapshotThumb(coordinate: recent.coordinate, size: 48)
-        }
-    }
-
-    /// The water itself when it is still loaded, so the render is framed to
-    /// its size and shared with its search row.
-    @ViewBuilder
-    private func recentWaterThumb(_ recent: ExploreRecent) -> some View {
-        if let water = waters.first(where: { String($0.id ?? 0) == recent.key }) {
-            PlaceSnapshotThumb(water: water, size: 48)
-        } else {
-            let type = Waterbody.WaterbodyType(rawValue: recent.extra ?? "") ?? .lake
-            PlaceSnapshotThumb(id: "water-\(recent.key)", coordinate: recent.coordinate,
-                               systemImage: ExploreFormat.waterIcon(type), tint: Color.exploreWater,
-                               size: 48, span: 1300, showsPin: false)
         }
     }
 

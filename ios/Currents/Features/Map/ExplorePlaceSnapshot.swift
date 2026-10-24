@@ -3,8 +3,8 @@ import MapKit
 import Network
 
 /// The square thumbnail of a place: a small map of exactly where it is, with
-/// a pin in the middle. Water is framed whole, without a pin. Rendered once
-/// per place, map style and appearance, then kept on disk. The glyph
+/// a pin in the middle. Rendered once per place, map style and appearance,
+/// then kept on disk. The glyph
 /// thumbnail shows while it renders and whenever there is no connection.
 /// Inside `placeThumbsTogether()` the rows on screen show their maps
 /// together, once all of them are ready.
@@ -124,25 +124,27 @@ extension PlaceSnapshotThumb {
                   systemImage: spot.type.icon, tint: DS.accent, size: size, cover: SpotCover(spot))
     }
 
-    /// A dam, lake, river or stretch of coast, framed so its shore shows.
-    init(water: Waterbody, size: CGFloat = 64) {
-        let key = water.id.map { "water-\($0)" } ?? "water-\(water.latitude),\(water.longitude)"
-        self.init(id: key,
-                  coordinate: CLLocationCoordinate2D(latitude: water.latitude, longitude: water.longitude),
-                  systemImage: ExploreFormat.waterIcon(water.type), tint: Color.exploreWater, size: size,
-                  span: Self.span(for: water), showsPin: false)
-    }
-
     /// A point that is not saved anywhere, such as a stop in a session.
     init(coordinate: CLLocationCoordinate2D, size: CGFloat = 64) {
         let key = String(format: "point-%.5f,%.5f", coordinate.latitude, coordinate.longitude)
         self.init(id: key, coordinate: coordinate, systemImage: "mappin.and.ellipse",
                   tint: DS.accent, size: size)
     }
+}
 
-    /// About two and a half times the water's width, within sensible bounds.
-    static func span(for water: Waterbody) -> CLLocationDistance {
-        min(max(water.approximateRadiusM * 2.6, 600), 20_000)
+/// Rows of water and of ramps and access show the place's glyph, never a
+/// map: at row size many renders read as blank squares or bare streets, and
+/// a list that mixes the two looks unfinished. The map render is kept for
+/// the header of a place's own page or sheet.
+extension ThumbView where Content == ThumbSymbol {
+    /// A boat ramp or fishing access point.
+    init(place: BoatRamp, size: CGFloat = 64) {
+        self.init(systemImage: place.kind.icon, tint: ExploreFormat.placeTint(place.kind), size: size)
+    }
+
+    /// A dam, lake, river or stretch of coast.
+    init(water: Waterbody, size: CGFloat = 64) {
+        self.init(systemImage: ExploreFormat.waterIcon(water.type), tint: Color.exploreWater, size: size)
     }
 }
 

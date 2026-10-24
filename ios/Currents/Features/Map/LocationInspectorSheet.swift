@@ -200,7 +200,7 @@ struct LocationInspectorSheet: View {
                         onOpen(.waterbody(WaterbodyRef(p.waterbody)))
                     } label: {
                         ArtRow(title: p.name, subtitle: "\(p.reason), \(p.distanceString)", chevron: true) {
-                            PlaceSnapshotThumb(water: p.waterbody, size: 48)
+                            ThumbView(water: p.waterbody, size: 48)
                         } trailing: {
                             Text("\(p.score)")
                                 .foregroundStyle(DS.scoreInk(p.score))
@@ -210,7 +210,6 @@ struct LocationInspectorSheet: View {
                 }
             }
         }
-        .placeThumbsTogether()
     }
 
     // MARK: - Biting

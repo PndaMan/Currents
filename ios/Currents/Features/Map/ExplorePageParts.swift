@@ -303,7 +303,7 @@ struct ExploreNearbyPlaces: View {
                                subtitle: ExploreFormat.rampLine(entry.place, distance: Units.distance(m: entry.metres),
                                                                 side: service.side(of: entry.place)),
                                chevron: true) {
-                            PlaceSnapshotThumb(place: entry.place)
+                            ThumbView(place: entry.place)
                         }
                     }
                     .buttonStyle(.dsRow)
@@ -311,7 +311,6 @@ struct ExploreNearbyPlaces: View {
             }
         }
         .padding(.top, list.isEmpty ? 0 : DS.Space.s8)
-        .placeThumbsTogether()
         .task {
             // Bundled places load instantly; outside the bundle this waits
             // for the map to have fetched them rather than calling out here.

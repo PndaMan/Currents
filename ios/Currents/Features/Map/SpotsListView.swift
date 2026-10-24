@@ -250,7 +250,7 @@ struct WaterListView: View {
                             ArtRow(title: wb.name,
                                    subtitle: waterSubtitle(wb, distance: distance),
                                    chevron: true) {
-                                PlaceSnapshotThumb(water: wb)
+                                ThumbView(water: wb)
                             } trailing: {
                                 if let area = wb.surfaceAreaKm2, area > 0 {
                                     Text(ExploreFormat.area(area))
@@ -266,7 +266,6 @@ struct WaterListView: View {
             }
             .padding(.bottom, 40)
             .pageWidth()
-            .placeThumbsTogether()
         }
         .detailScrollEdge()
         .exploreInlineTitle("Water")
@@ -387,7 +386,7 @@ struct RampListView: View {
                                    subtitle: ExploreFormat.rampLine(ramp, distance: "\(Units.distance(m: distance)) away",
                                                                     side: rampService.side(of: ramp)),
                                    chevron: true) {
-                                PlaceSnapshotThumb(place: ramp)
+                                ThumbView(place: ramp)
                             }
                         }
                         .buttonStyle(.dsRow)
@@ -397,7 +396,6 @@ struct RampListView: View {
             }
             .padding(.bottom, 40)
             .pageWidth()
-            .placeThumbsTogether()
         }
         .detailScrollEdge()
         .exploreInlineTitle("Ramps and access")
