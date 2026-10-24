@@ -1679,7 +1679,7 @@ struct FriendProfileView: View {
             ActionTriple {
                 if isFriend {
                     Button { showingSettings = true } label: {
-                        Label("Sharing", systemImage: "slider.horizontal.3")
+                        Label("Edit sharing", systemImage: "slider.horizontal.3")
                     }
                     .buttonStyle(ActionTileStyle(.primary))
                 } else {
@@ -1869,7 +1869,7 @@ struct FriendProfileView: View {
             .scrollDismissesKeyboard(.interactively)
             .dsScreenBackground()
             .detailScrollEdge()
-            .navigationTitle("Sharing")
+            .navigationTitle("Edit sharing")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) { SheetDoneButton() }
