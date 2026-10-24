@@ -2232,13 +2232,16 @@ struct CommunityCatchThumb: View {
 
 /// Shown when someone taps a `currents://friend/<CODE>` link: previews the
 /// angler's profile and asks before sending a request, rather than silently
-/// adding a stranger.
+/// adding a stranger. A code nobody holds, your own code and a failed lookup
+/// each get their own state, so an offline angler is never told the code
+/// doesn't exist.
 struct AddFriendConfirmView: View {
     let code: String
     @Environment(\.dismiss) private var dismiss
     @StateObject private var svc = CommunityService.shared
+    @ObservedObject private var connection = CrewConnection.shared
 
-    @State private var profile: CommunityService.Profile?
+    @State private var result: CommunityService.LookupResult<CommunityService.Profile> = .failed
     @State private var loading = true
     @State private var added = false
     @State private var sending = false
@@ -2246,6 +2249,14 @@ struct AddFriendConfirmView: View {
     private var imperial: Bool { units == "imperial" }
 
     private var isFriend: Bool { svc.friends.contains(code.uppercased()) }
+    private var shownCode: String { code.uppercased() }
+
+    /// Nothing left to decide: Done. Joining, looking up or sending: Cancel.
+    private var finished: Bool {
+        guard svc.joined, !loading else { return false }
+        if case .found = result { return isFriend || added }
+        return true
+    }
 
     var body: some View {
         CrewCloudGate(closeButton: true) {
@@ -2259,15 +2270,18 @@ struct AddFriendConfirmView: View {
             .scrollDismissesKeyboard(.interactively)
             .dsScreenBackground()
             .detailScrollEdge()
-            .navigationTitle("")
+            .navigationTitle("Add a friend")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button(isFriend || added ? "Done" : "Cancel") { dismiss() }
+                if finished {
+                    ToolbarItem(placement: .confirmationAction) { SheetDoneButton() }
+                }
+                if !finished {
+                    ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 }
             }
         }
-        .presentationDragIndicator(.visible)
+        .dsSheet([.large])
     }
 
     /// Set up a community profile before revealing the angler's profile.
@@ -2299,64 +2313,108 @@ struct AddFriendConfirmView: View {
                     .frame(height: 120)
                     .frame(maxWidth: .infinity)
                     .padding(.top, DS.Space.s6)
-            } else if let p = profile {
-                AnglerProfileHeader(
-                    avatar: p.avatar, name: p.name,
-                    handle: "Angler code \(p.id)",
-                    title: p.title.isEmpty ? nil : p.title,
-                    bio: p.bio,
-                    facts: AnglerProfileHeader.facts(homeWater: p.homeWater, region: p.region,
-                                                     favourite: p.favoriteSpecies, since: p.memberSince))
-                AnglerStatsLine(AnglerStatsLine.items(
-                    catches: p.totalCatches, species: p.speciesCount,
-                    bestWeightKg: p.bestWeightKg, bestLengthCm: p.bestLengthCm, imperial: imperial))
-                    .padding(.top, DS.Space.s4)
-
-                Group {
-                    if isFriend {
-                        GroupedCard {
-                            IconRow("You're friends", subtitle: "You already share catches",
-                                    systemImage: "checkmark", tint: .dsScoreGood)
-                        }
-                        .padding(.horizontal, -DS.gutter)
-                    } else if added {
-                        GroupedCard {
-                            IconRow("Friend request sent", subtitle: "Waiting for them to accept",
-                                    systemImage: "paperplane.fill", tint: .blue)
-                        }
-                        .padding(.horizontal, -DS.gutter)
-                    } else {
-                        Button {
-                            sending = true
-                            Task {
-                                let ok = await svc.sendFriendRequest(to: code)
-                                sending = false
-                                added = ok
-                                ToastCenter.shared.show(ok ? "Friend request sent" : "Couldn't send the request",
-                                                        style: ok ? .success : .error)
-                            }
-                        } label: {
-                            if sending { ProgressView() } else { Label("Send friend request", systemImage: "person.badge.plus") }
-                        }
-                        .buttonStyle(.dsPrimary)
-                        .disabled(sending)
+            } else {
+                switch result {
+                case .found(let p):
+                    profileBody(p)
+                case .notFound:
+                    stateHero(value: "Angler not found",
+                              callout: "Nobody uses that code yet. Ask them to set up their angler profile.",
+                              systemImage: "person.slash.fill", tint: CrewTint.lock)
+                case .ownCode:
+                    stateHero(value: "That's your own angler code",
+                              callout: "Share it with a friend so they can add you.",
+                              systemImage: "person.crop.circle.fill", tint: DS.accent)
+                case .failed:
+                    VStack(alignment: .leading, spacing: DS.Space.s5) {
+                        stateHero(value: "Can't reach Crew right now",
+                                  callout: connection.isOffline
+                                      ? "You're offline. Try again when you're back online."
+                                      : "Check your connection and try again.",
+                                  systemImage: "wifi.slash", tint: .blue)
+                        Button("Try again") { Task { await lookUp() } }
+                            .buttonStyle(.dsTonal)
+                            .padding(.horizontal, DS.gutter)
                     }
                 }
-                .padding(.horizontal, DS.gutter)
-                .padding(.top, DS.Space.s5)
-                SectionFootnote("They'll see your request on their Crew tab.")
-            } else {
-                CommunityHero(label: "Code \(code)", title: "Angler not found",
-                              line: "Nobody uses that code yet. Ask them to set up their angler profile.") {
-                    ThumbView(systemImage: "person.slash.fill", tint: CrewTint.lock, size: 72)
-                }
-                .padding(.top, DS.Space.s6)
             }
         }
-        .task {
-            guard svc.joined else { loading = false; return }
-            profile = await svc.fetchProfile(code: code)
-            loading = false
+        .task { await lookUp() }
+    }
+
+    @ViewBuilder private func profileBody(_ p: CommunityService.Profile) -> some View {
+        AnglerProfileHeader(
+            avatar: p.avatar, name: p.name,
+            handle: "Angler code \(p.id)",
+            title: p.title.isEmpty ? nil : p.title,
+            bio: p.bio,
+            facts: AnglerProfileHeader.facts(homeWater: p.homeWater, region: p.region,
+                                             favourite: p.favoriteSpecies, since: p.memberSince))
+        AnglerStatsLine(AnglerStatsLine.items(
+            catches: p.totalCatches, species: p.speciesCount,
+            bestWeightKg: p.bestWeightKg, bestLengthCm: p.bestLengthCm, imperial: imperial))
+            .padding(.top, DS.Space.s4)
+
+        if isFriend {
+            CardGroup {
+                CardRow("You're friends", subtitle: "You already share catches",
+                        systemImage: "checkmark", tint: .dsScoreGood)
+            }
+            .padding(.top, DS.Space.s5)
+        } else if added {
+            CardGroup {
+                CardRow("Friend request sent", subtitle: "Waiting for them to accept",
+                        systemImage: "paperplane.fill", tint: .blue)
+            }
+            .padding(.top, DS.Space.s5)
+        } else {
+            Button(action: send) {
+                if sending { ProgressView() } else { Label("Send friend request", systemImage: "person.badge.plus") }
+            }
+            .buttonStyle(.dsPrimary)
+            .disabled(sending)
+            .accessibilityLabel("Send friend request")
+            .padding(.horizontal, DS.gutter)
+            .padding(.top, DS.Space.s5)
+            SectionFootnote("They'll see your request on their Crew tab.")
+        }
+    }
+
+    /// The hero for a code that can't be added, in Today's hero layout.
+    private func stateHero(value: String, callout: String, systemImage: String, tint: Color) -> some View {
+        PageHero(label: "Angler code \(shownCode)", value: value, callout: callout) {
+            ThumbView(systemImage: systemImage, tint: tint, size: 72)
+        }
+        .accessibilityAddTraits(.isHeader)
+        .padding(.top, DS.Space.s6)
+    }
+
+    private func lookUp() async {
+        guard svc.joined else { loading = false; return }
+        loading = true
+        result = await svc.lookupProfile(code: code)
+        loading = false
+    }
+
+    private func send() {
+        sending = true
+        Task {
+            let outcome = await svc.sendFriendRequestResult(to: code)
+            sending = false
+            switch outcome {
+            case .found:
+                added = true
+                ToastCenter.shared.show("Friend request sent", style: .success)
+            case .notFound:
+                result = .notFound
+                ToastCenter.shared.show("No angler matches that code", style: .error)
+            case .ownCode:
+                result = .ownCode
+            case .failed:
+                ToastCenter.shared.show(connection.isOffline ? "You're offline. Send it when you're back online"
+                                                             : "Can't reach Crew right now. Try again",
+                                        style: .error)
+            }
         }
     }
 }

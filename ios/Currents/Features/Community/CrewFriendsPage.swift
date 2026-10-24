@@ -522,7 +522,8 @@ struct CrewAddSheet: View {
 
 // MARK: - Add a friend
 
-/// Your code to share, and a field for theirs.
+/// Your code to share, and a field for theirs. A form: Cancel, and Add once
+/// the code is complete.
 struct CrewAddFriendSheet: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var svc = CommunityService.shared
@@ -539,26 +540,22 @@ struct CrewAddFriendSheet: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: DS.Space.s5) {
-                    CommunityHero(label: "Swap codes", title: "Add a friend",
-                                  line: "Type the code from their profile.") {
+                    PageHero(label: "Swap codes", value: "Add a friend",
+                             callout: "Type the code from their profile.") {
                         ThumbView(systemImage: "person.badge.plus", tint: .dsScoreGood, size: 72)
                     }
+                    .accessibilityAddTraits(.isHeader)
                     .padding(.horizontal, -DS.gutter)
                     VStack(alignment: .leading, spacing: DS.Space.s3) {
                         CodeField(text: $addCode, placeholder: "Their angler code")
+                            .submitLabel(.send)
+                            .onSubmit { if codeReady && !sending { send() } }
                             .onChange(of: addCode) { _, _ in error = nil }
                         if let error {
                             Label(error, systemImage: "exclamationmark.circle")
                                 .font(.subheadline)
                                 .foregroundStyle(.dsScoreSlow)
                         }
-                        Button {
-                            send()
-                        } label: {
-                            if sending { ProgressView() } else { Text("Send request") }
-                        }
-                        .buttonStyle(.dsPrimary)
-                        .disabled(sending || !codeReady)
                     }
 
                     yourCode
@@ -574,11 +571,18 @@ struct CrewAddFriendSheet: View {
             .navigationTitle("Add a friend")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Done") { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button { send() } label: {
+                        if sending { ProgressView() } else { Text("Add") }
+                    }
+                    .accessibilityLabel("Add")
+                    .disabled(sending || !codeReady)
+                }
             }
         }
-        .presentationDetents([.medium, .large])
-        .presentationDragIndicator(.visible)
+        .interactiveDismissDisabled(!addCode.isEmpty || sending)
+        .dsSheet([.large])
     }
 
     /// Your code, labelled like the field above it, with the invite beside
@@ -624,24 +628,31 @@ struct CrewAddFriendSheet: View {
             let fresh = !BadgeDefinition.bassDaddyUnlocked
             BadgeDefinition.unlockBassDaddy()
             if fresh { Haptics.celebrate(.achievement) } else { Haptics.success() }
-            ToastCenter.shared.show(fresh ? "Mythic achievement unlocked: Bass Daddy"
+            ToastCenter.shared.show(fresh ? "Bass Daddy unlocked"
                                           : "Still the Bass Daddy",
                                     style: .success, haptic: false, icon: "crown.fill")
             return
         }
         sending = true
         Task {
-            let ok = await svc.sendFriendRequest(to: code)
+            let result = await svc.sendFriendRequestResult(to: code)
             sending = false
-            if ok {
+            switch result {
+            case .found:
                 addCode = ""
                 ToastCenter.shared.show("Friend request sent", style: .success)
                 dismiss()
-            } else {
+            case .notFound:
+                Haptics.error()
+                error = "No angler matches that code. Check it with your friend."
+            case .ownCode:
+                Haptics.error()
+                error = "That's your own angler code."
+            case .failed:
                 Haptics.error()
                 error = connection.isOffline
                     ? "You're offline. Send it again when you're back online."
-                    : "No angler matches that code. Check it with your friend."
+                    : "Can't reach Crew right now. Try again."
             }
         }
     }
