@@ -1,3 +1,4 @@
+import Combine
 import SwiftUI
 import UIKit
 
@@ -133,13 +134,44 @@ private struct ToastOverlay: View {
     }
 }
 
+/// Hosts the toast layer. While its window is visible it is the one the
+/// system asks about the status bar, so it passes the question on to what the
+/// app's own window is showing (a camera that hides the status bar keeps it
+/// hidden).
+private final class ToastHostingController: UIHostingController<ToastOverlay> {
+    override var prefersStatusBarHidden: Bool {
+        var top = appTopController
+        while let child = top?.childForStatusBarHidden { top = child }
+        return top?.prefersStatusBarHidden ?? false
+    }
+
+    override var preferredStatusBarStyle: UIStatusBarStyle {
+        var top = appTopController
+        while let child = top?.childForStatusBarStyle { top = child }
+        return top?.preferredStatusBarStyle ?? .default
+    }
+
+    /// The top-most controller presented in the app's main window: the
+    /// scene's first window that is not this one.
+    private var appTopController: UIViewController? {
+        guard let toastWindow = view.window, let scene = toastWindow.windowScene,
+              let main = scene.windows.first(where: { $0 !== toastWindow }) else { return nil }
+        var top = main.rootViewController
+        while let presented = top?.presentedViewController { top = presented }
+        return top
+    }
+}
+
 /// A second window on the app's scene, one level above the app window, that
 /// draws toasts over every presentation. It never takes touches (they fall
-/// through to the app) and never becomes the key window.
+/// through to the app), never becomes the key window, and is hidden between
+/// toasts so the app keeps control of the status bar.
 @MainActor
 final class ToastWindow {
     static let shared = ToastWindow()
     private var window: UIWindow?
+    private var subscription: AnyCancellable?
+    private var hideTask: Task<Void, Never>?
 
     func install() {
         guard window == nil else { return }
@@ -147,14 +179,38 @@ final class ToastWindow {
         guard let scene = scenes.first(where: { $0.activationState == .foregroundActive }) ?? scenes.first else {
             return
         }
-        let host = UIHostingController(rootView: ToastOverlay())
+        let host = ToastHostingController(rootView: ToastOverlay())
         host.view.backgroundColor = .clear
         let window = UIWindow(windowScene: scene)
         window.windowLevel = UIWindow.Level(rawValue: UIWindow.Level.normal.rawValue + 1)
         window.rootViewController = host
         window.isUserInteractionEnabled = false
-        window.isHidden = false
+        window.isHidden = true
         self.window = window
+        subscription = ToastCenter.shared.$current.sink { [weak self] toast in
+            self?.update(showing: toast != nil)
+        }
+    }
+
+    /// Shows the window as a toast arrives. After the last one leaves, hides
+    /// it once the exit animation (DS.Motion.softSpring, 0.56 s) has run, if
+    /// no new toast came in meanwhile.
+    private func update(showing: Bool) {
+        hideTask?.cancel()
+        hideTask = nil
+        guard let window else { return }
+        if showing {
+            if window.isHidden {
+                window.isHidden = false
+                window.rootViewController?.setNeedsStatusBarAppearanceUpdate()
+            }
+            return
+        }
+        hideTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(DS.Motion.slow + 0.1))
+            guard !Task.isCancelled, ToastCenter.shared.current == nil else { return }
+            self?.window?.isHidden = true
+        }
     }
 }
 
