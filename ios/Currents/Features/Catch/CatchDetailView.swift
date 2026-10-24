@@ -461,7 +461,7 @@ struct CatchDetailView: View {
     private var lureDetail: String? {
         guard let g = detail.gearLoadout else { return nil }
         let parts = [g.lureColor.flatMap { $0.isEmpty ? nil : Self.sentenceCase($0) },
-                     g.lureWeightG.map { "\(Int($0)) g" }].compactMap { $0 }
+                     g.lureWeightG.map { Units.lureWeight(grams: $0, imperial: imperial) }].compactMap { $0 }
         return parts.isEmpty ? nil : parts.joined(separator: ", ")
     }
 
@@ -509,8 +509,9 @@ struct CatchDetailView: View {
         }
         if let pressure = wx?.pressureHpa {
             let level = pressure < 1009 ? "Low" : (pressure > 1022 ? "High" : "Normal")
+            let reading = Units.pressureParts(hpa: pressure, imperial: imperial)
             items.append(ConditionItem(label: "Pressure", systemImage: "gauge.with.dots.needle.33percent",
-                                       value: "\(Int(pressure.rounded()))", unit: "hPa", footnote: level))
+                                       value: reading.0, unit: reading.1, footnote: level))
         }
         if let rising = tideRising {
             items.append(ConditionItem(label: "Tide",
@@ -617,8 +618,8 @@ struct CatchDetailView: View {
 
     private func waterFootnote(_ water: Double) -> String? {
         guard let lo = detail.species?.minTempC, let hi = detail.species?.maxTempC, hi > lo else { return nil }
-        if water < lo { return "\(Int((lo - water).rounded()))° below their range" }
-        if water > hi { return "\(Int((water - hi).rounded()))° above their range" }
+        if water < lo { return "\(Units.temperatureDelta(lo - water, imperial: imperial)) below their range" }
+        if water > hi { return "\(Units.temperatureDelta(water - hi, imperial: imperial)) above their range" }
         return "In their range"
     }
 

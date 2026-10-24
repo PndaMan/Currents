@@ -11,19 +11,22 @@ struct Insight: Identifiable {
 enum InsightsEngine {
     /// Produces a small ranked set of insights. Returns empty until there's
     /// enough history to say anything meaningful.
-    static func compute(from catches: [CatchDetail]) -> [Insight] {
+    static func compute(from catches: [CatchDetail], use24: Bool = ForecastFormat.use24) -> [Insight] {
         guard catches.count >= 3 else { return [] }
         var out: [Insight] = []
         let cal = Calendar.current
         let total = catches.count
 
-        // Best time-of-day window.
+        // Best time-of-day window, in the 24-hour setting.
+        func range(_ from: Int, _ to: Int) -> String {
+            "\(ForecastFormat.hour(from, use24: use24)) to \(ForecastFormat.hour(to, use24: use24))"
+        }
         let windows: [(name: String, range: String, test: (Int) -> Bool)] = [
-            ("dawn", "4–8am", { (4..<8).contains($0) }),
-            ("the morning", "8am–12pm", { (8..<12).contains($0) }),
-            ("midday", "12–4pm", { (12..<16).contains($0) }),
-            ("the evening", "4–8pm", { (16..<20).contains($0) }),
-            ("after dark", "8pm–4am", { $0 >= 20 || $0 < 4 }),
+            ("dawn", range(4, 8), { (4..<8).contains($0) }),
+            ("the morning", range(8, 12), { (8..<12).contains($0) }),
+            ("midday", range(12, 16), { (12..<16).contains($0) }),
+            ("the evening", range(16, 20), { (16..<20).contains($0) }),
+            ("after dark", range(20, 4), { $0 >= 20 || $0 < 4 }),
         ]
         let hours = catches.map { cal.component(.hour, from: $0.catchRecord.caughtAt) }
         if let best = windows.map({ w in (w, hours.filter(w.test).count) }).max(by: { $0.1 < $1.1 }),

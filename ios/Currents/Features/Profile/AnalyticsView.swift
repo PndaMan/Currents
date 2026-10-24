@@ -113,7 +113,7 @@ struct AnalyticsView: View {
 
     @ViewBuilder
     private var patternsSection: some View {
-        let insights = InsightsEngine.compute(from: allCatches)
+        let insights = InsightsEngine.compute(from: allCatches, use24: use24HourTime)
         if !insights.isEmpty {
             SectionTitle("Your patterns")
                 .padding(.top, DS.Space.s8)

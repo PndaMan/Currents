@@ -27,6 +27,7 @@ extension BadgeMetrics {
         func needs(_ text: String) -> BadgeProgress {
             BadgeProgress(value: value(spec.metric), target: 1, text: text, isYesNo: true)
         }
+        func hour(_ h: Int) -> String { ForecastFormat.hour(h, use24: ForecastFormat.use24) }
         switch spec.metric {
         case .catches: return count(value(.catches), "catches")
         case .species: return count(value(.species), "species")
@@ -41,8 +42,8 @@ extension BadgeMetrics {
         case .lengthCm: return sizeProgress(value(.lengthCm), target, label: "Longest") { Units.length(cm: $0) }
         case .biteScore: return scoreProgress(value(.biteScore), target)
         case .weekend: return needs("Needs a catch on a Saturday or Sunday")
-        case .night: return needs("Needs a catch between 10 pm and 5 am")
-        case .dawn: return needs("Needs a catch between 5 and 7 am")
+        case .night: return needs("Needs a catch between \(hour(22)) and \(hour(5))")
+        case .dawn: return needs("Needs a catch between \(hour(5)) and \(hour(7))")
         case .secret, .supporter: return nil
         }
     }
@@ -137,6 +138,9 @@ struct AchievementsView: View {
 private struct AchievementsPage: View {
     let summary: AchievementsSummary
     @State private var selected: BadgeDefinition?
+    // The closest badge's sizes and hours redraw when either setting changes.
+    @AppStorage("units") private var units = "metric"
+    @AppStorage("use24HourTime") private var use24 = true
 
     var body: some View {
         ScrollView {

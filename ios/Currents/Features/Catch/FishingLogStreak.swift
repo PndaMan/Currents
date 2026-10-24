@@ -264,12 +264,22 @@ struct BadgeDefinition: Identifiable {
     /// A friendly one-liner explaining how the badge is earned, shown in the
     /// tap-to-open detail modal.
     var explanation: String {
+        // Sizes and hours follow the units and 24-hour settings.
+        if let spec {
+            let hour = { (h: Int) in ForecastFormat.hour(h, use24: ForecastFormat.use24) }
+            switch spec.metric {
+            case .weightKg: return "Land a fish weighing \(Units.weight(kg: spec.target)) or more."
+            case .lengthCm: return "Land a fish \(Units.length(cm: spec.target)) or longer."
+            case .night: return "Log a catch late at night, between \(hour(22)) and \(hour(5))."
+            case .dawn: return "Log a catch at first light, between \(hour(5)) and \(hour(7))."
+            default: break
+            }
+        }
         switch title {
         case "First Catch":     return "Log your very first catch in Currents."
         case "Snap Happy":      return "Add a photo to 3 of your catches."
         case "Marked It":       return "Log a catch at one of your saved spots."
         case "Good Sport":      return "Release 3 catches back to the water."
-        case "Keeper":          return "Land a fish weighing 1 kg (2.2 lb) or more."
         case "Doubleheader":    return "Log 2 catches in a single day."
         case "Weekend Warrior": return "Log a catch on a Saturday or Sunday."
         case "10 Club":         return "Log 10 catches."
@@ -280,13 +290,8 @@ struct BadgeDefinition: Identifiable {
         case "Hot Streak":      return "Log a catch in 2 back-to-back weeks."
         case "Conservationist": return "Release 10 catches."
         case "Hat Trick":       return "Log 3 catches in a single day."
-        case "Solid Fish":      return "Land a fish weighing 2 kg (4.4 lb) or more."
         case "Four Seasons":    return "Log catches in 4 different months of the year."
         case "50 Catches":      return "Log 50 catches."
-        case "Night Owl":       return "Log a catch late at night, between 10 pm and 5 am."
-        case "Dawn Patrol":     return "Log a catch at first light, between 5 and 7 am."
-        case "Heavy Hitter":    return "Land a fish weighing 5 kg (11 lb) or more."
-        case "Long One":        return "Land a fish 50 cm (20 in) or longer."
         case "Diversified":     return "Catch 10 different species."
         case "On Fire":         return "Keep a weekly fishing streak alive for 4 weeks."
         case "Full Stringer":   return "Log 5 catches in a single day."
@@ -297,23 +302,18 @@ struct BadgeDefinition: Identifiable {
         case "Nomad":           return "Log catches at 8 different saved spots."
         case "Perfect Read":    return "Land a catch when the bite score was 85 or higher."
         case "Year-Round":      return "Log catches in 8 different months of the year."
-        case "Monster":         return "Land a fish weighing 12 kg (26 lb) or more."
         case "Portfolio":       return "Add photos to 35 of your catches."
         case "Big Day":         return "Log 8 catches in a single day."
         case "Relentless":      return "Keep a weekly fishing streak alive for 8 weeks."
-        case "Meter Class":     return "Land a fish 80 cm (31 in) or longer."
         case "Collector":       return "Catch 15 different species."
         case "Double Century":  return "Log 200 catches."
         case "500 Club":        return "Log 500 catches."
         case "Species Master":  return "Catch 25 different species."
         case "Unstoppable":     return "Keep a weekly fishing streak alive for 12 weeks."
-        case "Trophy Hunter":   return "Land a fish weighing 30 kg (66 lb) or more."
-        case "Meter Monster":   return "Land a fish 100 cm (39 in) or longer."
         case "Water Guardian":  return "Release 100 catches."
         case "Shutter Legend":  return "Add photos to 100 of your catches."
         case "World Traveler":  return "Log catches at 15 different saved spots."
         case "Thousand Club":   return "Log 1,000 catches. A life on the water."
-        case "Leviathan":       return "Land a fish weighing 50 kg (110 lb) or more."
         case "Master of All Waters": return "Catch 50 different species."
         case "Eternal Flame":   return "Keep a weekly fishing streak alive for 26 weeks, half a year."
         case "Bass Daddy":      return "“\(Self.bassDaddyQuote)” \(Self.bassDaddyQuoteBy)"
@@ -835,6 +835,9 @@ struct BadgeDetailView: View {
     var progress: BadgeProgress? = nil
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    // The rule's sizes and hours redraw when either setting changes.
+    @AppStorage("units") private var units = "metric"
+    @AppStorage("use24HourTime") private var use24 = true
     @State private var turns: Double = 0
 
     private var flair: TitleFlair? {
