@@ -103,7 +103,7 @@ struct AnalyticsView: View {
                 HStack(spacing: 10) {
                     if let biggest {
                         let p = Units.weightParts(kg: biggest, imperial: imperial)
-                        StatTile("Heaviest", systemImage: "trophy.fill", tint: .dsScoreFair,
+                        StatTile("Heaviest", systemImage: "trophy.fill", tint: DS.ink(.dsScoreFair),
                                  value: p.0, unit: p.1, width: nil)
                     }
                     if let avgWeight {
@@ -166,7 +166,7 @@ struct AnalyticsView: View {
             }
             Chart(monthlyCounts, id: \.month) { item in
                 BarMark(x: .value("Month", item.month), y: .value("Catches", item.count), width: .ratio(0.7))
-                    .foregroundStyle(selectedMonth == nil || selectedMonth == item.month ? DS.accent : Color.dsFill2)
+                    .foregroundStyle(selectedMonth == nil || selectedMonth == item.month ? DS.accent : DS.accent.opacity(0.35))
             }
             .chartXSelection(value: $selectedMonth)
             .chartYAxis(.hidden)
@@ -296,7 +296,7 @@ struct AnalyticsView: View {
             if !techniques.isEmpty {
                 SectionTitle("Techniques")
                     .padding(.top, DS.Space.s8)
-                LabeledBarList(items: techniques.prefix(6).map { ($0.key, $0.value.count) }, tint: .dsScoreFair)
+                LabeledBarList(items: techniques.prefix(6).map { ($0.key, $0.value.count) }, tint: DS.ink(.dsScoreFair))
                     .padding(.horizontal, DS.gutter)
             }
         }
@@ -327,9 +327,9 @@ struct AnalyticsView: View {
             .accessibilityLabel("Catches by hour of day")
             .accessibilityValue(hourCounts.map { "\(formatHour($0.hour)) \($0.count)" }.joined(separator: ", "))
             HStack(spacing: 14) {
-                legendItem(color: .dsScoreFair, label: "Dawn and dusk")
+                legendItem(color: DS.ink(.dsScoreFair), label: "Dawn and dusk")
                 legendItem(color: DS.accent, label: "Day")
-                legendItem(color: .dsFill2, label: "Night")
+                legendItem(color: DS.accent.opacity(0.35), label: "Night")
             }
             .font(.footnote)
             .foregroundStyle(.dsText2)
@@ -514,9 +514,10 @@ struct AnalyticsView: View {
 
     private func hourColor(_ hour: Int) -> Color {
         switch hour {
-        case 5...8, 16...19: return .dsScoreFair
+        case 5...8, 16...19: return DS.ink(.dsScoreFair)
         case 9...15: return DS.accent
-        default: return .dsFill2
+        // Faint accent rather than a fill grey, so night bars show on white.
+        default: return DS.accent.opacity(0.35)
         }
     }
 

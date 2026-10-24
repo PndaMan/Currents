@@ -200,7 +200,7 @@ struct StreakView: View {
                 Text("This week")
             }
             .font(.caption)
-            .foregroundStyle(.dsText3)
+            .foregroundStyle(.dsText2)
         }
     }
 
@@ -215,7 +215,7 @@ struct StreakView: View {
             StatTile("Current", systemImage: "flame.fill", tint: .dsScoreLow,
                      value: "\(stats.current)", unit: stats.current == 1 ? "week" : "weeks",
                      footnote: since ?? "None yet", width: nil)
-            StatTile("Longest", systemImage: "trophy.fill", tint: .dsScoreFair,
+            StatTile("Longest", systemImage: "trophy.fill", tint: DS.ink(.dsScoreFair),
                      value: "\(stats.best)", unit: stats.best == 1 ? "week" : "weeks",
                      footnote: longestRun, width: nil)
             StatTile("This week", systemImage: stats.fishedThisWeek ? "checkmark.circle.fill" : "circle.dashed",

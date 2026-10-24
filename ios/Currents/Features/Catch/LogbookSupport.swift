@@ -364,18 +364,14 @@ struct LogbookKeyValueList: View {
     }
 }
 
-/// A short explanatory note under a section, footnote size.
+/// A short explanatory note under a section. Kept for its callers; it draws
+/// the DS `SectionFootnote`, so every note reads in dsText2.
 struct SectionFoot: View {
     let text: String
     init(_ text: String) { self.text = text }
 
     var body: some View {
-        Text(text)
-            .font(.footnote)
-            .foregroundStyle(.dsText3)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, DS.gutter)
-            .padding(.top, DS.Space.s2)
+        SectionFootnote(text)
     }
 }
 

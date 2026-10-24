@@ -544,7 +544,7 @@ struct CatchDetailView: View {
                                  value: "Dusk", footnote: "Sunset \(time(day.sunset))")
         }
         if at > day.sunrise && at < day.sunset {
-            return ConditionItem(label: "Light", systemImage: "sun.max.fill", iconTint: .yellow,
+            return ConditionItem(label: "Light", systemImage: "sun.max.fill", iconTint: DS.ink(.dsScoreFair),
                                  value: "Daylight", footnote: "Sunset \(time(day.sunset))")
         }
         return ConditionItem(label: "Light", systemImage: "moon.stars.fill", iconTint: .indigo,

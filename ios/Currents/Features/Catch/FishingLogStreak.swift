@@ -864,7 +864,7 @@ struct BadgeDetailView: View {
                 if let flair {
                     Text("Unlocks the profile title \(flair.name).")
                         .font(.footnote)
-                        .foregroundStyle(.dsText3)
+                        .foregroundStyle(.dsText2)
                         .padding(.top, DS.Space.s4)
                 }
                 Button("Done") { dismiss() }

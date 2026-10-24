@@ -308,7 +308,7 @@ struct CatchesTab: View {
                 .buttonStyle(.dim)
 
                 NavigationLink(value: LogbookRoute.achievements) {
-                    StatTile("Badges", systemImage: "medal.fill", tint: .dsScoreFair,
+                    StatTile("Badges", systemImage: "medal.fill", tint: DS.ink(.dsScoreFair),
                              value: "\(summary.badgesEarned)",
                              unit: "of \(summary.badgesVisible)",
                              footnote: summary.nextBadge.map { "\($0) next" })
@@ -512,7 +512,7 @@ struct CatchesTab: View {
                 }
                 Text(LogbookFormat.relativeDay(detail.catchRecord.caughtAt))
                     .font(.footnote)
-                    .foregroundStyle(.dsText3)
+                    .foregroundStyle(.dsText2)
                     .lineLimit(1)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -542,7 +542,7 @@ struct CatchesTab: View {
                     if record.isFavorite {
                         Image(systemName: "star.fill")
                             .font(.footnote)
-                            .foregroundStyle(Color.dsScoreFair)
+                            .foregroundStyle(DS.ink(.dsScoreFair))
                             .accessibilityLabel("Favourite")
                     }
                     if let score = record.forecastScoreAtCapture {
