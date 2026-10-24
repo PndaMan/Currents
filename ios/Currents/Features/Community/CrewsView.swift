@@ -1897,7 +1897,8 @@ struct CrewPostSheet: View {
                     Label(shownCaption.isEmpty ? "Add caption" : "Edit caption", systemImage: "pencil")
                 }
             }
-            ShareLink(item: "\(isMine ? svc.myName : post.authorName) caught a \(post.species) on Currents") {
+            // No article, so a species starting with a vowel never reads "a eel".
+            ShareLink(item: "\(isMine ? svc.myName : post.authorName) caught \(post.species.lowercased()) on Currents") {
                 Label("Share", systemImage: "square.and.arrow.up")
             }
             if (isMine || canModerate), crew != nil {
