@@ -59,9 +59,34 @@ enum ThrowText {
     }
 
     /// The first reason that is about the conditions; ownership and your
-    /// own catches have their own labelled values.
-    static func reason(_ s: LureEngine.Suggestion) -> String? {
-        s.reasons.first { !$0.hasPrefix("In your tackle box") && !$0.hasPrefix("Caught you") }
+    /// own catches have their own labelled values. `shared` is a reason the
+    /// page already gives once for several picks, so the next one shows.
+    static func reason(_ s: LureEngine.Suggestion, skipping shared: String? = nil) -> String? {
+        s.reasons.first { !$0.hasPrefix("In your tackle box") && !$0.hasPrefix("Caught you") && $0 != shared }
+    }
+
+    /// The species reason when two or more picks lead with it, so the page
+    /// says it once rather than as every pick's Why.
+    static func sharedReason(_ picks: [LureEngine.Suggestion], species: Species?) -> String? {
+        guard let name = species?.commonName else { return nil }
+        let shared = LureEngine.speciesReason(name)
+        return picks.filter { reason($0) == shared }.count >= 2 ? shared : nil
+    }
+
+    /// The shared species reason as one sentence: every pick, or the ranks
+    /// that share it.
+    static func sharedNote(_ picks: [LureEngine.Suggestion], species: Species?) -> String? {
+        guard let name = species?.commonName,
+              let shared = sharedReason(picks, species: species) else { return nil }
+        let ranks = picks.indices.filter { reason(picks[$0]) == shared }.map { "\($0 + 1)" }
+        if ranks.count == picks.count { return "Every pick is a known producer for \(name)." }
+        return "Picks \(andList(ranks)) are known producers for \(name)."
+    }
+
+    /// "1, 2 and 4".
+    private static func andList(_ items: [String]) -> String {
+        guard let last = items.last, items.count > 1 else { return items.first ?? "" }
+        return items.dropLast().joined(separator: ", ") + " and " + last
     }
 
     /// Low light when it is overcast or outside the middle of the day.
@@ -83,6 +108,8 @@ struct LureSuggestionRow: View {
     /// The short clause on how to fish it instead of the whole technique,
     /// for Today's glance.
     var brief: Bool = false
+    /// A reason the page says once for several picks; Why shows the next.
+    var sharedReason: String? = nil
     /// True inside a `CardGroup`, which pads to the card's edge rather than
     /// the page gutter.
     var inCard: Bool = false
@@ -144,7 +171,7 @@ struct LureSuggestionRow: View {
                     }
                     // The first reason only; the engine puts the most
                     // specific one first.
-                    if let reason = ThrowText.reason(suggestion) {
+                    if let reason = ThrowText.reason(suggestion, skipping: sharedReason) {
                         ThrowValue(label: "Why", value: ThrowText.phrase(reason))
                     }
                     if !stacked { Spacer(minLength: 0) }
@@ -530,10 +557,15 @@ struct WhatToThrowPage: View {
                 if picks.isEmpty && loaded {
                     InlineEmpty(text: "No picks yet. They appear once the weather loads.")
                 } else if !picks.isEmpty {
+                    let shared = ThrowText.sharedReason(picks, species: store.species)
                     CardGroup(separatorInset: pickSeparatorInset) {
                         ForEach(Array(picks.enumerated()), id: \.element.id) { index, s in
-                            LureSuggestionRow(suggestion: s, rank: index + 1, full: true, inCard: true)
+                            LureSuggestionRow(suggestion: s, rank: index + 1, full: true,
+                                              sharedReason: shared, inCard: true)
                         }
+                    }
+                    if let note = ThrowText.sharedNote(picks, species: store.species) {
+                        SectionFootnote(note)
                     }
                 }
 
