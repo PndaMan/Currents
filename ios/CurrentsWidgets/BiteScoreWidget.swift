@@ -254,10 +254,37 @@ private struct NextSessionView: View {
             .font(.title3.bold())
             .lineLimit(1)
             .minimumScaleFactor(0.7)
-        Text(date.formatted(date: .abbreviated, time: .shortened))
+        Text(plannedText(date))
             .font(.subheadline)
             .foregroundStyle(.secondary)
             .lineLimit(1)
+    }
+
+    /// "Tomorrow, 05:30", as Today writes the plan: a weekday within the
+    /// coming week, then a day-first date such as "31 Oct". The widget cannot
+    /// read the app's 24-hour setting, so the time follows the phone's clock.
+    private func plannedText(_ date: Date) -> String {
+        let cal = Calendar.current
+        let day: String
+        if cal.isDateInToday(date) {
+            day = "Today"
+        } else if cal.isDateInTomorrow(date) {
+            day = "Tomorrow"
+        } else {
+            let days = cal.dateComponents([.day], from: cal.startOfDay(for: .now),
+                                          to: cal.startOfDay(for: date)).day ?? 0
+            let f = DateFormatter()
+            if (2...6).contains(days) {
+                f.setLocalizedDateFormatFromTemplate("EEEE")
+            } else {
+                f.dateFormat = "d MMM" // fixed, so a US region still reads day first
+            }
+            day = f.string(from: date)
+        }
+        let clock = DateFormatter()
+        clock.dateStyle = .none
+        clock.timeStyle = .short
+        return "\(day), \(clock.string(from: date))"
     }
 
     @ViewBuilder private var empty: some View {
