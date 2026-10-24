@@ -1670,6 +1670,8 @@ struct CrewPostSheet: View {
     @State private var captionDraft = ""
     @State private var confirmingDelete = false
     @State private var showingComments = false
+    /// The sheet's height. Opening the comments raises it to full height.
+    @State private var detent: PresentationDetent = .medium
     /// Optimistic comment count while the thread is open.
     @State private var localCommentCount: Int?
     /// Optimistic reactions, shown the instant you tap. The sheet holds a
@@ -1720,8 +1722,15 @@ struct CrewPostSheet: View {
                 ToolbarItem(placement: .cancellationAction) { Button("Done") { dismiss() } }
                 ToolbarItem(placement: .topBarTrailing) { moreMenu }
             }
+            // The thread is pushed inside this sheet rather than stacked as
+            // a second sheet on top of it.
+            .navigationDestination(isPresented: $showingComments) {
+                CrewCommentsSheet(post: post, crew: crew) { count in
+                    localCommentCount = count
+                }
+            }
         }
-        .presentationDetents([.medium, .large])
+        .presentationDetents([.medium, .large], selection: $detent)
         .presentationDragIndicator(.visible)
         .task(id: post.id) {
             guard post.hasPhoto, photo == nil else { return }
@@ -1730,13 +1739,6 @@ struct CrewPostSheet: View {
                 photo = await svc.crewPostImage(recordName: post.id)
             }
             photoFailed = photo == nil
-        }
-        .sheet(isPresented: $showingComments) {
-            CrewCommentsSheet(post: post, crew: crew) { count in
-                localCommentCount = count
-            }
-            .presentationDetents([.medium, .large])
-            .presentationDragIndicator(.visible)
         }
         .alert("Caption", isPresented: $editingCaption) {
             TextField("Say something", text: $captionDraft)
@@ -1868,7 +1870,10 @@ struct CrewPostSheet: View {
 
     private var commentsRow: some View {
         let count = localCommentCount ?? post.commentCount ?? 0
-        return Button { showingComments = true } label: {
+        return Button {
+            detent = .large
+            showingComments = true
+        } label: {
             IconLinkRow("Comments", subtitle: count == 0 ? "Start the conversation" : nil,
                         systemImage: "bubble.left.and.bubble.right.fill", tint: .blue,
                         value: count > 0 ? "\(count)" : nil)
@@ -1959,14 +1964,14 @@ struct CrewPostSheet: View {
 
 /// The comment thread on one crew post: conversation-ordered list with the
 /// composer pinned underneath. Authors delete their own comments; moderators
-/// anyone's.
+/// anyone's. Pushed inside the post sheet's navigation stack, so it has no
+/// stack or Done of its own and goes back with the system Back button.
 struct CrewCommentsSheet: View {
     let post: CommunityService.CrewPost
     var crew: CommunityService.Crew? = nil
     /// Reports the live count so the post's comment badge stays honest.
     var onCountChange: (Int) -> Void = { _ in }
 
-    @Environment(\.dismiss) private var dismiss
     private var svc: CommunityService { .shared }
     @State private var comments: [CommunityService.CrewComment] = []
     @State private var loading = true
@@ -1993,64 +1998,59 @@ struct CrewCommentsSheet: View {
     }
 
     var body: some View {
-        NavigationStack {
-            VStack(spacing: 0) {
-                if loading && comments.isEmpty {
-                    Spacer()
-                    FishLoader(message: "Loading comments")
-                        .frame(height: 120)
-                    Spacer()
-                } else if comments.isEmpty {
-                    Spacer()
-                    VStack(spacing: DS.Space.s3) {
-                        ThumbView(systemImage: "bubble.left.and.bubble.right.fill", tint: .blue, size: 72)
-                        Text("No comments yet")
-                            .font(.title3.weight(.semibold))
-                            .foregroundStyle(.dsText)
-                        Text("Say something about this \(post.species.lowercased()).")
-                            .font(.callout)
-                            .foregroundStyle(.dsText2)
-                            .multilineTextAlignment(.center)
-                    }
-                    .padding(.horizontal, DS.gutter)
-                    .accessibilityElement(children: .combine)
-                    Spacer()
-                } else {
-                    ScrollViewReader { proxy in
-                        List {
-                            ForEach(threads, id: \.parent.id) { thread in
-                                commentRow(thread.parent, isReply: false)
-                                    .id(thread.parent.id)
+        VStack(spacing: 0) {
+            if loading && comments.isEmpty {
+                Spacer()
+                FishLoader(message: "Loading comments")
+                    .frame(height: 120)
+                Spacer()
+            } else if comments.isEmpty {
+                Spacer()
+                VStack(spacing: DS.Space.s3) {
+                    ThumbView(systemImage: "bubble.left.and.bubble.right.fill", tint: .blue, size: 72)
+                    Text("No comments yet")
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(.dsText)
+                    Text("Say something about this \(post.species.lowercased()).")
+                        .font(.callout)
+                        .foregroundStyle(.dsText2)
+                        .multilineTextAlignment(.center)
+                }
+                .padding(.horizontal, DS.gutter)
+                .accessibilityElement(children: .combine)
+                Spacer()
+            } else {
+                ScrollViewReader { proxy in
+                    List {
+                        ForEach(threads, id: \.parent.id) { thread in
+                            commentRow(thread.parent, isReply: false)
+                                .id(thread.parent.id)
+                                .listRowSeparator(.hidden)
+                                .listRowBackground(Color.clear)
+                                .listRowInsets(EdgeInsets(top: 8, leading: DS.gutter, bottom: 4, trailing: 12))
+                            ForEach(thread.replies) { reply in
+                                commentRow(reply, isReply: true)
+                                    .id(reply.id)
                                     .listRowSeparator(.hidden)
                                     .listRowBackground(Color.clear)
-                                    .listRowInsets(EdgeInsets(top: 8, leading: DS.gutter, bottom: 4, trailing: 12))
-                                ForEach(thread.replies) { reply in
-                                    commentRow(reply, isReply: true)
-                                        .id(reply.id)
-                                        .listRowSeparator(.hidden)
-                                        .listRowBackground(Color.clear)
-                                        .listRowInsets(EdgeInsets(top: 4, leading: DS.gutter + 40, bottom: 4, trailing: 12))
-                                }
+                                    .listRowInsets(EdgeInsets(top: 4, leading: DS.gutter + 40, bottom: 4, trailing: 12))
                             }
                         }
-                        .listStyle(.plain)
-                        .scrollContentBackground(.hidden)
-                        .onChange(of: comments.count) { _, _ in
-                            if let last = comments.last {
-                                withAnimation { proxy.scrollTo(last.id, anchor: .bottom) }
-                            }
+                    }
+                    .listStyle(.plain)
+                    .scrollContentBackground(.hidden)
+                    .onChange(of: comments.count) { _, _ in
+                        if let last = comments.last {
+                            withAnimation { proxy.scrollTo(last.id, anchor: .bottom) }
                         }
                     }
                 }
-                composer
             }
-            .dsScreenBackground()
-            .navigationTitle("Comments")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
-            }
+            composer
         }
+        .dsScreenBackground()
+        .navigationTitle("Comments")
+        .navigationBarTitleDisplayMode(.inline)
         .task {
             comments = await svc.comments(postId: post.id)
             loading = false
