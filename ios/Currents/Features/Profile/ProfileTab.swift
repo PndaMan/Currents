@@ -40,7 +40,10 @@ struct SettingsView: View {
     @State private var earnedBadges = 0
     @State private var totalBadges = 0
 
-    @State private var titleShown = false
+    /// Your name's large title line, which grows with the text size. The
+    /// inline title waits for the avatar and the space around it (112
+    /// points) and this line to go under the bar: 160 points at the default.
+    @ScaledMetric(relativeTo: .largeTitle) private var nameLine: CGFloat = 48
     @State private var showingEdit = false
     @State private var showingShare = false
     /// Nil until read, so the row shows no value rather than a wrong one.
@@ -98,8 +101,7 @@ struct SettingsView: View {
             .pageWidth()
         }
         .detailTint(nil)
-        .pfTrackScroll($titleShown, threshold: 160)
-        .pfScrollTitle(displayName, shown: titleShown)
+        .pageTitleFade(displayName, threshold: 112 + nameLine)
         .navigationDestination(for: SettingsRoute.self) { route in
             switch route {
             case .appearance: AppearanceSettingsView()
@@ -1677,7 +1679,11 @@ struct WidgetsSiriView: View {
 // MARK: - About
 
 struct AboutView: View {
-    @State private var titleShown = false
+    /// Down to the baseline of "Currents" in the header, which grows with
+    /// the text size. The inline title waits for the icon and the space
+    /// above it (108 points) and this to go under the bar: 140 points at
+    /// the default, when the word, which has no descenders, has gone.
+    @ScaledMetric(relativeTo: .largeTitle) private var nameBaseline: CGFloat = 32
 
     /// The support and privacy pages the App Store listing links to
     /// (ios/AppStore/metadata).
@@ -1750,8 +1756,7 @@ struct AboutView: View {
             .pageWidth()
         }
         .detailTint(nil)
-        .pfTrackScroll($titleShown, threshold: 140)
-        .pfScrollTitle("About", shown: titleShown)
+        .pageTitleFade("About", threshold: 108 + nameBaseline)
         .navigationDestination(for: AboutRoute.self) { route in
             switch route {
             case .tips: TipJarView()
