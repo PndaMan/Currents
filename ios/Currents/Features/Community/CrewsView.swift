@@ -1227,7 +1227,27 @@ struct CrewSettingsView: View {
                 .navigationTitle("Crew settings")
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
-                    ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
+                    // Captains and mates edit the crew's look, so the sheet is
+                    // a form for them. Everyone else only views it.
+                    if myRole.canManage {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Cancel") { dismiss() }
+                        }
+                    }
+                    if myRole.canManage {
+                        ToolbarItem(placement: .confirmationAction) {
+                            if saving {
+                                ProgressView()
+                            } else {
+                                Button("Save") { save() }
+                                    .bold()
+                                    .disabled(!hasChanges || name.trimmingCharacters(in: .whitespaces).isEmpty)
+                            }
+                        }
+                    }
+                    if !myRole.canManage {
+                        ToolbarItem(placement: .confirmationAction) { SheetDoneButton() }
+                    }
                 }
             }
             .photosPicker(isPresented: $showingBannerPicker, selection: $bannerItem, matching: .images)
@@ -1256,6 +1276,7 @@ struct CrewSettingsView: View {
                 removeIcon = false
             }
         }
+        .interactiveDismissDisabled(hasChanges || saving)
         .task {
             if hasBanner, savedBanner == nil {
                 savedBanner = await CommunityDiskCache.image(key: "crewbanner-\(crew.code)")
@@ -1302,14 +1323,6 @@ struct CrewSettingsView: View {
             }
 
             CrewTextField(label: "Crew name", placeholder: "Crew name", text: $name)
-
-            Button {
-                save()
-            } label: {
-                if saving { ProgressView() } else { Text("Save changes") }
-            }
-            .buttonStyle(.dsPrimary)
-            .disabled(saving || !hasChanges || name.trimmingCharacters(in: .whitespaces).isEmpty)
         }
     }
 
@@ -1420,7 +1433,10 @@ struct CrewSettingsView: View {
         .accessibilityLabel("Crew icon options")
     }
 
+    /// Saves the name, icon and banner, then closes the sheet. A failed
+    /// save keeps every edit on screen to try again.
     private func save() {
+        guard !saving else { return }
         saving = true
         let trimmedName = name.trimmingCharacters(in: .whitespaces)
         Task {
@@ -1440,6 +1456,7 @@ struct CrewSettingsView: View {
                 newIcon = nil; newBanner = nil
                 withAnimation(DS.Motion.softSpring) { showingArt = false }
                 onChange()
+                dismiss()
             } else {
                 ToastCenter.shared.show("Couldn't update the crew", style: .error)
             }
