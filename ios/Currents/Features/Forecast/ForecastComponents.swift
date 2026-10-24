@@ -69,6 +69,9 @@ struct BiteBars: View {
         let score = isNow ? (nowScore ?? point.score) : point.score
         let lit = inWindow(point.hour) || isNow || isSelected || score >= 50
         let fraction = max(0.08, CGFloat(score) / 100)
+        // Only coloured bars dim, for a past hour or while another hour is
+        // picked. A grey bar stays full strength: dimmed, it vanishes on white.
+        let barOpacity: Double = (!lit || isSelected) ? 1 : (isPast ? 0.35 : (selected != nil ? 0.45 : 1))
 
         return Button {
             // Ticks here, not on change: the plan sheet also moves the
@@ -80,7 +83,7 @@ struct BiteBars: View {
         } label: {
             RoundedRectangle(cornerRadius: 4, style: .continuous) // ui-lint: allow, chart bar, not a card
                 .fill(lit ? DS.scoreColor(score) : Color.dsFill2)
-                .opacity(isPast && !isSelected ? 0.35 : (selected != nil && !isSelected ? 0.45 : 1))
+                .opacity(barOpacity)
                 .frame(height: appeared ? height * fraction : 4)
                 .overlay {
                     if isSelected {
