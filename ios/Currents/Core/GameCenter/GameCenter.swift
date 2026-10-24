@@ -119,6 +119,19 @@ final class GameCenter {
         GKAccessPoint.shared.trigger(state: state) {}
     }
 
+    /// Apple's friend request sheet, for adding a Currents friend on Game
+    /// Center too. GameKit can't add anyone itself; the angler picks the
+    /// person by contact, phone number or email there. Signed out, a tap
+    /// signs in first.
+    func addFriend() {
+        guard isAuthenticated else {
+            signIn()
+            return
+        }
+        guard let top = topViewController() else { return }
+        try? GKLocalPlayer.local.presentFriendRequestCreator(from: top)
+    }
+
     private func topViewController() -> UIViewController? {
         let scene = UIApplication.shared.connectedScenes
             .first(where: { $0.activationState == .foregroundActive }) as? UIWindowScene

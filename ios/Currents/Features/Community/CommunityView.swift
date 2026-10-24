@@ -1521,6 +1521,9 @@ struct FriendProfileView: View {
             Button { showingSettings = true } label: {
                 Label("Nickname and sharing", systemImage: "pencil")
             }
+            Button { GameCenter.shared.addFriend() } label: {
+                Label("Add on Game Center", systemImage: "gamecontroller")
+            }
             Button(role: .destructive) { confirmRemove = true } label: {
                 Label("Remove friend", systemImage: "person.badge.minus")
             }
