@@ -909,10 +909,7 @@ struct CatchesTab: View {
         ToastCenter.shared.show("Preparing the share card", style: .info, haptic: false,
                                 icon: "square.and.arrow.up")
         Task { @MainActor in
-            var image = await CatchActions.shareImage(for: detail)
-            if image == nil {
-                image = await CatchShareCard.render(detail: detail)
-            }
+            let image = await CatchActions.shareImage(for: detail)
             isPreparingShare = false
             if let image {
                 shareItem = CatchShareItem(image: image, filename: CatchActions.shareFilename(for: detail))

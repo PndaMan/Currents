@@ -77,17 +77,24 @@ enum CatchActions {
         )
     }
 
-    /// Renders the share card for a catch. Uses the photo at `photoIndex`, or
-    /// the species art when the catch has no photo.
+    /// Renders the share card for a catch. Uses the photo at `photoIndex`,
+    /// the species art when the catch has no photo, and the fish symbol
+    /// cover when it has neither.
     static func shareImage(for detail: CatchDetail, photoIndex: Int = 0) async -> UIImage? {
         let paths = detail.catchRecord.allPhotoPaths
         let index = paths.indices.contains(photoIndex) ? photoIndex : 0
-        if paths.indices.contains(index), let photo = PhotoManager.load(paths[index]) {
-            return await CatchShareCard.render(detail: detail, photo: photo)
+        if paths.indices.contains(index) {
+            let path = paths[index]
+            // Decode the full-size photo off the main actor.
+            let photo = await Task.detached { PhotoManager.load(path) }.value
+            if let photo {
+                return await CatchShareCard.render(detail: detail, photo: photo)
+            }
         }
-        guard let species = detail.species,
-              let art = UIImage(named: species.artworkAssetName) else { return nil }
-        return await CatchShareCard.render(detail: detail, photo: art, isArtwork: true)
+        if let species = detail.species, let art = UIImage(named: species.artworkAssetName) {
+            return await CatchShareCard.render(detail: detail, photo: art, isArtwork: true)
+        }
+        return await CatchShareCard.render(detail: detail)
     }
 
     static func shareFilename(for detail: CatchDetail) -> String {
