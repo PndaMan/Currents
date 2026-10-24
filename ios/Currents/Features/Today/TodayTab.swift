@@ -199,14 +199,20 @@ struct TodayTab: View {
     // MARK: - Place
 
     private var placeLine: some View {
-        HStack(spacing: 6) {
+        // Place and date side by side; at accessibility sizes the date moves
+        // under the place, so the place keeps the width for its name.
+        let stacked = typeSize.isAccessibilitySize
+        let layout = stacked
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 4))
+            : AnyLayout(HStackLayout(spacing: 6))
+        return layout {
             Button { showLocation = true } label: {
-                HStack(spacing: 4) {
+                HStack(alignment: stacked ? .firstTextBaseline : .center, spacing: 4) {
                     Image(systemName: selectedSpot == nil ? "location.fill" : "mappin")
                         .font(.footnote)
                     Text(store.placeName)
                         .font(.subheadline.weight(.semibold))
-                        .lineLimit(1)
+                        .lineLimit(stacked ? 2 : 1)
                     Image(systemName: "chevron.down")
                         .font(.caption2.weight(.semibold))
                 }
