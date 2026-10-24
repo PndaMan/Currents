@@ -510,7 +510,10 @@ struct CommunityView: View {
             } else {
                 ForEach(mergedFeed) { post in
                     Button { openedPost = post } label: {
-                        CrewFeedRow(post: post, crewName: svc.crew(withCode: post.crewCode)?.name)
+                        // The crew name only tells posts apart with two or more
+                        // crews; with one, the caption shows instead.
+                        CrewFeedRow(post: post,
+                                    crewName: svc.myCrews.count > 1 ? svc.crew(withCode: post.crewCode)?.name : nil)
                     }
                     .buttonStyle(.dsRow)
                     .onAppear {
