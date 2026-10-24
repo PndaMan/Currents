@@ -84,7 +84,7 @@ struct CatchDetailView: View {
         .fullScreenCover(isPresented: $showingPhotoViewer) {
             FullscreenPhotoViewer(
                 photoPaths: detail.catchRecord.allPhotoPaths,
-                currentIndex: carouselIndex
+                currentIndex: $carouselIndex
             )
         }
         .task(id: detail.catchRecord.id) {
