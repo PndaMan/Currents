@@ -80,6 +80,18 @@ struct CommunityView: View {
             .padding(.bottom, DS.Space.s8)
             .pageWidth()
         }
+        // On the scroll view itself, so pushed pages don't inherit it.
+        .refreshable {
+            await cloud.refresh()
+            await refreshStats()
+            guard canSync else { return }
+            await loadMergedFeed()
+            await loadNotifications()
+            friendProfiles = await CrewFriendsLoader.load()
+            await loadLive()
+            if !Task.isCancelled { lastLoad = Date() }
+            Haptics.softPress()
+        }
         .largeTitleChrome("Crew")
         .dsScreenBackground()
         .navigationDestination(for: CrewRoute.self) { route in CrewCloudGate { destination(route) } }
@@ -154,7 +166,7 @@ struct CommunityView: View {
                 await loadLive()
             }
         }
-        // Pushes bump the revision; no pull-to-refresh needed.
+        // Pushes bump the revision between polls and pulls to refresh.
         .onChange(of: svc.revision) { _, _ in
             guard canSync else { return }
             // A burst of pushes bumps the revision several times; reload
@@ -588,6 +600,10 @@ struct CommunityView: View {
         // refresh would come back empty and wipe it mid-capture.
         if ScreenshotSupport.isActive { feedLoading = false; return }
         feedLoading = true
+        // Offline, a first page is the disk copy, so it says nothing about
+        // older posts; keep what the last network answer said.
+        let offline = connection.isOffline
+        let known = feedHasMore
         var all: [CommunityService.CrewPost] = []
         var hasMore: [String: Bool] = [:]
         await withTaskGroup(of: (String, [CommunityService.CrewPost]).self) { group in
@@ -598,7 +614,7 @@ struct CommunityView: View {
             for await (code, page) in group {
                 all.append(contentsOf: page)
                 // A full page means older posts likely exist behind it.
-                hasMore[code] = page.count >= 30
+                hasMore[code] = offline ? (known[code] ?? false) : page.count >= 30
             }
         }
         mergedFeed = all.sorted { $0.caughtAt > $1.caughtAt }
@@ -616,7 +632,11 @@ struct CommunityView: View {
         for crew in svc.myCrews where feedHasMore[crew.code] == true {
             let oldest = mergedFeed.filter { $0.crewCode == crew.code }.map(\.caughtAt).min()
             let page = await svc.crewFeedPage(code: crew.code, before: oldest)
-            feedHasMore[crew.code] = page.count >= 30
+            // An empty page while offline is a failed request, not the end of
+            // the history; the next scroll to the bottom tries again.
+            if !(page.isEmpty && connection.isOffline) {
+                feedHasMore[crew.code] = page.count >= 30
+            }
             appended.append(contentsOf: page)
         }
         let ids = Set(mergedFeed.map(\.id))
