@@ -237,9 +237,11 @@ struct ExplorePlacePage: View {
         .fullScreenCover(isPresented: $showingLog, onDismiss: reloadCatches) { logSheet }
         .sheet(isPresented: $showingEdit) {
             if let spot {
+                // A failed save throws back to the sheet, which stays open
+                // with an error instead of claiming success.
                 EditSpotSheet(spot: spot) { updated in
                     var record = updated
-                    try? appState.spotRepository.save(&record)
+                    try appState.spotRepository.save(&record)
                     ToastCenter.shared.show("Spot updated")
                     self.spot = record
                     onSavedChange?()

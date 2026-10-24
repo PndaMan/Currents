@@ -292,7 +292,6 @@ struct MapTab: View {
         }
         .sheet(item: $addSpotAt, onDismiss: { Task { await loadData() } }) { target in
             AddSpotSheet(prefillCoordinate: target.coord)
-                .presentationDetents([.large])
         }
         .sheet(isPresented: $showingLayers, onDismiss: {
             if pendingDownload {

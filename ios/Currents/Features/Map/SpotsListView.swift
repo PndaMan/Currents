@@ -81,7 +81,6 @@ struct SpotsListView: View {
             Task { await loadData() }
         }) {
             AddSpotSheet()
-                .presentationDetents([.large])
         }
         .photosPicker(isPresented: $choosingPhoto, selection: $pickerItem, matching: .images)
         .onChange(of: pickerItem) { _, item in

@@ -3,9 +3,27 @@ import MapKit
 
 // MARK: - Add spot
 
-/// New spot form: name, location (the dropped pin, or where the angler is
-/// standing), type, notes. Saves to this phone only.
+/// The new spot form in a sheet of its own. The location inspector pushes
+/// `AddSpotForm` inside its own stack instead, so it never stacks sheets.
 struct AddSpotSheet: View {
+    private let prefillCoordinate: CLLocationCoordinate2D?
+
+    init(prefillCoordinate: CLLocationCoordinate2D? = nil) {
+        self.prefillCoordinate = prefillCoordinate
+    }
+
+    var body: some View {
+        NavigationStack {
+            AddSpotForm(prefillCoordinate: prefillCoordinate)
+        }
+        .dsSheet([.large])
+    }
+}
+
+/// New spot form: name, location (the dropped pin, or where the angler is
+/// standing), type, notes. Cancel and Save sit in the toolbar, so Save stays
+/// above the keyboard. Pushed inside another sheet, Cancel goes back.
+struct AddSpotForm: View {
     @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss
     @State private var name = ""
@@ -13,47 +31,59 @@ struct AddSpotSheet: View {
     @State private var isPrivate = true
     @State private var spotType: Spot.SpotType = .general
     @State private var pinCoordinate: CLLocationCoordinate2D?
+    @State private var isSaving = false
 
-    init(prefillCoordinate: CLLocationCoordinate2D? = nil) {
+    private let isPushed: Bool
+    private let onSaved: (Spot) -> Void
+
+    /// `isPushed` hides the back button, so Cancel is the one way out and a
+    /// swipe never drops what was typed. `onSaved` runs after a save that
+    /// worked, before the form closes.
+    init(prefillCoordinate: CLLocationCoordinate2D? = nil, isPushed: Bool = false,
+         onSaved: @escaping (Spot) -> Void = { _ in }) {
         _pinCoordinate = State(initialValue: prefillCoordinate)
+        self.isPushed = isPushed
+        self.onSaved = onSaved
     }
 
     private var coordinate: CLLocationCoordinate2D? {
         pinCoordinate ?? appState.locationManager.currentLocation?.coordinate
     }
 
+    private var trimmedName: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }
+
+    private var canSave: Bool { !trimmedName.isEmpty && coordinate != nil && !isSaving }
+
+    private var hasChanges: Bool {
+        !trimmedName.isEmpty || !notes.isEmpty || spotType != .general
+    }
+
     var body: some View {
-        NavigationStack {
-            SpotFormBody(
-                name: $name, notes: $notes, isPrivate: $isPrivate, spotType: $spotType,
-                coordinate: Binding(get: { coordinate }, set: { pinCoordinate = $0 }),
-                usingCurrentLocation: pinCoordinate == nil,
-                saveTitle: "Save spot",
-                onSave: save
-            )
-            .navigationTitle("New spot")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                }
+        SpotFormBody(
+            name: $name, notes: $notes, isPrivate: $isPrivate, spotType: $spotType,
+            coordinate: Binding(get: { coordinate }, set: { pinCoordinate = $0 }),
+            usingCurrentLocation: pinCoordinate == nil
+        )
+        .navigationTitle("New spot")
+        .navigationBarTitleDisplayMode(.inline)
+        .navigationBarBackButtonHidden(isPushed)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("Cancel") { dismiss() }
+            }
+            ToolbarItem(placement: .confirmationAction) {
+                Button("Save", action: save)
+                    .disabled(!canSave)
             }
         }
-        .presentationDragIndicator(.visible)
+        .interactiveDismissDisabled(hasChanges)
     }
 
     private func save() {
-        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
-            ToastCenter.shared.show("Give the spot a name", style: .info)
-            return
-        }
-        guard let coord = coordinate else {
-            ToastCenter.shared.show("Waiting for your location", style: .info)
-            return
-        }
+        guard canSave, let coord = coordinate else { return }
+        isSaving = true
         var spot = Spot(
-            name: trimmed,
+            name: trimmedName,
             latitude: coord.latitude,
             longitude: coord.longitude,
             notes: notes.isEmpty ? nil : notes,
@@ -62,10 +92,12 @@ struct AddSpotSheet: View {
         )
         do {
             try appState.spotRepository.save(&spot)
-            ToastCenter.shared.show("\(trimmed) saved", icon: "mappin.and.ellipse")
+            ToastCenter.shared.show("\(trimmedName) saved", icon: "mappin.and.ellipse")
+            onSaved(spot)
             dismiss()
         } catch {
-            ToastCenter.shared.show("Could not save this spot", style: .error)
+            isSaving = false
+            ToastCenter.shared.show("Couldn't save the spot", style: .error)
         }
     }
 }
@@ -73,11 +105,12 @@ struct AddSpotSheet: View {
 // MARK: - Edit spot
 
 /// Edits every field of a saved spot, including moving it on the map and
-/// its picture.
+/// its picture. `onSave` stores the change; when it throws, the sheet stays
+/// open with an error, so nothing typed is lost.
 struct EditSpotSheet: View {
     @Environment(\.dismiss) private var dismiss
     let spot: Spot
-    let onSave: (Spot) -> Void
+    let onSave: (Spot) throws -> Void
 
     @State private var name: String = ""
     @State private var notes: String = ""
@@ -91,6 +124,15 @@ struct EditSpotSheet: View {
     @State private var saved = false
     @State private var loaded = false
 
+    private var trimmedName: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }
+
+    private var hasChanges: Bool {
+        guard loaded else { return false }
+        let moved = coordinate.map { $0.latitude != spot.latitude || $0.longitude != spot.longitude } ?? false
+        return trimmedName != spot.name || notes != (spot.notes ?? "") || isPrivate != spot.isPrivate
+            || spotType != spot.type || cover != spot.cover || coverPhotoPath != spot.coverPhotoPath || moved
+    }
+
     var body: some View {
         NavigationStack {
             SpotFormBody(
@@ -98,8 +140,6 @@ struct EditSpotSheet: View {
                 coordinate: $coordinate,
                 usingCurrentLocation: false,
                 moveTitle: "Move on map",
-                saveTitle: "Save changes",
-                onSave: save,
                 picture: SpotPictureField(spot: spot, cover: $cover, photoPath: $coverPhotoPath,
                                           pickedPaths: $pickedPaths)
             )
@@ -109,10 +149,13 @@ struct EditSpotSheet: View {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
                 }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save", action: save)
+                        .disabled(trimmedName.isEmpty)
+                }
             }
             .task {
                 guard !loaded else { return }
-                loaded = true
                 name = spot.name
                 notes = spot.notes ?? ""
                 isPrivate = spot.isPrivate
@@ -122,9 +165,11 @@ struct EditSpotSheet: View {
                 if coordinate == nil {
                     coordinate = CLLocationCoordinate2D(latitude: spot.latitude, longitude: spot.longitude)
                 }
+                loaded = true
             }
         }
-        .presentationDragIndicator(.visible)
+        .interactiveDismissDisabled(hasChanges)
+        .dsSheet([.large])
         .onDisappear(perform: clearPickedPhotos)
     }
 
@@ -137,13 +182,9 @@ struct EditSpotSheet: View {
     }
 
     private func save() {
-        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
-            ToastCenter.shared.show("Give the spot a name", style: .info)
-            return
-        }
+        guard !trimmedName.isEmpty else { return }
         var updated = spot
-        updated.name = trimmed
+        updated.name = trimmedName
         updated.notes = notes.isEmpty ? nil : notes
         updated.isPrivate = isPrivate
         updated.type = spotType
@@ -154,9 +195,13 @@ struct EditSpotSheet: View {
             updated.longitude = coord.longitude
             updated.geohash = Geohash.encode(latitude: coord.latitude, longitude: coord.longitude, precision: 7)
         }
-        saved = true
-        onSave(updated)
-        dismiss()
+        do {
+            try onSave(updated)
+            saved = true
+            dismiss()
+        } catch {
+            ToastCenter.shared.show("Couldn't save the spot", style: .error)
+        }
     }
 }
 
@@ -170,13 +215,18 @@ private struct SpotFormBody: View {
     @Binding var coordinate: CLLocationCoordinate2D?
     let usingCurrentLocation: Bool
     var moveTitle = "Change"
-    let saveTitle: String
-    let onSave: () -> Void
     /// Editing only: a new spot has no catches or picture yet.
     var picture: SpotPictureField? = nil
 
     @State private var showingLocationPicker = false
-    @FocusState private var nameFocused: Bool
+    @AppStorage("cloudSyncEnabled") private var cloudSyncEnabled = false
+
+    /// Where the spot is kept, which is also the iCloud account when sync is on.
+    private var savedWhere: String {
+        cloudSyncEnabled && CloudCapability.isAvailable
+            ? "Saved on this phone and your iCloud."
+            : "Saved on this phone."
+    }
 
     var body: some View {
         ScrollView {
@@ -184,7 +234,6 @@ private struct SpotFormBody: View {
                 field("Name") {
                     TextField("Spot name", text: $name)
                         .font(.body)
-                        .focused($nameFocused)
                         .submitLabel(.done)
                         .padding(.horizontal, DS.Space.s4)
                         .frame(minHeight: 50)
@@ -246,16 +295,12 @@ private struct SpotFormBody: View {
                 }
 
                 if FeatureFlags.spotPrivacy {
-                    Toggle("Private spot", isOn: $isPrivate)
-                        .padding(.horizontal, DS.gutter)
+                    CardGroup {
+                        CardToggleRow("Private spot", systemImage: "lock.fill", tint: .indigo, isOn: $isPrivate)
+                    }
                 }
 
-                VStack(spacing: DS.Space.s3) {
-                    Button(saveTitle, action: onSave)
-                        .buttonStyle(.dsPrimary)
-                        .padding(.horizontal, DS.gutter)
-                    ExploreFootnote("Saved on this phone only. Nothing is uploaded.")
-                }
+                ExploreFootnote(savedWhere)
             }
             .padding(.top, DS.Space.s4)
             .padding(.bottom, DS.Space.s8)
@@ -267,7 +312,6 @@ private struct SpotFormBody: View {
         .sheet(isPresented: $showingLocationPicker) {
             LocationPickerSheet(coordinate: $coordinate, pinLabel: "Spot")
         }
-        .onAppear { if name.isEmpty { nameFocused = true } }
     }
 
     private func field<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
