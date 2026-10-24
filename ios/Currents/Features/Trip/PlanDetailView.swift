@@ -96,7 +96,7 @@ struct PlanDetailView: View {
                     .buttonStyle(ActionTileStyle(.tonal))
 
                     Button { toggleReminder(trip) } label: {
-                        Label(reminderOn ? "Reminder on" : "Reminder",
+                        Label(reminderOn ? "Reminder on" : "Remind me",
                               systemImage: reminderOn ? "bell.fill" : "bell")
                             .symbolEffect(.bounce, value: reminderOn)
                     }
