@@ -16,10 +16,12 @@ replaces the stand-in with FishBase's own Fresh, Brack and Saltwater flags:
     Brack with one other            that other (a sea fish that also
                                     enters estuaries is still a sea fish)
 
-Records 1 to 194 are the hand-curated list from generate_species.py. Their
-habitat was set by hand (rainbow trout is freshwater, though FishBase flags it
-fresh, brackish and marine) and is kept unless --all is given. A species
-FishBase does not know keeps its current value and is printed.
+Only records still on that stand-in are changed. Records 1 to 194 are the
+hand-curated list from generate_species.py, and later records with any other
+habitat (the mythical sharks) were set by hand too; their values are kept
+unless --all is given (rainbow trout is freshwater, though FishBase flags it
+fresh, brackish and marine). A species FishBase does not know keeps its
+current value and is printed.
 
 With --add-limit-species it also adds the fish in fishing_regulations.json
 that the seed lacks, when FishBase gives their family and temperatures. They
@@ -209,7 +211,8 @@ def set_habitats(seed: list[dict], fb: FishBase, everything: bool) -> dict[int, 
         r = fb.species[code]
         if how != "name":
             loose.append(f'  {e["id"]:>5} {e["scientificName"]} -> {r["Genus"]} {r["Species"]} ({how})')
-        if e["id"] <= CURATED_MAX_ID and not everything:
+        on_stand_in = e["id"] > CURATED_MAX_ID and e.get("habitat") in (None, "freshwater")
+        if not (on_stand_in or everything):
             continue
         value = fb.habitat(code)
         if value and value != e.get("habitat"):
@@ -285,7 +288,7 @@ def main() -> None:
                     help="folder holding the FishBase species, synonyms, families, stocks and estimate parquet files")
     ap.add_argument("--seed", type=Path, default=SEED_JSON)
     ap.add_argument("--limits", type=Path, default=LIMITS_JSON)
-    ap.add_argument("--all", action="store_true", help="also replace the curated records' habitat")
+    ap.add_argument("--all", action="store_true", help="also replace the habitat of curated and hand-set records")
     ap.add_argument("--add-limit-species", action="store_true")
     ap.add_argument("--dry-run", action="store_true", help="print the changes, write nothing")
     args = ap.parse_args()
