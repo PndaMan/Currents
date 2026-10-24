@@ -74,7 +74,7 @@ private struct ClarityTile: View {
         VStack(alignment: alignment, spacing: 2) {
             Text(clarity.label)
                 .font(.subheadline.weight(isSelected ? .semibold : .regular))
-                .foregroundStyle(isSelected ? DS.accent : Color.dsText2)
+                .foregroundStyle(isSelected ? DS.ink(DS.accent) : Color.dsText2)
             Text(clarity.detail)
                 .font(.caption2)
                 .foregroundStyle(.dsText3)
@@ -101,7 +101,7 @@ private struct ClaritySwatch: View {
             shape.fill(clarity.swatch.opacity(DS.thumbTintOpacity(scheme)))
             Image(systemName: clarity.icon)
                 .font(.body.weight(.semibold))
-                .foregroundStyle(clarity.swatch)
+                .foregroundStyle(DS.ink(clarity.swatch))
         }
         .frame(height: 44)
         .overlay {
@@ -443,7 +443,7 @@ struct GearThumbnail: View {
                     .scaledToFill()
             } else {
                 GearGlyph(category: category, size: size * 0.48)
-                    .foregroundStyle(category.tint)
+                    .foregroundStyle(DS.ink(category.tint))
             }
         }
         .task(id: photoPath) {
