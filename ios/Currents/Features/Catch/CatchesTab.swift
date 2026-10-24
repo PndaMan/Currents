@@ -361,7 +361,8 @@ struct CatchesTab: View {
                 } else {
                     ForEach(groups(for: visible)) { group in
                         if let title = group.title {
-                            groupHeader(title, detail: group.detail, count: group.items.count)
+                            SectionTitle(title, detail: group.detail, count: group.items.count)
+                                .padding(.top, DS.Space.s6)
                         }
                         if layout == .gallery {
                             LazyVGrid(columns: galleryColumns, alignment: .leading, spacing: 18) {
@@ -446,29 +447,6 @@ struct CatchesTab: View {
             .background(active ? Color.dsPrimaryButton : Color.dsFill, in: Circle())
             .padding(.leading, 6)
             .animation(.easeOut(duration: DS.Motion.fast), value: active)
-    }
-
-    private func groupHeader(_ title: String, detail: String?, count: Int) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 6) {
-            Text(title)
-                .font(.title3.weight(.semibold))
-                .foregroundStyle(.dsText)
-            if let detail {
-                Text(detail)
-                    .font(.title3.weight(.semibold))
-                    .foregroundStyle(.dsText3)
-            }
-            Spacer()
-            Text("\(count)")
-                .font(.subheadline)
-                .monospacedDigit()
-                .foregroundStyle(.dsText2)
-        }
-        .padding(.horizontal, DS.gutter)
-        .padding(.top, DS.Space.s6)
-        .padding(.bottom, DS.Space.s2)
-        .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(.isHeader)
     }
 
     /// Two columns, one at accessibility sizes so names are not cut short.
@@ -673,7 +651,8 @@ struct CatchesTab: View {
                 .padding(.top, DS.Space.s3)
         } else {
             ForEach(sessionGroups(past), id: \.id) { group in
-                groupHeader(group.month, detail: group.year, count: group.trips.count)
+                SectionTitle(group.month, detail: group.year, count: group.trips.count)
+                    .padding(.top, DS.Space.s6)
                 ForEach(group.trips) { trip in
                     sessionRow(trip)
                 }
@@ -764,7 +743,8 @@ struct CatchesTab: View {
                         text: "Nothing planned yet. Pick a day with a good bite and get a reminder before you go.")
                 .padding(.top, DS.Space.s3)
         } else {
-            groupHeader("Upcoming", detail: nil, count: planned.count)
+            SectionTitle("Upcoming", count: planned.count)
+                .padding(.top, DS.Space.s6)
             ForEach(planned.sorted { ($0.plannedDate ?? $0.startDate) < ($1.plannedDate ?? $1.startDate) }) { trip in
                 planRow(trip)
             }
