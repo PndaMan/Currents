@@ -224,7 +224,9 @@ struct ConditionReading {
                                     value: ConditionText.whole(lit), unit: "% lit", meaning: meaning)
         case .sun:
             let sun = ConditionText.sunEvent(day, store: store)
-            let label: String = sun.isSunset ? "Sunset" : "Sunrise"
+            // After sunset today the time is tomorrow's sunrise, so say so.
+            let tomorrow = !Calendar.current.isDate(sun.time, inSameDayAs: day.date)
+            let label: String = sun.isSunset ? "Sunset" : (tomorrow ? "Sunrise tomorrow" : "Sunrise")
             let icon: String = sun.isSunset ? "sunset" : "sunrise"
             let meaning: String = ConditionText.sunMeaning(day, store: store, use24: use24)
             return ConditionReading(label: label, icon: icon,
@@ -305,10 +307,6 @@ enum ConditionText {
         }
         if let opt = species?.optimalTempC { return (opt - 3)...(opt + 3) }
         return 15...25
-    }
-
-    static func who(_ species: Species?) -> String {
-        species?.commonName ?? "Most fish"
     }
 
     // Tile lines: short enough for two lines of a half-width tile.
@@ -491,6 +489,7 @@ struct ConditionPage: View {
     let condition: ForecastCondition
 
     @State private var offset: Int
+    @State private var titleShown = false
     @AppStorage("use24HourTime") private var use24 = true
     @AppStorage("units") private var units = "metric"
     @AppStorage("waterClarityOverride") private var clarityOverride = ""
@@ -514,9 +513,12 @@ struct ConditionPage: View {
                                            clarity: clarity, imperial: imperial)
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
+                DetailHeader(over: store.placeName, title: condition.title)
                 ForecastDayStrip(store: store, selection: $offset)
+                    .padding(.top, 16)
 
-                ConditionHeader(over: ForecastFormat.longDate(day.date), value: page.value, unit: page.unit,
+                // Tide and sun name the time they show; the rest show the date.
+                ConditionHeader(over: page.over ?? ForecastFormat.longDate(day.date), value: page.value, unit: page.unit,
                                 subtitle: page.subtitle, tint: condition.ink) {
                     accessory(day)
                 }
@@ -529,24 +531,26 @@ struct ConditionPage: View {
                 .padding(.top, 24)
 
                 if !page.figures.isEmpty {
-                    SectionTitle("Key numbers")
-                        .padding(.top, 28)
-                    KeyValueList(rows: page.figures)
-                }
-
-                if let footnote = page.footnote {
+                    CardSection("Key numbers", note: page.footnote) {
+                        ForEach(Array(page.figures.enumerated()), id: \.offset) { _, figure in
+                            CardRow(figure.label, subtitle: figure.detail, systemImage: figure.icon,
+                                    tint: condition.ink, value: figure.value)
+                        }
+                    }
+                    .padding(.top, 28)
+                } else if let footnote = page.footnote {
                     SectionFootnote(footnote)
                         .padding(.top, DS.Space.s2)
                 }
             }
-            .padding(.top, 8)
+            .padding(.top, 4)
             .padding(.bottom, 40)
             .animation(reduceMotion ? nil : DS.Motion.softSpring, value: offset)
             .pageWidth()
         }
+        .forecastTracksTitle($titleShown)
         .detailTint(condition.ink)
-        .navigationTitle(condition.title)
-        .navigationBarTitleDisplayMode(.inline)
+        .forecastInlineTitle(condition.title, shown: titleShown)
         .refreshable {
             let live = await store.load(force: true)
             ForecastStore.refreshFeedback(live)
@@ -581,6 +585,15 @@ private struct MoonGlyph: View {
     }
 }
 
+/// One key number on a condition page: a label with its symbol, the value
+/// on the right and, where it helps, a second line under the label.
+struct ConditionFigure {
+    let label: String
+    let icon: String
+    var value: String? = nil
+    var detail: String? = nil
+}
+
 /// The words and numbers for one condition page: the header, the chart's
 /// title, the key numbers and at most one sentence under them.
 @MainActor
@@ -590,8 +603,11 @@ struct ConditionPageModel {
     var subtitle: String
     var chartTitle: String
     var chartCaption: String? = nil
-    var figures: [(String, String)]
+    var figures: [ConditionFigure]
     var footnote: String? = nil
+    /// The line over the big value when it names a time rather than the
+    /// day: "Low tide", "Sunset", "Sunrise tomorrow".
+    var over: String? = nil
 
     static func make(_ c: ForecastCondition, day: ForecastDay, store: ForecastStore,
                      use24: Bool, clarity: WaterClarity, imperial: Bool = Units.isImperial) -> ConditionPageModel {
@@ -616,8 +632,9 @@ struct ConditionPageModel {
         Units.speed(kmh: kmh, imperial: imperial)
     }
 
-    private static func listOrNone(_ items: [String], separator: String = ", ") -> String {
-        items.isEmpty ? "None" : items.joined(separator: separator)
+    /// "At 14:00", the hour a high or low falls.
+    private static func at(_ date: Date, use24: Bool) -> String {
+        "At \(ForecastFormat.time(date, use24: use24))"
     }
 
     // Water
@@ -625,7 +642,6 @@ struct ConditionPageModel {
     private static func water(_ day: ForecastDay, store: ForecastStore, reading: ConditionReading,
                               clarity: WaterClarity, imperial: Bool) -> ConditionPageModel {
         let band = ConditionText.comfort(for: store.species)
-        let who: String = ConditionText.who(store.species)
         let temp: Double? = ConditionReading.measured(day, store: store)?.waterTempC
         var week: [(day: Int, temp: Double)] = []
         for d in 0..<7 {
@@ -637,30 +653,40 @@ struct ConditionPageModel {
         let high = Units.temperature(band.upperBound, imperial: imperial)
         let bandText = "\(low) to \(high)"
 
-        var figures: [(String, String)] = []
-        figures.append((day.isToday ? "Now" : "That day", ConditionText.temperature(temp, imperial: imperial)))
-        figures.append(("Comfort range", bandText))
+        var figures: [ConditionFigure] = []
+        figures.append(ConditionFigure(label: day.isToday ? "Now" : "That day", icon: "thermometer.medium",
+                                       value: ConditionText.temperature(temp, imperial: imperial)))
+        figures.append(ConditionFigure(label: "Comfort range", icon: "scope", value: bandText))
         if week.count > 2, let first = week.first, let last = week.last {
             let change: Double = last.temp - first.temp
             let lastDay: String = ForecastFormat.dayName(last.day, date: store.day(last.day).date)
             if abs(change) < 1.5 {
-                figures.append(("This week", "Steady"))
+                figures.append(ConditionFigure(label: "This week", icon: "chart.line.flattrend.xyaxis", value: "Steady"))
             } else {
-                let way: String = change > 0 ? "Warming" : "Cooling"
-                figures.append(("This week", "\(way) to \(Units.temperature(last.temp, imperial: imperial)) by \(lastDay)"))
+                let warming = change > 0
+                figures.append(ConditionFigure(label: "This week",
+                                               icon: warming ? "chart.line.uptrend.xyaxis" : "chart.line.downtrend.xyaxis",
+                                               value: warming ? "Warming" : "Cooling",
+                                               detail: "\(Units.temperature(last.temp, imperial: imperial)) by \(lastDay)"))
             }
         }
         if let warm = week.max(by: { $0.temp < $1.temp }) {
-            figures.append(("Warmest", Units.temperature(warm.temp, imperial: imperial) + ", " + ForecastFormat.shortDay(store.day(warm.day).date)))
+            figures.append(ConditionFigure(label: "Warmest", icon: "thermometer.high",
+                                           value: Units.temperature(warm.temp, imperial: imperial),
+                                           detail: ForecastFormat.dayName(warm.day, date: store.day(warm.day).date)))
         }
         if let cool = week.min(by: { $0.temp < $1.temp }) {
-            figures.append(("Coolest", Units.temperature(cool.temp, imperial: imperial) + ", " + ForecastFormat.shortDay(store.day(cool.day).date)))
+            figures.append(ConditionFigure(label: "Coolest", icon: "thermometer.low",
+                                           value: Units.temperature(cool.temp, imperial: imperial),
+                                           detail: ForecastFormat.dayName(cool.day, date: store.day(cool.day).date)))
         }
-        figures.append(("Clarity", clarity.label))
+        figures.append(ConditionFigure(label: "Clarity", icon: clarity.icon, value: clarity.label))
 
+        // The name as stored, mid-sentence; "most fish" when nothing is targeted.
+        let whom: String = store.species?.commonName ?? "most fish"
         return ConditionPageModel(
             value: ConditionText.temperature(temp, imperial: imperial), unit: nil, subtitle: reading.meaning,
-            chartTitle: "Next 7 days", chartCaption: "The shaded band is the comfort range for \(who.lowercased()), \(bandText).",
+            chartTitle: "Next 7 days", chartCaption: "The shaded band is the comfort range for \(whom), \(bandText).",
             figures: figures,
             footnote: "Estimated from the air temperature, so treat it as a guide."
         )
@@ -675,17 +701,23 @@ struct ConditionPageModel {
         let hi = hours.max { $0.temperatureC < $1.temperatureC }
         let lo = hours.min { $0.temperatureC < $1.temperatureC }
 
-        var figures: [(String, String)] = []
-        figures.append((day.isToday ? "Now" : "Midday", ConditionText.temperature(w?.temperatureC, imperial: imperial)))
+        var figures: [ConditionFigure] = []
+        figures.append(ConditionFigure(label: day.isToday ? "Now" : "Midday", icon: "thermometer.medium",
+                                       value: ConditionText.temperature(w?.temperatureC, imperial: imperial)))
         if let hi {
-            figures.append(("High", Units.temperature(hi.temperatureC, imperial: imperial) + ", " + ForecastFormat.time(hi.date, use24: use24)))
+            figures.append(ConditionFigure(label: "High", icon: "thermometer.high",
+                                           value: Units.temperature(hi.temperatureC, imperial: imperial),
+                                           detail: at(hi.date, use24: use24)))
         }
         if let lo {
-            figures.append(("Low", Units.temperature(lo.temperatureC, imperial: imperial) + ", " + ForecastFormat.time(lo.date, use24: use24)))
+            figures.append(ConditionFigure(label: "Low", icon: "thermometer.low",
+                                           value: Units.temperature(lo.temperatureC, imperial: imperial),
+                                           detail: at(lo.date, use24: use24)))
         }
         if let w {
-            figures.append(("Humidity", "\(w.humidity)%"))
-            figures.append(("Sky", ForecastFormat.condition(w.condition)))
+            figures.append(ConditionFigure(label: "Humidity", icon: "humidity", value: "\(w.humidity)%"))
+            figures.append(ConditionFigure(label: "Sky", icon: WeatherIcon(condition: w.condition).systemName,
+                                           value: ForecastFormat.condition(w.condition)))
         }
 
         return ConditionPageModel(
@@ -707,14 +739,19 @@ struct ConditionPageModel {
         let strongest = day.hours.max { $0.windSpeedKmh < $1.windSpeedKmh }
         let calmest = day.hours.min { $0.windSpeedKmh < $1.windSpeedKmh }
 
-        var figures: [(String, String)] = []
-        figures.append(("Speed", speed(w.windSpeedKmh, imperial: imperial)))
-        figures.append(("From", ForecastFormat.compass(w.windDirectionDeg) + ", " + ConditionText.whole(w.windDirectionDeg, suffix: "°")))
+        var figures: [ConditionFigure] = []
+        figures.append(ConditionFigure(label: "Speed", icon: "wind", value: speed(w.windSpeedKmh, imperial: imperial)))
+        figures.append(ConditionFigure(label: "From", icon: "location.north.line",
+                                       value: "\(ForecastFormat.compass(w.windDirectionDeg)) \(ConditionText.whole(w.windDirectionDeg, suffix: "°"))"))
         if let strongest {
-            figures.append(("Strongest", speed(strongest.windSpeedKmh, imperial: imperial) + ", " + ForecastFormat.time(strongest.date, use24: use24)))
+            figures.append(ConditionFigure(label: "Strongest", icon: "gauge.with.dots.needle.67percent",
+                                           value: speed(strongest.windSpeedKmh, imperial: imperial),
+                                           detail: at(strongest.date, use24: use24)))
         }
         if let calmest {
-            figures.append(("Calmest", speed(calmest.windSpeedKmh, imperial: imperial) + ", " + ForecastFormat.time(calmest.date, use24: use24)))
+            figures.append(ConditionFigure(label: "Calmest", icon: "leaf",
+                                           value: speed(calmest.windSpeedKmh, imperial: imperial),
+                                           detail: at(calmest.date, use24: use24)))
         }
 
         return ConditionPageModel(
@@ -751,18 +788,30 @@ struct ConditionPageModel {
         }
 
         let values: [Double] = day.hours.map(\.pressureHpa)
-        var figures: [(String, String)] = []
-        figures.append(("Pressure", Units.pressure(hpa: w.pressureHpa, imperial: imperial)))
-        figures.append(("Last 6 hours", ForecastFormat.pressureTrend(change, imperial: imperial)))
+        let trendIcon: String = change < -1 ? "arrow.down.right" : (change > 1 ? "arrow.up.right" : "arrow.right")
+        var figures: [ConditionFigure] = []
+        figures.append(ConditionFigure(label: "Pressure", icon: "gauge.with.dots.needle.33percent",
+                                       value: Units.pressure(hpa: w.pressureHpa, imperial: imperial)))
+        figures.append(ConditionFigure(label: "Last 6 hours", icon: trendIcon,
+                                       value: ForecastFormat.pressureTrend(change, imperial: imperial)))
         if let lo = values.min(), let hi = values.max() {
             let loText = Units.pressureParts(hpa: lo, imperial: imperial).0
-            figures.append(("Day range", "\(loText) to \(Units.pressure(hpa: hi, imperial: imperial))"))
+            figures.append(ConditionFigure(label: "Day range", icon: "arrow.up.arrow.down",
+                                           value: "\(loText) to \(Units.pressure(hpa: hi, imperial: imperial))"))
         }
-        figures.append(("Score likes", likes))
+        figures.append(ConditionFigure(label: "Score likes", icon: "scope", value: likes))
 
+        // The chart's range follows the day's pressure, so the band can sit
+        // off the top or bottom of it.
+        let band = ConditionText.pressureSweetSpot
+        let meetsBand = values.isEmpty
+            || ((values.max() ?? 0) >= band.lowerBound && (values.min() ?? 0) <= band.upperBound)
+        let caption = meetsBand
+            ? "The shaded band is the range the score likes, \(likes)."
+            : "All day the pressure sits outside the range the score likes, \(likes)."
         return ConditionPageModel(
             value: reading.value, unit: reading.unit, subtitle: reading.meaning,
-            chartTitle: hourlyTitle(day), chartCaption: "The shaded band is the range the score likes, \(likes).",
+            chartTitle: hourlyTitle(day), chartCaption: caption,
             figures: figures, footnote: footnote
         )
     }
@@ -770,23 +819,29 @@ struct ConditionPageModel {
     // Tide
 
     private static func tide(_ day: ForecastDay, reading: ConditionReading, use24: Bool) -> ConditionPageModel {
-        let highs: [String] = day.tide.highTides.sorted { $0.time < $1.time }.map { ForecastFormat.time($0.time, use24: use24) }
-        let lows: [String] = day.tide.lowTides.sorted { $0.time < $1.time }.map { ForecastFormat.time($0.time, use24: use24) }
+        let events = (day.tide.highTides + day.tide.lowTides).sorted { $0.time < $1.time }
         let rising: Bool? = ConditionText.isRising(day)
 
-        var figures: [(String, String)] = []
-        if let rising { figures.append(("Now", rising ? "Coming in" : "Going out")) }
-        if let next = day.nextTide {
-            let kind: String = next.isHigh ? "High" : "Low"
-            figures.append(("Next", kind + ", " + ForecastFormat.time(next.time, use24: use24)))
+        // The day's highs and lows in order, like a tide table.
+        var figures: [ConditionFigure] = []
+        if let rising {
+            figures.append(ConditionFigure(label: "Now", icon: rising ? "arrow.up.right" : "arrow.down.right",
+                                           value: rising ? "Coming in" : "Going out"))
         }
-        figures.append(("High tides", listOrNone(highs)))
-        figures.append(("Low tides", listOrNone(lows)))
+        for event in events {
+            figures.append(ConditionFigure(label: event.isHigh ? "High tide" : "Low tide",
+                                           icon: event.isHigh ? "arrow.up.to.line" : "arrow.down.to.line",
+                                           value: ForecastFormat.time(event.time, use24: use24)))
+        }
+        if events.isEmpty {
+            figures.append(ConditionFigure(label: "Tides", icon: "water.waves", value: "None"))
+        }
 
         return ConditionPageModel(
             value: reading.value, unit: nil, subtitle: reading.meaning,
             chartTitle: "Through the day", figures: figures,
-            footnote: "Worked out from the moon and sun with relative heights, so check local tables before launching a boat."
+            footnote: "Worked out from the moon and sun with relative heights, so check local tables before launching a boat.",
+            over: day.nextTide == nil ? nil : reading.label
         )
     }
 
@@ -798,17 +853,27 @@ struct ConditionPageModel {
         let minors: [String] = s.minorPeriods.sorted { $0.start < $1.start }.map { ConditionText.span($0.start, $0.end, use24: use24) }
         let name: String = ForecastFormat.moonName(s.moonPhase)
 
-        var figures: [(String, String)] = []
-        figures.append(("Solunar day", s.dayRating.label))
-        figures.append(("Major periods", listOrNone(majors, separator: "\n")))
-        figures.append(("Minor periods", listOrNone(minors, separator: "\n")))
-        figures.append(("Moonrise", s.moonrise.map { ForecastFormat.time($0, use24: use24) } ?? "None"))
-        figures.append(("Moonset", s.moonset.map { ForecastFormat.time($0, use24: use24) } ?? "None"))
+        // Periods go one to a line under their label; there are at most two.
+        func periods(_ label: String, _ icon: String, _ spans: [String]) -> ConditionFigure {
+            spans.isEmpty
+                ? ConditionFigure(label: label, icon: icon, value: "None")
+                : ConditionFigure(label: label, icon: icon, detail: spans.joined(separator: "\n"))
+        }
+        var figures: [ConditionFigure] = []
+        figures.append(ConditionFigure(label: "Solunar day", icon: "star.leadinghalf.filled", value: s.dayRating.label))
+        figures.append(periods("Major periods", "moon.stars.fill", majors))
+        figures.append(periods("Minor periods", "moon.stars", minors))
+        figures.append(ConditionFigure(label: "Moonrise", icon: "moonrise",
+                                       value: s.moonrise.map { ForecastFormat.time($0, use24: use24) } ?? "None"))
+        figures.append(ConditionFigure(label: "Moonset", icon: "moonset",
+                                       value: s.moonset.map { ForecastFormat.time($0, use24: use24) } ?? "None"))
         if let full = ConditionText.nextPhase(.full, after: day.date) {
-            figures.append(("Next full moon", ConditionText.shortDate(full)))
+            figures.append(ConditionFigure(label: "Next full moon", icon: "moonphase.full.moon",
+                                           value: ConditionText.shortDate(full)))
         }
         if let newMoon = ConditionText.nextPhase(.new, after: day.date) {
-            figures.append(("Next new moon", ConditionText.shortDate(newMoon)))
+            figures.append(ConditionFigure(label: "Next new moon", icon: "moonphase.new.moon",
+                                           value: ConditionText.shortDate(newMoon)))
         }
 
         var footnote = "Fish switch on most reliably inside the major and minor periods."
@@ -836,18 +901,19 @@ struct ConditionPageModel {
         let dawn: String = ConditionText.range(s.dawnGoldenHour, use24: use24)
         let dusk: String = ConditionText.range(s.duskGoldenHour, use24: use24)
 
-        var figures: [(String, String)] = []
-        figures.append(("Sunrise", ForecastFormat.time(s.sunrise, use24: use24)))
-        figures.append(("Sunset", ForecastFormat.time(s.sunset, use24: use24)))
-        figures.append(("Daylight", light))
-        figures.append(("Morning golden hour", dawn))
-        figures.append(("Evening golden hour", dusk))
+        var figures: [ConditionFigure] = []
+        figures.append(ConditionFigure(label: "Sunrise", icon: "sunrise", value: ForecastFormat.time(s.sunrise, use24: use24)))
+        figures.append(ConditionFigure(label: "Sunset", icon: "sunset", value: ForecastFormat.time(s.sunset, use24: use24)))
+        figures.append(ConditionFigure(label: "Daylight", icon: "sun.max", value: light))
+        figures.append(ConditionFigure(label: "Morning golden hour", icon: "sunrise.fill", detail: dawn))
+        figures.append(ConditionFigure(label: "Evening golden hour", icon: "sunset.fill", detail: dusk))
 
         return ConditionPageModel(
             value: reading.value, unit: nil, subtitle: reading.meaning,
             chartTitle: "Daylight", chartCaption: "Shading marks the golden hours.",
             figures: figures,
-            footnote: "Low light gives predators the edge, so dawn and dusk usually fish best."
+            footnote: "Low light gives predators the edge, so dawn and dusk usually fish best.",
+            over: reading.label
         )
     }
 
@@ -861,15 +927,16 @@ struct ConditionPageModel {
         let total: Double = day.hours.isEmpty ? w.precipMm : day.hours.map(\.precipMm).reduce(0, +)
         let rain: String = ConditionText.rainLine(total)
 
-        var figures: [(String, String)] = []
-        figures.append(("Cloud", "\(w.cloudCoverPct)%"))
-        figures.append(("Rain", rain))
+        var figures: [ConditionFigure] = []
+        figures.append(ConditionFigure(label: "Cloud", icon: "cloud", value: "\(w.cloudCoverPct)%"))
+        figures.append(ConditionFigure(label: "Rain", icon: "cloud.rain", value: rain))
         if let first = ConditionText.firstRain(day) {
-            figures.append(("Rain from", ForecastFormat.time(first.date, use24: use24)))
+            figures.append(ConditionFigure(label: "Rain from", icon: "clock",
+                                           value: ForecastFormat.time(first.date, use24: use24)))
         }
-        figures.append(("Humidity", "\(w.humidity)%"))
-        figures.append(("UV index", ConditionText.whole(w.uvIndex)))
-        figures.append(("Water clarity", clarity.label))
+        figures.append(ConditionFigure(label: "Humidity", icon: "humidity", value: "\(w.humidity)%"))
+        figures.append(ConditionFigure(label: "UV index", icon: "sun.max.fill", value: ConditionText.whole(w.uvIndex)))
+        figures.append(ConditionFigure(label: "Water clarity", icon: clarity.icon, value: clarity.label))
 
         let footnote: String
         if total >= 0.2 {
@@ -882,10 +949,19 @@ struct ConditionPageModel {
             footnote = "Broken cloud gives good light, so fish the shade lines when the sun is out."
         }
 
-        let chartTitle: String = day.hours.count > 1 ? "Cloud through the day" : "Cloud, next 7 days"
+        let hourly = day.hours.count > 1
+        let chartTitle: String = hourly ? "Cloud through the day" : "Cloud, next 7 days"
+        // The legend only when the chart has a wet bar to point at; the same
+        // test as the chart's.
+        let wet: Bool = hourly
+            ? day.hours.contains { $0.precipMm >= 0.2 }
+            : (0..<7).contains { d in
+                !(d == 0 && store.weatherIsEstimate) && (store.weather(for: d)?.precipMm ?? 0) >= 0.2
+            }
+        let caption: String? = wet ? (hourly ? "Solid bars are hours with rain." : "Solid bars are days with rain.") : nil
         return ConditionPageModel(
             value: "\(w.cloudCoverPct)", unit: "% cloud", subtitle: reading.meaning,
-            chartTitle: chartTitle, chartCaption: "Blue bars are hours with rain.",
+            chartTitle: chartTitle, chartCaption: caption,
             figures: figures, footnote: footnote
         )
     }
@@ -1145,15 +1221,28 @@ struct ConditionPageChart: View {
         }
         let current: ChartPoint?
         if useHours {
-            current = day.isToday ? points.min { abs($0.x.timeIntervalSinceNow) < abs($1.x.timeIntervalSinceNow) } : nil
+            current = day.isToday ? nowPoint(points, reading: daily) : nil
         } else {
             current = points.first { Calendar.current.isDate($0.x, inSameDayAs: day.date) }
         }
+        // The range follows the data; a band outside it is cut off rather
+        // than squashing the line.
+        let values = points.map(\.y) + (current.map { [$0.y] } ?? [])
         return chartOrEmpty(points.count > 1) {
             ConditionChart(points: points, tint: tint,
-                           yDomain: padded(points.map(\.y), including: band, fromZero: fromZero),
+                           yDomain: padded(values, including: nil, fromZero: fromZero),
                            band: band, current: current, daily: !useHours)
         }
+    }
+
+    /// Today's point on an hourly chart: at this minute with the hero's
+    /// reading, so the two agree. Falls back to the nearest hour when there
+    /// is no reading.
+    private func nowPoint(_ points: [ChartPoint], reading: (WeatherService.WeatherData) -> Double) -> ChartPoint? {
+        // The barometer is real even offline; the rest hide an estimate.
+        let w = condition == .pressure ? day.weather : ConditionReading.measured(day, store: store)
+        if let w { return ChartPoint(x: .now, y: reading(w)) }
+        return points.min { abs($0.x.timeIntervalSinceNow) < abs($1.x.timeIntervalSinceNow) }
     }
 
     private var tideChart: some View {
@@ -1227,13 +1316,16 @@ struct ConditionPageChart: View {
         }
         let current: ChartPoint?
         if useHours {
-            current = day.isToday ? points.min { abs($0.x.timeIntervalSinceNow) < abs($1.x.timeIntervalSinceNow) } : nil
+            current = day.isToday ? nowPoint(points, reading: { Double($0.cloudCoverPct) }) : nil
         } else {
             current = points.first { Calendar.current.isDate($0.x, inSameDayAs: day.date) }
         }
+        // In the page colour; with rain about, dry bars go pale and wet ones
+        // stay solid, as the caption says.
+        let dry: Color = rainy.isEmpty ? tint : tint.opacity(0.35)
         return chartOrEmpty(points.count > 1) {
-            ConditionChart(points: points, bars: true, tint: Color.dsText3, yDomain: 0...100,
-                           current: current, highlighted: rainy, highlightTint: ForecastCondition.tide.tint,
+            ConditionChart(points: points, bars: true, tint: dry, yDomain: 0...100,
+                           current: current, highlighted: rainy, highlightTint: tint,
                            daily: !useHours)
         }
     }
@@ -1253,7 +1345,7 @@ struct ConditionPageChart: View {
 }
 
 /// A line (or bar) chart over a day or a week: optional comfort band, shaded
-/// stretches, marked points and the current point with a rule through it.
+/// stretches, marked points and the current point.
 struct ConditionChart: View {
     let points: [ChartPoint]
     var bars: Bool = false
@@ -1295,11 +1387,6 @@ struct ConditionChart: View {
         return ForecastFormat.hour(Calendar.current.component(.hour, from: date), use24: use24)
     }
 
-    /// Hourly bars span their hour, so the marker sits in the middle of one.
-    private func currentX(_ point: ChartPoint) -> Date {
-        bars && !daily ? point.x.addingTimeInterval(1800) : point.x
-    }
-
     var body: some View {
         Chart {
             bandLayer
@@ -1318,22 +1405,39 @@ struct ConditionChart: View {
         .chartXAxis {
             AxisMarks(values: ticks) { value in
                 AxisGridLine()
-                AxisValueLabel {
+                // Day names sit centred under their day; hour labels start
+                // at their line so 00:00 stays inside the chart.
+                AxisValueLabel(anchor: daily ? UnitPoint.top : nil) {
                     if let date = value.as(Date.self) {
                         Text(axisLabel(date))
                     }
                 }
             }
         }
-        .chartYAxis(showsYAxis ? .automatic : .hidden)
+        .chartYAxis {
+            if showsYAxis {
+                AxisMarks { value in
+                    AxisGridLine()
+                    AxisValueLabel {
+                        if let number = value.as(Double.self) {
+                            // 1028, not 1,028.
+                            Text(number.formatted(.number.precision(.fractionLength(0...2)).grouping(.never)))
+                        }
+                    }
+                }
+            }
+        }
         .frame(height: 180)
     }
 
     @ChartContentBuilder
     private var bandLayer: some ChartContent {
-        if let band {
+        // Cut to the chart's range, so a band beyond the data does not
+        // spill past the plot.
+        if let band, band.lowerBound < yDomain.upperBound, band.upperBound > yDomain.lowerBound {
             RectangleMark(xStart: .value("Start", xDomain.lowerBound), xEnd: .value("End", xDomain.upperBound),
-                          yStart: .value("Low", band.lowerBound), yEnd: .value("High", band.upperBound))
+                          yStart: .value("Low", max(band.lowerBound, yDomain.lowerBound)),
+                          yEnd: .value("High", min(band.upperBound, yDomain.upperBound)))
                 .foregroundStyle(tint.opacity(0.16))
         }
     }
@@ -1391,11 +1495,10 @@ struct ConditionChart: View {
 
     @ChartContentBuilder
     private var currentLayer: some ChartContent {
+        // A point, not a rule: a dashed rule beside the dashed grid lines
+        // reads as one more grid line.
         if let current {
-            RuleMark(x: .value("Now", currentX(current)))
-                .foregroundStyle(Color.dsText3)
-                .lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 3]))
-            PointMark(x: .value("Now", currentX(current)), y: .value("Value", current.y))
+            PointMark(x: .value("Now", current.x), y: .value("Value", current.y))
                 .symbol {
                     Circle()
                         .fill(bars ? Color.dsText : tint)
