@@ -1959,8 +1959,8 @@ struct FriendProfileView: View {
 
 /// A friend's achievements, computed from their public stats and published
 /// catches, laid out like your own: the count, the earned medals rarest
-/// first, and a button to every badge. Each medal opens the same explainer
-/// your own badges use.
+/// first on the page background, and a full-width button to every badge.
+/// Each medal opens the same explainer your own badges use.
 struct FriendBadgesCard: View {
     let badges: [BadgeDefinition]
     var topCount = 5
@@ -1976,28 +1976,25 @@ struct FriendBadgesCard: View {
         visible.filter { !$0.earned }.sorted { $0.rarity.rawValue < $1.rarity.rawValue }
     }
 
+    /// "14 badges", "1 badge"; the locked ones wait behind Show all badges.
+    private var countLine: String {
+        switch earned.count {
+        case 0: return "No badges yet"
+        case 1: return "1 badge"
+        default: return "\(earned.count) badges"
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Space.s3) {
-            HStack(spacing: DS.Space.s3) {
-                ThumbView(systemImage: "trophy.fill", tint: CrewTint.trophy, size: 36)
-                    .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("\(earned.count) of \(visible.count)")
-                        .font(.headline)
-                        .monospacedDigit()
-                        .foregroundStyle(.dsText)
-                    Text(earned.isEmpty ? "No badges yet" : "Badges earned")
-                        .font(.footnote)
-                        .foregroundStyle(.dsText2)
-                }
-            }
-            .accessibilityElement(children: .combine)
+            Text(countLine)
+                .font(.subheadline)
+                .monospacedDigit()
+                .foregroundStyle(.dsText2)
             if !earned.isEmpty { medals }
             Button("Show all badges") { showingAll = true }
                 .buttonStyle(.dsTonal)
         }
-        .padding(DS.Space.s4)
-        .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
         .sheet(item: $selected) { badge in
             BadgeDetailView(badge: badge)
         }
