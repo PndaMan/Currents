@@ -326,8 +326,6 @@ struct MapTab: View {
             if appState.tripTracker.isTracking { showingLiveTrip = true }
         }) {
             NewSessionSheet()
-                .presentationDetents([.medium])
-                .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $showingLiveTrip) {
             NavigationStack {
