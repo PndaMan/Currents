@@ -1458,10 +1458,6 @@ struct FriendProfileView: View {
         async let freshProfile = svc.lookupProfile(code: code)
         async let freshSpots = svc.sharedSpots(fromFriend: code)
         async let freshAccess = svc.hasCatchAccess(to: code)
-        // The grant and catch calls fall back to saved answers without
-        // saying so; a failed profile lookup in the same pass is the sign
-        // that iCloud couldn't be reached.
-        var refreshFailed = false
         let lookup = await freshProfile
         switch lookup {
         case .found(let fresh):
@@ -1469,16 +1465,19 @@ struct FriendProfileView: View {
             profileMissing = false
         case .notFound:
             profileMissing = true
-        case .failed:
-            refreshFailed = true
-        case .ownCode:
+        case .failed, .ownCode:
             break
         }
         profileLoading = false
         sharedSpots = await freshSpots
-        catchAccess = await freshAccess
-        if catchAccess { catches = await svc.anglerCatches(code: code) }
-        catchesRefreshFailed = refreshFailed
+        // nil: the grant check couldn't reach iCloud, so the saved answer and
+        // the catches already on screen stay, and the notice says so.
+        let access = await freshAccess
+        if let access {
+            catchAccess = access
+            if access { catches = await svc.anglerCatches(code: code) }
+        }
+        catchesRefreshFailed = access == nil
         catchesLoading = false
     }
 

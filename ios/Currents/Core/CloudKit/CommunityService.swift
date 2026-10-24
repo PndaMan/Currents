@@ -1151,11 +1151,11 @@ final class CommunityService: ObservableObject {
         }
     }
 
-    /// Whether a given angler has shared their catches with me. The result is
-    /// remembered so screens can render the last-known answer instantly.
-    /// Only a missing grant record revokes access; a failed request keeps
-    /// the last-known answer.
-    func hasCatchAccess(to code: String) async -> Bool {
+    /// Whether a given angler has shared their catches with me, or nil when
+    /// iCloud couldn't be reached. The answer is remembered so screens can
+    /// render it instantly with `cachedCatchAccess`. Only a missing grant
+    /// record revokes access; a failed request leaves the saved answer alone.
+    func hasCatchAccess(to code: String) async -> Bool? {
         if code == Self.demoCode || ScreenshotSupport.isActive { return true }
         let id = CKRecord.ID(recordName: "catchgrant-\(code)-\(friendCode)")
         let key = "catchaccess-\(code.uppercased())"
@@ -1167,7 +1167,7 @@ final class CommunityService: ObservableObject {
             UserDefaults.standard.set(false, forKey: key)
             return false
         } catch {
-            return cachedCatchAccess(code)
+            return nil
         }
     }
 
