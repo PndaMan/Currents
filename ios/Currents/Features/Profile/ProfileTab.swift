@@ -1236,7 +1236,6 @@ struct PrivacySettingsView: View {
                 }
                 sharingToggles
                     .disabled(!canShare)
-                    .opacity(canShare ? 1 : 0.5)
                 SectionFootnote("Measured catches still rank on your crew leaderboards and in Game Center.")
             }
         }
@@ -1250,18 +1249,23 @@ struct PrivacySettingsView: View {
         }
     }
 
+    /// While sharing can't reach anyone the rows dim, and the card under them
+    /// keeps its fill.
     private var sharingToggles: some View {
         CardGroup {
             CardToggleRow("Share my catches", subtitle: "Species, size and photo",
                           systemImage: "fish.fill", tint: .blue, isOn: shown($shareCatches))
+                .opacity(canShare ? 1 : 0.5)
             CardToggleRow("Share my spots", subtitle: "Private until you turn this on",
                           systemImage: "mappin.circle.fill", tint: .red, isOn: shown($shareSpots))
+                .opacity(canShare ? 1 : 0.5)
             if canShare && shareSpots {
                 CardToggleRow("Exact spot locations", subtitle: "Off moves shared spots about 4 km",
                               systemImage: "scope", tint: .orange, isOn: shown($shareSpotExact))
             }
             CardToggleRow("Share catch locations", subtitle: "Off keeps where you caught it private",
                           systemImage: "location.fill", tint: .green, isOn: shown($shareCatchLocations))
+                .opacity(canShare ? 1 : 0.5)
         }
     }
 
