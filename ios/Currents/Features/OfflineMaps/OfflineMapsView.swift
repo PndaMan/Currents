@@ -200,7 +200,8 @@ struct OfflineMapsView: View {
             VStack(alignment: .leading, spacing: 0) {
                 SectionTitle("Your maps")
                 InlineEmpty(systemImage: "map",
-                            text: "No offline maps yet. Download your waters before you lose signal.")
+                            text: "No offline maps yet. Download your waters before you lose signal.",
+                            actionTitle: "Pick an area on the map", action: pickArea)
             }
         } else {
             VStack(alignment: .leading, spacing: 0) {
