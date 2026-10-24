@@ -65,8 +65,9 @@ enum OfflineFormat {
         return w == h ? "\(w) square" : "\(w) by \(h)"
     }
 
+    /// "24 October 2026", day first as everywhere else in the app.
     static func date(_ date: Date) -> String {
-        date.formatted(date: .abbreviated, time: .omitted)
+        LogbookFormat.fullDate(date)
     }
 
     /// "Province", "State" or "Region" for a region's kind.
@@ -261,7 +262,7 @@ enum OfflineSuggestions {
 
         for trip in places.planned {
             guard let c = places.coordinate(of: trip) else { continue }
-            let when = trip.plannedDate.map { $0.formatted(.dateTime.weekday(.wide).day().month(.wide)) }
+            let when = trip.plannedDate.map(ForecastFormat.longDate)
             square("trip-\(trip.id)", trip.name, when.map { "Planned for \($0)" } ?? "Planned session",
                    "calendar", .indigo, c, sideKm: spotSideKm, name: trip.name)
         }

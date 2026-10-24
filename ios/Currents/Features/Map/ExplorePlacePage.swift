@@ -404,7 +404,7 @@ struct ExplorePlacePage: View {
             if FeatureFlags.spotPrivacy {
                 KVRow("Visibility", spot.isPrivate ? "Private" : "Shared")
             }
-            KVRow("Saved", spot.createdAt.formatted(.dateTime.day().month(.wide).year()),
+            KVRow("Saved", LogbookFormat.fullDate(spot.createdAt),
                   divider: spot.notes?.isEmpty == false)
             if let notes = spot.notes, !notes.isEmpty {
                 Text(notes)

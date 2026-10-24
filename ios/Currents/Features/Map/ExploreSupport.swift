@@ -157,8 +157,9 @@ enum ExploreFormat {
         return text.hasSuffix(".") || parts.count > 1 ? joined + "." : joined
     }
 
+    /// "Saturday 24 October"
     static func shortDate(_ d: Date) -> String {
-        d.formatted(.dateTime.weekday(.wide).day().month(.wide))
+        ForecastFormat.longDate(d)
     }
 }
 

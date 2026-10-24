@@ -101,9 +101,9 @@ enum CatchPinText {
     static func label(_ detail: CatchDetail) -> String {
         let date = detail.catchRecord.caughtAt
         let thisYear = Calendar.current.isDate(date, equalTo: .now, toGranularity: .year)
-        let day = thisYear
-            ? date.formatted(.dateTime.day().month(.wide))
-            : date.formatted(.dateTime.day().month(.wide).year())
+        let f = DateFormatter()
+        f.dateFormat = thisYear ? "d MMMM" : "d MMMM yyyy"
+        let day = f.string(from: date)
         if let name = detail.species?.commonName { return "\(name) catch, \(day)" }
         return "Catch, \(day)"
     }
