@@ -715,8 +715,8 @@ struct StorageSettingsView: View {
                 .padding(.horizontal, DS.gutter)
             CardSection("Maps") {
                 NavigationLink(value: SettingsRoute.offlineMaps) {
-                    CardRow("Offline maps", subtitle: "Downloads and cached tiles", systemImage: "map.fill",
-                            tint: .green, value: usage.map { Self.mapsValue($0) }, chevron: true)
+                    CardRow("Offline maps", subtitle: "Downloaded regions", systemImage: "map.fill",
+                            tint: .green, value: regionsValue, chevron: true)
                 }
                 .buttonStyle(.dsCardRow)
             }
@@ -766,9 +766,13 @@ struct StorageSettingsView: View {
         }
     }
 
-    /// Under a megabyte is only a few cached tiles, never a downloaded map.
-    private static func mapsValue(_ usage: StorageUsage) -> String {
-        usage.maps < 1_000_000 ? "None downloaded" : StorageUsage.format(usage.maps)
+    /// The downloaded regions, counted as the Offline maps page lists them.
+    /// Cached tiles count only toward Maps in the bar above.
+    private var regionsValue: String {
+        let manager = appState.mapManager
+        if manager.isDownloading { return "Downloading" }
+        let n = manager.downloadedRegions.count
+        return n == 0 ? "None" : (n == 1 ? "1 map" : "\(n) maps")
     }
 
     // MARK: Backups
