@@ -227,14 +227,13 @@ struct WaterListView: View {
                              subtitle: loaded && !waters.isEmpty ? "\(waters.count) dams, rivers and lakes, nearest first" : nil)
                     .padding(.bottom, DS.Space.s3)
 
-                FilterChips(WaterFilter.allCases, selection: $filter, title: { $0.rawValue })
-                    .padding(.bottom, DS.Space.s3)
-
                 if loaded && usingFallback {
-                    InlineEmpty(systemImage: "location.slash",
-                                text: "Showing Cape Town. Turn on location for water near you.")
+                    FallbackLocationNotice(text: "Showing Cape Town. Turn on location for water near you.")
                         .padding(.bottom, DS.Space.s3)
                 }
+
+                FilterChips(WaterFilter.allCases, selection: $filter, title: { $0.rawValue })
+                    .padding(.bottom, DS.Space.s3)
 
                 if !loaded {
                     FishLoader(message: "Finding water")
@@ -269,7 +268,8 @@ struct WaterListView: View {
         }
         .detailScrollEdge()
         .exploreInlineTitle("Water")
-        .task { await load() }
+        // Again once a location comes in, so the list moves to it.
+        .task(id: appState.locationManager.currentLocation == nil) { await load() }
     }
 
     private func load() async {
@@ -308,6 +308,10 @@ struct RampListView: View {
     @StateObject private var rampService = BoatRampService.shared
     @State private var loading = false
     @State private var filter: PlaceFilter = .all
+    @AppStorage("units") private var units = "metric"
+
+    /// How far the list reaches, as on the water list.
+    private static let reachKm = 100.0
 
     enum PlaceFilter: String, CaseIterable, Hashable {
         case all = "All", access = "Fishing access", ramps = "Boat ramps"
@@ -318,23 +322,29 @@ struct RampListView: View {
             ?? CLLocationCoordinate2D(latitude: -33.9, longitude: 18.4)
     }
 
-    private var sorted: [(BoatRamp, Double)] {
+    /// Every place within reach, nearest first.
+    private var nearby: [(BoatRamp, Double)] {
         let here = CLLocation(latitude: origin.latitude, longitude: origin.longitude)
         return rampService.ramps
-            .filter { ramp in
-                switch filter {
-                case .all: true
-                case .access: ramp.kind == .access
-                case .ramps: ramp.kind == .ramp
-                }
-            }
             .map { ($0, here.distance(from: CLLocation(latitude: $0.lat, longitude: $0.lon))) }
+            .filter { $0.1 <= Self.reachKm * 1000 }
             .sorted { $0.1 < $1.1 }
     }
 
+    private var sorted: [(BoatRamp, Double)] {
+        nearby.filter { ramp, _ in
+            switch filter {
+            case .all: true
+            case .access: ramp.kind == .access
+            case .ramps: ramp.kind == .ramp
+            }
+        }
+    }
+
     private var countLine: String? {
-        let access = rampService.ramps.filter { $0.kind == .access }.count
-        let ramps = rampService.ramps.count - access
+        let places = nearby
+        let access = places.filter { $0.0.kind == .access }.count
+        let ramps = places.count - access
         guard access + ramps > 0 else { return nil }
         return "\(access) fishing access \(access == 1 ? "point" : "points"), \(ramps) \(ramps == 1 ? "ramp" : "ramps")"
     }
@@ -342,21 +352,21 @@ struct RampListView: View {
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
-                DetailHeader(over: "From OpenStreetMap", title: "Ramps and access", subtitle: countLine)
+                DetailHeader(over: "Within about \(Units.distance(km: Self.reachKm, imperial: units == "imperial"))",
+                             title: "Ramps and access", subtitle: countLine)
                     .padding(.bottom, DS.Space.s3)
 
                 if appState.locationManager.currentLocation == nil {
-                    InlineEmpty(systemImage: "location.slash",
-                                text: "Distances are from Cape Town. Turn on location for ramps and access near you.")
+                    FallbackLocationNotice(text: "Distances are from Cape Town. Turn on location for ramps and access near you.")
                         .padding(.bottom, DS.Space.s3)
                 }
 
-                if !rampService.ramps.isEmpty {
+                if !nearby.isEmpty {
                     FilterChips(PlaceFilter.allCases, selection: $filter, title: { $0.rawValue })
                         .padding(.bottom, DS.Space.s3)
                 }
 
-                if rampService.ramps.isEmpty {
+                if nearby.isEmpty {
                     if loading {
                         FishLoader(message: "Finding ramps and access")
                             .frame(maxWidth: .infinity)
@@ -379,7 +389,7 @@ struct RampListView: View {
                         }
                         .buttonStyle(.dsRow)
                     }
-                    ExploreFootnote("Fees and access change. Check at the gate.")
+                    ExploreFootnote("From OpenStreetMap. Fees and access change, so check at the gate.")
                 }
             }
             .padding(.bottom, 40)
@@ -387,11 +397,40 @@ struct RampListView: View {
         }
         .detailScrollEdge()
         .exploreInlineTitle("Ramps and access")
-        .task {
-            guard rampService.ramps.isEmpty else { return }
+        // Again once a location comes in, so the list moves to it. Tiles
+        // already loaded are skipped.
+        .task(id: appState.locationManager.currentLocation == nil) {
             loading = true
             await rampService.load(around: origin, latSpan: 0.5)
             loading = false
+        }
+    }
+}
+
+// MARK: - No location
+
+/// The notice on a list worked out around Cape Town for want of a location.
+/// Its button asks for location, or opens Settings once it was turned down.
+/// While location is on but has no fix yet, it only says so.
+private struct FallbackLocationNotice: View {
+    @Environment(AppState.self) private var appState
+    @Environment(\.openURL) private var openURL
+    let text: String
+
+    var body: some View {
+        if appState.locationManager.isAuthorized {
+            InlineEmpty(systemImage: "location", text: "Showing Cape Town until your location comes in.")
+        } else {
+            InlineEmpty(systemImage: "location.slash", text: text,
+                        actionTitle: "Turn on location", action: turnOnLocation)
+        }
+    }
+
+    private func turnOnLocation() {
+        if appState.locationManager.authorizationStatus == .notDetermined {
+            appState.locationManager.requestPermission()
+        } else if let url = URL(string: UIApplication.openSettingsURLString) {
+            openURL(url)
         }
     }
 }
