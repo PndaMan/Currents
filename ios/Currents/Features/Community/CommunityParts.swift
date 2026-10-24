@@ -227,6 +227,7 @@ extension BadgeRarity {
 /// the second symbol pinned bottom right, a rarity ring from rare up, a
 /// slowly turning dashed ring and stars for legendary and mythic. Bounces
 /// once on appear; mythic titles breathe. Reduce Motion keeps it still.
+/// Symbols and stars are inked, so yellow reads on a white disc.
 struct TitleMedallion: View {
     let flair: TitleFlair
     var size: CGFloat = 56
@@ -277,7 +278,7 @@ struct TitleMedallion: View {
         } else {
             image
                 .symbolRenderingMode(.hierarchical)
-                .foregroundStyle(tint)
+                .foregroundStyle(DS.ink(tint))
                 .symbolEffect(.bounce, value: bounce)
                 .symbolEffect(.breathe, options: .repeating, isActive: rarity == .mythic && !reduceMotion && !locked)
         }
@@ -287,10 +288,10 @@ struct TitleMedallion: View {
         if !locked {
             Image(systemName: art.accent)
                 .font(.system(size: size * 0.17, weight: .bold)) // ui-lint: allow, symbol scales with the medallion, not with text
-                .foregroundStyle(art.accentColor)
+                .foregroundStyle(DS.ink(art.accentColor))
                 .frame(width: size * 0.38, height: size * 0.38)
                 .background(Color.dsBackground, in: Circle())
-                .overlay(Circle().strokeBorder(art.accentColor.opacity(0.45), lineWidth: 1))
+                .overlay(Circle().strokeBorder(DS.ink(art.accentColor).opacity(0.45), lineWidth: 1))
                 .offset(x: size * 0.36, y: size * 0.36)
         }
     }
@@ -307,7 +308,7 @@ struct TitleMedallion: View {
             ForEach([-140.0, -90.0, -40.0], id: \.self) { angle in
                 Image(systemName: "star.fill")
                     .font(.system(size: size * (angle == -90 ? 0.16 : 0.11))) // ui-lint: allow, symbol scales with the medallion, not with text
-                    .foregroundStyle(rarity.color)
+                    .foregroundStyle(DS.ink(rarity.color))
                     .offset(x: cos(angle * .pi / 180) * size * 0.66,
                             y: sin(angle * .pi / 180) * size * 0.66)
             }
