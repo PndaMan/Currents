@@ -368,7 +368,8 @@ struct TitleBadge<Trailing: View>: View {
             .background { backdrop }
             .clipShape(shape)
             .overlay {
-                shape.strokeBorder(tint.opacity(rarity.rawValue >= BadgeRarity.rare.rawValue && !locked ? 0.5 : 0.18),
+                shape.strokeBorder(rarity.rawValue >= BadgeRarity.rare.rawValue && !locked
+                                       ? ink.opacity(0.5) : tint.opacity(0.18),
                                    lineWidth: 1)
             }
             .opacity(locked ? 0.55 : 1)
@@ -422,7 +423,9 @@ struct TitleBadge<Trailing: View>: View {
             Color.dsFill
             tint.opacity(scheme == .dark ? 0.14 : 0.10)
             if rarity.rawValue >= BadgeRarity.epic.rawValue && !locked {
-                TitlePattern(symbol: TitleArt.of(flair).symbol, color: tint)
+                // Fainter in light, where a yellow pattern turns the card khaki.
+                TitlePattern(symbol: TitleArt.of(flair).symbol, color: tint,
+                             opacity: scheme == .dark ? 0.12 : 0.05)
             }
         }
     }
@@ -439,6 +442,7 @@ extension TitleBadge where Trailing == EmptyView {
 private struct TitlePattern: View {
     let symbol: String
     let color: Color
+    var opacity: Double = 0.12
 
     var body: some View {
         VStack(spacing: 14) {
@@ -451,7 +455,7 @@ private struct TitlePattern: View {
                 .offset(x: row.isMultiple(of: 2) ? 0 : 18)
             }
         }
-        .foregroundStyle(color.opacity(0.12))
+        .foregroundStyle(color.opacity(opacity))
         .rotationEffect(.degrees(-14))
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .allowsHitTesting(false)
