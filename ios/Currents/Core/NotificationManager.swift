@@ -39,7 +39,7 @@ final class NotificationManager: @unchecked Sendable {
         guard await requestPermission() else { return }
         let content = UNMutableNotificationContent()
         content.title = "Currents"
-        content.body = "Test notification — if you see this, notifications are working on this device."
+        content.body = "This is a test. Notifications are working on this device."
         content.sound = .default
         let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 3, repeats: false)
         try? await center.add(UNNotificationRequest(
@@ -53,17 +53,17 @@ final class NotificationManager: @unchecked Sendable {
         guard await requestPermission() else { return }
         let spot = spotName ?? "your spot"
         let start = Date.now.addingTimeInterval(45 * 60)
-        let from = start.formatted(date: .omitted, time: .shortened)
-        let to = start.addingTimeInterval(2 * 3600).formatted(date: .omitted, time: .shortened)
+        let from = ForecastFormat.time(start)
+        let to = ForecastFormat.time(start.addingTimeInterval(2 * 3600))
         let bite = "Bite score up to 82 from \(from) to \(to)."
         let samples: [(title: String, body: String, link: String)] = [
             ("Bite window at \(spot) in 45 minutes", bite, "currents://map"),
             ("Bite window open at \(spot)", bite, "currents://map"),
             ("Session soon: Dawn session", "Your planned session starts at \(from). Open Currents to start tracking.", "currents://sessions"),
-            ("Slow bite?", "No catches in a while — try switching lure, changing depth, or moving spots.", "currents://session"),
-            ("Running low: Soft plastics", "2 left — time to restock your lures.", "currents://gear"),
-            ("Trip invite from Sam", "Join “Weekend at the dam” on Currents — open the app to accept.", "currents://community"),
-            ("New friend request", "Sam wants to connect on Currents — open the app to accept.", "currents://community"),
+            ("Slow bite?", "No catches in a while. Try another lure, a new depth or a different spot.", "currents://session"),
+            ("Running low: Soft plastics", "2 left. Time to restock your lures.", "currents://gear"),
+            ("Trip invite from Sam", "Join “Weekend at the dam” on Currents. Open the app to accept.", "currents://community"),
+            ("New friend request", "Sam wants to connect on Currents. Open the app to accept.", "currents://community"),
             ("Fishing licence reminder", "Freshwater licence expires in 1 week.", "currents://licenses"),
         ]
         for (index, sample) in samples.enumerated() {
@@ -207,8 +207,8 @@ final class NotificationManager: @unchecked Sendable {
 
     private func biteContent(spot: Spot, window: BiteWindows.Upcoming) -> UNMutableNotificationContent {
         let content = UNMutableNotificationContent()
-        let from = window.start.formatted(date: .omitted, time: .shortened)
-        let to = window.end.formatted(date: .omitted, time: .shortened)
+        let from = ForecastFormat.time(window.start)
+        let to = ForecastFormat.time(window.end)
         content.body = "Bite score up to \(window.peakScore) from \(from) to \(to)."
         content.sound = .default
         content.threadIdentifier = "spot-\(spot.id)"
@@ -247,7 +247,7 @@ final class NotificationManager: @unchecked Sendable {
 
         let content = UNMutableNotificationContent()
         content.title = "Session soon: \(trip.name)"
-        content.body = "Your planned session starts at \(planned.formatted(date: .omitted, time: .shortened)). Open Currents to start tracking."
+        content.body = "Your planned session starts at \(ForecastFormat.time(planned)). Open Currents to start tracking."
         content.sound = .default
         content.userInfo = ["deepLink": "currents://plan/\(trip.id)"]
 
@@ -274,7 +274,7 @@ final class NotificationManager: @unchecked Sendable {
         guard await requestAuth([.alert, .sound]) else { return }
         let content = UNMutableNotificationContent()
         content.title = "Slow bite?"
-        content.body = "No catches in a while — try switching lure, changing depth, or moving spots."
+        content.body = "No catches in a while. Try another lure, a new depth or a different spot."
         content.sound = .default
         content.userInfo = ["deepLink": "currents://session"]
         let trigger = UNTimeIntervalNotificationTrigger(timeInterval: Double(minutes) * 60, repeats: false)
@@ -299,8 +299,8 @@ final class NotificationManager: @unchecked Sendable {
         let remaining = item.stock ?? 0
         content.title = remaining <= 0 ? "Out of stock: \(item.displayName)" : "Running low: \(item.displayName)"
         content.body = remaining <= 0
-            ? "None left — restock your \(item.category.rawValue.lowercased()) before your next trip."
-            : "\(remaining) left — time to restock your \(item.category.rawValue.lowercased())."
+            ? "None left. Restock your \(item.category.rawValue.lowercased()) before your next session."
+            : "\(remaining) left. Time to restock your \(item.category.rawValue.lowercased())."
         content.sound = .default
         content.userInfo = ["deepLink": "currents://gear"]
         let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 1, repeats: false)
@@ -319,7 +319,7 @@ final class NotificationManager: @unchecked Sendable {
         guard await requestAuth([.alert, .sound]) else { return }
         let content = UNMutableNotificationContent()
         content.title = "Trip invite from \(fromName)"
-        content.body = "Join “\(tripName)” on Currents — open the app to accept."
+        content.body = "Join “\(tripName)” on Currents. Open the app to accept."
         content.sound = .default
         content.userInfo = ["deepLink": "currents://community"]
         let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 1, repeats: false)
@@ -332,7 +332,7 @@ final class NotificationManager: @unchecked Sendable {
         guard await requestAuth([.alert, .sound]) else { return }
         let content = UNMutableNotificationContent()
         content.title = "New friend request"
-        content.body = "\(fromName) wants to connect on Currents — open the app to accept."
+        content.body = "\(fromName) wants to connect on Currents. Open the app to accept."
         content.sound = .default
         content.userInfo = ["deepLink": "currents://community"]
         let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 1, repeats: false)

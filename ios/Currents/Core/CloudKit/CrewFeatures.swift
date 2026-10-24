@@ -670,7 +670,7 @@ extension CommunityService {
             out.append(.init(id: "first", title: "First fish", icon: "bolt.fill",
                              anglerCode: first.c.friendCode, anglerName: first.c.anglerName,
                              teamName: first.team,
-                             detail: "\(first.c.species), \(first.c.date.formatted(date: .omitted, time: .shortened))"))
+                             detail: "\(first.c.species), \(ForecastFormat.time(first.c.date))"))
         }
         return out
     }
