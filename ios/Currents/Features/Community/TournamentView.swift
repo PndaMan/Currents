@@ -564,9 +564,10 @@ struct TournamentView: View {
                          value: "\(standings.reduce(0) { $0 + $1.fishCount })", width: 120)
                 StatTile("Top score", systemImage: "trophy.fill", tint: CrewTint.trophy,
                          value: "\(standings.first?.points ?? 0)", unit: "points", width: 120)
+                // No footnotes in this row: "of N" is the Teams tile.
                 if let i = myIndex {
                     StatTile("Your place", systemImage: "flag.fill", tint: .orange,
-                             value: eventOrdinal(i + 1), footnote: "of \(standings.count)", width: 120)
+                             value: eventOrdinal(i + 1), width: 120)
                 }
             }
             .padding(.top, DS.Space.s5)
