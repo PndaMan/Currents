@@ -1,0 +1,299 @@
+name: UI Review Screenshots
+
+# Captures every screen of the app in the iOS Simulator, so a UI pass can be
+# checked without a device. Each screen is shot in dark and in light, then a
+# smaller set is shot again at the largest accessibility text size. Like the
+# App Store run (screenshots.yml), the app is relaunched once per shot in
+# screenshot mode (SCREENSHOT_MODE=1), which seeds fictional demo data and
+# opens the screen named by SCREENSHOT_SCREEN. The appearance is chosen per
+# launch with -appearanceMode, so nothing is stored between shots.
+#
+# Manual only: it never runs on push. Run it from the Actions tab, then
+# download the "ui-review" artifact: dark/ and light/ hold one PNG per screen,
+# large-text/ holds the accessibility-size set (dark). The screen names are the
+# raw values of ScreenshotSupport.Screen; ALL_SCREENS below is the same list.
+#
+# macOS minutes bill at 10x. Estimated run time is about 25 minutes with a warm
+# build cache and up to about 40 without one (the timeout is 45). Use the
+# "screens" input to re-shoot just a few screens after a fix.
+
+on:
+  workflow_dispatch:
+    inputs:
+      screens:
+        description: "Screens to capture, separated by spaces or commas. Empty captures every screen."
+        type: string
+        default: ""
+      large_text:
+        description: "Also capture the large-text set at the largest accessibility size"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ui-review-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  capture:
+    name: Capture Screens
+    runs-on: macos-15
+    timeout-minutes: 45
+    env:
+      BUNDLE_ID: com.aidanmcconnon.currents
+    defaults:
+      run:
+        working-directory: ios
+        shell: bash --noprofile --norc -euo pipefail {0}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Fails in seconds, before the build, if the screens input names nothing
+      # the app knows. Unknown names are dropped with a warning.
+      - name: Choose screens
+        env:
+          INPUT_SCREENS: ${{ inputs.screens }}
+        run: |
+          ALL_SCREENS=(
+            today logbook crew explore-near explore catch lures leaderboard profile
+            forecast-day forecast-week
+            condition-water condition-air condition-wind condition-pressure
+            condition-tide condition-moon condition-sun condition-sky
+            target target-species
+            spot waterbody species spots waters ramps species-guide regulations offline-maps
+            session plan streak achievements stats sessions gear licences fishdex
+            crew-detail crews friends requests friend trip-setup group-trip
+            settings settings-appearance settings-units settings-notifications
+            settings-privacy settings-widgets settings-storage settings-about settings-knots
+            tips log-catch
+          )
+
+          SELECTED=""
+          if [ -z "$(printf '%s' "$INPUT_SCREENS" | tr -d '[:space:],')" ]; then
+            SELECTED="${ALL_SCREENS[*]}"
+          else
+            for NAME in $(printf '%s' "$INPUT_SCREENS" | tr ',' ' ' | tr '[:upper:]' '[:lower:]'); do
+              case " ${ALL_SCREENS[*]} " in
+                *" $NAME "*) SELECTED="$SELECTED $NAME" ;;
+                *) echo "::warning::Unknown screen '$NAME', skipped" ;;
+              esac
+            done
+          fi
+          if [ -z "${SELECTED// /}" ]; then
+            echo "::error::None of the requested screens exist"
+            exit 1
+          fi
+          echo "Screens: $SELECTED"
+          echo "SCREENS=$SELECTED" >> "$GITHUB_ENV"
+
+      - name: Select Xcode
+        id: xcode
+        run: |
+          XCODE_PATH=$(ls -d /Applications/Xcode*.app 2>/dev/null | sort -V | tail -1)
+          sudo xcode-select -s "$XCODE_PATH"
+          xcodebuild -version
+          echo "build=$(xcodebuild -version | awk '/Build version/ {print $3}')" >> "$GITHUB_OUTPUT"
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode Project
+        run: xcodegen generate
+
+      # No Package.resolved is committed, so key the package cache on the
+      # packages listed in project.yml (same as ios.yml).
+      - name: Key the package cache
+        id: spm-key
+        run: |
+          echo "hash=$(awk '/^[^ #]/{p=($0 ~ /^packages:/)} p' project.yml | shasum -a 256 | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
+      # Restores DerivedData with source mtimes so the build is incremental.
+      # The first run falls back to the test job's cache from ios.yml, which
+      # builds the same app for the same simulator.
+      - name: Restore build cache
+        uses: irgaly/xcode-cache@v1.9.2
+        with:
+          key: deriveddata-uireview-${{ steps.xcode.outputs.build }}-${{ github.sha }}
+          restore-keys: |
+            deriveddata-uireview-${{ steps.xcode.outputs.build }}-
+            deriveddata-test-${{ steps.xcode.outputs.build }}-
+          deriveddata-directory: ios/DerivedData
+          sourcepackages-directory: ios/.spm-cache
+          swiftpm-cache-key: spm-${{ steps.spm-key.outputs.hash }}
+          swiftpm-cache-restore-keys: spm-
+
+      - name: Resolve packages
+        run: |
+          xcodebuild -resolvePackageDependencies \
+            -project Currents.xcodeproj \
+            -scheme Currents \
+            -clonedSourcePackagesDirPath .spm-cache
+
+      - name: Install iOS Simulator
+        run: |
+          if xcrun simctl list runtimes | grep -q "iOS 26"; then
+            echo "iOS 26 runtime already installed"
+          else
+            xcodebuild -downloadPlatform iOS
+          fi
+
+      - name: Create Simulator (6.9" iPhone 16 Pro Max)
+        run: |
+          RUNTIME=$(xcrun simctl list runtimes -j | python3 -c "
+          import json, sys
+          data = json.load(sys.stdin)
+          runtimes = [r for r in data['runtimes'] if 'iOS' in r.get('name','') and '26' in r.get('name','') and r.get('isAvailable', False)]
+          if runtimes: print(runtimes[-1]['identifier'])
+          ")
+          if [ -z "$RUNTIME" ]; then echo "No iOS 26 runtime"; exit 1; fi
+          echo "Runtime: $RUNTIME"
+          UDID=$(xcrun simctl create "UI-Review-6.9" "com.apple.CoreSimulator.SimDeviceType.iPhone-16-Pro-Max" "$RUNTIME")
+          echo "UDID=$UDID" >> "$GITHUB_ENV"
+
+      # Same destination and build settings as the test job in ios.yml, so the
+      # restored DerivedData is reused instead of recompiled.
+      - name: Build for Simulator
+        run: |
+          if ! xcodebuild build \
+            -project Currents.xcodeproj \
+            -scheme Currents \
+            -destination "platform=iOS Simulator,id=$UDID" \
+            -derivedDataPath DerivedData \
+            -clonedSourcePackagesDirPath .spm-cache \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            COMPILER_INDEX_STORE_ENABLE=NO \
+            DEBUG_INFORMATION_FORMAT=dwarf \
+            OTHER_SWIFT_FLAGS='$(inherited) -continue-building-after-errors' > build.log 2>&1; then
+            grep -E "error:" build.log | head -40 || true
+            tail -60 build.log
+            exit 1
+          fi
+          tail -5 build.log
+
+      # Drop old build logs so they don't pile up in the cache.
+      - name: Trim build cache
+        run: rm -rf DerivedData/Logs
+
+      - name: Boot and prepare simulator
+        run: |
+          xcrun simctl boot "$UDID"
+          xcrun simctl bootstatus "$UDID"
+
+          # The app picks light or dark per launch; the system stays dark.
+          xcrun simctl ui "$UDID" appearance dark
+
+          # Clean status bar (9:41, full battery and signal).
+          xcrun simctl status_bar "$UDID" override \
+            --time "9:41" \
+            --batteryState charged --batteryLevel 100 \
+            --cellularMode active --cellularBars 4 \
+            --wifiMode active --wifiBars 3 \
+            --dataNetwork wifi || true
+
+          # Kogel Bay, South Africa, matching the seeded demo spots.
+          xcrun simctl location "$UDID" set -34.235,18.848 || true
+
+          # Pre-grant location so no permission dialog covers a screenshot.
+          xcrun simctl privacy "$UDID" grant location "$BUNDLE_ID" || true
+
+          APP_PATH=$(find DerivedData -name "Currents.app" -path "*/Debug-iphonesimulator/*" -type d -print -quit)
+          if [ -z "$APP_PATH" ]; then echo "Currents.app not found"; exit 1; fi
+          echo "App: $APP_PATH"
+          xcrun simctl install "$UDID" "$APP_PATH"
+
+      # The demo photos go into the app's data container on the simulator
+      # only. ScreenshotSupport reads Documents/ScreenshotPhotos and falls
+      # back to the app's fish artwork if the folder is missing.
+      - name: Copy demo photos into the simulator
+        run: |
+          DATA=$(xcrun simctl get_app_container "$UDID" "$BUNDLE_ID" data)
+          mkdir -p "$DATA/Documents/ScreenshotPhotos"
+          cp AppStore/demo-photos/*.jpg "$DATA/Documents/ScreenshotPhotos/"
+          echo "Copied $(ls "$DATA/Documents/ScreenshotPhotos" | wc -l | tr -d ' ') photos"
+
+      - name: Capture each screen
+        env:
+          LARGE_TEXT: ${{ inputs.large_text }}
+        run: |
+          OUT=screenshots/review
+          mkdir -p "$OUT"
+
+          # Screens shot again at the largest text size, in dark only.
+          LARGE_TEXT_SCREENS="today explore-near logbook catch log-catch crew leaderboard settings settings-units session gear licences species"
+
+          # Seconds to let a screen settle. The map screens load tiles.
+          settle_for() {
+            case "$1" in
+              explore|explore-near|spot|waterbody) echo 12 ;;
+              *) echo 7 ;;
+            esac
+          }
+
+          # capture <appearance> <screen> <folder>
+          # A screen that fails to launch is logged and skipped, never fatal.
+          capture() {
+            local appearance="$1" screen="$2" dir="$3"
+            mkdir -p "$dir"
+            xcrun simctl terminate "$UDID" "$BUNDLE_ID" 2>/dev/null || true
+            sleep 1
+            if ! SIMCTL_CHILD_SCREENSHOT_MODE=1 \
+                 SIMCTL_CHILD_SCREENSHOT_SCREEN="$screen" \
+                 xcrun simctl launch "$UDID" "$BUNDLE_ID" -appearanceMode "$appearance"; then
+              echo "::warning::Launch failed for $screen ($appearance), skipped"
+              return 0
+            fi
+            sleep "$(settle_for "$screen")"
+            if xcrun simctl io "$UDID" screenshot "$dir/$screen.png"; then
+              echo "Captured $dir/$screen.png"
+            else
+              echo "::warning::Screenshot failed for $screen ($appearance)"
+            fi
+          }
+
+          # Warm-up launch: seeds the demo data and lets the forecast cache
+          # fill, so every later launch opens on settled content.
+          SIMCTL_CHILD_SCREENSHOT_MODE=1 \
+          SIMCTL_CHILD_SCREENSHOT_SCREEN=today \
+            xcrun simctl launch "$UDID" "$BUNDLE_ID" -appearanceMode dark \
+            || echo "::warning::Warm-up launch failed"
+          sleep 20
+
+          for APPEARANCE in dark light; do
+            for SCREEN in $SCREENS; do
+              capture "$APPEARANCE" "$SCREEN" "$OUT/$APPEARANCE"
+            done
+          done
+
+          if [ "$LARGE_TEXT" = "true" ]; then
+            xcrun simctl ui "$UDID" content_size accessibility-extra-extra-extra-large
+            for SCREEN in $LARGE_TEXT_SCREENS; do
+              capture dark "$SCREEN" "$OUT/large-text"
+            done
+            xcrun simctl ui "$UDID" content_size large
+          fi
+
+          # Say which shots are missing, then fail only if there are none.
+          for APPEARANCE in dark light; do
+            for SCREEN in $SCREENS; do
+              [ -f "$OUT/$APPEARANCE/$SCREEN.png" ] || echo "::warning::Missing $APPEARANCE/$SCREEN.png"
+            done
+          done
+          COUNT=$(find "$OUT" -name '*.png' | wc -l | tr -d ' ')
+          echo "Captured $COUNT screenshots"
+          if [ "$COUNT" -eq 0 ]; then
+            echo "::error::No screenshots were captured"
+            exit 1
+          fi
+
+      - name: Upload screenshots (artifact)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-review
+          path: ios/screenshots/review
+          retention-days: 7
