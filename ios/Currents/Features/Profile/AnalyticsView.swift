@@ -17,6 +17,8 @@ struct AnalyticsView: View {
     @State private var speciesCounts: [(speciesId: Int64, commonName: String, count: Int)] = []
     @State private var allCatches: [CatchDetail] = []
     @State private var loaded = false
+    /// The log could not be read; the page offers a retry rather than "no stats".
+    @State private var loadFailed = false
     @State private var selectedMonth: String?
     @State private var showingAllSpecies = false
 
@@ -27,12 +29,20 @@ struct AnalyticsView: View {
             VStack(alignment: .leading, spacing: 0) {
                 DetailHeader(title: "Stats", subtitle: headerSubtitle)
                 if !loaded {
-                    ProgressView()
+                    FishLoader(message: "Counting your catches")
                         .frame(maxWidth: .infinity)
-                        .padding(.top, 80)
+                        .frame(height: 260)
+                } else if loadFailed {
+                    InlineEmpty(systemImage: "exclamationmark.triangle",
+                                text: "Your stats could not be worked out. Nothing is lost.",
+                                actionTitle: "Try again") {
+                        Task { await loadData() }
+                    }
+                    .padding(.top, DS.Space.s5)
                 } else if totalCatches == 0 {
-                    ContentUnavailableView("No stats yet", systemImage: "chart.bar",
-                                           description: Text("Log a few catches to see your patterns and personal bests."))
+                    InlineEmpty(systemImage: "chart.bar",
+                                text: "No stats yet. Log a few catches to see your patterns and personal bests.")
+                        .padding(.top, DS.Space.s5)
                 } else {
                     totalsTiles
                     patternsSection
@@ -68,7 +78,7 @@ struct AnalyticsView: View {
 
     /// "Oct 2025 to Oct 2026, 41 catches", once there is something to count.
     private var headerSubtitle: String? {
-        guard loaded, totalCatches > 0 else { return nil }
+        guard loaded, !loadFailed, totalCatches > 0 else { return nil }
         let count = "\(totalCatches) \(totalCatches == 1 ? "catch" : "catches")"
         return dateRange.map { "\($0), \(count)" } ?? count
     }
@@ -272,9 +282,7 @@ struct AnalyticsView: View {
         SectionTitle("Gear effectiveness")
             .padding(.top, DS.Space.s8)
         if sorted.isEmpty {
-            ArtRow(title: "No gear logged yet", subtitle: "Add a loadout when you log a catch.") {
-                ThumbView(systemImage: "backpack", tint: DS.accent, size: 52)
-            }
+            InlineEmpty(systemImage: "backpack", text: "No gear logged yet. Add a loadout when you log a catch.")
         } else {
             let maxCount = sorted.first?.value.count ?? 1
             VStack(spacing: DS.Space.s3) {
@@ -395,9 +403,7 @@ struct AnalyticsView: View {
         SectionTitle("Top spots")
             .padding(.top, DS.Space.s8)
         if sorted.isEmpty {
-            ArtRow(title: "No spots yet", subtitle: "Log a catch at a saved spot.") {
-                ThumbView(systemImage: "mappin.and.ellipse", tint: DS.accent, size: 52)
-            }
+            InlineEmpty(systemImage: "mappin.and.ellipse", text: "No spots yet. Log a catch at a saved spot.")
         } else {
             ForEach(sorted.prefix(10), id: \.key) { _, catches in
                 if let spot = catches.first?.spot {
@@ -491,13 +497,19 @@ struct AnalyticsView: View {
     // MARK: - Helpers
 
     private func loadData() async {
-        totalCatches = (try? appState.catchRepository.totalCount()) ?? 0
-        personalBests = (try? appState.catchRepository.personalBests()) ?? []
-        monthlyCounts = (try? appState.catchRepository.monthlyCounts()) ?? []
-        hourCounts = (try? appState.catchRepository.catchesByHour()) ?? []
-        avgForecast = try? appState.catchRepository.averageForecastScore()
-        speciesCounts = (try? appState.catchRepository.speciesCounts()) ?? []
-        allCatches = (try? appState.catchRepository.fetchAll(limit: 1000)) ?? []
+        let repo = appState.catchRepository
+        do {
+            totalCatches = try repo.totalCount()
+            personalBests = try repo.personalBests()
+            monthlyCounts = try repo.monthlyCounts()
+            hourCounts = try repo.catchesByHour()
+            avgForecast = try repo.averageForecastScore()
+            speciesCounts = try repo.speciesCounts()
+            allCatches = try repo.fetchAll(limit: 1000)
+            loadFailed = false
+        } catch {
+            loadFailed = true
+        }
         loaded = true
     }
 

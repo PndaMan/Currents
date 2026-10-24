@@ -166,17 +166,12 @@ private struct AchievementsPage: View {
     /// One catch earns First Catch, so nothing earned means nothing logged.
     @ViewBuilder
     private var header: some View {
+        DetailHeader(over: "Badges",
+                     title: "\(summary.earnedCount) of \(summary.visibleCount) earned",
+                     subtitle: summary.closest == nil ? "You have earned every badge." : nil)
         if summary.earnedCount == 0 {
-            ContentUnavailableView {
-                Label("No badges yet", systemImage: "medal")
-            } description: {
-                Text("Log a catch to earn your first badge.")
-            }
-            .padding(.vertical, DS.Space.s4)
-        } else {
-            DetailHeader(over: "Badges",
-                         title: "\(summary.earnedCount) of \(summary.visibleCount) earned",
-                         subtitle: summary.closest == nil ? "You have earned every badge." : nil)
+            InlineEmpty(systemImage: "medal", text: "No badges yet. Log a catch to earn your first.")
+                .padding(.top, DS.Space.s5)
         }
     }
 

@@ -34,6 +34,10 @@ struct CatchesTab: View {
     @State private var planToEdit: Trip?
     @State private var sessionToEdit: Trip?
     @State private var tripToDelete: Trip?
+    /// The session or plan list could not be read; the pane offers a retry
+    /// rather than claiming there is nothing there.
+    @State private var sessionsFailed = false
+    @State private var plansFailed = false
 
     private var layout: LayoutMode { LayoutMode(rawValue: layoutRaw) ?? .gallery }
     private var tracker: TripTracker { appState.tripTracker }
@@ -250,8 +254,7 @@ struct CatchesTab: View {
             if let trip = try? appState.tripRepository.fetch(id) {
                 SessionDetailView(trip: trip)
             } else {
-                ContentUnavailableView("Session not found", systemImage: "point.topleft.down.to.point.bottomright.curvepath",
-                                       description: Text("It may have been deleted."))
+                notFound("Session not found", systemImage: "point.topleft.down.to.point.bottomright.curvepath")
             }
         case .plan(let id):
             PlanDetailView(tripId: id)
@@ -270,9 +273,17 @@ struct CatchesTab: View {
             CatchDetailView(detail: detail)
                 .navigationTransition(.zoom(sourceID: id, in: zoom))
         } else {
-            ContentUnavailableView("Catch not found", systemImage: "fish",
-                                   description: Text("It may have been deleted."))
+            notFound("Catch not found", systemImage: "fish")
         }
+    }
+
+    /// A whole page for a link whose record has gone, such as a catch deleted
+    /// on another screen while its page was in the back stack. It fills the
+    /// screen on its own, so it is the system empty view rather than an
+    /// in-section InlineEmpty.
+    private func notFound(_ title: String, systemImage: String) -> some View {
+        ContentUnavailableView(title, systemImage: systemImage, description: Text("It may have been deleted."))
+            .dsScreenBackground()
     }
 
     // MARK: - Top cards
@@ -323,45 +334,32 @@ struct CatchesTab: View {
     private var catchesPane: some View {
         switch loadState {
         case .loading:
-            ProgressView()
+            FishLoader(message: "Opening your logbook")
                 .frame(maxWidth: .infinity)
-                .padding(.top, 80)
+                .frame(height: 260)
         case .failed:
-            ContentUnavailableView {
-                Label("Your logbook could not be read", systemImage: "exclamationmark.triangle")
-            } description: {
-                Text("Nothing is lost. Try again in a moment.")
-            } actions: {
-                Button("Try again") { reload() }
-                    .buttonStyle(TonalButtonStyle(fullWidth: false))
-            }
-            .padding(.top, 24)
+            InlineEmpty(systemImage: "exclamationmark.triangle",
+                        text: "Your logbook could not be read. Nothing is lost.",
+                        actionTitle: "Try again") { reload() }
+                .padding(.top, DS.Space.s3)
         case .loaded:
             if catches.isEmpty {
-                ContentUnavailableView {
-                    Label("No catches yet", systemImage: "fish")
-                } description: {
-                    Text("Log your first fish. The conditions are saved with it.")
-                } actions: {
-                    Button("Log catch") { showingLogCatch = true }
-                        .buttonStyle(PrimaryButtonStyle(fullWidth: false))
-                }
-                .padding(.top, 24)
+                InlineEmpty(systemImage: "fish",
+                            text: "No catches yet. Log your first fish and the conditions are saved with it.",
+                            actionTitle: "Log catch") { showingLogCatch = true }
+                    .padding(.top, DS.Space.s3)
             } else {
                 catchTools
                 let visible = filteredCatches
                 if visible.isEmpty {
-                    ContentUnavailableView {
-                        Label("Nothing matches", systemImage: "line.3.horizontal.decrease.circle")
-                    } description: {
-                        Text(filter == .favourites ? "Star a catch and it shows up here." : "Try a different filter.")
-                    } actions: {
-                        Button("Show all catches") {
-                            withAnimation(DS.Motion.softSpring) { filter = .all }
-                        }
-                        .buttonStyle(TonalButtonStyle(fullWidth: false))
+                    InlineEmpty(systemImage: "line.3.horizontal.decrease.circle",
+                                text: filter == .favourites
+                                    ? "No favourites yet. Star a catch and it shows up here."
+                                    : "No catches match this filter.",
+                                actionTitle: "Show all catches") {
+                        withAnimation(DS.Motion.softSpring) { filter = .all }
                     }
-                    .padding(.top, 24)
+                    .padding(.top, DS.Space.s3)
                 } else {
                     ForEach(groups(for: visible)) { group in
                         if let title = group.title {
@@ -664,10 +662,15 @@ struct CatchesTab: View {
         }
 
         let past = sessions.filter(\.isCompleted)
-        if past.isEmpty {
-            ContentUnavailableView("No sessions yet", systemImage: "point.topleft.down.to.point.bottomright.curvepath",
-                                   description: Text("Start one at the water. Your track and catches are saved here."))
-                .padding(.top, 12)
+        if sessionsFailed {
+            InlineEmpty(systemImage: "exclamationmark.triangle",
+                        text: "Your sessions could not be read. Nothing is lost.",
+                        actionTitle: "Try again") { reload() }
+                .padding(.top, DS.Space.s3)
+        } else if past.isEmpty {
+            InlineEmpty(systemImage: "point.topleft.down.to.point.bottomright.curvepath",
+                        text: "No sessions yet. Start one at the water and your track and catches are saved here.")
+                .padding(.top, DS.Space.s3)
         } else {
             ForEach(sessionGroups(past), id: \.id) { group in
                 groupHeader(group.month, detail: group.year, count: group.trips.count)
@@ -751,10 +754,15 @@ struct CatchesTab: View {
         }
         .buttonStyle(.dsRow)
 
-        if planned.isEmpty {
-            ContentUnavailableView("Nothing planned", systemImage: "calendar",
-                                   description: Text("Pick a day with a good bite and get a reminder before you go."))
-                .padding(.top, 12)
+        if plansFailed {
+            InlineEmpty(systemImage: "exclamationmark.triangle",
+                        text: "Your plans could not be read. Nothing is lost.",
+                        actionTitle: "Try again") { reload() }
+                .padding(.top, DS.Space.s3)
+        } else if planned.isEmpty {
+            InlineEmpty(systemImage: "calendar",
+                        text: "Nothing planned yet. Pick a day with a good bite and get a reminder before you go.")
+                .padding(.top, DS.Space.s3)
         } else {
             groupHeader("Upcoming", detail: nil, count: planned.count)
             ForEach(planned.sorted { ($0.plannedDate ?? $0.startDate) < ($1.plannedDate ?? $1.startDate) }) { trip in
@@ -818,8 +826,18 @@ struct CatchesTab: View {
             loadState = .failed
         }
         if FeatureFlags.liveTrips {
-            sessions = (try? appState.tripRepository.fetchAll()) ?? []
-            planned = (try? appState.tripRepository.fetchPlanned()) ?? []
+            do {
+                sessions = try appState.tripRepository.fetchAll()
+                sessionsFailed = false
+            } catch {
+                sessionsFailed = true
+            }
+            do {
+                planned = try appState.tripRepository.fetchPlanned()
+                plansFailed = false
+            } catch {
+                plansFailed = true
+            }
             planOutlooks = Self.planOutlooks(for: planned,
                                              fallback: appState.locationManager.currentLocation?.coordinate)
         }
