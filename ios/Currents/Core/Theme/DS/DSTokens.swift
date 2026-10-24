@@ -44,14 +44,15 @@ enum DS {
     /// applies it as `.tint`, so `.foregroundStyle(.tint)` tracks it live.
     static var accent: Color { ThemeOption.current.primary }
 
-    /// Bite score ramp, same breakpoints as before: slow < 25 ≤ low < 50 ≤
-    /// fair < 75 ≤ good < 90 ≤ best (the accent).
+    /// Bite score ramp on the grade breakpoints (`ForecastFormat.grade`), so
+    /// each grade word has one colour: slow < 25 ≤ low < 50 ≤ fair < 65 ≤
+    /// good < 80 ≤ excellent (the accent).
     static func scoreColor(_ score: Int) -> Color {
         switch score {
         case ..<25: return .dsScoreSlow
         case 25..<50: return .dsScoreLow
-        case 50..<75: return .dsScoreFair
-        case 75..<90: return .dsScoreGood
+        case 50..<65: return .dsScoreFair
+        case 65..<80: return .dsScoreGood
         default: return accent
         }
     }
