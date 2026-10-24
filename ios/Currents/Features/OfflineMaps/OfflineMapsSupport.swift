@@ -51,11 +51,7 @@ enum OfflineFormat {
     }
 
     static func area(_ km2: Double) -> String {
-        if Units.isImperial {
-            let mi2 = km2 * 0.386102
-            return mi2.formatted(.number.precision(.fractionLength(mi2 < 10 ? 1 : 0))) + " sq mi"
-        }
-        return km2.formatted(.number.precision(.fractionLength(km2 < 10 ? 1 : 0))) + " km²"
+        Units.area(km2: km2)
     }
 
     static func side(_ rect: GeoRect) -> String {

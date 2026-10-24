@@ -131,10 +131,9 @@ enum ExploreFormat {
         }
     }
 
+    /// Small waters read in hectares (acres in imperial).
     static func area(_ km2: Double) -> String {
-        if km2 >= 1000 { return String(format: "%.0f km²", km2) }
-        if km2 >= 1 { return String(format: "%.1f km²", km2) }
-        return String(format: "%.0f ha", km2 * 100)
+        Units.area(km2: km2, smallInHectares: true)
     }
 
     /// Fishing access in the accent, ramps in teal, wherever they are drawn as thumbs.
