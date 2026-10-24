@@ -343,7 +343,9 @@ struct GearTab: View {
     private func gearRow(_ item: OwnedGear) -> some View {
         HStack(spacing: 0) {
             NavigationLink(value: GearItemRoute(id: item.id)) {
-                ArtRow(title: item.name, subtitle: rowSubtitle(item)) {
+                // Consumables end in a stock stepper instead of a chevron.
+                ArtRow(title: item.name, subtitle: rowSubtitle(item),
+                       chevron: !item.category.isConsumable) {
                     GearThumb(item: item, size: 56)
                 }
             }
