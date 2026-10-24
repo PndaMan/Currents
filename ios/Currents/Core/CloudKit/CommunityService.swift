@@ -2389,8 +2389,18 @@ final class CommunityService: ObservableObject {
         return trip
     }
 
-    func declineInvite(_ invite: TripInvite) async {
-        _ = try? await db.deleteRecord(withID: CKRecord.ID(recordName: invite.id))
+    /// True once the invite record is gone. On false the invite stays, so the
+    /// angler can try again.
+    @discardableResult
+    func declineInvite(_ invite: TripInvite) async -> Bool {
+        do {
+            _ = try await db.deleteRecord(withID: CKRecord.ID(recordName: invite.id))
+        } catch let e as CKError where e.code == .unknownItem {
+            // Already gone, which is what declining needs.
+        } catch {
+            return false
+        }
+        return true
     }
 
     /// Poll for invites and fire a one-time local notification for any new ones.

@@ -370,9 +370,14 @@ struct CrewRequestsPage: View {
                 }
             } onDecline: {
                 Haptics.warning()
-                // No result to check, so the reload shows whether it went.
-                await svc.declineInvite(inv)
-                await load()
+                // A failed decline keeps the row so it can be tried again.
+                let ok = await svc.declineInvite(inv)
+                if ok {
+                    ToastCenter.shared.show("Invite declined", style: .info, haptic: false)
+                    await load()
+                } else {
+                    ToastCenter.shared.show("Couldn't decline. Try again", style: .error)
+                }
             }
             .padding(.leading, DS.gutter + 64 + 14)
             .padding(.trailing, DS.gutter)
