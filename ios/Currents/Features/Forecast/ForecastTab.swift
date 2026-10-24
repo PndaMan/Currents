@@ -165,9 +165,21 @@ struct TargetSpeciesPage: View {
         .task {
             guard !loaded else { return }
             all = (try? appState.speciesRepository.fetchAll()) ?? []
-            nearbyIds = TargetData.nearbySpeciesIds(near: store.coordinate, appState: appState)
+            nearbyIds = nearbySpeciesIds()
             loaded = true
+            // The bundled water can still be importing on a first open, so
+            // the fish known in nearby waters are read again once it is in.
+            await BundledMapData.importWaterIfNeeded(into: appState.db)
+            nearbyIds = nearbySpeciesIds()
         }
+    }
+
+    /// Fish around the place that are angled for: any you have caught, and
+    /// from the waters only species with bait records, so a water's
+    /// mosquitofish and klipfish stay out of the list.
+    private func nearbySpeciesIds() -> [Int64] {
+        let angled = Set(all.filter { !$0.parsedBaits.isEmpty }.map(\.id))
+        return TargetData.nearbySpeciesIds(near: store.coordinate, appState: appState) { angled.contains($0) }
     }
 
     /// Nothing to list: the guide is not set up yet, the search matches

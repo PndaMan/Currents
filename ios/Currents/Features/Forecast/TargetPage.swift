@@ -885,8 +885,10 @@ enum TargetData {
     /// Species likely around `c`, from what the phone already holds, most
     /// likely first: your catches within `nearKm` count most, then the
     /// waters of your saved spots, then other waters within `nearKm` whose
-    /// fish are known. No network.
-    static func nearbySpeciesIds(near c: CLLocationCoordinate2D, appState: AppState) -> [Int64] {
+    /// fish are known. A water's fish count only when `fromWaters` keeps
+    /// them. No network.
+    static func nearbySpeciesIds(near c: CLLocationCoordinate2D, appState: AppState,
+                                 fromWaters: (Int64) -> Bool = { _ in true }) -> [Int64] {
         var weight: [Int64: Int] = [:]
         let catches = (try? appState.catchRepository.fetchAll(limit: 500)) ?? []
         for detail in catches {
@@ -904,7 +906,7 @@ enum TargetData {
         for water in waters where water.fishSpeciesIds != nil {
             guard km(from: c, water.latitude, water.longitude) <= nearKm else { continue }
             let saved = water.id.map { savedWaters.contains($0) } ?? false
-            for id in Set(water.decodedFishSpeciesIds) {
+            for id in Set(water.decodedFishSpeciesIds) where fromWaters(id) {
                 weight[id, default: 0] += saved ? 2 : 1
             }
         }
