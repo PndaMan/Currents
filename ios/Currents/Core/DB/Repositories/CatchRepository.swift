@@ -142,33 +142,6 @@ final class CatchRepository: ObservableObject {
         }
     }
 
-    /// Monthly catch counts for trend charts.
-    func monthlyCounts(months: Int = 12) throws -> [(month: String, count: Int)] {
-        try db.db.read { db in
-            let rows = try Row.fetchAll(db, sql: """
-                SELECT strftime('%Y-%m', caughtAt) as month, COUNT(*) as cnt
-                FROM "catch"
-                WHERE caughtAt >= date('now', '-\(months) months')
-                GROUP BY month
-                ORDER BY month
-                """)
-            return rows.map { (month: $0["month"] as String, count: $0["cnt"] as Int) }
-        }
-    }
-
-    /// Catches grouped by hour of day (for "best time to fish" analysis).
-    func catchesByHour() throws -> [(hour: Int, count: Int)] {
-        try db.db.read { db in
-            let rows = try Row.fetchAll(db, sql: """
-                SELECT CAST(strftime('%H', caughtAt) AS INTEGER) as hour, COUNT(*) as cnt
-                FROM "catch"
-                GROUP BY hour
-                ORDER BY hour
-                """)
-            return rows.map { (hour: $0["hour"] as Int, count: $0["cnt"] as Int) }
-        }
-    }
-
     /// Average forecast score at catch time (validates our forecast model).
     func averageForecastScore() throws -> Double? {
         try db.db.read { db in
