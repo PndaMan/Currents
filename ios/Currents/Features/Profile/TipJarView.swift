@@ -4,6 +4,7 @@ import SwiftUI
 /// Pages pushed from About.
 enum AboutRoute: Hashable {
     case tips
+    case acknowledgements
 }
 
 /// Leave a tip: one row per tip on sale, with the App Store's own name and

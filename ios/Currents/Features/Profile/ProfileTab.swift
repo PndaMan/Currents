@@ -1522,6 +1522,11 @@ struct WidgetsSiriView: View {
 struct AboutView: View {
     @State private var titleShown = false
 
+    /// The support and privacy pages the App Store listing links to
+    /// (ios/AppStore/metadata).
+    private static let supportURL = URL(string: "https://pndaman.github.io/Currents/support.html")!
+    private static let privacyURL = URL(string: "https://pndaman.github.io/Currents/privacy-policy.html")!
+
     /// "2.4", for the About row in settings.
     static var shortVersion: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
@@ -1553,6 +1558,24 @@ struct AboutView: View {
                     .buttonStyle(.dsCardRow)
                     .accessibilityHint("Opens the App Store")
                 }
+                CardSection("Help") {
+                    Link(destination: Self.supportURL) {
+                        CardRow("Contact support", subtitle: "Questions, bugs and ideas",
+                                systemImage: "envelope.fill", tint: .blue, chevron: true)
+                    }
+                    .buttonStyle(.dsCardRow)
+                    .accessibilityHint("Opens the support page")
+                    Link(destination: Self.privacyURL) {
+                        CardRow("Privacy policy", systemImage: "hand.raised.fill", tint: .green, chevron: true)
+                    }
+                    .buttonStyle(.dsCardRow)
+                    .accessibilityHint("Opens the privacy policy")
+                    NavigationLink(value: AboutRoute.acknowledgements) {
+                        CardRow("Acknowledgements", subtitle: "Open-source software in Currents",
+                                systemImage: "shippingbox.fill", tint: .purple, chevron: true)
+                    }
+                    .buttonStyle(.dsCardRow)
+                }
                 VStack(alignment: .leading, spacing: 0) {
                     SectionTitle("Data sources")
                     KeyValueList(rows: [
@@ -1572,7 +1595,12 @@ struct AboutView: View {
         .detailTint(nil)
         .pfTrackScroll($titleShown, threshold: 140)
         .pfScrollTitle("About", shown: titleShown)
-        .navigationDestination(for: AboutRoute.self) { _ in TipJarView() }
+        .navigationDestination(for: AboutRoute.self) { route in
+            switch route {
+            case .tips: TipJarView()
+            case .acknowledgements: AcknowledgementsView()
+            }
+        }
         .task {
             // Tries again each visit, as the tips may not have loaded before
             // (offline, or not on sale yet).
@@ -1595,6 +1623,42 @@ struct AboutView: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, DS.Space.s4)
+    }
+}
+
+/// The open-source packages Currents is built with (ios/project.yml), each
+/// with its licence and a link to its repository.
+struct AcknowledgementsView: View {
+    private struct Package: Identifiable {
+        let name: String
+        let licence: String
+        let url: URL
+        let tint: Color
+        var id: String { name }
+    }
+
+    private let packages: [Package] = [
+        Package(name: "GRDB", licence: "MIT License",
+                url: URL(string: "https://github.com/groue/GRDB.swift")!, tint: .blue),
+        Package(name: "Nuke", licence: "MIT License",
+                url: URL(string: "https://github.com/kean/Nuke")!, tint: .orange),
+        Package(name: "ZIPFoundation", licence: "MIT License",
+                url: URL(string: "https://github.com/weichsel/ZIPFoundation")!, tint: .green),
+    ]
+
+    var body: some View {
+        TodayPage("Acknowledgements", subtitle: "Open-source software in Currents") {
+            CardSection(note: "Thank you to everyone who builds and maintains these.") {
+                ForEach(packages) { package in
+                    Link(destination: package.url) {
+                        CardRow(package.name, subtitle: package.licence,
+                                systemImage: "shippingbox.fill", tint: package.tint, chevron: true)
+                    }
+                    .buttonStyle(.dsCardRow)
+                    .accessibilityHint("Opens its repository")
+                }
+            }
+        }
     }
 }
 
