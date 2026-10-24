@@ -594,7 +594,10 @@ enum ScreenshotSupport {
                 if week == 0 { start = Date.now.addingTimeInterval(-4 * 3600) }
                 let fishCount = week == 0 ? 2 : rng.int(1...4)
 
-                var trip = Trip(name: "\(spot.name), \(evening ? "evening" : "morning")",
+                // This week's session starts four hours before the run, so
+                // its name comes from that hour, not from the rotation.
+                let partName = week == 0 ? partOfDay(start) : (evening ? "evening" : "morning")
+                var trip = Trip(name: "\(spot.name), \(partName)",
                                 startDate: start, endDate: start.addingTimeInterval(3.5 * 3600),
                                 spotId: spot.id, weatherConditions: evening ? "clear" : "cloudy")
                 if week == 0 { trip.endDate = Date.now.addingTimeInterval(-1200) }
