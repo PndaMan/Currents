@@ -1089,8 +1089,10 @@ private struct StorageUsageBar: View {
     private var parts: [Part] {
         guard let usage else { return [] }
         return [
-            Part(name: "Offline maps", bytes: usage.maps, color: DS.accent),
-            Part(name: "Catch photos", bytes: usage.photos, color: .dsScoreGood),
+            // Maps in the Offline maps row's green; photos take a hue no
+            // row on the page uses.
+            Part(name: "Maps", bytes: usage.maps, color: .green),
+            Part(name: "Catch photos", bytes: usage.photos, color: .pink),
             Part(name: "Logbook", bytes: usage.logbook, color: .dsScoreFair),
             Part(name: "Backups", bytes: usage.backups, color: .blue),
         ].filter { $0.bytes > 0 }
