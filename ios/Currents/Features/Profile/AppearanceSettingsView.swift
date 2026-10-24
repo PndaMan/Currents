@@ -62,7 +62,7 @@ struct AppearanceSettingsView: View {
                         }
                     }
                     .padding(.horizontal, DS.gutter)
-                    PFFootnote(iconFollowsTheme ? "Pick another icon to set it on its own." : "Set on its own.")
+                    SectionFootnote(iconFollowsTheme ? "Pick another icon to set it on its own." : "Set on its own.")
                 }
 
                 VStack(alignment: .leading, spacing: DS.Space.s3) {
