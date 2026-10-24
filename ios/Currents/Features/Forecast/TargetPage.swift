@@ -91,7 +91,7 @@ struct TargetScreen: View {
             let spot = spots.first(where: { $0.id == spotId })
             if let spot {
                 store.setLocation(CLLocationCoordinate2D(latitude: spot.latitude, longitude: spot.longitude),
-                                  name: spot.name)
+                                  name: spot.name, freshwater: ThrowSpeciesChoice.isFreshwater(spot.type))
             } else if let loc = appState.locationManager.currentLocation {
                 store.setLocation(loc.coordinate, name: "Current location")
             }
@@ -127,6 +127,7 @@ struct TargetPage: View {
     @State private var mostCaught: [Species] = []
     @State private var loaded = false
     @State private var loggingCatch = false
+    @State private var titleShown = false
 
     private var imperial: Bool { units == "imperial" }
 
@@ -151,12 +152,12 @@ struct TargetPage: View {
             .animation(reduceMotion ? nil : DS.Motion.softSpring, value: store.species?.id)
             .pageWidth()
         }
+        .forecastTracksTitle($titleShown)
         .detailTint(store.species?.artTint ?? DS.accent)
-        .navigationTitle(store.species?.commonName ?? "Target")
-        .navigationBarTitleDisplayMode(.inline)
+        .forecastInlineTitle(store.species?.commonName ?? "Target a species", shown: titleShown)
         .refreshable {
-            await store.load(force: true)
-            Haptics.softPress()
+            let live = await store.load(force: true)
+            ForecastStore.refreshFeedback(live)
         }
         .task(id: loadKey) { load() }
         .fullScreenCover(isPresented: $loggingCatch, onDismiss: { load() }) {
@@ -171,6 +172,7 @@ struct TargetPage: View {
     private func targeted(_ species: Species) -> some View {
         let today = store.day(0)
         header(species)
+        if let note = store.staleNote { SectionFootnote(note) }
         if let reg = regulation, let season = TargetClosedSeason(reg.closedSeason), season.isClosed() {
             closedBanner(species, season: season)
         }
@@ -193,11 +195,7 @@ struct TargetPage: View {
             guideLink(species)
                 .padding(.top, DS.Space.s6)
         }
-        Text("Worked out on your phone from the species guide and your own catches. No signal needed.")
-            .font(.footnote)
-            .foregroundStyle(.dsText2)
-            .fixedSize(horizontal: false, vertical: true)
-            .padding(.horizontal, DS.gutter)
+        SectionFootnote("Worked out on your phone from the species guide and your own catches. No signal needed.")
             .padding(.top, DS.Space.s6)
     }
 
@@ -263,9 +261,12 @@ struct TargetPage: View {
 
     // MARK: Today
 
+    /// The bite for it this hour as a grade, with the main reason under it,
+    /// as on Today's hero. The full breakdown is on the day page.
     private func todaySection(_ species: Species, day: ForecastDay) -> some View {
         let score = day.result.score
-        let reasons = Array(day.result.reasons.prefix(4)).map(ForecastFormat.clean)
+        let reason = day.result.reasons.first.map(ForecastFormat.clean) ?? ForecastFormat.guidance(score)
+        let changes = TargetText.changes(for: species, imperial: imperial)
         return VStack(alignment: .leading, spacing: 0) {
             NavigationLink(value: ForecastRoute.day(offset: 0, hour: nil)) {
                 SectionTitle("Today", chevron: true)
@@ -274,12 +275,17 @@ struct TargetPage: View {
 
             HStack(alignment: .center, spacing: 16) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Bite right now")
+                    Text("Bite for \(species.commonName)")
                         .font(.subheadline)
                         .foregroundStyle(.dsText2)
-                    Text(ForecastFormat.verdict(score))
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text("\(ForecastFormat.grade(score)) now")
                         .font(.title2.bold())
                         .foregroundStyle(.dsText)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(reason)
+                        .font(.callout)
+                        .foregroundStyle(.dsText2)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer(minLength: 0)
@@ -288,22 +294,14 @@ struct TargetPage: View {
             .padding(.horizontal, DS.gutter)
             .accessibilityElement(children: .combine)
 
-            VStack(alignment: .leading, spacing: 8) {
-                ForEach(reasons, id: \.self) { reason in
-                    TargetBullet(text: reason, systemImage: "circle.fill", tint: DS.scoreColor(score), small: true)
+            if !changes.isEmpty {
+                CardSection("How targeting changes the score") {
+                    ForEach(changes) { item in
+                        CardRow(item.title, subtitle: item.text, systemImage: item.icon, tint: item.tint)
+                    }
                 }
-            }
-            .padding(.horizontal, DS.gutter)
-            .padding(.top, DS.Space.s4)
-
-            SectionTitle("How targeting changes the score")
                 .padding(.top, DS.Space.s5)
-            VStack(alignment: .leading, spacing: 10) {
-                ForEach(TargetText.changes(for: species)) { item in
-                    TargetBullet(text: item.text, systemImage: item.icon, tint: species.artTint)
-                }
             }
-            .padding(.horizontal, DS.gutter)
         }
     }
 
@@ -323,8 +321,8 @@ struct TargetPage: View {
                     }
                     .buttonStyle(.dim)
                 } else {
-                    StatTile("Best window today", systemImage: "clock", tint: .dsText2,
-                             value: ConditionText.missing, footnote: "No hour stands out", width: nil)
+                    StatTile("Best window today", systemImage: "clock", tint: .blue,
+                             value: ConditionText.missing, footnote: "No standout window", width: nil)
                 }
                 if let best {
                     NavigationLink(value: ForecastRoute.day(offset: best.offset, hour: nil)) {
@@ -346,12 +344,14 @@ struct TargetPage: View {
 
     private func lureSection(_ species: Species) -> some View {
         let weather = store.weather(for: 0)
-        let clarity = WaterClarity(rawValue: clarityOverride) ?? WaterClarity.inferred(precipMm: weather?.precipMm)
+        // An offline estimate only has a real barometer, as on Today.
+        let measured = store.weatherIsEstimate ? nil : weather
+        let clarity = WaterClarity(rawValue: clarityOverride) ?? WaterClarity.inferred(precipMm: measured?.precipMm)
         let conditions = LureEngine.Conditions(
-            waterTempC: weather?.waterTempC,
+            waterTempC: measured?.waterTempC,
             clarity: clarity,
-            cloudCoverPct: weather?.cloudCoverPct,
-            windSpeedKmh: weather?.windSpeedKmh,
+            cloudCoverPct: measured?.cloudCoverPct,
+            windSpeedKmh: measured?.windSpeedKmh,
             pressureChange6h: weather?.pressureChange6h
         )
         let picks = LureEngine.recommend(conditions: conditions, species: species,
@@ -372,18 +372,16 @@ struct TargetPage: View {
                 }
             }
 
-            if !baits.isEmpty || species.baitNotes != nil {
-                VStack(alignment: .leading, spacing: 10) {
-                    if !baits.isEmpty {
-                        TargetBullet(text: "Known baits: \(baits.joined(separator: ", ")).",
-                                     systemImage: "fish", tint: species.artTint)
-                    }
-                    if let notes = species.baitNotes, !notes.isEmpty {
-                        TargetBullet(text: ForecastFormat.clean(notes), systemImage: "lightbulb", tint: species.artTint)
-                    }
+            let notes = species.baitNotes.map(ForecastFormat.clean) ?? ""
+            if !baits.isEmpty {
+                CardSection(note: notes) {
+                    CardRow("Known baits", subtitle: baits.joined(separator: ", "),
+                            systemImage: "fish", tint: .green)
                 }
-                .padding(.horizontal, DS.gutter)
                 .padding(.top, DS.Space.s4)
+            } else if !notes.isEmpty {
+                SectionFootnote(notes)
+                    .padding(.top, DS.Space.s2)
             }
         }
     }
@@ -403,8 +401,8 @@ struct TargetPage: View {
             SectionTitle("Where to find it")
             if mine.isEmpty && near.isEmpty {
                 if loaded {
-                    TargetEmptyNote(systemImage: "mappin.slash",
-                                    text: "No places for it yet. Spots where you catch \(species.commonName), and waters within \(Units.distance(km: TargetData.radiusKm, imperial: imperial)) known to hold it, show here.")
+                    InlineEmpty(systemImage: "mappin.slash",
+                                text: "No places for it yet. Spots where you catch \(species.commonName), and waters within \(Units.distance(km: TargetData.radiusKm, imperial: imperial)) known to hold it, show here.")
                 }
             } else {
                 ForEach(mine.prefix(5)) { item in
@@ -429,7 +427,7 @@ struct TargetPage: View {
                         }
                     } label: {
                         ArtRow(title: item.water.name,
-                               subtitle: "\(item.water.type.rawValue.capitalized), \(Units.distance(km: item.km, imperial: imperial)) away, known to hold it",
+                               subtitle: "\(TargetText.waterLabel(item.water.type)), \(Units.distance(km: item.km, imperial: imperial)) away, known to hold it",
                                chevron: true) {
                             ThumbView(systemImage: "water.waves", tint: ForecastCondition.tide.tint, size: 48)
                         }
@@ -448,15 +446,10 @@ struct TargetPage: View {
             SectionTitle("Rules", detail: regulation?.region)
             if let reg = regulation {
                 ConditionFigures(items: TargetText.ruleFigures(reg, imperial: imperial))
-                Text("A quick reference. Rules change and differ by place, so check the local rules before you keep a fish.")
-                    .font(.footnote)
-                    .foregroundStyle(.dsText2)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.horizontal, DS.gutter)
-                    .padding(.top, 10)
+                SectionFootnote("A quick reference. Rules change and differ by place, so check the local rules before you keep a fish.")
             } else if loaded {
-                TargetEmptyNote(systemImage: "book.closed",
-                                text: "No size or bag limits on file for \(species.commonName). Check the local rules before you keep one.")
+                InlineEmpty(systemImage: "book.closed",
+                            text: "No size or bag limits on file for \(species.commonName). Check the local rules before you keep one.")
             }
         }
     }
@@ -472,8 +465,8 @@ struct TargetPage: View {
             SectionTitle("Your record", detail: catches.isEmpty ? nil : "\(catches.count)")
             if catches.isEmpty {
                 if loaded {
-                    TargetEmptyNote(systemImage: "fish",
-                                    text: "You have not logged \(species.commonName) yet. Your count, best fish and last catch show here.")
+                    InlineEmpty(systemImage: "fish",
+                                text: "You have not logged \(species.commonName) yet. Your count, best fish and last catch show here.")
                 }
             } else {
                 LazyVGrid(columns: [GridItem(.flexible(), spacing: 10, alignment: .top),
@@ -569,14 +562,12 @@ struct TargetPage: View {
         .padding(.horizontal, DS.gutter)
         .padding(.top, DS.Space.s5)
 
-        SectionTitle("What targeting does")
-            .padding(.top, DS.Space.s6)
-        VStack(alignment: .leading, spacing: 10) {
+        CardSection("What targeting does") {
             ForEach(TargetText.general) { item in
-                TargetBullet(text: item.text, systemImage: item.icon, tint: DS.accent)
+                CardRow(item.title, subtitle: item.text, systemImage: item.icon, tint: item.tint)
             }
         }
-        .padding(.horizontal, DS.gutter)
+        .padding(.top, DS.Space.s6)
 
         switchSection(excluding: nil)
 
@@ -612,58 +603,16 @@ struct TargetPage: View {
 
 // MARK: - Pieces
 
-/// An icon and a sentence, for reasons and explanations.
-private struct TargetBullet: View {
-    let text: String
-    let systemImage: String
-    let tint: Color
-    var small = false
-
-    var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 10) {
-            Image(systemName: systemImage)
-                .font(small ? .caption2 : .subheadline)
-                .foregroundStyle(tint)
-                .frame(width: 20)
-                .accessibilityHidden(true)
-            Text(text)
-                .font(.subheadline)
-                .foregroundStyle(.dsText)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-    }
-}
-
-/// A block's empty state: what will show here and how it gets there.
-private struct TargetEmptyNote: View {
-    let systemImage: String
-    let text: String
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: systemImage)
-                .font(.title3)
-                .foregroundStyle(.dsText2)
-                .frame(width: 28)
-                .accessibilityHidden(true)
-            Text(text)
-                .font(.subheadline)
-                .foregroundStyle(.dsText2)
-                .fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 0)
-        }
-        .padding(14)
-        .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.button, style: .continuous))
-        .padding(.horizontal, DS.gutter)
-    }
-}
-
 // MARK: - Words
 
+/// One row on what targeting does: a short title, the detail under it,
+/// and the icon tile.
 struct TargetNoteItem: Identifiable {
     let icon: String
+    let tint: Color
+    let title: String
     let text: String
-    var id: String { text }
+    var id: String { title }
 }
 
 @MainActor
@@ -681,52 +630,76 @@ enum TargetText {
     }
 
     /// What targeting this species changes, from what its record supports.
-    static func changes(for species: Species) -> [TargetNoteItem] {
+    static func changes(for species: Species, imperial: Bool = Units.isImperial) -> [TargetNoteItem] {
         var items: [TargetNoteItem] = []
         if species.optimalTempC != nil || species.minTempC != nil {
             let band = ConditionText.comfort(for: species)
-            items.append(TargetNoteItem(icon: "thermometer.medium",
-                                        text: "Water temperature is scored against its comfort band, \(Units.temperature(band.lowerBound)) to \(Units.temperature(band.upperBound))."))
+            let low = Units.temperature(band.lowerBound, imperial: imperial)
+            let high = Units.temperature(band.upperBound, imperial: imperial)
+            items.append(TargetNoteItem(icon: "thermometer.medium", tint: ForecastCondition.water.ink,
+                                        title: "Its own comfort band",
+                                        text: "Water is scored against \(low) to \(high)"))
         }
         let traits = ForecastEngine.SpeciesTraits(species)
         switch traits.tide {
         case .heavier:
-            items.append(TargetNoteItem(icon: "water.waves",
-                                        text: "Tide counts for more, because saltwater and estuary fish feed on the moving tide."))
+            items.append(TargetNoteItem(icon: "water.waves", tint: ForecastCondition.tide.ink,
+                                        title: "Tide counts for more",
+                                        text: "Saltwater and estuary fish feed on the moving tide"))
         case .ignored:
-            items.append(TargetNoteItem(icon: "water.waves.slash",
-                                        text: "Tide is left out, because it lives in fresh water."))
+            items.append(TargetNoteItem(icon: "water.waves.slash", tint: ForecastCondition.tide.ink,
+                                        title: "Tide left out",
+                                        text: "It lives in fresh water"))
         case .general:
             break
         }
         if traits.feedsAtNight {
-            items.append(TargetNoteItem(icon: "moon.stars",
-                                        text: "Night hours score well, because it feeds after dark."))
+            items.append(TargetNoteItem(icon: "moon.stars", tint: .indigo,
+                                        title: "Night hours score well",
+                                        text: "It feeds after dark"))
         }
         if !species.parsedBaits.isEmpty {
-            items.append(TargetNoteItem(icon: "fish",
-                                        text: "Lures that match its known baits rank higher in what to throw."))
+            items.append(TargetNoteItem(icon: "fish", tint: .green,
+                                        title: "Lures match its baits",
+                                        text: "Lures like its known baits rank higher in what to throw"))
         }
         if species.habitat == .marine || species.habitat == .brackish {
-            items.append(TargetNoteItem(icon: "xmark.circle",
-                                        text: "Bass lures such as frogs, spinnerbaits and Texas rigs are left out."))
+            items.append(TargetNoteItem(icon: "xmark.circle", tint: .red,
+                                        title: "Bass lures left out",
+                                        text: "Frogs, spinnerbaits and Texas rigs are not suggested"))
         }
         return items
     }
 
     /// What targeting does, for the page with nothing targeted.
-    static let general: [TargetNoteItem] = [
-        TargetNoteItem(icon: "thermometer.medium",
-                       text: "The bite score checks the water against that fish's own comfort band."),
-        TargetNoteItem(icon: "water.waves",
-                       text: "Tide counts for more for saltwater and estuary fish, and is left out for freshwater fish."),
-        TargetNoteItem(icon: "moon.stars",
-                       text: "Night feeders such as catfish and eels score well after dark."),
-        TargetNoteItem(icon: "fish",
-                       text: "What to throw favours lures that match its known baits."),
-        TargetNoteItem(icon: "mappin.and.ellipse",
-                       text: "You see waters that hold it, your spots for it, its size and bag limits, and your record with it."),
-    ]
+    static var general: [TargetNoteItem] { [
+        TargetNoteItem(icon: "thermometer.medium", tint: ForecastCondition.water.ink,
+                       title: "Its own comfort band",
+                       text: "The bite score checks the water against that fish's range"),
+        TargetNoteItem(icon: "water.waves", tint: ForecastCondition.tide.ink,
+                       title: "Tide where it matters",
+                       text: "More weight for saltwater fish, none for freshwater fish"),
+        TargetNoteItem(icon: "moon.stars", tint: .indigo,
+                       title: "Night feeders",
+                       text: "Catfish and eels score well after dark"),
+        TargetNoteItem(icon: "fish", tint: .green,
+                       title: "Lures that match",
+                       text: "What to throw favours lures like its known baits"),
+        TargetNoteItem(icon: "mappin.and.ellipse", tint: DS.accent,
+                       title: "Places, rules and your record",
+                       text: "Waters that hold it, its size and bag limits, and your catches"),
+    ] }
+
+    /// A water's type as a label, matching the spot type names.
+    static func waterLabel(_ type: Waterbody.WaterbodyType) -> String {
+        switch type {
+        case .dam: "Dam or reservoir"
+        case .river: "River"
+        case .estuary: "Estuary"
+        case .coast: "Coast"
+        case .lake: "Lake"
+        }
+    }
 
     static func ruleFigures(_ reg: FishingRegulation, imperial: Bool) -> [(String, String)] {
         var items: [(String, String)] = []
