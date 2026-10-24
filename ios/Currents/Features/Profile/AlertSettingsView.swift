@@ -282,24 +282,18 @@ struct AlertSettingsView: View {
                 Text(spot.name)
                     .foregroundStyle(.dsText)
                     .lineLimit(typeSize.isAccessibilitySize ? 3 : 2)
-                Text(Self.status(choice, threshold: threshold))
+                Text(rowStatus(choice, threshold: threshold, score: spotScores[spot.id]))
                     .font(.subheadline)
                     .foregroundStyle(.dsText2)
                     .lineLimit(typeSize.isAccessibilitySize ? 4 : 2)
             }
             Spacer(minLength: 8)
-            // Labelled, so the ring reads as the score now and not as the
-            // alert threshold beside it.
-            if let score = spotScores[spot.id] {
-                HStack(spacing: DS.Space.s2) {
-                    Text("Now")
-                        .font(.subheadline)
-                        .foregroundStyle(.dsText2)
-                        .fixedSize()
-                        .accessibilityHidden(true)
-                    ScoreRing(score: score, size: 36)
-                        .accessibilityLabel("Score now \(score)")
-                }
+            // The subtitle says "now 77", so the ring reads as the score now
+            // and not as the alert threshold. A spot that sends nothing
+            // shows no score.
+            if let score = spotScores[spot.id], Self.sends(choice, bite: alertsEnabled, headsUp: primeWindowAlerts) {
+                ScoreRing(score: score, size: 36)
+                    .accessibilityHidden(true)
             }
             Image(systemName: "chevron.right")
                 .font(.footnote.weight(.semibold))
@@ -311,9 +305,22 @@ struct AlertSettingsView: View {
         .accessibilityElement(children: .combine)
     }
 
-    /// The second line of a spot row: what that spot will send.
-    private static func status(_ choice: SpotAlert, threshold: Int) -> String {
-        switch (choice.biteAlerts, choice.headsUp) {
+    /// The second line of a spot row: what that spot will send, with the
+    /// score now. A type switched off above sends nothing at any spot, as
+    /// `NotificationManager.rescheduleBiteAlerts` plans it.
+    private func rowStatus(_ choice: SpotAlert, threshold: Int, score: Int?) -> String {
+        let status = Self.status(choice, threshold: threshold, bite: alertsEnabled, headsUp: primeWindowAlerts)
+        guard let score, Self.sends(choice, bite: alertsEnabled, headsUp: primeWindowAlerts) else { return status }
+        return "\(status), now \(score)"
+    }
+
+    /// True when the spot will send something.
+    private static func sends(_ choice: SpotAlert, bite: Bool, headsUp: Bool) -> Bool {
+        (bite && choice.biteAlerts) || (headsUp && choice.headsUp)
+    }
+
+    private static func status(_ choice: SpotAlert, threshold: Int, bite: Bool, headsUp: Bool) -> String {
+        switch (bite && choice.biteAlerts, headsUp && choice.headsUp) {
         case (false, false): return "Off"
         case (false, true): return "Heads-up only, at \(threshold) or more"
         case (true, false): return "Window opens only, at \(threshold) or more"
