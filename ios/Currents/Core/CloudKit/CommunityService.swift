@@ -349,6 +349,16 @@ final class CommunityService: ObservableObject {
 
     enum Metric { case count, weight, length }
 
+    /// The outcome of a lookup by code. Unlike an optional, it tells "that
+    /// code doesn't exist" from "couldn't reach iCloud", so an offline angler
+    /// is never told something is missing.
+    enum LookupResult<Value> {
+        case found(Value)
+        case notFound
+        case ownCode      // only from lookupProfile and sendFriendRequestResult
+        case failed       // offline, iCloud unavailable, or a server error
+    }
+
     // MARK: - Join / leave
 
     func join(name: String, region: String) async {
@@ -505,6 +515,32 @@ final class CommunityService: ObservableObject {
         let p = profile(from: r, avatar: avatar.image)
         cache(profile: p, code: code, avatarData: avatar.data)
         return p
+    }
+
+    /// An angler's profile by code, telling a code nobody holds from a
+    /// failed fetch. Screenshot mode answers from the seeded profile cache.
+    func lookupProfile(code raw: String) async -> LookupResult<Profile> {
+        let code = raw.uppercased().trimmingCharacters(in: .whitespaces)
+        if code == friendCode { return .ownCode }
+        if code == Self.demoCode { return .found(demoProfile) }
+        guard code.count == 6 else { return .notFound }
+        if ScreenshotSupport.isActive {
+            if let cached = cachedProfiles(for: [code]).first { return .found(cached) }
+            return .notFound
+        }
+        let id = CKRecord.ID(recordName: "profile-\(code)")
+        do {
+            let r = try await db.record(for: id)
+            // The avatar is read and decoded off the main thread.
+            let avatar = await Self.loadAvatar(from: (r["avatar"] as? CKAsset)?.fileURL)
+            let p = profile(from: r, avatar: avatar.image)
+            cache(profile: p, code: code, avatarData: avatar.data)
+            return .found(p)
+        } catch let e as CKError where e.code == .unknownItem {
+            return .notFound
+        } catch {
+            return .failed
+        }
     }
 
     /// Reads a profile's avatar asset and decodes it at avatar size on a
@@ -1532,31 +1568,64 @@ final class CommunityService: ObservableObject {
         return crew
     }
 
-    private func addCrewMembership(code: String) async {
+    /// Join a crew by code, telling a code no crew holds from a failed
+    /// fetch. The crew is only remembered once my membership is saved.
+    func lookupAndJoinCrew(code raw: String) async -> LookupResult<Crew> {
+        guard cloudAllowed else { return .failed }
+        let code = raw.uppercased().trimmingCharacters(in: .whitespaces)
+        guard code.count == 6 else { return .notFound }
+        let result = await fetchCrewResult(code: code)
+        guard case .found(let crew) = result else { return result }
+        guard await addCrewMembership(code: code) else { return .failed }
+        rememberCrew(crew)
+        return .found(crew)
+    }
+
+    /// True when my membership record was saved.
+    @discardableResult
+    private func addCrewMembership(code: String) async -> Bool {
         let id = CKRecord.ID(recordName: "crewmember-\(code)-\(friendCode)")
         let record = (try? await db.record(for: id)) ?? CKRecord(recordType: crewMemberType, recordID: id)
         record["crewCode"] = code as CKRecordValue
         record["memberCode"] = friendCode as CKRecordValue
         record["memberName"] = myName as CKRecordValue
         record["joinedAt"] = Date() as CKRecordValue
-        _ = try? await db.save(record)
+        do { _ = try await db.save(record) } catch { return false }
+        return true
     }
 
     func fetchCrew(code: String) async -> Crew? {
-        if ScreenshotSupport.isActive { return crew(withCode: code) }
+        let result = await fetchCrewResult(code: code)
+        if case .found(let crew) = result { return crew }
+        return nil
+    }
+
+    /// The crew record by code. `unknownItem` is the only error that means
+    /// the crew doesn't exist; anything else is a failed fetch.
+    private func fetchCrewResult(code: String) async -> LookupResult<Crew> {
+        if ScreenshotSupport.isActive {
+            if let local = crew(withCode: code) { return .found(local) }
+            return .notFound
+        }
         let id = CKRecord.ID(recordName: "crew-\(code)")
-        guard let r = try? await db.record(for: id) else { return nil }
-        let existing = crew(withCode: code)
-        return Crew(
-            code: r["code"] as? String ?? code,
-            name: r["name"] as? String ?? "Crew",
-            emoji: r["emoji"] as? String ?? "🎣", // ui-lint: allow, fallback for stored crew icon data
-            createdByCode: r["createdByCode"] as? String ?? "",
-            createdByName: r["createdByName"] as? String ?? "Angler",
-            joinedAt: existing?.joinedAt ?? Date(),
-            mates: Self.decodeCodes(r["mates"] as? String),
-            admins: Self.decodeCodes(r["admins"] as? String),
-            autoPost: existing?.autoPost ?? true)
+        do {
+            let r = try await db.record(for: id)
+            let existing = crew(withCode: code)
+            return .found(Crew(
+                code: r["code"] as? String ?? code,
+                name: r["name"] as? String ?? "Crew",
+                emoji: r["emoji"] as? String ?? "🎣", // ui-lint: allow, fallback for stored crew icon data
+                createdByCode: r["createdByCode"] as? String ?? "",
+                createdByName: r["createdByName"] as? String ?? "Angler",
+                joinedAt: existing?.joinedAt ?? Date(),
+                mates: Self.decodeCodes(r["mates"] as? String),
+                admins: Self.decodeCodes(r["admins"] as? String),
+                autoPost: existing?.autoPost ?? true))
+        } catch let e as CKError where e.code == .unknownItem {
+            return .notFound
+        } catch {
+            return .failed
+        }
     }
 
     static func decodeCodes(_ json: String?) -> [String] {
@@ -2315,17 +2384,32 @@ final class CommunityService: ObservableObject {
     /// auto-accepts. Returns false on a bad code.
     @discardableResult
     func sendFriendRequest(to raw: String) async -> Bool {
+        let result = await sendFriendRequestResult(to: raw)
+        if case .found = result { return true }
+        return false
+    }
+
+    /// Send a friend request, telling a code nobody holds from a failed
+    /// fetch or save. Already being friends counts as sent.
+    func sendFriendRequestResult(to raw: String) async -> LookupResult<Void> {
         let toCode = raw.uppercased().trimmingCharacters(in: .whitespaces)
-        guard toCode.count == 6, toCode != friendCode else { return false }
+        if toCode == friendCode { return .ownCode }
+        guard toCode.count == 6 else { return .notFound }
         if toCode == Self.demoCode {
             if !friends.contains(toCode) { friends.append(toCode) }
             UserDefaults.standard.set(true, forKey: "communityDemoAdded")
-            return true
+            return .found(())
         }
-        if friends.contains(toCode) { return true } // already friends
-        // Verify the code belongs to a real angler before claiming success —
-        // the failure copy promises "Couldn't find that code", so keep it true.
-        guard await fetchProfile(code: toCode) != nil else { return false }
+        if friends.contains(toCode) { return .found(()) } // already friends
+        // Verify the code belongs to a real angler before claiming success,
+        // and keep "no such angler" apart from "couldn't reach iCloud".
+        let lookup = await lookupProfile(code: toCode)
+        switch lookup {
+        case .found: break
+        case .notFound: return .notFound
+        case .ownCode: return .ownCode
+        case .failed: return .failed
+        }
         let id = CKRecord.ID(recordName: "friendreq-\(friendCode)-\(toCode)")
         let rec = (try? await db.record(for: id)) ?? CKRecord(recordType: friendReqType, recordID: id)
         rec["fromCode"] = friendCode as CKRecordValue
@@ -2333,7 +2417,8 @@ final class CommunityService: ObservableObject {
         rec["toCode"] = toCode as CKRecordValue
         rec["status"] = "pending" as CKRecordValue
         rec["createdAt"] = Date() as CKRecordValue
-        return (try? await db.save(rec)) != nil
+        do { _ = try await db.save(rec) } catch { return .failed }
+        return .found(())
     }
 
     /// Requests addressed to me and still pending. Queries server-side on the
