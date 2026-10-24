@@ -608,7 +608,8 @@ struct CrewDetailView: View {
             CrewEventRow(isLive: true,
                          over: trip.hostCode == svc.friendCode ? "You're hosting" : "Hosted by \(trip.hostName)",
                          title: trip.name,
-                         subtitle: amIn ? "You're in" : "Open to join",
+                         // The Join pill already says it is open.
+                         subtitle: amIn ? "You're in" : nil,
                          pill: amIn ? nil : "Join") {
                 ThumbView(systemImage: "dot.radiowaves.left.and.right", tint: CrewTint.live)
             }
