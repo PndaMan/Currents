@@ -15,6 +15,13 @@ struct RegulationsView: View {
         Array(Set(regulations.map(\.region))).sorted()
     }
 
+    /// Where these limits apply, for the header: the chosen region, or the
+    /// only one on file. Nil while several are shown together.
+    private var regionLine: String? {
+        let named = regions.filter { !$0.isEmpty }
+        return region ?? (named.count == 1 ? named.first : nil)
+    }
+
     private var filtered: [FishingRegulation] {
         regulations.filter {
             (region == nil || $0.region == region)
@@ -28,7 +35,7 @@ struct RegulationsView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: DS.Space.s4) {
-                DetailHeader(title: "Size and bag limits", subtitle: "What you may keep, by species")
+                DetailHeader(over: regionLine, title: "Size and bag limits", subtitle: "What you may keep, by species")
 
                 if regions.count > 1 {
                     ScrollView(.horizontal, showsIndicators: false) {
