@@ -461,24 +461,34 @@ struct CrewDetailView: View {
 
     // MARK: Actions
 
+    /// The primary tile goes first: Invite while nothing is live, the trip
+    /// tile while a group trip is.
     private func actions(_ crew: CommunityService.Crew) -> some View {
         ActionTriple {
-            ShareLink(item: svc.crewInviteMessage(code: crew.code, name: crew.name)) {
-                ActionTileLabel("Invite", systemImage: "person.badge.plus",
-                                kind: liveTrips.isEmpty ? .primary : .tonal)
+            if liveTrips.isEmpty {
+                inviteTile(crew, kind: .primary)
+                tripTile
+            } else {
+                tripTile
+                inviteTile(crew, kind: .tonal)
             }
-            .buttonStyle(.dim)
-            sessionTile
             moreMenu
         }
     }
 
-    /// The session you're in, else the crew's live one, else every live one
-    /// in a menu, else a new one.
-    @ViewBuilder private var sessionTile: some View {
+    private func inviteTile(_ crew: CommunityService.Crew, kind: ActionTileKind) -> some View {
+        ShareLink(item: svc.crewInviteMessage(code: crew.code, name: crew.name)) {
+            ActionTileLabel("Invite", systemImage: "person.badge.plus", kind: kind)
+        }
+        .buttonStyle(.dim)
+    }
+
+    /// The group trip you're in, else the crew's live one, else every live
+    /// one in a menu, else a new one.
+    @ViewBuilder private var tripTile: some View {
         if let trip = myLiveTrip ?? (liveTrips.count == 1 ? liveTrips.first : nil) {
             Button { openedTrip = CrewTripLink(trip) } label: {
-                Label(trip.id == myLiveTrip?.id ? "Open session" : "Join session",
+                Label(trip.id == myLiveTrip?.id ? "Open trip" : "Join trip",
                       systemImage: "dot.radiowaves.left.and.right")
             }
             .buttonStyle(ActionTileStyle(.primary))
@@ -490,12 +500,12 @@ struct CrewDetailView: View {
                     }
                 }
             } label: {
-                ActionTileLabel("Join session", systemImage: "dot.radiowaves.left.and.right", kind: .primary)
+                ActionTileLabel("Join trip", systemImage: "dot.radiowaves.left.and.right", kind: .primary)
             }
             .buttonStyle(.dim)
         } else {
             Button { showingTripSetup = true } label: {
-                Label("Start session", systemImage: "dot.radiowaves.left.and.right")
+                Label("Start group trip", systemImage: "dot.radiowaves.left.and.right")
             }
             .buttonStyle(ActionTileStyle(.tonal))
         }
@@ -515,7 +525,7 @@ struct CrewDetailView: View {
             }
             if !liveTrips.isEmpty {
                 Button { showingTripSetup = true } label: {
-                    Label("Start another session", systemImage: "plus")
+                    Label("Start another group trip", systemImage: "plus")
                 }
             }
             Button { showingSettings = true } label: {
@@ -563,7 +573,7 @@ struct CrewDetailView: View {
         return tournament
     }
 
-    /// The live tournament and sessions; hidden when nothing is live.
+    /// The live tournament and group trips; hidden when nothing is live.
     @ViewBuilder private var happeningNowSection: some View {
         if liveTournament != nil || !liveTrips.isEmpty {
             CrewSection(title: "Happening now") {
@@ -812,7 +822,7 @@ struct CrewDetailView: View {
     }
 
     /// Every 20s: re-fetch only the first feed page (merged into what's
-    /// loaded) plus the live-session and tournament state. While the crew
+    /// loaded) plus the live group trip and tournament state. While the crew
     /// could not be reached, the whole page is retried instead.
     private func pollLoop() async {
         while !Task.isCancelled {
@@ -920,7 +930,7 @@ struct CrewDetailView: View {
     }
 }
 
-/// A live session to open from the session tile.
+/// A live group trip to open from the trip tile.
 private struct CrewTripLink: Identifiable, Hashable {
     let code: String
     let name: String
@@ -1645,7 +1655,7 @@ struct CrewSettingsView: View {
         case .captain: "Full control, and can hand the crew over."
         case .mate:    "Edits the crew's look, sets roles, manages members and runs tournaments."
         case .admin:   "Deletes posts, removes members and runs tournaments."
-        case .member:  "Posts catches, reacts and joins sessions and tournaments."
+        case .member:  "Posts catches, reacts and joins group trips and tournaments."
         }
     }
 
