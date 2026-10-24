@@ -361,15 +361,20 @@ struct ExplorePlacePage: View {
 
     private var catchStats: some View {
         let released = catches.filter { $0.catchRecord.released }.count
-        let best = catches.compactMap(\.catchRecord.weightKg).max()
+        // Every tile in the row has a footnote; Best names the fish.
+        let heaviest = catches
+            .filter { $0.catchRecord.weightKg != nil }
+            .max { ($0.catchRecord.weightKg ?? 0) < ($1.catchRecord.weightKg ?? 0) }
         let species = Set(catches.compactMap { $0.species?.id }).count
         return ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 10) {
                 StatTile("Caught", systemImage: "fish", value: "\(catches.count)",
                          footnote: "\(species) species")
-                if let best {
+                if let heaviest, let best = heaviest.catchRecord.weightKg {
                     let parts = Units.weightParts(kg: best)
-                    StatTile("Best", systemImage: "trophy", tint: .dsScoreFair, value: parts.0, unit: parts.1)
+                    StatTile("Best", systemImage: "trophy", tint: .dsScoreFair, value: parts.0, unit: parts.1,
+                             footnote: heaviest.species?.commonName
+                                ?? ExploreFormat.shortDate(heaviest.catchRecord.caughtAt))
                 }
                 StatTile("Released", systemImage: "arrow.uturn.backward", tint: .dsScoreGood,
                          value: "\(Int((Double(released) / Double(max(catches.count, 1)) * 100).rounded()))",
