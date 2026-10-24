@@ -166,9 +166,22 @@ struct GearItemDetailView: View {
         VStack(alignment: .leading, spacing: 0) {
             SectionTitle("In the box")
             VStack(spacing: 0) {
-                stockRow("In stock", value: item.stock ?? 0, low: item.isLowStock) { change(stockBy: $0) }
+                if let stock = item.stock {
+                    stockRow("In stock", value: stock,
+                             tint: item.isLowStock ? DS.ink(.dsScoreLow) : .dsText) { change(stockBy: $0) }
+                } else {
+                    // Not counted yet: offer to start counting, never "Out".
+                    HStack {
+                        Text("In stock").foregroundStyle(.dsText)
+                        Spacer()
+                        Button("Set stock") { change(stockBy: 1) }
+                            .buttonStyle(TonalButtonStyle(fullWidth: false))
+                    }
+                    .padding(.horizontal, DS.Space.s4)
+                    .padding(.vertical, 10)
+                }
                 PFDivider()
-                stockRow("Remind me at", value: item.lowStockThreshold ?? 1, low: false) { change(thresholdBy: $0) }
+                stockRow("Remind me at", value: item.lowStockThreshold ?? 1) { change(thresholdBy: $0) }
             }
             .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
             .padding(.horizontal, DS.gutter)
@@ -196,20 +209,20 @@ struct GearItemDetailView: View {
         }
     }
 
-    private func stockRow(_ title: String, value: Int, low: Bool, onChange: @escaping (Int) -> Void) -> some View {
+    private func stockRow(_ title: String, value: Int, tint: Color = .dsText,
+                          onChange: @escaping (Int) -> Void) -> some View {
         HStack {
             Text(title).foregroundStyle(.dsText)
             Spacer()
-            PFStepper(value: "\(value)", canDecrement: value > 0, label: title, onChange: onChange)
-                .foregroundStyle(low ? Color.dsScoreLow : Color.dsText)
+            PFStepper(value: "\(value)", canDecrement: value > 0, label: title, tint: tint, onChange: onChange)
         }
         .padding(.horizontal, DS.Space.s4)
         .padding(.vertical, 10)
     }
 
     private func stockFootnote(_ item: OwnedGear) -> String {
-        let stock = item.stock ?? 0
         let at = item.lowStockThreshold ?? 1
+        guard let stock = item.stock else { return "Set a count to get a reminder when you run low." }
         if stock <= 0 { return "Out of stock." }
         if item.isLowStock { return "Running low. You asked to hear at \(at)." }
         return "You get a reminder when you are down to \(at)."

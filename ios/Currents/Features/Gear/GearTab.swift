@@ -19,7 +19,7 @@ struct GearTab: View {
     @State private var gearToDelete: OwnedGear?
     @State private var loadoutToDelete: GearLoadout?
     @State private var viewMode: ViewMode = .items
-    @State private var categoryFilter: OwnedGear.Category?
+    @State private var filter: GearFilter = .all
     @State private var didLoad = false
     @State private var titleShown = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -27,6 +27,13 @@ struct GearTab: View {
     enum ViewMode: String, CaseIterable {
         case items = "My gear"
         case presets = "Presets"
+    }
+
+    /// Which owned items the list shows: all, the ones running low, or one
+    /// category.
+    enum GearFilter: Hashable {
+        case all, low
+        case category(OwnedGear.Category)
     }
 
     private var subtitle: String {
@@ -58,11 +65,7 @@ struct GearTab: View {
             VStack(alignment: .leading, spacing: DS.Space.s4) {
                 DetailHeader(title: "Tackle box", subtitle: didLoad ? subtitle : nil)
 
-                Picker("Show", selection: $viewMode) {
-                    ForEach(ViewMode.allCases, id: \.self) { Text($0.rawValue).tag($0) }
-                }
-                .pickerStyle(.segmented)
-                .padding(.horizontal, DS.gutter)
+                FilterChips(ViewMode.allCases, selection: $viewMode) { $0.rawValue }
 
                 switch viewMode {
                 case .items: ownedGearContent
@@ -71,7 +74,7 @@ struct GearTab: View {
             }
             .padding(.bottom, DS.Space.s8)
             .animation(reduceMotion ? nil : .easeOut(duration: DS.Motion.fast), value: viewMode)
-            .animation(reduceMotion ? nil : .easeOut(duration: DS.Motion.fast), value: categoryFilter)
+            .animation(reduceMotion ? nil : .easeOut(duration: DS.Motion.fast), value: filter)
             .pageWidth()
         }
     }
@@ -176,8 +179,14 @@ struct GearTab: View {
 
     // MARK: - Owned gear
 
+    private var lowItems: [OwnedGear] { ownedGear.filter(\.isLowStock) }
+
     private var shownCategories: [OwnedGear.Category] {
-        categoryFilter.map { [$0] } ?? ownedCategories
+        switch filter {
+        case .all: ownedCategories
+        case .low: ownedCategories.filter { cat in lowItems.contains { $0.category == cat } }
+        case .category(let cat): ownedCategories.contains(cat) ? [cat] : ownedCategories
+        }
     }
 
     @ViewBuilder
@@ -187,11 +196,17 @@ struct GearTab: View {
         } else if ownedGear.isEmpty {
             emptyGear
         } else {
-            if let low = ownedGear.first(where: \.isLowStock) {
-                lowStockNotice(low)
+            if !lowItems.isEmpty && filter != .low {
+                lowStockRow
             }
             categoryChips
-            gearList
+            if filter == .low && lowItems.isEmpty {
+                InlineEmpty(systemImage: "checkmark.circle",
+                            text: "Nothing is running low.",
+                            actionTitle: "Show all gear") { filter = .all }
+            } else {
+                gearList
+            }
             effectivenessRow
                 .padding(.top, DS.Space.s4)
         }
@@ -218,38 +233,45 @@ struct GearTab: View {
         }
     }
 
-    private func lowStockNotice(_ low: OwnedGear) -> some View {
-        NavigationLink(value: GearItemRoute(id: low.id)) {
-            PFNotice(systemImage: "shippingbox.fill", tint: .dsScoreLow,
-                     title: (low.stock ?? 0) <= 0 ? "Out of \(low.name)" : "Running low on \(low.name)",
-                     message: lowMessage(low)) {
-                Image(systemName: "chevron.right")
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(.dsText3)
+    /// One row for everything running low; tapping it shows only those items.
+    private var lowStockRow: some View {
+        let names = lowItems.map(\.name)
+        let subtitle = names.count > 2
+            ? "\(names.prefix(2).joined(separator: ", ")) and \(names.count - 2) more"
+            : names.joined(separator: " and ")
+        return CardGroup {
+            Button { filter = .low } label: {
+                CardRow("\(lowItems.count) running low", subtitle: subtitle,
+                        systemImage: "exclamationmark.triangle.fill", tint: .orange, chevron: true)
             }
+            .buttonStyle(.dsCardRow)
+            .accessibilityHint("Shows only the gear that is running low")
         }
-        .buttonStyle(.dim)
+    }
+
+    private var filterOptions: [GearFilter] {
+        var options: [GearFilter] = [.all]
+        if !lowItems.isEmpty || filter == .low { options.append(.low) }
+        options += ownedCategories.map { GearFilter.category($0) }
+        return options
+    }
+
+    private func filterTitle(_ option: GearFilter) -> String {
+        switch option {
+        case .all: "All"
+        case .low: "Running low \(lowItems.count)"
+        case .category(let cat): "\(cat.plural) \(count(for: cat))"
+        }
     }
 
     private var categoryChips: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 6) {
-                Chip("All", isSelected: categoryFilter == nil) { categoryFilter = nil }
-                ForEach(ownedCategories, id: \.self) { cat in
-                    Chip("\(cat.plural) \(count(for: cat))", isSelected: categoryFilter == cat) {
-                        categoryFilter = categoryFilter == cat ? nil : cat
-                    }
-                }
-            }
-            .padding(.horizontal, DS.gutter)
-        }
-        .scrollBounceBehavior(.basedOnSize, axes: [.horizontal])
+        FilterChips(filterOptions, selection: $filter, title: { filterTitle($0) })
     }
 
     private var gearList: some View {
         LazyVStack(alignment: .leading, spacing: 0) {
             ForEach(shownCategories, id: \.self) { category in
-                SectionTitle(category.plural, detail: "\(count(for: category))")
+                SectionTitle(category.plural, detail: "\(items(in: category).count)")
                     .padding(.top, DS.Space.s4)
                 ForEach(items(in: category)) { item in
                     gearRow(item)
@@ -267,19 +289,14 @@ struct GearTab: View {
         .buttonStyle(.dsRow)
     }
 
-    private func lowMessage(_ item: OwnedGear) -> String {
-        let stock = item.stock ?? 0
-        let at = item.lowStockThreshold ?? 1
-        return stock <= 0 ? "None left. Restock before your next trip."
-            : "\(stock) left, you asked to hear at \(at)."
-    }
-
     private var ownedCategories: [OwnedGear.Category] {
         OwnedGear.Category.allCases.filter { cat in ownedGear.contains { $0.category == cat } }
     }
 
     private func items(in category: OwnedGear.Category) -> [OwnedGear] {
-        ownedGear.filter { $0.category == category }.sorted { $0.displayName < $1.displayName }
+        ownedGear
+            .filter { $0.category == category && (filter != .low || $0.isLowStock) }
+            .sorted { $0.displayName < $1.displayName }
     }
 
     private func count(for category: OwnedGear.Category) -> Int {
@@ -307,11 +324,20 @@ struct GearTab: View {
             .buttonStyle(.dim)
 
             if item.category.isConsumable {
-                PFStepper(value: stockLabel(item), canDecrement: (item.stock ?? 0) > 0,
-                          label: "\(item.name) in stock") { delta in
-                    changeStock(item, by: delta)
+                Group {
+                    if item.stock == nil {
+                        // Not counted yet: offer to start counting, never "Out".
+                        Button("Set stock") { setStock(item, to: 1) }
+                            .buttonStyle(TonalButtonStyle(fullWidth: false))
+                            .accessibilityLabel("Set stock for \(item.name)")
+                    } else {
+                        PFStepper(value: stockLabel(item), canDecrement: (item.stock ?? 0) > 0,
+                                  label: "\(item.name) in stock",
+                                  tint: item.isLowStock ? DS.ink(.dsScoreLow) : .dsText) { delta in
+                            changeStock(item, by: delta)
+                        }
+                    }
                 }
-                .foregroundStyle(item.isLowStock ? Color.dsScoreLow : Color.dsText)
                 .padding(.trailing, DS.gutter)
             }
         }
@@ -335,9 +361,18 @@ struct GearTab: View {
     }
 
     private func changeStock(_ item: OwnedGear, by delta: Int) {
+        setStock(item, to: max(0, (item.stock ?? 0) + delta))
+    }
+
+    private func setStock(_ item: OwnedGear, to stock: Int) {
         var updated = item
-        updated.stock = max(0, (item.stock ?? 0) + delta)
-        try? appState.ownedGearRepository.save(&updated)
+        updated.stock = stock
+        do {
+            try appState.ownedGearRepository.save(&updated)
+        } catch {
+            ToastCenter.shared.show("Could not update the stock", style: .error)
+            return
+        }
         if let idx = ownedGear.firstIndex(where: { $0.id == item.id }) {
             ownedGear[idx] = updated
         }
@@ -398,6 +433,7 @@ struct GearTab: View {
     private func refresh() async {
         loadouts = (try? appState.gearRepository.fetchPresets()) ?? []
         ownedGear = (try? appState.ownedGearRepository.fetchAll()) ?? []
+        if case .category(let cat) = filter, !ownedCategories.contains(cat) { filter = .all }
         catches = (try? appState.catchRepository.fetchAll(limit: 10000)) ?? []
         didLoad = true
     }
@@ -497,7 +533,7 @@ struct OwnedGearSheet: View {
         _brand = State(initialValue: editing?.brand ?? "")
         _specs = State(initialValue: editing?.specs ?? "")
         _barcode = State(initialValue: editing?.barcode ?? "")
-        _stock = State(initialValue: editing.map { $0.stock ?? 0 } ?? 1)
+        _stock = State(initialValue: editing?.stock ?? 1)
         _lowStockThreshold = State(initialValue: editing?.lowStockThreshold ?? 2)
         _photo = State(initialValue: editing?.photoPath.flatMap { PhotoManager.load($0) })
     }
@@ -976,16 +1012,25 @@ struct GearCatalogRow: View {
     }
 
     private func addToMyGear() {
+        let category = item.ownedCategory
         var gear = OwnedGear(
-            category: item.ownedCategory,
+            category: category,
             name: item.model,
             brand: item.brand,
             specs: {
                 let s = [item.type, item.specs].compactMap { $0 }.joined(separator: ", ")
                 return s.isEmpty ? nil : s
-            }()
+            }(),
+            // Consumables start with the one just added, so the row shows a
+            // count instead of "Out".
+            stock: category.isConsumable ? 1 : nil
         )
-        try? appState.ownedGearRepository.save(&gear)
+        do {
+            try appState.ownedGearRepository.save(&gear)
+        } catch {
+            ToastCenter.shared.show("Could not add this to your tackle box", style: .error)
+            return
+        }
         ToastCenter.shared.show("Added to your tackle box")
         withAnimation { onAdded?() }
     }

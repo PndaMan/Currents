@@ -283,26 +283,33 @@ struct PFFootnote: View {
 // MARK: - Stepper capsule
 
 /// A compact minus / value / plus capsule, for stock counts and lengths.
+/// `tint` colours the value, for example a low stock count.
 struct PFStepper: View {
     let value: String
     let canDecrement: Bool
     var label: String = "Value"
+    var tint: Color = .dsText
     let onChange: (Int) -> Void
 
     var body: some View {
         HStack(spacing: 0) {
             Button { onChange(-1) } label: {
-                Image(systemName: "minus").frame(width: 38, height: 34)
+                Image(systemName: "minus")
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
             }
             .disabled(!canDecrement)
             .accessibilityLabel("Less")
             Text(value)
                 .font(.body.weight(.semibold))
                 .monospacedDigit()
+                .foregroundStyle(tint)
                 .contentTransition(.numericText())
                 .frame(minWidth: 34)
             Button { onChange(1) } label: {
-                Image(systemName: "plus").frame(width: 38, height: 34)
+                Image(systemName: "plus")
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
             }
             .accessibilityLabel("More")
         }
