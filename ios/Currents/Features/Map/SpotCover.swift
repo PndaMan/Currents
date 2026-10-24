@@ -346,7 +346,7 @@ struct SpotPictureField: View {
             let path = await SpotCovers.store(item, spotId: spot.id)
             storing = false
             guard let path else {
-                ToastCenter.shared.show("Could not use that photo", style: .error)
+                ToastCenter.shared.show("Couldn't use that photo", style: .error)
                 return
             }
             pickedPaths.append(path)

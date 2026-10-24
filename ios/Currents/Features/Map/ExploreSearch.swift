@@ -651,7 +651,7 @@ struct ExploreSearchPane: View {
             let response = try? await search.start()
             isResolving = false
             guard let coord = response?.mapItems.first?.placemark.location?.coordinate else {
-                ToastCenter.shared.show("Could not find that place", style: .error)
+                ToastCenter.shared.show("Couldn't find that place", style: .error)
                 return
             }
             let recent = ExploreRecent(kind: .place, key: "\(coord.latitude),\(coord.longitude)",

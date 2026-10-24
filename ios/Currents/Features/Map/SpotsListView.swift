@@ -118,7 +118,7 @@ struct SpotsListView: View {
     /// the edit form, saved straight away.
     private func pictureMenu(_ spot: Spot) -> some View {
         Menu {
-            SpotPictureMenu(cover: Binding(get: { spot.cover }, set: { setCover($0, of: spot) }),
+            SpotPictureMenu(cover: Binding(get: { spot.cover }, set: { _ = setCover($0, of: spot) }),
                             hasPhoto: spot.coverPhotoPath != nil,
                             catchPhotos: photoCounts[spot.id] ?? 0) {
                 pictureSpot = spot
@@ -129,17 +129,20 @@ struct SpotsListView: View {
         }
     }
 
-    private func setCover(_ cover: Spot.Cover, of spot: Spot, photo: String? = nil) {
+    /// Saves the picture choice. Returns false, after a toast, when it fails.
+    @discardableResult
+    private func setCover(_ cover: Spot.Cover, of spot: Spot, photo: String? = nil) -> Bool {
         var updated = spot
         if let photo { updated.coverPhotoPath = photo }
         updated.cover = cover
         do {
             try appState.spotRepository.save(&updated)
         } catch {
-            ToastCenter.shared.show("Could not change the picture", style: .error)
-            return
+            ToastCenter.shared.show("Couldn't change the picture", style: .error)
+            return false
         }
         if let i = spots.firstIndex(where: { $0.id == spot.id }) { spots[i] = updated }
+        return true
     }
 
     /// Stores the picked photo and makes it the picture, removing the photo
@@ -147,10 +150,13 @@ struct SpotsListView: View {
     private func usePhoto(_ item: PhotosPickerItem, for spot: Spot) {
         Task {
             guard let path = await SpotCovers.store(item, spotId: spot.id) else {
-                ToastCenter.shared.show("Could not use that photo", style: .error)
+                ToastCenter.shared.show("Couldn't use that photo", style: .error)
                 return
             }
-            setCover(.photo, of: spot, photo: path)
+            guard setCover(.photo, of: spot, photo: path) else {
+                PhotoManager.delete(path)
+                return
+            }
             if let old = spot.coverPhotoPath, old != path { PhotoManager.delete(old) }
             ToastCenter.shared.show("Picture updated", icon: "photo")
         }
