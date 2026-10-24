@@ -605,7 +605,7 @@ private struct ProfileShareSheet: View {
                 } else if let initial = name.first {
                     Text(String(initial).uppercased())
                         .font(.largeTitle.bold())
-                        .foregroundStyle(DS.accent)
+                        .foregroundStyle(DS.ink(DS.accent))
                 }
             }
             .frame(maxWidth: .infinity)
@@ -1085,7 +1085,7 @@ struct UnitsSettingsView: View {
                 }
 
                 CardSection("Time") {
-                    CardToggleRow("24-hour time", subtitle: use24HourTime ? "17:30" : "5:30 PM",
+                    CardToggleRow("24-hour time", subtitle: use24HourTime ? "17:30" : "5:30 pm",
                                   systemImage: "clock.fill", tint: .orange, isOn: $use24HourTime)
                 }
             }
@@ -1318,6 +1318,8 @@ private struct BlurRadiusPreview: View {
 struct WidgetsSiriView: View {
     @State private var titleShown = false
     @State private var snapshot: CurrentsSnapshot?
+    @AppStorage("use24HourTime") private var use24 = true
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     private let shortcuts: [(String, String, String, Color)] = [
         ("Bite score", "What's the bite score in Currents", "cloud.sun.fill", .cyan),
@@ -1395,22 +1397,31 @@ struct WidgetsSiriView: View {
 
     // MARK: Widget previews
 
-    /// A square widget-shaped tile with its name underneath, as in the widget gallery.
+    /// A square widget-shaped tile with its name underneath, as in the widget
+    /// gallery. At accessibility sizes the tile grows to fit its text instead
+    /// of clipping it to a square.
     private func widgetTile<Content: View>(_ caption: String, fill: Color = .dsFill,
                                            @ViewBuilder content: () -> Content) -> some View {
-        VStack(spacing: DS.Space.s2) {
-            fill
-                .aspectRatio(1, contentMode: .fit)
-                .overlay(alignment: .topLeading) {
-                    content()
-                        .padding(DS.Space.s4)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        let inner = content().padding(DS.Space.s4)
+        return VStack(spacing: DS.Space.s2) {
+            Group {
+                if typeSize.isAccessibilitySize {
+                    inner
+                        .frame(maxWidth: .infinity, alignment: .topLeading)
+                        .background(fill)
+                } else {
+                    fill
+                        .aspectRatio(1, contentMode: .fit)
+                        .overlay(alignment: .topLeading) {
+                            inner.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                        }
                 }
-                .clipShape(RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
+            }
+            .clipShape(RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
             Text(caption)
                 .font(.footnote)
                 .foregroundStyle(.dsText2)
-                .lineLimit(1)
+                .lineLimit(typeSize.isAccessibilitySize ? 3 : 1)
         }
         .accessibilityElement(children: .combine)
     }
@@ -1461,13 +1472,13 @@ struct WidgetsSiriView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Label("Next session", systemImage: "calendar")
                     .font(.caption.weight(.semibold))
-                    .foregroundStyle(.tint)
+                    .foregroundStyle(DS.ink(DS.accent))
                 Spacer(minLength: DS.Space.s1)
                 Text(name)
                     .font(.headline)
                     .foregroundStyle(.dsText)
                     .lineLimit(2)
-                Text("\(date.formatted(.dateTime.day().month(.abbreviated))), \(ForecastFormat.time(date))")
+                Text("\(date.formatted(.dateTime.day().month(.abbreviated))), \(ForecastFormat.time(date, use24: use24))")
                     .font(.caption)
                     .foregroundStyle(.dsText2)
                     .lineLimit(1)
@@ -1476,7 +1487,7 @@ struct WidgetsSiriView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Label("Sessions", systemImage: "figure.fishing")
                     .font(.caption.weight(.semibold))
-                    .foregroundStyle(.tint)
+                    .foregroundStyle(DS.ink(DS.accent))
                 Spacer(minLength: DS.Space.s1)
                 Text("No session planned")
                     .font(.headline)
