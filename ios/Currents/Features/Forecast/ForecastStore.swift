@@ -208,6 +208,8 @@ final class ForecastStore {
 
 /// Words and times for the forecast pages.
 enum ForecastFormat {
+    /// The verdict line for the current hour, used only on Today's hero. For
+    /// any other score use `grade(_:)`.
     static func verdict(_ score: Int) -> String {
         switch score {
         case 80...: "Excellent, go now"
@@ -216,6 +218,30 @@ enum ForecastFormat {
         default: "Slow, finesse it"
         }
     }
+
+    /// A bite score as one word, for any score that is not about the current
+    /// hour: "Excellent", "Good", "Fair", "Slow". Same thresholds as `verdict`.
+    static func grade(_ score: Int) -> String {
+        switch score {
+        case 80...: "Excellent"
+        case 65..<80: "Good"
+        case 50..<65: "Fair"
+        default: "Slow"
+        }
+    }
+
+    /// A duration, "45 min", "2 h 15 min", "3 h". Under a minute is "1 min".
+    static func elapsed(_ seconds: TimeInterval) -> String {
+        let whole = seconds.isFinite ? Int(max(0, seconds)) : 0
+        let minutes = max(1, whole / 60)
+        let h = minutes / 60, m = minutes % 60
+        if h == 0 { return "\(m) min" }
+        return m == 0 ? "\(h) h" : "\(h) h \(m) min"
+    }
+
+    /// The user's 24-hour setting, for code that is not a view. Views read
+    /// @AppStorage("use24HourTime") so they redraw when it changes.
+    static var use24: Bool { UserDefaults.standard.object(forKey: "use24HourTime") as? Bool ?? true }
 
     /// Engine reasons use dashes; the pages read better with commas.
     static func clean(_ reason: String) -> String {
@@ -241,6 +267,9 @@ enum ForecastFormat {
         f.pmSymbol = "pm"
         return f.string(from: date)
     }
+
+    /// A time in the user's setting, "06:40" or "6:40 am".
+    static func time(_ date: Date) -> String { time(date, use24: use24) }
 
     static func range(_ w: BiteWindows.Window, use24: Bool) -> String {
         "\(hour(w.startHour, use24: use24)) to \(hour(w.endHour + 1, use24: use24))"
