@@ -114,10 +114,12 @@ enum ExploreFormat {
         Units.area(km2: km2, smallInHectares: true)
     }
 
-    /// A ramp's kind and distance, leaving the kind out when it is already
-    /// the name (an unnamed ramp is called by its kind).
+    /// A ramp's kind and distance, leaving the kind out when the name
+    /// already says it (an unnamed ramp is called by its kind, or by its
+    /// kind and its water, "Ramp at Theewaterskloof Dam").
     static func rampLine(_ ramp: BoatRamp, distance: String?) -> String {
-        let kind = ramp.name == ramp.kind.label ? nil : ramp.kind.label
+        let saysKind = ramp.name == ramp.kind.label || ramp.name.hasPrefix(ramp.kind.waterNamePrefix)
+        let kind = saysKind ? nil : ramp.kind.label
         return [kind, distance].compactMap { $0 }.joined(separator: ", ")
     }
 

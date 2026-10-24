@@ -20,6 +20,14 @@ struct BoatRamp: Identifiable, Equatable, Codable {
             case .access: "figure.fishing"
             }
         }
+        /// How an unnamed place named after its water starts, as in
+        /// "Ramp at Theewaterskloof Dam".
+        var waterNamePrefix: String {
+            switch self {
+            case .ramp:   "Ramp at "
+            case .access: "Fishing access at "
+            }
+        }
     }
 
     let id: String           // OSM type/id, e.g. "node/123"
@@ -120,10 +128,91 @@ final class BoatRampService: ObservableObject {
         merge(found, tile: tile)
     }
 
+    /// Two places of one kind closer than this are one place mapped twice,
+    /// often as a point and as an outline.
+    static let samePlaceMetres = 50.0
+
+    /// Places whose name was made from the water they are on, so a merge
+    /// still prefers a place OpenStreetMap names.
+    private var madeNames = Set<String>()
+
+    /// Adds a tile's places. A place within 50 m of one of the same kind is
+    /// the same place: the one with a name in OpenStreetMap is kept, else the
+    /// outline (a way) over the point (a node), else the one already here.
+    /// An unnamed place is then named after the water it is on, when it is
+    /// on bundled water: "Ramp at Theewaterskloof Dam".
     private func merge(_ new: [BoatRamp], tile: String) {
         loadedTiles.insert(tile)
-        let known = Set(ramps.map(\.id))
-        ramps.append(contentsOf: new.filter { !known.contains($0.id) })
+        var list = ramps
+        var known = Set(list.map(\.id))
+        // Places by cell of about 200 m, so each one is only measured
+        // against its neighbours.
+        var cells: [String: [Int]] = [:]
+        for (index, place) in list.enumerated() {
+            cells[Self.cell(place, dLat: 0, dLon: 0), default: []].append(index)
+        }
+        var touched: [Int] = []
+        let incoming = new.filter { !known.contains($0.id) }.sorted { rank($0) > rank($1) }
+        for place in incoming where !known.contains(place.id) {
+            known.insert(place.id)
+            var match: Int?
+            search: for dLat in -1...1 {
+                for dLon in -1...1 {
+                    for index in cells[Self.cell(place, dLat: dLat, dLon: dLon)] ?? []
+                    where list[index].kind == place.kind && Self.metres(list[index], place) < Self.samePlaceMetres {
+                        match = index
+                        break search
+                    }
+                }
+            }
+            if let index = match {
+                guard rank(place) > rank(list[index]) else { continue }
+                list[index] = place
+                cells[Self.cell(place, dLat: 0, dLon: 0), default: []].append(index)
+                touched.append(index)
+            } else {
+                list.append(place)
+                cells[Self.cell(place, dLat: 0, dLon: 0), default: []].append(list.count - 1)
+                touched.append(list.count - 1)
+            }
+        }
+        for index in touched where list[index].name == list[index].kind.label {
+            let place = list[index]
+            guard let water = BundledMapData.waterName(near: place.coordinate) else { continue }
+            list[index] = BoatRamp(id: place.id, name: place.kind.waterNamePrefix + water,
+                                   kind: place.kind, lat: place.lat, lon: place.lon)
+            madeNames.insert(place.id)
+        }
+        ramps = list
+    }
+
+    /// A place by its OpenStreetMap id or, for one merged into a neighbour,
+    /// the place that stands for it now.
+    func place(id: String, near: CLLocationCoordinate2D?) -> BoatRamp? {
+        if let hit = ramps.first(where: { $0.id == id }) { return hit }
+        guard let near else { return nil }
+        let probe = BoatRamp(id: id, name: "", kind: .ramp, lat: near.latitude, lon: near.longitude)
+        return ramps
+            .map { ($0, Self.metres($0, probe)) }
+            .filter { $0.1 < Self.samePlaceMetres }
+            .min { $0.1 < $1.1 }?.0
+    }
+
+    /// Named in OpenStreetMap first, then outlines before points.
+    private func rank(_ place: BoatRamp) -> Int {
+        let named = place.name != place.kind.label && !madeNames.contains(place.id)
+        return (named ? 2 : 0) + (place.id.hasPrefix("way/") ? 1 : 0)
+    }
+
+    /// The key of the 0.002 degree cell a place is in, or of a neighbour.
+    private static func cell(_ place: BoatRamp, dLat: Int, dLon: Int) -> String {
+        let lat = Int((place.lat / 0.002).rounded(.down)) + dLat
+        let lon = Int((place.lon / 0.002).rounded(.down)) + dLon
+        return "\(lat)_\(lon)"
+    }
+
+    private static func metres(_ a: BoatRamp, _ b: BoatRamp) -> Double {
+        BundledMapData.metres(a.lat, a.lon, b.lat, b.lon)
     }
 
     private struct OverpassResponse: Decodable {

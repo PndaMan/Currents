@@ -775,12 +775,12 @@ struct MapTab: View {
     }
 
     /// A ramp from those already loaded, or loaded around where the link
-    /// says it is.
+    /// says it is. A ramp merged into a neighbour opens as that neighbour.
     private func focusedRamp(_ id: String, near: CLLocationCoordinate2D?) async -> BoatRamp? {
-        if let hit = rampService.ramps.first(where: { $0.id == id }) { return hit }
+        if let hit = rampService.place(id: id, near: near) { return hit }
         guard let near else { return nil }
         await rampService.load(around: near, latSpan: 0.1)
-        return rampService.ramps.first { $0.id == id }
+        return rampService.place(id: id, near: near)
     }
 
     /// Shows the live session sheet a `currents://session` link asked for.

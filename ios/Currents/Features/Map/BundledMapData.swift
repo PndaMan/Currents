@@ -63,6 +63,59 @@ enum BundledMapData {
         return placesIndex.byTile[tile] ?? []
     }
 
+    // MARK: Water names
+
+    /// A named water from the bundled extract, for naming the ramps on it.
+    private struct NamedWater {
+        let name: String
+        let lat: Double
+        let lon: Double
+        /// Metres, as if the water were round.
+        let radius: Double
+    }
+
+    /// The bundled water by half-degree tile. Decoded once, on first use.
+    private static let watersByTile: [String: [NamedWater]] = {
+        guard let url = resource("explore_water_za"),
+              let data = try? Data(contentsOf: url),
+              let file = try? JSONDecoder().decode(WaterFile.self, from: data) else {
+            return [:]
+        }
+        let waters = file.water
+            .filter { !$0.name.trimmingCharacters(in: .whitespaces).isEmpty }
+            .map { NamedWater(name: $0.name, lat: $0.lat, lon: $0.lon, radius: ($0.km2 / .pi).squareRoot() * 1000) }
+        return Dictionary(grouping: waters) { tileKey(latitude: $0.lat, longitude: $0.lon) }
+    }()
+
+    /// The bundled water a point is on or beside: the water whose edge is
+    /// nearest, counting each water as a circle half as wide again as its
+    /// area gives, when that edge is within 2 km. A long river is stored as
+    /// one point, so a ramp far along it finds nothing and keeps its plain
+    /// name. Nil outside the bundled region.
+    static func waterName(near coordinate: CLLocationCoordinate2D) -> String? {
+        let latIndex = Int((coordinate.latitude / 0.5).rounded(.down))
+        let lonIndex = Int((coordinate.longitude / 0.5).rounded(.down))
+        var best: (name: String, gap: Double)?
+        for dLat in -1...1 {
+            for dLon in -1...1 {
+                for water in watersByTile["\(latIndex + dLat)_\(lonIndex + dLon)"] ?? [] {
+                    let gap = metres(coordinate.latitude, coordinate.longitude, water.lat, water.lon) - water.radius * 1.5
+                    if gap <= 2_000, gap < (best?.gap ?? .infinity) {
+                        best = (water.name, gap)
+                    }
+                }
+            }
+        }
+        return best?.name
+    }
+
+    /// Distance in metres, flat-earth, which is plenty at these ranges.
+    static func metres(_ lat1: Double, _ lon1: Double, _ lat2: Double, _ lon2: Double) -> Double {
+        let x = (lon2 - lon1) * .pi / 180 * cos((lat1 + lat2) / 2 * .pi / 180)
+        let y = (lat2 - lat1) * .pi / 180
+        return (x * x + y * y).squareRoot() * 6_371_000
+    }
+
     // MARK: Water
 
     private struct WaterFile: Decodable {
