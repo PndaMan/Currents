@@ -1510,9 +1510,11 @@ struct ConditionChart: View {
     @ChartContentBuilder
     private var lineLayer: some ChartContent {
         ForEach(points) { p in
+            // With a baseline (the sun's horizon) the wash fills only above
+            // it, so night is not a filled band.
             AreaMark(x: .value("Time", p.x),
                      yStart: .value("Base", baseline ?? yDomain.lowerBound),
-                     yEnd: .value("Value", p.y))
+                     yEnd: .value("Value", baseline.map { max($0, p.y) } ?? p.y))
                 .interpolationMethod(.catmullRom)
                 .foregroundStyle(fill.opacity(0.18))
             LineMark(x: .value("Time", p.x), y: .value("Value", p.y))
