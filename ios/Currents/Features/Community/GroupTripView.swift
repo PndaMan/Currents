@@ -157,7 +157,7 @@ struct GroupTripSetupView: View {
             Button {
                 if t.isPlanned { editingPlan = t } else { Task { await startTrip(from: t) } }
             } label: {
-                ArtRow(over: t.plannedDate.map { $0.formatted(date: .abbreviated, time: .shortened) },
+                ArtRow(over: t.plannedDate.map { "\($0.formatted(.dateTime.day().month(.abbreviated))), \(ForecastFormat.time($0))" },
                        title: t.name,
                        subtitle: t.isPlanned ? "Planned. Tap to edit." : "Active session") {
                     if t.plannedDate != nil {
@@ -1014,7 +1014,7 @@ struct GroupTripView: View {
         let row = leaderRow(from: c)
         let who = c.friendCode == service.friendCode ? "You" : c.anglerName
         return NavigationLink { CommunityCatchDetailView(row: row) } label: {
-            ArtRow(over: "\(who), \(c.date.formatted(date: .omitted, time: .shortened))",
+            ArtRow(over: "\(who), \(ForecastFormat.time(c.date))",
                    title: feedTitle(c)) {
                 CommunityCatchThumb(row: row, size: 64)
                     .clipShape(RoundedRectangle(cornerRadius: DS.Radius.thumb, style: .continuous))
@@ -1075,10 +1075,10 @@ struct GroupTripView: View {
         if let trip {
             rows.append(.init(title: "Host", value: trip.hostCode == service.friendCode ? "You" : trip.hostName,
                               systemImage: "person.fill", tint: CrewTint.people))
-            rows.append(.init(title: "Started", value: trip.createdAt.formatted(date: .abbreviated, time: .shortened),
+            rows.append(.init(title: "Started", value: "\(trip.createdAt.formatted(.dateTime.day().month(.abbreviated))), \(ForecastFormat.time(trip.createdAt))",
                               systemImage: "play.fill", tint: .dsScoreGood))
             if let endedAt = trip.endedAt {
-                rows.append(.init(title: "Ended", value: endedAt.formatted(date: .abbreviated, time: .shortened),
+                rows.append(.init(title: "Ended", value: "\(endedAt.formatted(.dateTime.day().month(.abbreviated))), \(ForecastFormat.time(endedAt))",
                                   systemImage: "flag.checkered", tint: CrewTint.calendar))
             }
             if let crewCode = trip.crewCode, let crew = svc.crew(withCode: crewCode) {

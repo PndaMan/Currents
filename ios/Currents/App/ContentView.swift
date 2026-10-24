@@ -214,7 +214,7 @@ struct ContentView: View {
             }
             Button("Not now", role: .cancel) { planPrompt = nil }
         } message: { trip in
-            Text("\(trip.name) is planned for \(trip.plannedDate?.formatted(date: .omitted, time: .shortened) ?? "now").")
+            Text("\(trip.name) is planned for \(trip.plannedDate.map { ForecastFormat.time($0) } ?? "now").")
         }
     }
 

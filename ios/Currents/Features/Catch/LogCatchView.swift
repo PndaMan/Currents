@@ -934,7 +934,7 @@ struct LogCatchView: View {
     // MARK: - Details
 
     private var caughtValue: String {
-        let time = caughtAt.formatted(date: .omitted, time: .shortened)
+        let time = ForecastFormat.time(caughtAt)
         if Calendar.current.isDateInToday(caughtAt) { return "Today, \(time)" }
         if Calendar.current.isDateInYesterday(caughtAt) { return "Yesterday, \(time)" }
         return "\(caughtAt.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated))), \(time)"
@@ -1022,7 +1022,7 @@ struct LogCatchView: View {
             return conditions == nil ? "No weather was saved with this catch." : "Recorded when the catch was logged."
         }
         if conditions == nil { return "Filled in from the forecast once your location is known." }
-        return "Filled in from the forecast for \(caughtAt.formatted(date: .omitted, time: .shortened)). Saved with the catch."
+        return "Filled in from the forecast for \(ForecastFormat.time(caughtAt)). Saved with the catch."
     }
 
     // Each tile says what the number means for fishing, not just the number:

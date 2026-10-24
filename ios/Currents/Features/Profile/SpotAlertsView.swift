@@ -123,8 +123,8 @@ struct SpotAlertsView: View {
     }
 
     private static func span(_ window: BiteWindows.Upcoming) -> String {
-        let start = window.start.formatted(date: .omitted, time: .shortened)
-        let end = window.end.formatted(date: .omitted, time: .shortened)
+        let start = ForecastFormat.time(window.start)
+        let end = ForecastFormat.time(window.end)
         return "\(start) to \(end)"
     }
 

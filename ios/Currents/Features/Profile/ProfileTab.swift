@@ -664,7 +664,7 @@ struct StorageSettingsView: View {
                 restoreFromSnapshot(snap)
             }
         } message: { snap in
-            Text("Replaces everything on this phone with the backup from \(snap.date.formatted(date: .abbreviated, time: .shortened)). This cannot be undone.")
+            Text("Replaces everything on this phone with the backup from \(ForecastFormat.longDate(snap.date)), \(ForecastFormat.time(snap.date)). This cannot be undone.")
         }
     }
 
@@ -713,7 +713,7 @@ struct StorageSettingsView: View {
             ScrollView {
                 CardSection(note: "The latest automatic backups on this phone.") {
                     ForEach(snapshots) { snap in
-                        CardRow(snap.date.formatted(date: .abbreviated, time: .shortened),
+                        CardRow("\(snap.date.formatted(.dateTime.day().month(.abbreviated))), \(ForecastFormat.time(snap.date))",
                                 subtitle: snap.formattedSize, systemImage: "externaldrive.fill", tint: .mint) {
                             Button("Restore") { restoreSnapshot = snap }
                                 .buttonStyle(TonalButtonStyle(fullWidth: false))
@@ -1379,7 +1379,7 @@ struct WidgetsSiriView: View {
                     .font(.headline)
                     .foregroundStyle(.dsText)
                     .lineLimit(2)
-                Text(date.formatted(date: .abbreviated, time: .shortened))
+                Text("\(date.formatted(.dateTime.day().month(.abbreviated))), \(ForecastFormat.time(date))")
                     .font(.caption)
                     .foregroundStyle(.dsText2)
                     .lineLimit(1)

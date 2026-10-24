@@ -503,7 +503,7 @@ struct CatchDetailView: View {
     /// was nearest.
     private func lightItem(_ day: SolunarEngine.SolunarDay) -> ConditionItem {
         let at = record.caughtAt
-        let time: (Date) -> String = { $0.formatted(date: .omitted, time: .shortened) }
+        let time: (Date) -> String = { ForecastFormat.time($0) }
         if day.dawnGoldenHour.contains(at) {
             return ConditionItem(label: "Light", systemImage: "sunrise.fill", iconTint: .orange,
                                  value: "Dawn", footnote: "Sunrise \(time(day.sunrise))")

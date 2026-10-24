@@ -967,7 +967,7 @@ struct MapTab: View {
         let text: String
         let icon: String
         if stale, let w = weather {
-            text = "Offline. Scores from \(w.fetchedAt.formatted(date: .omitted, time: .shortened))"
+            text = "Offline. Scores from \(ForecastFormat.time(w.fetchedAt))"
             icon = "icloud.slash"
         } else if regions.count == 1, let region = regions.first {
             text = "\(region.name) offline"

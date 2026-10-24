@@ -178,7 +178,7 @@ struct LogCatchTimeSheet: View {
 
                     HStack(spacing: 22) {
                         stepButton(-60, systemImage: "minus", label: "An hour earlier")
-                        Text(caughtAt.formatted(date: .omitted, time: .shortened))
+                        Text(ForecastFormat.time(caughtAt))
                             .font(.system(size: clockSize, weight: .bold, design: .rounded)) // ui-lint: allow, clock numeral scaled with @ScaledMetric
                             .monospacedDigit()
                             .contentTransition(.numericText())
@@ -218,7 +218,7 @@ struct LogCatchTimeSheet: View {
                                 ToastCenter.shared.show("Time set from the photo", icon: "photo")
                             } label: {
                                 LogCatchListRow(title: "Use the photo's time", systemImage: "photo", tint: DS.accent,
-                                                value: photoDate.formatted(date: .omitted, time: .shortened))
+                                                value: ForecastFormat.time(photoDate))
                             }
                             .buttonStyle(.dim)
                         }
@@ -529,7 +529,7 @@ struct LogCatchSessionSheet: View {
                 if let activeTrip {
                     Section {
                         row(activeTrip.id, title: "Current session",
-                            subtitle: "Started \(activeTrip.startDate.formatted(date: .omitted, time: .shortened))")
+                            subtitle: "Started \(ForecastFormat.time(activeTrip.startDate))")
                     } footer: {
                         Text("Catches made while it records join it.")
                     }
@@ -588,9 +588,9 @@ struct LogCatchSessionSheet: View {
 
     private func range(_ trip: Trip) -> String {
         let day = trip.startDate.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated))
-        let start = trip.startDate.formatted(date: .omitted, time: .shortened)
+        let start = ForecastFormat.time(trip.startDate)
         guard let end = trip.endDate else { return "\(day), \(start)" }
-        return "\(day), \(start) to \(end.formatted(date: .omitted, time: .shortened))"
+        return "\(day), \(start) to \(ForecastFormat.time(end))"
     }
 }
 

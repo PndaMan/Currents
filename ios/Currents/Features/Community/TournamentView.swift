@@ -1039,13 +1039,13 @@ struct TournamentView: View {
             .init(label: "New species", symbol: "leaf.fill", tint: CrewTint.species, value: "+\(r.newSpeciesBonus)"),
             .init(label: "Teams", symbol: "location.fill", tint: CrewTint.spot, value: "Live sessions"),
             .init(label: "Started", symbol: "play.fill", tint: CrewTint.people,
-                  value: tournament.createdAt.formatted(date: .abbreviated, time: .shortened)),
+                  value: "\(tournament.createdAt.formatted(.dateTime.day().month(.abbreviated))), \(ForecastFormat.time(tournament.createdAt))"),
         ]
         let endValue: String
         if let ended = tournament.endedAt {
-            endValue = ended.formatted(date: .abbreviated, time: .shortened)
+            endValue = "\(ended.formatted(.dateTime.day().month(.abbreviated))), \(ForecastFormat.time(ended))"
         } else if let ends = tournament.endsAt {
-            endValue = ends.formatted(date: .abbreviated, time: .shortened)
+            endValue = "\(ends.formatted(.dateTime.day().month(.abbreviated))), \(ForecastFormat.time(ends))"
         } else {
             endValue = "When an admin ends it"
         }
@@ -1934,7 +1934,7 @@ struct TeamTournamentDetailView: View {
         return NavigationLink {
             CommunityCatchDetailView(row: row)
         } label: {
-            ArtRow(over: "\(who), \(c.date.formatted(date: .abbreviated, time: .shortened))",
+            ArtRow(over: "\(who), \(c.date.formatted(.dateTime.day().month(.abbreviated))), \(ForecastFormat.time(c.date))",
                    title: sizeTitle(c)) {
                 CommunityCatchThumb(row: row, size: 56)
             } trailing: {

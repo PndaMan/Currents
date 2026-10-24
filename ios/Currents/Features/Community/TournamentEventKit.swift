@@ -19,7 +19,7 @@ func eventOrdinal(_ n: Int) -> String {
 /// "18:00" today, "Sat 18:00" within the week, "2 Nov, 18:00" further out.
 func eventTimeText(_ date: Date, now: Date = .now) -> String {
     if Calendar.current.isDate(date, inSameDayAs: now) {
-        return date.formatted(date: .omitted, time: .shortened)
+        return ForecastFormat.time(date)
     }
     if abs(date.timeIntervalSince(now)) < 6 * 86_400 {
         return date.formatted(.dateTime.weekday(.abbreviated).hour().minute())
@@ -510,5 +510,5 @@ struct EventNotice<Action: View>: View {
 /// you're back online."
 func eventOfflineText(_ what: String, since: Date?) -> String {
     guard let since else { return "Offline. \(what) load when you're back online." }
-    return "Offline. \(what) as of \(since.formatted(date: .omitted, time: .shortened))."
+    return "Offline. \(what) as of \(ForecastFormat.time(since))."
 }
