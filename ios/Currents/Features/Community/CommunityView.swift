@@ -640,7 +640,7 @@ struct CommunityView: View {
 
 /// Your own angler page, in Luma's profile structure: photo, name and code,
 /// title, bio and facts, a line of counts, the three actions, then your
-/// achievements and the way out of the community.
+/// badges and the way out of Crew.
 struct MyProfileView: View {
     let stats: CommunityService.MyStats
     let catches: [CatchDetail]
@@ -669,11 +669,11 @@ struct MyProfileView: View {
                     .padding(.top, DS.Space.s4)
                 actions
                     .padding(.top, DS.Space.s5)
-                CrewSection(title: "Achievements") {
+                CrewSection(title: "Badges") {
                     AchievementsCard(catches: catches)
                         .padding(.horizontal, DS.gutter)
                 }
-                DangerButton(title: "Leave the community", systemImage: "rectangle.portrait.and.arrow.right") {
+                DangerButton(title: "Leave Crew", systemImage: "rectangle.portrait.and.arrow.right") {
                     confirmLeave = true
                 }
                 .padding(.top, DS.Space.s8)
@@ -685,11 +685,11 @@ struct MyProfileView: View {
         .detailTint(nil)
         .eventPageTitle(svc.myName)
         .sheet(isPresented: $showingEdit) { ProfileEditView(stats: stats) }
-        .confirmationDialog("Leave the community?", isPresented: $confirmLeave, titleVisibility: .visible) {
+        .confirmationDialog("Leave Crew?", isPresented: $confirmLeave, titleVisibility: .visible) {
             Button("Leave", role: .destructive) {
                 Haptics.warning()
                 svc.leave()
-                ToastCenter.shared.show("Left the community", style: .info, haptic: false)
+                ToastCenter.shared.show("Left Crew", style: .info, haptic: false)
                 dismiss()
             }
         } message: {
@@ -735,10 +735,11 @@ private struct AnglerProfileHeader: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            CommunityHero(label: heroLabel, title: name, line: bio.isEmpty ? nil : bio) {
+            PageHero(label: heroLabel, value: name, callout: bio.isEmpty ? nil : bio) {
                 CrewAvatar(image: avatar, name: name, size: 92)
                     .zoomableOnTap(avatar)
             }
+            .accessibilityAddTraits(.isHeader)
             .padding(.top, DS.Space.s2)
             if let title {
                 TitleFlairChip(title: title)
@@ -809,7 +810,7 @@ private struct AnglerFactsLine: View {
                 .foregroundStyle(.dsText)
                 .lineLimit(1)
         }
-        .padding(.horizontal, 12)
+        .padding(.horizontal, DS.Space.s3)
         .frame(minHeight: 34)
         .background(tint(symbol).opacity(0.14), in: Capsule())
     }
@@ -912,7 +913,7 @@ struct TitleFlairChip: View {
             }
         }
         .buttonStyle(.dim)
-        .accessibilityHint("Shows the achievement that unlocked this title")
+        .accessibilityHint("Shows the badge that unlocked this title")
         .sheet(isPresented: $showingBadge) {
             if let flair {
                 BadgeDetailView(badge: flair.badge)
@@ -1179,7 +1180,7 @@ struct ProfileEditView: View {
                 Text("No title")
                     .font(.body.weight(.medium))
                     .foregroundStyle(.dsText)
-                Text(earnedFlairs.isEmpty ? "Earn achievements to unlock titles"
+                Text(earnedFlairs.isEmpty ? "Earn badges to unlock titles"
                                           : "\(earnedFlairs.count) unlocked")
                     .font(.subheadline)
                     .foregroundStyle(.dsText2)
@@ -1643,7 +1644,7 @@ struct FriendProfileView: View {
     /// numbers and shared catches earn.
     @ViewBuilder private var achievementsSection: some View {
         if let p = profile {
-            CrewSection(title: "Achievements") {
+            CrewSection(title: "Badges") {
                 Group {
                     if isSelf {
                         AchievementsCard(catches: ownDetails)
@@ -1862,7 +1863,7 @@ struct FriendBadgesCard: View {
             }
             .accessibilityElement(children: .combine)
             if !earned.isEmpty { medals }
-            Button("Show all achievements") { showingAll = true }
+            Button("Show all badges") { showingAll = true }
                 .buttonStyle(.dsTonal)
         }
         .padding(DS.Space.s4)

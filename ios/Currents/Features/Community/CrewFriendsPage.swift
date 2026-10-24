@@ -158,13 +158,14 @@ struct CrewFriendsPage: View {
     /// Today's hero: your code over the title, the count, and your friends'
     /// faces stacked on the right.
     private var hero: some View {
-        CommunityHero(label: "Your code \(svc.friendCode)", title: "Friends", line: heroLine) {
+        PageHero(label: "Angler code \(svc.friendCode)", value: "Friends", callout: heroLine) {
             if friends.isEmpty {
                 ThumbView(systemImage: "person.2.fill", tint: CrewTint.people, size: 92)
             } else {
                 EventAvatarStack(images: friends.prefix(3).map(\.avatar), size: 56)
             }
         }
+        .accessibilityAddTraits(.isHeader)
         .padding(.top, DS.Space.s2)
     }
 
@@ -273,9 +274,10 @@ struct CrewRequestsPage: View {
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
-                CommunityHero(label: "Friends and trips", title: "Requests", line: subtitle) {
+                PageHero(label: "Friends and trips", value: "Requests", callout: subtitle) {
                     ThumbView(systemImage: "bell.fill", tint: CrewTint.trophy, size: 92)
                 }
+                .accessibilityAddTraits(.isHeader)
                 .padding(.top, DS.Space.s2)
                 .padding(.bottom, DS.Space.s2)
                 if connection.isOffline {
