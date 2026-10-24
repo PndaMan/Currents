@@ -63,12 +63,8 @@ struct SpeciesBrowserView: View {
                 monthChips
                     .padding(.top, DS.Space.s2)
 
-                Picker("Water", selection: $habitat.haptic()) {
-                    ForEach(HabitatFilter.allCases, id: \.self) { Text($0.rawValue).tag($0) }
-                }
-                .pickerStyle(.segmented)
-                .padding(.horizontal, DS.gutter)
-                .padding(.top, DS.Space.s2)
+                FilterChips(HabitatFilter.allCases, selection: $habitat.haptic()) { $0.rawValue }
+                    .padding(.top, DS.Space.s1)
 
                 if sortOrder != SortOrder.defaultOrder {
                     Chip("Sorted by \(sortOrder.rawValue.lowercased())", systemImage: "xmark", isSelected: true) {
