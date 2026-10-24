@@ -1,8 +1,8 @@
 import SwiftUI
 
-/// One day of the forecast, pushed from Today: date strip, hero ring, Plan /
-/// Alert me / Share, bite by hour, best windows, hour by hour weather, the
-/// condition tiles and the nine-factor breakdown.
+/// One day of the forecast, pushed from Today: large title, date strip, hero
+/// ring, Plan, Alerts and Share, bite by hour, best windows, hour by hour
+/// weather, the condition tiles and the nine-factor breakdown.
 struct ForecastDayPage: View {
     let store: ForecastStore
 
@@ -10,6 +10,7 @@ struct ForecastDayPage: View {
     @State private var selectedHour: Int?
     @State private var showPlanner = false
     @State private var showAlerts = false
+    @State private var titleShown = false
     @AppStorage("use24HourTime") private var use24 = true
     @AppStorage("alertsEnabled") private var alertsEnabled = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -22,11 +23,18 @@ struct ForecastDayPage: View {
 
     var body: some View {
         let day = store.day(offset)
+        let title = ForecastFormat.dayName(offset, date: day.date)
         ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: 28) {
-                    dateStrip
-                    hero(day)
+                    VStack(alignment: .leading, spacing: 16) {
+                        DetailHeader(over: store.placeName, title: title)
+                        dateStrip
+                    }
+                    VStack(alignment: .leading, spacing: 0) {
+                        hero(day)
+                        if let note = store.staleNote { SectionFootnote(note) }
+                    }
                     actions(day)
 
                     VStack(alignment: .leading, spacing: 0) {
@@ -66,16 +74,9 @@ struct ForecastDayPage: View {
                         ConditionGrid(store: store, day: day, use24: use24)
                     }
 
-                    VStack(alignment: .leading, spacing: 0) {
-                        SectionTitle(day.isToday ? "Why it scores \(day.result.score) now"
-                                                 : "Why midday scores \(day.result.score)")
-                        FactorBreakdown(breakdown: day.result.breakdown, species: store.species)
-                        Text("Worked out on your phone. No signal needed.")
-                            .font(.footnote)
-                            .foregroundStyle(.dsText2)
-                            .padding(.horizontal, DS.gutter)
-                            .padding(.top, 10)
-                    }
+                    FactorBreakdown(breakdown: day.result.breakdown, species: store.species,
+                                    note: day.isToday ? "The score for this hour, worked out on your phone."
+                                                      : "The score for midday, worked out on your phone.")
 
                     TargetRow(store: store)
                 }
@@ -83,13 +84,13 @@ struct ForecastDayPage: View {
                 .padding(.bottom, 40)
                 .pageWidth()
             }
+            .forecastTracksTitle($titleShown)
         }
         .detailTint(DS.scoreColor(day.peakScore))
-        .navigationTitle(ForecastFormat.dayName(offset, date: day.date))
-        .navigationBarTitleDisplayMode(.inline)
+        .forecastInlineTitle(title, shown: titleShown)
         .refreshable {
-            await store.load(force: true)
-            Haptics.softPress()
+            let live = await store.load(force: true)
+            ForecastStore.refreshFeedback(live)
         }
         .sheet(isPresented: $showPlanner) { PlanSessionSheet() }
         .navigationDestination(isPresented: $showAlerts) { AlertSettingsView() }
@@ -105,13 +106,14 @@ struct ForecastDayPage: View {
 
     private func hero(_ day: ForecastDay) -> some View {
         let reason = day.result.reasons.first.map(ForecastFormat.clean) ?? ForecastFormat.guidance(day.peakScore)
-        let sub = day.isToday ? "Right now \(day.result.score). \(reason)" : reason
+        let scoreNow = day.result.score
+        let sub = day.isToday ? "\(ForecastFormat.grade(scoreNow)) now, \(scoreNow) of 100. \(reason)" : reason
         return HStack(alignment: .center, spacing: 16) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(ForecastFormat.longDate(day.date))
                     .font(.subheadline)
                     .foregroundStyle(.dsText2)
-                Text(ForecastFormat.verdict(day.peakScore))
+                Text(ForecastFormat.grade(day.peakScore))
                     .font(.title.bold())
                     .foregroundStyle(.dsText)
                     .fixedSize(horizontal: false, vertical: true)
@@ -138,7 +140,7 @@ struct ForecastDayPage: View {
             .buttonStyle(ActionTileStyle(.primary))
 
             Button { showAlerts = true } label: {
-                Label(alertsEnabled ? "Alerts on" : "Alert me", systemImage: alertsEnabled ? "bell.fill" : "bell")
+                Label("Alerts", systemImage: alertsEnabled ? "bell.fill" : "bell")
             }
             .buttonStyle(ActionTileStyle(.tonal))
 
@@ -150,7 +152,11 @@ struct ForecastDayPage: View {
     }
 
     private func shareText(_ day: ForecastDay) -> String {
-        var text = "\(ForecastFormat.dayName(day.offset, date: day.date)) at \(store.placeName): bite score \(day.peakScore) of 100, \(ForecastFormat.verdict(day.peakScore).lowercased())."
+        let name = ForecastFormat.dayName(day.offset, date: day.date)
+        let when = day.offset <= 1 ? name.lowercased() : name
+        // "Current location" names no place, so leave it out.
+        let place = store.placeName == "Current location" ? "" : " at \(store.placeName)"
+        var text = "The bite score for \(when)\(place) is \(day.peakScore) of 100, \(ForecastFormat.grade(day.peakScore).lowercased())."
         if let best = day.bestWindow {
             text += " Best \(ForecastFormat.range(best, use24: use24))."
         }
@@ -160,9 +166,9 @@ struct ForecastDayPage: View {
 
 /// A short weather line for week rows and day cards.
 enum ForecastWeatherLine {
-    static func summary(_ w: WeatherService.WeatherData?) -> String? {
-        guard let w else { return nil }
-        return "\(Int(w.temperatureC.rounded()))°, \(w.condition.lowercased()), wind \(Int(w.windSpeedKmh.rounded())) km/h"
+    static func summary(_ w: WeatherService.WeatherData?, imperial: Bool = Units.isImperial) -> String? {
+        guard let w, !w.isEstimated else { return nil }
+        return "\(Units.temperature(w.temperatureC, imperial: imperial)), \(w.condition.lowercased()), wind \(Units.speed(kmh: w.windSpeedKmh, imperial: imperial))"
     }
 }
 
@@ -172,15 +178,22 @@ enum ForecastWeatherLine {
 struct ForecastWeekPage: View {
     let store: ForecastStore
     @AppStorage("use24HourTime") private var use24 = true
+    @AppStorage("units") private var units = "metric"
     @ScaledMetric(relativeTo: .largeTitle) private var bestSize: CGFloat = 44
+    @ScaledMetric(relativeTo: .title2) private var dateTile: CGFloat = 56
+    @Environment(\.dynamicTypeSize) private var typeSize
+    @State private var titleShown = false
 
     var body: some View {
         let days = (0..<7).map { store.day($0) }
         let best = days.max { $0.peakScore < $1.peakScore } ?? store.day(0)
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
-                DetailHeader(over: store.placeName, title: "Next 7 days",
-                             subtitle: "\(ForecastFormat.longDate(days.first?.date ?? .now)) to \(ForecastFormat.longDate(days.last?.date ?? .now))")
+                VStack(alignment: .leading, spacing: 0) {
+                    DetailHeader(over: store.placeName, title: "Next 7 days",
+                                 subtitle: "\(ForecastFormat.longDate(days.first?.date ?? .now)) to \(ForecastFormat.longDate(days.last?.date ?? .now))")
+                    if let note = store.staleNote { SectionFootnote(note) }
+                }
 
                 bestDay(best)
 
@@ -206,12 +219,12 @@ struct ForecastWeekPage: View {
             .padding(.bottom, 40)
             .pageWidth()
         }
+        .forecastTracksTitle($titleShown)
         .detailTint(nil)
-        .navigationTitle("Next 7 days")
-        .navigationBarTitleDisplayMode(.inline)
+        .forecastInlineTitle("Next 7 days", shown: titleShown)
         .refreshable {
-            await store.load(force: true)
-            Haptics.softPress()
+            let live = await store.load(force: true)
+            ForecastStore.refreshFeedback(live)
         }
     }
 
@@ -257,21 +270,21 @@ struct ForecastWeekPage: View {
                     .monospacedDigit()
                     .foregroundStyle(.dsText)
             }
-            .frame(width: 56, height: 56)
+            .frame(minWidth: dateTile, minHeight: dateTile)
             .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.thumb, style: .continuous))
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(ForecastFormat.verdict(d.peakScore))
+                Text(ForecastFormat.grade(d.peakScore))
                     .font(.body.weight(.semibold))
                     .foregroundStyle(.dsText)
-                if let line = ForecastWeatherLine.summary(d.weather) {
+                if let line = ForecastWeatherLine.summary(d.weather, imperial: units == "imperial") {
                     Label(line, systemImage: WeatherIcon(condition: d.weather?.condition ?? "").systemName)
                         .font(.subheadline)
                         .foregroundStyle(.dsText2)
                         .symbolRenderingMode(.hierarchical)
-                        .lineLimit(1)
+                        .lineLimit(typeSize.isAccessibilitySize ? 3 : 1)
                 }
-                Text(d.bestWindow.map { "Best \(ForecastFormat.range($0, use24: use24))" } ?? "No strong window")
+                Text(d.bestWindow.map { "Best \(ForecastFormat.range($0, use24: use24))" } ?? "No standout window")
                     .font(.subheadline)
                     .foregroundStyle(.dsText2)
                     .monospacedDigit()
@@ -300,6 +313,7 @@ struct ForecastDayStrip: View {
     @Binding var selection: Int
     var onChange: (() -> Void)? = nil
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @ScaledMetric(relativeTo: .title3) private var chipWidth: CGFloat = 54
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
@@ -333,7 +347,7 @@ struct ForecastDayStrip: View {
                     .frame(width: 6, height: 6)
             }
             .foregroundStyle(on ? Color.dsOnPrimary : Color.dsText)
-            .frame(width: 54)
+            .frame(minWidth: chipWidth)
             .padding(.vertical, 10)
             .background {
                 if on {

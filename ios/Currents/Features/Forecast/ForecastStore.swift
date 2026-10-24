@@ -44,9 +44,13 @@ enum ForecastCondition: String, CaseIterable, Hashable, Identifiable {
         case .tide: Color(red: 0.04, green: 0.52, blue: 1.0) // ui-lint: allow, condition colours from the mockup
         case .moon: Color.dsScoreFair
         case .sun: Color.dsScoreLow
-        case .sky: Color(red: 0.6, green: 0.6, blue: 0.62) // ui-lint: allow, condition colours from the mockup
+        case .sky: .blue
         }
     }
+
+    /// The tint for text and small glyphs: the same hue, darkened in light
+    /// mode so yellow, orange and light blue stay readable on white.
+    var ink: Color { DS.ink(tint) }
 }
 
 /// One day of the forecast with everything a page needs, all worked out on
@@ -135,21 +139,51 @@ final class ForecastStore {
         invalidate()
     }
 
-    /// Cached weather first, live when there is signal. `force` skips the
-    /// freshness cache (pull to refresh, the refresh button).
-    func load(force: Bool = false) async {
+    /// Cached weather first, live when there is signal. The weather saved on
+    /// the phone is shown before any request goes out, so a weak signal never
+    /// holds the page up. `force` skips the freshness cache (pull to refresh,
+    /// the refresh button). Returns false when the weather service could not
+    /// be reached and saved or estimated weather is showing instead.
+    @discardableResult
+    func load(force: Bool = false) async -> Bool {
         isLoading = true
         let coord = coordinate
-        current = await WeatherService.shared.current(for: coord, force: force)
+        let saved = await WeatherService.shared.saved(for: coord)
+        if saved.current != nil || !saved.days.isEmpty {
+            if let c = saved.current { current = c }
+            if !saved.days.isEmpty { outlook = saved.days }
+            hasLoaded = true
+            invalidate()
+        }
+        // The three requests run side by side; each waits at most 10 s.
+        async let reading = WeatherService.shared.currentReading(for: coord, force: force)
+        async let days = WeatherService.shared.forecastDays(for: coord, force: force)
+        async let hours = WeatherService.shared.hourlyForecast(for: coord)
+        let latest = await reading
+        current = latest.data
         invalidate()
-        outlook = await WeatherService.shared.forecastDays(for: coord, force: force)
-        invalidate()
-        if let h = await WeatherService.shared.hourlyForecast(for: coord) {
+        let outlookDays = await days
+        if !outlookDays.isEmpty || outlook.isEmpty {
+            outlook = outlookDays
+            invalidate()
+        }
+        if let h = await hours {
             hourly = h.hours
             invalidate()
         }
         isLoading = false
         hasLoaded = true
+        return latest.isLive
+    }
+
+    /// After a pull to refresh: a soft tap when fresh weather came back, a
+    /// note when the weather service could not be reached.
+    static func refreshFeedback(_ live: Bool) {
+        if live {
+            Haptics.softPress()
+        } else {
+            ToastCenter.shared.show("No signal, showing saved weather", style: .info, haptic: false, icon: "wifi.slash")
+        }
     }
 
     /// Weather for a day: live for today, the daily outlook for later days.
@@ -158,8 +192,24 @@ final class ForecastStore {
         return outlook.indices.contains(offset) ? outlook[offset] : nil
     }
 
-    /// When the weather was last fetched (today's reading).
-    var updatedAt: Date? { current?.fetchedAt ?? outlook.first?.fetchedAt }
+    /// When the weather was last really fetched (today's reading). An
+    /// offline estimate has no fetch time, so it never reads as updated.
+    var updatedAt: Date? {
+        if let c = current { return c.isEstimated ? nil : c.fetchedAt }
+        return outlook.first?.fetchedAt
+    }
+
+    /// True when nothing was ever fetched for this place and only the
+    /// barometer's pressure is real. Temperature, wind and sky are unknown.
+    var weatherIsEstimate: Bool { current?.isEstimated == true }
+
+    /// "Updated 3 h ago" once the weather is more than an hour old, for the
+    /// note under each forecast page's hero. Nil while it is fresh.
+    var staleNote: String? {
+        if weatherIsEstimate { return "No weather offline. Pull to refresh when you have signal." }
+        guard let updated = updatedAt, Date.now.timeIntervalSince(updated) > 3600 else { return nil }
+        return ForecastFormat.updated(updated) + ". Pull to refresh when you have signal."
+    }
 
     func day(_ offset: Int) -> ForecastDay {
         if let cached = cache[offset] { return cached }
@@ -168,7 +218,16 @@ final class ForecastStore {
                                           outlook: outlook, species: species)
         let date = computed.date
         let w = computed.weather
-        let result = computed.result
+        var result = computed.result
+        if offset == 0, weatherIsEstimate, let reading = w {
+            // Offline with nothing saved: only the barometer is real, so
+            // score without the placeholder wind and water.
+            result = ForecastEngine.forecast(
+                date: date, coordinate: coordinate,
+                currentPressureHpa: reading.pressureHpa, pressureChange6h: reading.pressureChange6h,
+                waterTempC: nil, windSpeedKmh: nil, windDirection: nil,
+                species: species, isInSpawningZone: false)
+        }
         let day = ForecastDay(
             offset: offset,
             date: date,
@@ -187,14 +246,15 @@ final class ForecastStore {
     func hourDetail(day offset: Int, hour: Int) -> ForecastEngine.ForecastResult {
         let d = day(offset)
         let w = d.weather
+        let estimate = offset == 0 && weatherIsEstimate
         return ForecastEngine.forecastForHour(
             hour: hour,
             date: d.date,
             coordinate: coordinate,
             currentPressureHpa: w?.pressureHpa,
             pressureChange6h: w?.pressureChange6h,
-            waterTempC: w?.waterTempC,
-            windSpeedKmh: w?.windSpeedKmh,
+            waterTempC: estimate ? nil : w?.waterTempC,
+            windSpeedKmh: estimate ? nil : w?.windSpeedKmh,
             species: species,
             isInSpawningZone: false
         )
@@ -243,7 +303,18 @@ enum ForecastFormat {
     /// @AppStorage("use24HourTime") so they redraw when it changes.
     static var use24: Bool { UserDefaults.standard.object(forKey: "use24HourTime") as? Bool ?? true }
 
-    /// Engine reasons use dashes; the pages read better with commas.
+    /// "Updated 20 min ago", "Updated 3 h ago", "Updated 2 days ago".
+    static func updated(_ date: Date, now: Date = .now) -> String {
+        let age = max(0, now.timeIntervalSince(date))
+        if age < 60 { return "Updated just now" }
+        if age < 3600 { return "Updated \(elapsed(age)) ago" }
+        if age < 86_400 { return "Updated \(elapsed((age / 3600).rounded(.down) * 3600)) ago" }
+        let days = Int(age / 86_400)
+        return "Updated \(days) \(days == 1 ? "day" : "days") ago"
+    }
+
+    /// Engine reasons used to join clauses with dashes; any that still do
+    /// read better with commas.
     static func clean(_ reason: String) -> String {
         reason.replacingOccurrences(of: " — ", with: ", ")
             .replacingOccurrences(of: " - ", with: ", ")
@@ -313,17 +384,19 @@ enum ForecastFormat {
         return names[i]
     }
 
-    /// "Waxing gibbous" rather than the engine's "Waxing Gibbous".
+    /// "Waxing gibbous", in sentence case whatever the engine's name.
     static func moonName(_ phase: MoonPhase) -> String {
         let name = phase.displayName
         guard let first = name.first else { return name }
         return String(first) + name.dropFirst().lowercased()
     }
 
-    static func pressureTrend(_ change: Double) -> String {
+    /// "Falling 1.2 hPa", "Rising 0.04 inHg" or "Steady". The time span is
+    /// the caller's label.
+    static func pressureTrend(_ change: Double, imperial: Bool = Units.isImperial) -> String {
         if abs(change) < 0.5 { return "Steady" }
         let word = change < 0 ? "Falling" : "Rising"
-        return "\(word) \(String(format: "%.1f", abs(change))) in 6 h"
+        return "\(word) \(Units.pressureChange(hpa: change, imperial: imperial))"
     }
 
     static func condition(_ raw: String) -> String {

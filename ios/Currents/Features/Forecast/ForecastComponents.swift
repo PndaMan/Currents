@@ -109,6 +109,7 @@ struct WindowTiles: View {
     let day: ForecastDay
     var use24: Bool = true
     var onSelect: (Int) -> Void
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     private var nowHour: Int { Calendar.current.component(.hour, from: .now) }
 
@@ -117,15 +118,20 @@ struct WindowTiles: View {
             HStack(spacing: 10) {
                 Image(systemName: "moon.zzz")
                     .foregroundStyle(.dsText2)
-                Text("No strong windows. Fish the best hour, \(ForecastFormat.hour(day.bestHour, use24: use24)).")
+                Text("No standout window. Fish the best hour, \(ForecastFormat.hour(day.bestHour, use24: use24)).")
                     .font(.subheadline)
                     .foregroundStyle(.dsText2)
+                    .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 0)
             }
             .padding(14)
             .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
         } else {
-            HStack(spacing: 10) {
+            // Side by side, stacked at accessibility sizes, as ActionTriple does.
+            let layout = typeSize.isAccessibilitySize
+                ? AnyLayout(VStackLayout(spacing: 10))
+                : AnyLayout(HStackLayout(spacing: 10))
+            layout {
                 ForEach(day.windows) { w in tile(w) }
             }
         }
@@ -154,7 +160,7 @@ struct WindowTiles: View {
                     .font(.footnote)
                     .monospacedDigit()
                     .foregroundStyle(.dsText2)
-                    .lineLimit(1)
+                    .lineLimit(typeSize.isAccessibilitySize ? 3 : 1)
                     .minimumScaleFactor(0.75)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -188,7 +194,7 @@ struct TintedIconLabelStyle: LabelStyle {
 
 // MARK: - Hour info (day page)
 
-/// What a tapped hour looks like: score, verdict, the weather for that hour
+/// What a tapped hour looks like: score, grade, the weather for that hour
 /// and the engine's factor cells.
 struct HourInfoBox: View {
     let store: ForecastStore
@@ -198,6 +204,7 @@ struct HourInfoBox: View {
     /// Clears the hour. When set, the card shows a close button and a tap
     /// anywhere on it goes back to the day view.
     var onClose: (() -> Void)? = nil
+    @AppStorage("units") private var units = "metric"
 
     var body: some View {
         Group {
@@ -229,7 +236,7 @@ struct HourInfoBox: View {
             HStack(alignment: .center, spacing: 12) {
                 ScoreRing(score: score, size: 48)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("\(ForecastFormat.hour(hour, use24: use24)), \(ForecastFormat.verdict(score).lowercased())")
+                    Text("\(ForecastFormat.hour(hour, use24: use24)), \(ForecastFormat.grade(score).lowercased())")
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.dsText)
                     if let wx {
@@ -293,7 +300,9 @@ struct HourInfoBox: View {
     }
 
     private func weatherLine(_ w: WeatherService.HourlyPoint) -> String {
-        var parts = ["\(Int(w.temperatureC.rounded()))°", "wind \(Int(w.windSpeedKmh.rounded())) km/h",
+        let imperial = units == "imperial"
+        var parts = [Units.temperature(w.temperatureC, imperial: imperial),
+                     "wind \(Units.speed(kmh: w.windSpeedKmh, imperial: imperial))",
                      "\(w.cloudCoverPct)% cloud"]
         if w.precipMm >= 0.1 { parts.append(String(format: "%.1f mm rain", w.precipMm)) }
         return parts.joined(separator: ", ")
@@ -303,6 +312,7 @@ struct HourInfoBox: View {
 private struct MiniFactor: View {
     let label: String
     let value: Double
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
         HStack(spacing: 6) {
@@ -312,7 +322,7 @@ private struct MiniFactor: View {
             Text(label)
                 .font(.footnote)
                 .foregroundStyle(.dsText2)
-                .lineLimit(1)
+                .lineLimit(typeSize.isAccessibilitySize ? 3 : 1)
             Spacer(minLength: 0)
             Text("\(Int((value * 100).rounded()))%")
                 .font(.footnote.weight(.semibold))
@@ -328,8 +338,17 @@ private struct MiniFactor: View {
 struct HourStrip: View {
     let day: ForecastDay
     var use24: Bool = true
+    @AppStorage("units") private var units = "metric"
+    @ScaledMetric(relativeTo: .headline) private var columnWidth: CGFloat = 54
 
     private var nowHour: Int { Calendar.current.component(.hour, from: .now) }
+    private var imperial: Bool { units == "imperial" }
+
+    /// The wind speed's number alone, in the user's unit, for the narrow column.
+    private func windNumber(_ kmh: Double) -> String {
+        let text = Units.speed(kmh: kmh, imperial: imperial)
+        return text.split(separator: " ").first.map(String.init) ?? text
+    }
 
     private var points: [WeatherService.HourlyPoint] {
         guard day.isToday else { return day.hours }
@@ -351,7 +370,7 @@ struct HourStrip: View {
                             .font(.title3)
                             .foregroundStyle(.dsText2)
                             .frame(height: 24)
-                        Text("\(Int(p.temperatureC.rounded()))°")
+                        Text(Units.temperature(p.temperatureC, imperial: imperial))
                             .font(.headline)
                             .monospacedDigit()
                             .foregroundStyle(.dsText)
@@ -359,16 +378,16 @@ struct HourStrip: View {
                             Image(systemName: "location.north.fill")
                                 .font(.caption2)
                                 .rotationEffect(.degrees(p.windDirectionDeg + 180))
-                            Text("\(Int(p.windSpeedKmh.rounded()))")
+                            Text(windNumber(p.windSpeedKmh))
                                 .monospacedDigit()
                         }
                         .font(.footnote)
                         .foregroundStyle(.dsText2)
                         Text(p.precipMm >= 0.1 ? String(format: "%.1f", p.precipMm) : " ")
                             .font(.caption)
-                            .foregroundStyle(ForecastCondition.tide.tint)
+                            .foregroundStyle(ForecastCondition.tide.ink)
                     }
-                    .frame(width: 54)
+                    .frame(minWidth: columnWidth)
                     .padding(.vertical, 14)
                     .background {
                         if isNow {
@@ -376,7 +395,7 @@ struct HourStrip: View {
                         }
                     }
                     .accessibilityElement(children: .ignore)
-                    .accessibilityLabel("\(isNow ? "Now" : ForecastFormat.hour(h, use24: use24)), \(Int(p.temperatureC.rounded())) degrees, wind \(Int(p.windSpeedKmh.rounded())) kilometres an hour")
+                    .accessibilityLabel("\(isNow ? "Now" : ForecastFormat.hour(h, use24: use24)), \(Units.temperature(p.temperatureC, imperial: imperial)), wind \(Units.speed(kmh: p.windSpeedKmh, imperial: imperial))")
                 }
             }
             .padding(.horizontal, 8)
@@ -395,69 +414,90 @@ struct HourStrip: View {
 struct FactorBreakdown: View {
     let breakdown: ForecastEngine.ScoreBreakdown
     var species: Species? = nil
+    /// One line under the card, such as when the score is for.
+    var note: String? = nil
+    @AppStorage("units") private var units = "metric"
 
     private var weights: ForecastEngine.FactorWeights { breakdown.weights }
 
-    private var rows: [(String, String, Double, Double, String)] {
-        [
-            ("Pressure", "gauge.with.dots.needle.50percent", breakdown.pressure, weights.pressure,
-             "Steady, moderate pressure keeps fish comfortable at their normal depth. Extremes push them down and make them sluggish."),
-            ("Pressure trend", "chart.line.downtrend.xyaxis", breakdown.pressureTrend, weights.pressureTrend,
-             "A falling glass ahead of a front is the classic feeding trigger. The bright high-pressure day behind it is the toughest bite there is."),
-            ("Tide", "water.waves", breakdown.tide, weights.tide, tideExplanation),
-            ("Moon phase", "moon", breakdown.moon, weights.moon,
-             "Full and new moons give the biggest tidal movement, and a bright night can shift feeding into darkness and flatten the dawn bite."),
-            ("Solunar window", "clock", breakdown.solunar, weights.solunar,
-             "Major and minor periods track when the moon is overhead or underfoot, the windows fish most reliably switch on."),
-            ("Time of day", "sun.max", breakdown.timeOfDay, weights.timeOfDay, timeExplanation),
-            ("Wind", "wind", breakdown.wind, weights.wind,
-             "A ripple breaks up the surface and stacks bait on the windward bank. Dead calm makes fish spooky; a gale makes them unfishable."),
-            ("Temperature", "thermometer.medium", breakdown.temperature, weights.temperature,
-             species.map { "Scored against the range \($0.commonName) prefer. Fish are cold-blooded, so water temperature sets how hard they will chase." }
-                ?? "Scored against the 15 to 25 °C band most game fish like. Target a species to score it against that fish's own range."),
-            ("Season and spawn", "calendar", breakdown.season, weights.season,
-             "Pre-spawn fish feed hard, spawning fish guard rather than eat, and post-spawn fish recover before switching back on."),
+    private struct Factor {
+        let name: String
+        let icon: String
+        let tint: Color
+        let value: Double
+        let weight: Double
+        let why: String
+    }
+
+    private var factors: [Factor] {
+        let imperial = units == "imperial"
+        let band = "\(Units.temperature(15, imperial: imperial)) to \(Units.temperature(25, imperial: imperial))"
+        return [
+            Factor(name: "Pressure", icon: "gauge.with.dots.needle.50percent", tint: ForecastCondition.pressure.tint,
+                   value: breakdown.pressure, weight: weights.pressure,
+                   why: "Steady, moderate pressure keeps fish at their normal depth."),
+            Factor(name: "Pressure trend", icon: "chart.line.downtrend.xyaxis", tint: .indigo,
+                   value: breakdown.pressureTrend, weight: weights.pressureTrend,
+                   why: "A falling glass before a front is the classic feeding trigger."),
+            Factor(name: "Tide", icon: "water.waves", tint: ForecastCondition.tide.tint,
+                   value: breakdown.tide, weight: weights.tide, why: tideExplanation),
+            Factor(name: "Moon phase", icon: "moon", tint: ForecastCondition.moon.ink,
+                   value: breakdown.moon, weight: weights.moon,
+                   why: "Full and new moons bring the biggest tides and the strongest pull."),
+            Factor(name: "Solunar window", icon: "clock", tint: .purple,
+                   value: breakdown.solunar, weight: weights.solunar,
+                   why: "Major and minor periods are when fish most reliably switch on."),
+            Factor(name: "Time of day", icon: "sun.max", tint: ForecastCondition.sun.ink,
+                   value: breakdown.timeOfDay, weight: weights.timeOfDay, why: timeExplanation),
+            Factor(name: "Wind", icon: "wind", tint: ForecastCondition.wind.ink,
+                   value: breakdown.wind, weight: weights.wind,
+                   why: "A ripple breaks up the surface and pushes bait to the windward bank."),
+            Factor(name: "Temperature", icon: "thermometer.medium", tint: ForecastCondition.water.ink,
+                   value: breakdown.temperature, weight: weights.temperature,
+                   why: species.map { "Scored against the range \($0.commonName) prefer." }
+                       ?? "Scored against the \(band) most game fish like."),
+            Factor(name: "Season and spawn", icon: "calendar", tint: .green,
+                   value: breakdown.season, weight: weights.season,
+                   why: "Pre-spawn fish feed hard, and spawning fish guard rather than eat."),
         ]
     }
 
     private var tideExplanation: String {
-        let base = "Moving water concentrates bait against structure. Slack water at the top or bottom of the tide is usually the quietest part of the cycle."
         switch ForecastEngine.SpeciesTraits(species).tide {
-        case .ignored: return "\(species?.commonName ?? "This fish") live in fresh water, where there is no tide, so it is left out and its share goes to the rest."
-        case .heavier: return base + " It counts for more because \(species?.commonName ?? "this fish") feed on the tide."
-        case .general: return base
+        case .ignored: return "\(species?.commonName ?? "This fish") live in fresh water, so tide is left out."
+        case .heavier: return "Counts for more because \(species?.commonName ?? "this fish") feed on the tide."
+        case .general: return "Moving water stacks bait against structure."
         }
     }
 
     private var timeExplanation: String {
-        let base = "Low light at dawn and dusk hands predators the advantage, which is why those hours out-fish the middle of the day."
-        guard ForecastEngine.SpeciesTraits(species).feedsAtNight, let name = species?.commonName else { return base }
-        return base + " \(name) also feed through the night, so dark hours score well too."
+        guard ForecastEngine.SpeciesTraits(species).feedsAtNight, let name = species?.commonName else {
+            return "Low light at dawn and dusk out-fishes the middle of the day."
+        }
+        return "\(name) also feed through the night, so dark hours score well."
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
-                FactorRow(name: row.0, icon: row.1, value: row.2, weight: row.3,
-                          explanation: row.3 > 0 || row.0 == "Tide"
-                              ? row.4 : row.4 + " There is no reading for it yet, so its share goes to the rest.")
-                if index < rows.count - 1 {
-                    Divider().overlay(Color.dsSeparator).padding(.leading, 48)
-                }
+        CardSection("Why this score", note: note) {
+            ForEach(Array(factors.enumerated()), id: \.offset) { _, f in
+                FactorRow(name: f.name, icon: f.icon, tint: f.tint, value: f.value, weight: f.weight,
+                          explanation: f.weight > 0 || f.name == "Tide"
+                              ? f.why : "No reading yet, so its share goes to the rest.")
             }
         }
-        .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
-        .padding(.horizontal, DS.gutter)
     }
 }
 
 private struct FactorRow: View {
     let name: String
     let icon: String
+    let tint: Color
     let value: Double
     let weight: Double
     let explanation: String
     @State private var expanded = false
+    @ScaledMetric(relativeTo: .body) private var meterWidth: CGFloat = 48
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     private var points: Int { Int((min(1, max(0, value)) * weight).rounded()) }
     private var counted: Bool { weight > 0 }
@@ -466,50 +506,14 @@ private struct FactorRow: View {
         Button {
             withAnimation(DS.Motion.softSpring) { expanded.toggle() }
         } label: {
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(spacing: 12) {
-                    Image(systemName: icon)
-                        .font(.subheadline)
-                        .foregroundStyle(.dsText2)
-                        .frame(width: 22)
-                    Text(name)
-                        .font(.subheadline)
-                        .foregroundStyle(.dsText)
-                        .lineLimit(1)
-                        .layoutPriority(1)
-                    Spacer(minLength: 8)
-                    if counted {
-                        meter.frame(width: 64, height: 6)
-                        HStack(alignment: .firstTextBaseline, spacing: 2) {
-                            Text("\(points)")
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(.dsText)
-                            Text("of \(Int(weight.rounded()))")
-                                .font(.caption)
-                                .foregroundStyle(.dsText2)
-                        }
-                        .monospacedDigit()
-                        .frame(minWidth: 44, alignment: .trailing)
-                    } else {
-                        Text("Not counted")
-                            .font(.footnote)
-                            .foregroundStyle(.dsText2)
-                    }
-                }
-                if expanded {
-                    Text(explanation)
-                        .font(.footnote)
-                        .foregroundStyle(.dsText2)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.leading, 34)
-                        .transition(.opacity)
+            CardRow(name, subtitle: expanded ? explanation : nil, systemImage: icon, tint: tint,
+                    value: counted ? "\(points) of \(Int(weight.rounded()))" : "Not counted") {
+                if counted && !typeSize.isAccessibilitySize {
+                    meter.frame(width: meterWidth, height: 6)
                 }
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 12)
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.dim)
+        .buttonStyle(.dsCardRow)
         .accessibilityLabel(counted ? "\(name), \(points) of \(Int(weight.rounded())) points" : "\(name), not counted")
         .accessibilityHint(expanded ? "" : "Shows why it matters")
     }
@@ -641,7 +645,7 @@ struct CompassDial: View {
     let degrees: Double
     var size: CGFloat = 48
     var showsLabels: Bool = false
-    var tint: Color = ForecastCondition.wind.tint
+    var tint: Color = ForecastCondition.wind.ink
 
     var body: some View {
         ZStack {
@@ -753,5 +757,36 @@ struct ExplainText: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, DS.gutter)
+    }
+}
+
+// MARK: - Page title
+
+extension View {
+    /// Sets `shown` once a page with its own large title has scrolled past
+    /// it. Apply to the page's ScrollView.
+    func forecastTracksTitle(_ shown: Binding<Bool>) -> some View {
+        onScrollGeometryChange(for: Bool.self) { geo in
+            geo.contentOffset.y + geo.contentInsets.top > 60
+        } action: { _, past in
+            shown.wrappedValue = past
+        }
+    }
+
+    /// The inline title of a page that shows its own large title: hidden at
+    /// rest and faded in once `shown`, as on `TodayPage`.
+    func forecastInlineTitle(_ title: String, shown: Bool) -> some View {
+        navigationTitle(title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Text(title)
+                        .font(.headline)
+                        .lineLimit(1)
+                        .opacity(shown ? 1 : 0)
+                        .animation(.easeOut(duration: DS.Motion.fast), value: shown)
+                        .accessibilityHidden(!shown)
+                }
+            }
     }
 }
