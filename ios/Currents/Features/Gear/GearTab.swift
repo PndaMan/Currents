@@ -1418,15 +1418,6 @@ struct GearDetailSheet: View {
 // MARK: - Form pieces
 
 extension View {
-    /// An inset grouped list on the page background with `dsFill` rows, like
-    /// the settings pages. The gear forms are card pages now; the profile
-    /// editor and the log-catch gear sheet still use this.
-    func gearFormStyle() -> some View {
-        pfGroupedList()
-            .textCase(nil)
-            .detailTint(nil)
-    }
-
     /// A text field inside `GearCardField`: trailing like a Settings value,
     /// leading once the field sits under its label at accessibility sizes.
     func gearCardInput(_ keyboard: UIKeyboardType = .default) -> some View {
