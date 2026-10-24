@@ -677,7 +677,16 @@ final class CommunityService: ObservableObject {
 
     // MARK: - Leaderboard
 
+    /// Sizes no real catch reaches, almost always a typo or a unit mix-up.
+    /// A catch outside them stays off the leaderboard; a missing size is fine.
+    private static func isPlausible(lengthCm: Double?, weightKg: Double?) -> Bool {
+        if let length = lengthCm, length <= 0 || length > 400 { return false }
+        if let weight = weightKg, weight <= 0 || weight > 500 { return false }
+        return true
+    }
+
     func publish(catchRecord: Catch, speciesName: String, region: String, groupCode: String? = nil) async {
+        guard Self.isPlausible(lengthCm: catchRecord.lengthCm, weightKg: catchRecord.weightKg) else { return }
         guard CloudCapability.isAvailable, !ScreenshotSupport.isActive,
               joined || groupCode != nil else { return }
         let id = CKRecord.ID(recordName: "catch-\(friendCode)-\(catchRecord.id)")
@@ -973,7 +982,10 @@ final class CommunityService: ObservableObject {
         // preference flips. Otherwise publish just catches we haven't sent yet,
         // so routine syncs don't re-upload every photo each time.
         var published = Set(UserDefaults.standard.stringArray(forKey: "publishedCatchIds") ?? [])
-        let toPublish = prefChanged ? details : details.filter { !published.contains($0.id) }
+        let pending = prefChanged ? details : details.filter { !published.contains($0.id) }
+        // The same size rule as `publish`, so a catch it refused doesn't
+        // reach the leaderboard through the full-history sync instead.
+        let toPublish = pending.filter { Self.isPlausible(lengthCm: $0.lengthCm, weightKg: $0.weightKg) }
         guard !toPublish.isEmpty else {
             UserDefaults.standard.set(Date(), forKey: "lastCatchSync")
             UserDefaults.standard.set(shareCatchLocations, forKey: "lastCatchSyncLocPref")
@@ -2260,6 +2272,7 @@ final class CommunityService: ObservableObject {
     /// member's catch always reaches the group.
     func publishGroupCatch(species: String, weightKg: Double?, lengthCm: Double?,
                            catchId: String, groupCode: String) async {
+        guard Self.isPlausible(lengthCm: lengthCm, weightKg: weightKg) else { return }
         guard cloudAllowed else { return }
         let id = CKRecord.ID(recordName: "catch-\(friendCode)-\(catchId)")
         // Update the existing catch record (adding the group tag) if it's already
