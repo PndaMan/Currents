@@ -133,8 +133,12 @@ struct SettingsView: View {
                 Label("Share card", systemImage: "square.and.arrow.up")
             }
             .buttonStyle(ActionTileStyle())
-            NavigationLink(value: AppRoute.licenses) {
-                ActionTileLabel("Licences", systemImage: "person.text.rectangle")
+            // Licences has its own row below, so the third tile opens the
+            // saved spots, which have no row on this page.
+            NavigationLink {
+                SpotsListView()
+            } label: {
+                ActionTileLabel("Your spots", systemImage: "mappin")
             }
             .buttonStyle(.dim)
         }
@@ -147,7 +151,7 @@ struct SettingsView: View {
                 valueTint: lowStockCount > 0 ? .dsScoreLow : .dsText2)
             row(AppRoute.licenses, "Licences", "person.text.rectangle.fill", .green,
                 value: licenceValue.text, valueTint: licenceValue.color)
-            row(SettingsRoute.knots, "Knots and rigs", "link", .cyan,
+            row(SettingsRoute.knots, "Knots", "link", .cyan,
                 value: "\(KnotCatalog.shared.entries.count)")
             row(SettingsRoute.regulations, "Size and bag limits", "list.bullet.clipboard.fill", .purple)
         }
@@ -219,6 +223,10 @@ struct SettingsView: View {
                                 .font(.subheadline)
                                 .foregroundStyle(.dsText2)
                                 .monospacedDigit()
+                            Image(systemName: "chevron.right")
+                                .font(.footnote.weight(.semibold))
+                                .foregroundStyle(.dsText3)
+                                .accessibilityHidden(true)
                         }
                         LogbookProgressBar(fraction: Double(earnedBadges) / Double(max(totalBadges, 1)))
                     }
