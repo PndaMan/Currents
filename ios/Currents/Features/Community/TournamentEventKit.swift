@@ -48,7 +48,7 @@ struct EventLiveTag: View {
                 .opacity(on ? 1 : 0.55)
             Text(title)
                 .fontWeight(.semibold)
-                .foregroundStyle(Color.dsScoreSlow)
+                .foregroundStyle(DS.ink(.dsScoreSlow))
         }
         .onAppear {
             guard !reduceMotion else { on = true; return }
@@ -389,7 +389,7 @@ struct EventPodiumColumn: View {
         VStack(spacing: DS.Space.s1) {
             Image(systemName: "crown.fill")
                 .font(.title3)
-                .foregroundStyle(Color.dsScoreFair)
+                .foregroundStyle(DS.ink(.dsScoreFair))
                 .opacity(place == 1 ? 1 : 0)
             EventAvatarStack(images: entry.images, size: place == 1 ? 76 : 62, ring: Self.medal(place))
                 .padding(.bottom, DS.Space.s1)
