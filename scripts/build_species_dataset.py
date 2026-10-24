@@ -31,6 +31,8 @@ Notes
 - Re-running is idempotent: existing thumbnails are skipped unless --force.
 - If a species has no CC photo, no imageset is written and the app falls back
   to its silhouette automatically.
+- New species have no habitat. Run scripts/fishbase_species.py afterwards to
+  set it from FishBase.
 """
 
 from __future__ import annotations
@@ -222,7 +224,7 @@ def main() -> None:
             "scientificName": s["scientificName"],
             "commonName": s["commonName"],
             "family": s["family"],
-            "habitat": "freshwater",  # refined by curation
+            "habitat": None,  # set from FishBase by fishbase_species.py
             "minTempC": None,
             "maxTempC": None,
             "optimalTempC": None,
