@@ -352,8 +352,10 @@ struct ForecastDayStrip: View {
                 Text(ForecastFormat.dayNumber(d.date))
                     .font(.title3.weight(.semibold))
                     .monospacedDigit()
+                // Inked on the page so yellow reads on the light wash; the
+                // selected chip is dark in light mode, so it keeps the raw hue.
                 Circle()
-                    .fill(DS.scoreColor(d.peakScore))
+                    .fill(on ? DS.scoreColor(d.peakScore) : DS.scoreInk(d.peakScore))
                     .frame(width: 6, height: 6)
             }
             .foregroundStyle(on ? Color.dsOnPrimary : Color.dsText)
