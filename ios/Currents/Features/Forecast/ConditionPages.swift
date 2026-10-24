@@ -11,6 +11,7 @@ struct ConditionGrid: View {
     let day: ForecastDay
     var use24: Bool = true
     @AppStorage("units") private var units = "metric"
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     /// One tile. Rain takes the tide's place where there is no tide, and
     /// opens the sky and rain page.
@@ -37,9 +38,13 @@ struct ConditionGrid: View {
     }
 
     var body: some View {
+        // Two to a row, one to a row at accessibility sizes.
+        let pair = typeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(spacing: 10))
+            : AnyLayout(HStackLayout(alignment: .top, spacing: 10))
         VStack(spacing: 10) {
             ForEach(rows, id: \.self) { row in
-                HStack(alignment: .top, spacing: 10) {
+                pair {
                     ForEach(row) { slot in
                         NavigationLink(value: ForecastRoute.condition(slot.page, day: day.offset)) {
                             tile(slot)
