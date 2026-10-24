@@ -989,9 +989,11 @@ struct GroupTripView: View {
     }
 
     /// Inviting has one route, the Invite tile and its sheet, so the menu
-    /// holds only the end and leave actions.
+    /// holds only the end and leave actions. Leaving alone is the button at
+    /// the foot of the page, so the menu shows only while the host can end
+    /// the trip.
     private var hasMoreItems: Bool {
-        (isHost && !ended) || canLeave
+        isHost && !ended
     }
 
     private func moreMenu(_ code: String) -> some View {
@@ -1021,8 +1023,8 @@ struct GroupTripView: View {
 
     private var standingsSection: some View {
         let stats = standings()
-        return CrewSection(title: ended ? "Final results" : "Leaderboard",
-                           detail: feed.isEmpty ? nil : "\(feed.count) fish") {
+        // No count beside the title: the Fish tile above already says it.
+        return CrewSection(title: ended ? "Final results" : "Leaderboard") {
             if !loaded && stats.isEmpty {
                 EventSkeletonRows(count: 3, thumbSize: 36, label: "Loading the leaderboard")
             } else {
