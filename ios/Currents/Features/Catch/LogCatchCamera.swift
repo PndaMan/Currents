@@ -105,9 +105,11 @@ private struct LogCatchPreview: UIViewRepresentable {
 // MARK: - Camera screen
 
 /// The camera that opens first when logging a catch: shutter, library and
-/// "No photo" (or "Done" when adding more photos). Always dark, like the
-/// system camera. The captured frame is handed back to the composer, which
-/// animates it down into the cover photo.
+/// "Skip photo" (or "Done" when adding more photos). Always dark, like the
+/// system camera, with the status bar hidden as the system Camera hides it,
+/// so light mode never puts dark clock glyphs on the black viewfinder. The
+/// captured frame is handed back to the composer, which animates it down into
+/// the cover photo.
 struct LogCatchCameraView: View {
     /// True when the catch already has photos and this adds another.
     let adding: Bool
@@ -132,6 +134,7 @@ struct LogCatchCameraView: View {
             }
         }
         .environment(\.colorScheme, .dark)
+        .statusBarHidden()
         .onAppear { camera.start() }
         .onDisappear { camera.stop() }
     }
@@ -162,11 +165,15 @@ struct LogCatchCameraView: View {
             switch camera.status {
             case .running, .starting:
                 LogCatchPreview(session: camera.session)
-                RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous)
-                    .strokeBorder(Color.white.opacity(0.7), lineWidth: 2)
-                    .padding(.horizontal, 36)
-                    .padding(.vertical, 70)
-                    .accessibilityHidden(true)
+                // The framing guide only over a live picture, not over the
+                // black preview while the camera starts.
+                if camera.status == .running {
+                    RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous)
+                        .strokeBorder(Color.white.opacity(0.7), lineWidth: 2)
+                        .padding(.horizontal, 36)
+                        .padding(.vertical, 70)
+                        .accessibilityHidden(true)
+                }
             case .denied:
                 cameraMessage("Camera is off for Currents",
                               detail: "Turn it on in Settings, or choose photos from your library.",
@@ -234,11 +241,14 @@ struct LogCatchCameraView: View {
                 // On press-down, so the tap is over before the photo is taken.
                 .buttonHaptic(.press)
                 .disabled(camera.status != .running)
-                .opacity(camera.status == .running ? 1 : 0.4)
+                // Dimmed for the moment the camera starts; gone when there is
+                // no camera to shoot with, so no dead shutter is left.
+                .opacity(shutterOpacity)
+                .accessibilityHidden(!canShoot)
                 .accessibilityLabel("Take photo")
 
                 Button(action: onSkip) {
-                    Text(adding ? "Done" : "No photo")
+                    Text(adding ? "Done" : "Skip photo")
                         .font(.subheadline.weight(.semibold))
                         .padding(.horizontal, DS.Space.s4)
                         .frame(height: 40)
@@ -260,6 +270,19 @@ struct LogCatchCameraView: View {
         .foregroundStyle(.white)
         .padding(.top, DS.Space.s6)
         .padding(.bottom, DS.Space.s4)
+    }
+
+    /// The camera is running or about to.
+    private var canShoot: Bool {
+        camera.status == .running || camera.status == .starting
+    }
+
+    private var shutterOpacity: Double {
+        switch camera.status {
+        case .running: 1
+        case .starting: 0.4
+        case .denied, .unavailable: 0
+        }
     }
 
     private func shoot() {
