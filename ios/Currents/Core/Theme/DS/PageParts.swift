@@ -26,12 +26,15 @@ struct SectionFootnote: View {
 // MARK: - Inline empty
 
 /// An empty state that sits inside a section (Luma's "Nothing planned yet"):
-/// icon, one line, and an optional action.
+/// icon, one line, and an optional action. The icon's column scales with the
+/// text, and at accessibility sizes the icon sits above the text.
 struct InlineEmpty: View {
     let systemImage: String
     let text: String
     var actionTitle: String? = nil
     var action: (() -> Void)? = nil
+    @Environment(\.dynamicTypeSize) private var typeSize
+    @ScaledMetric(relativeTo: .body) private var glyphWidth: CGFloat = 24
 
     init(systemImage: String, text: String, actionTitle: String? = nil, action: (() -> Void)? = nil) {
         self.systemImage = systemImage
@@ -45,11 +48,14 @@ struct InlineEmpty: View {
     }
 
     var body: some View {
-        HStack(alignment: .top, spacing: DS.Space.s3) {
+        let layout = typeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: DS.Space.s2))
+            : AnyLayout(HStackLayout(alignment: .top, spacing: DS.Space.s3))
+        layout {
             Image(systemName: systemImage)
                 .font(.body)
                 .foregroundStyle(.dsText3)
-                .frame(width: 24)
+                .frame(width: typeSize.isAccessibilitySize ? nil : glyphWidth)
             VStack(alignment: .leading, spacing: DS.Space.s2) {
                 Text(text)
                     .font(.subheadline)
@@ -60,8 +66,8 @@ struct InlineEmpty: View {
                         .buttonStyle(TonalButtonStyle(fullWidth: false))
                 }
             }
-            Spacer(minLength: 0)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(DS.Space.s4)
         .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
         .padding(.horizontal, DS.gutter)
