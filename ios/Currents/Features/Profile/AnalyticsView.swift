@@ -175,13 +175,16 @@ struct AnalyticsView: View {
 
     @ViewBuilder
     private var monthSection: some View {
-        if !monthlyCounts.isEmpty {
+        if monthlyCounts.contains(where: { $0.count > 0 }) {
             SectionTitle("Catches by month", detail: "Last 12 months")
                 .padding(.top, DS.Space.s8)
-            let readout = selectedMonth.flatMap { m in monthlyCounts.first { $0.month == m } }
-                ?? monthlyCounts.max { $0.count < $1.count }
+            let picked = selectedMonth.flatMap { m in monthlyCounts.first { $0.month == m } }
+            let readout = picked ?? monthlyCounts.max { $0.count < $1.count }
             if let readout {
-                Text("\(monthName(readout.month, wide: true)), \(readout.count) \(readout.count == 1 ? "catch" : "catches")")
+                let name = monthName(readout.month, wide: true)
+                let count = "\(readout.count) \(readout.count == 1 ? "catch" : "catches")"
+                // Until a bar is picked the readout is the best month, so it says so.
+                Text(picked == nil ? "Best month was \(name), with \(count)" : "\(name), \(count)")
                     .font(.subheadline.weight(.medium))
                     .foregroundStyle(.dsText2)
                     .contentTransition(.numericText())
@@ -516,7 +519,7 @@ struct AnalyticsView: View {
         do {
             totalCatches = try repo.totalCount()
             personalBests = try repo.personalBests()
-            monthlyCounts = try repo.monthlyCounts()
+            monthlyCounts = try Self.everyMonth(repo.monthlyCounts())
             hourCounts = try repo.catchesByHour()
             avgForecast = try repo.averageForecastScore()
             speciesCounts = try repo.speciesCounts()
@@ -526,6 +529,23 @@ struct AnalyticsView: View {
             loadFailed = true
         }
         loaded = true
+    }
+
+    /// The query returns only months with catches, which drew four bars
+    /// under "Last 12 months". Every month of the last 12, oldest first,
+    /// with zero where nothing was caught.
+    private static func everyMonth(_ counts: [(month: String, count: Int)],
+                                   months: Int = 12) -> [(month: String, count: Int)] {
+        let cal = Calendar.current
+        let byMonth = Dictionary(counts.map { ($0.month, $0.count) }, uniquingKeysWith: +)
+        guard let thisMonth = cal.date(from: cal.dateComponents([.year, .month], from: .now)) else { return counts }
+        return (0..<months).reversed().compactMap { back -> (month: String, count: Int)? in
+            guard let date = cal.date(byAdding: .month, value: -back, to: thisMonth) else { return nil }
+            let parts = cal.dateComponents([.year, .month], from: date)
+            guard let year = parts.year, let month = parts.month else { return nil }
+            let key = String(format: "%04d-%02d", year, month)
+            return (month: key, count: byMonth[key] ?? 0)
+        }
     }
 
     /// "06:00", or "6 am" in 12-hour time, as on Today.
