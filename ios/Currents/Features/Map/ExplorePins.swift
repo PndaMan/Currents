@@ -337,7 +337,7 @@ struct ExplorePin: View {
     private var content: some View {
         switch feature {
         case .water(let w):
-            WaterPin(waterbody: w, score: score, showsLabel: showsLabel)
+            WaterPin(waterbody: w, showsLabel: showsLabel)
         case .ramp(let r):
             VStack(spacing: 3) {
                 PlaceDot(kind: r.kind)
@@ -379,34 +379,25 @@ struct ExplorePin: View {
         case .catchPin(let c): return CatchPinText.label(c)
         case .ramp(let r): kind = r.kind.label
         }
-        let bite = score.map { ", bite \($0)" } ?? ""
+        // A spot's score is its best hour today, as on its page.
+        let bite = score.map { ", bite \($0) today" } ?? ""
         return "\(feature.name), \(kind)\(bite)"
     }
 }
 
-/// Water on the map: the round glyph inside a bite ring drawn in the score
-/// colour, and the name in water ink once the map is close enough to read it.
+/// Water on the map: the round glyph, and the name in water ink once the
+/// map is close enough to read it. Water carries no bite score: every water
+/// would show the same regional number, which says nothing about the water.
 struct WaterPin: View {
     let waterbody: Waterbody
-    var score: Int?
     var showsLabel = false
 
     var body: some View {
         VStack(spacing: 3) {
-            ZStack {
-                if let score {
-                    Circle()
-                        .stroke(Color.dsBackground.opacity(0.55), lineWidth: 3.5)
-                    Circle()
-                        .trim(from: 0, to: CGFloat(max(4, min(score, 100))) / 100)
-                        .stroke(DS.scoreColor(score), style: StrokeStyle(lineWidth: 3.5, lineCap: .round))
-                        .rotationEffect(.degrees(-90))
-                }
-                WaterDot(type: waterbody.type)
-            }
-            .frame(width: ExploreMetrics.waterRing, height: ExploreMetrics.waterRing)
+            WaterDot(type: waterbody.type)
+                .frame(width: ExploreMetrics.waterRing, height: ExploreMetrics.waterRing)
             if showsLabel {
-                PinLabel(title: waterbody.name, detail: score.map { "Bite \($0)" }, isWater: true)
+                PinLabel(title: waterbody.name, isWater: true)
             }
         }
     }

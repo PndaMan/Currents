@@ -64,7 +64,6 @@ struct MapTab: View {
     @State private var inspector: InspectTarget?
     @State private var spotScores: [String: Int] = [:]
     @State private var waterbodies: [Waterbody] = []
-    @State private var waterbodyScores: [Int64: Int] = [:] // keyed by id ?? 0
     @State private var isLoadingWaterbodies = false
     @State private var waterbodyDebounceTask: Task<Void, Never>?
     @State private var currentLatSpan: Double = 1.0
@@ -567,8 +566,7 @@ struct MapTab: View {
     private func score(for feature: ExploreFeature) -> Int? {
         switch feature {
         case .spot(let s): spotScores[s.id]
-        case .water(let w): waterbodyScores[w.id ?? 0]
-        case .catchPin, .ramp: nil
+        case .water, .catchPin, .ramp: nil
         }
     }
 
@@ -1394,7 +1392,7 @@ struct MapTab: View {
         nearBite = bite
         weather = w
 
-        // Compute bite scores for each spot
+        // Each spot's best hour today, as the spots list and the place page show it
         for spot in spots {
             let spotCoord = CLLocationCoordinate2D(latitude: spot.latitude, longitude: spot.longitude)
             let w = await WeatherService.shared.current(for: spotCoord)
@@ -1408,15 +1406,8 @@ struct MapTab: View {
                 species: nil,
                 isInSpawningZone: false
             )
-            spotScores[spot.id] = result.score
+            spotScores[spot.id] = BiteSnapshot(result).day
         }
-
-        // Compute a shared bite score for nearby waterbodies
-        let regionForScore = MKCoordinateRegion(
-            center: coord,
-            span: MKCoordinateSpan(latitudeDelta: 1.0, longitudeDelta: 1.0)
-        )
-        await computeRegionScore(region: regionForScore)
     }
 
     private func loadWaterbodies(region: MKCoordinateRegion) async {
@@ -1447,10 +1438,7 @@ struct MapTab: View {
             limit: limit
         )) ?? []
 
-        // 2) Compute bite score in background, don't block waterbody display
-        Task { await computeRegionScore(region: region) }
-
-        // 3) Only hit Overpass when zoomed in enough (< 2.5° span) to avoid API
+        // 2) Only hit Overpass when zoomed in enough (< 2.5° span) to avoid API
         // spam, and never in screenshot mode, so captures show only the clean
         // seeded set deterministically (no async network results mid-capture).
         // The bundled extract already holds everything Overpass would return
@@ -1478,38 +1466,6 @@ struct MapTab: View {
                 )) ?? []
             }
             isLoadingWaterbodies = false
-        }
-    }
-
-    /// Compute a single bite score for the region center and apply it to all waterbodies.
-    /// This avoids making a weather API call per waterbody.
-    private func computeRegionScore(region: MKCoordinateRegion) async {
-        let center = region.center
-        // Skip if we already have a score for this approximate area
-        let regionKey = Int64(center.latitude * 100) * 100000 + Int64(center.longitude * 100)
-        if let score = waterbodyScores[regionKey] {
-            // Apply existing region score to new waterbodies
-            for wb in waterbodies where waterbodyScores[wb.id ?? 0] == nil {
-                waterbodyScores[wb.id ?? 0] = score
-            }
-            return
-        }
-
-        let w = await WeatherService.shared.current(for: center)
-        let result = ForecastEngine.forecast(
-            coordinate: center,
-            currentPressureHpa: w?.pressureHpa,
-            pressureChange6h: w?.pressureChange6h,
-            waterTempC: w?.measured?.waterTempC,
-            windSpeedKmh: w?.measured?.windSpeedKmh,
-            windDirection: w?.measured?.windDirectionDeg,
-            species: nil,
-            isInSpawningZone: false
-        )
-        waterbodyScores[regionKey] = result.score
-        // Apply this score to all waterbodies in view
-        for wb in waterbodies {
-            waterbodyScores[wb.id ?? 0] = result.score
         }
     }
 }
