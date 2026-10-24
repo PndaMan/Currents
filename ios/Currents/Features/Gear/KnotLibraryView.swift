@@ -29,31 +29,42 @@ struct KnotLibraryView: View {
         return matches.sorted { KnotFavourites.contains($0, in: saved) && !KnotFavourites.contains($1, in: saved) }
     }
 
+    /// Groups that have at least one entry, so a group with nothing in it
+    /// (Rigs, for now) never shows as a dead chip.
+    private var categories: [KnotEntry.Category?] {
+        let present = KnotEntry.Category.allCases.filter { c in catalog.entries.contains { $0.category == c } }
+        return [nil] + present.map { Optional($0) }
+    }
+
     var body: some View {
-        List {
-            Section {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
                 DetailHeader(title: "Knots and rigs", subtitle: "Step by step. Works offline.")
-                    .dsListRow()
-                chips
+                PFSearchField(prompt: "Knot name or use", text: $search)
+                    .padding(.top, DS.Space.s4)
+                FilterChips(categories, selection: $category) { $0?.rawValue ?? "All" }
+                    .padding(.top, DS.Space.s3)
                     .padding(.bottom, DS.Space.s2)
-                    .dsListRow()
-            }
-            Section {
                 if filtered.isEmpty {
-                    emptyState.dsListRow()
+                    emptyState
                 } else {
-                    ForEach(filtered) { knot in
-                        knotLink(knot).dsListRow()
+                    LazyVStack(spacing: 0) {
+                        ForEach(filtered) { knot in
+                            NavigationLink(value: KnotRoute(id: knot.id)) {
+                                knotRow(knot)
+                            }
+                            .buttonStyle(.dsRow)
+                        }
                     }
                 }
             }
+            .padding(.bottom, DS.Space.s8)
+            .pageWidth()
         }
-        .dsPlainList()
+        .scrollDismissesKeyboard(.interactively)
         .detailTint(nil)
         .pfTrackScroll($titleShown, threshold: 60)
         .pfScrollTitle("Knots and rigs", shown: titleShown)
-        .searchable(text: $search, placement: .navigationBarDrawer(displayMode: .automatic),
-                    prompt: "Knot name or use")
         .navigationDestination(for: KnotRoute.self) { route in
             if let knot = catalog.entry(id: route.id) {
                 KnotDetailView(knot: knot)
@@ -64,43 +75,19 @@ struct KnotLibraryView: View {
         }
     }
 
-    private var chips: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 6) {
-                Chip("All", isSelected: category == nil) { category = nil }
-                ForEach(KnotEntry.Category.allCases, id: \.self) { c in
-                    Chip(c.rawValue, isSelected: category == c) {
-                        category = category == c ? nil : c
-                    }
-                }
-            }
-            .padding(.horizontal, DS.gutter)
-            .padding(.vertical, DS.Space.s1)
-        }
-        .scrollBounceBehavior(.basedOnSize, axes: [.horizontal])
-    }
-
     /// Nothing matches the search, or the chosen group has no knots yet.
     @ViewBuilder
     private var emptyState: some View {
         if !query.isEmpty {
-            ContentUnavailableView.search(text: query)
-                .padding(.top, DS.Space.s6)
+            InlineEmpty(systemImage: "magnifyingglass",
+                        text: "No knots match \u{201C}\(query)\u{201D}. Try another name or what it is for.",
+                        actionTitle: "Clear search") { search = "" }
+                .padding(.top, DS.Space.s2)
         } else {
             InlineEmpty(systemImage: category?.icon ?? "point.topleft.down.to.point.bottomright.curvepath",
                         text: "No \(category?.rawValue.lowercased() ?? "knots") in the library yet. Pick another group.",
                         actionTitle: "Show all knots") { category = nil }
                 .padding(.top, DS.Space.s2)
-        }
-    }
-
-    /// A hidden link under the row, so the row keeps the page's own chevron
-    /// and padding instead of the list's disclosure arrow.
-    private func knotLink(_ knot: KnotEntry) -> some View {
-        ZStack {
-            NavigationLink(value: KnotRoute(id: knot.id)) { EmptyView() }
-                .opacity(0)
-            knotRow(knot)
         }
     }
 
@@ -157,7 +144,7 @@ struct KnotThumb: View {
 
     var body: some View {
         if let img = KnotImageStore.image(knot.imageName) {
-            ThumbView(tint: .gray, size: size) {
+            ThumbView(tint: .cyan, size: size) {
                 Image(uiImage: img)
                     .resizable().scaledToFill()
                     .frame(width: size, height: size)
@@ -176,6 +163,12 @@ struct KnotDetailView: View {
     @State private var stepping: Int?
     @State private var showsDiagram = false
     @State private var titleShown = false
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    /// Half height leaves no room for a step at accessibility sizes.
+    private var stepDetents: Set<PresentationDetent> {
+        typeSize.isAccessibilitySize ? [.large] : [.medium, .large]
+    }
 
     private var isFavourite: Bool { KnotFavourites.contains(knot, in: KnotFavourites.decode(favouritesRaw)) }
     private var diagram: UIImage? { KnotImageStore.image(knot.imageName) }
@@ -186,7 +179,9 @@ struct KnotDetailView: View {
     }
 
     private var facts: [(String, String)] {
-        var rows = [("Strength", knot.strength), ("Type", knot.category.rawValue)]
+        // A percentage is a strength; the rest describe what the knot suits.
+        let strengthLabel = knot.strength.contains("%") ? "Strength" : "Good for"
+        var rows = [(strengthLabel, knot.strength), ("Type", knot.category.rawValue)]
         if knot.source == .community, let author = knot.author {
             rows.append(("Shared by", author))
         }
@@ -247,8 +242,7 @@ struct KnotDetailView: View {
         .pfScrollTitle(knot.name, shown: titleShown)
         .sheet(isPresented: Binding(get: { stepping != nil }, set: { if !$0 { stepping = nil } })) {
             KnotStepSheet(knot: knot, step: stepping ?? 0)
-                .presentationDetents([.medium, .large])
-                .presentationDragIndicator(.visible)
+                .dsSheet(stepDetents)
         }
         .fullScreenCover(isPresented: $showsDiagram) {
             if let img = diagram {
@@ -347,12 +341,14 @@ struct KnotDetailView: View {
     }
 }
 
-/// One step at a time, with Back and Next, for tying at the water.
+/// One step at a time, with Back and Next, for tying at the water. The step
+/// scrolls when large text needs more room; Back and Next stay pinned.
 private struct KnotStepSheet: View {
     let knot: KnotEntry
     @State private var step: Int
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     init(knot: KnotEntry, step: Int) {
         self.knot = knot
@@ -363,54 +359,41 @@ private struct KnotStepSheet: View {
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: DS.Space.s4) {
-                if let img = KnotImageStore.image(knot.imageName) {
-                    Image(uiImage: img)
-                        .resizable().scaledToFit()
-                        .frame(maxHeight: 180)
-                        .padding(DS.Space.s3)
-                        .frame(maxWidth: .infinity)
-                        .background(Color.white, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
-                        .accessibilityHidden(true)
-                }
-                HStack(spacing: 6) {
-                    ForEach(knot.steps.indices, id: \.self) { i in
-                        Circle()
-                            .fill(i == step ? Color.dsText : Color.dsFill2)
-                            .frame(width: 7, height: 7)
+            ScrollView {
+                VStack(spacing: DS.Space.s4) {
+                    if let img = KnotImageStore.image(knot.imageName) {
+                        Image(uiImage: img)
+                            .resizable().scaledToFit()
+                            .frame(maxHeight: 180)
+                            .padding(DS.Space.s3)
+                            .frame(maxWidth: .infinity)
+                            .background(Color.white, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
+                            .accessibilityHidden(true)
                     }
-                }
-                .accessibilityHidden(true)
-                Text("Step \(step + 1) of \(knot.steps.count)")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.dsText2)
-                Text(knot.steps.indices.contains(step) ? knot.steps[step] : "")
-                    .font(.title3)
-                    .foregroundStyle(.dsText)
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: .infinity)
-                    .id(step)
-                    .transition(reduceMotion ? .opacity : .push(from: .trailing))
-                Spacer(minLength: 0)
-                HStack(spacing: DS.Space.s3) {
-                    Button {
-                        withAnimation(reduceMotion ? nil : DS.Motion.spring) { step -= 1 }
-                    } label: {
-                        Label("Back", systemImage: "chevron.left")
-                    }
-                    .buttonStyle(.dsTonal)
-                    .disabled(step == 0)
-                    Button {
-                        if isLast { dismiss() } else {
-                            withAnimation(reduceMotion ? nil : DS.Motion.spring) { step += 1 }
+                    HStack(spacing: 6) {
+                        ForEach(knot.steps.indices, id: \.self) { i in
+                            Circle()
+                                .fill(i == step ? Color.dsText : Color.dsFill2)
+                                .frame(width: 7, height: 7)
                         }
-                    } label: {
-                        Label(isLast ? "Done" : "Next", systemImage: isLast ? "checkmark" : "chevron.right")
                     }
-                    .buttonStyle(.dsPrimary)
+                    .accessibilityHidden(true)
+                    Text("Step \(step + 1) of \(knot.steps.count)")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.dsText2)
+                    Text(knot.steps.indices.contains(step) ? knot.steps[step] : "")
+                        .font(.title3)
+                        .foregroundStyle(.dsText)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity)
+                        .id(step)
+                        .transition(reduceMotion ? .opacity : .push(from: .trailing))
                 }
+                .padding(DS.gutter)
             }
-            .padding(DS.gutter)
+            .safeAreaInset(edge: .bottom) { controls }
+            .dsScreenBackground()
             .navigationTitle(knot.name)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -419,6 +402,33 @@ private struct KnotStepSheet: View {
                 }
             }
         }
+    }
+
+    private var controls: some View {
+        let layout = typeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(spacing: DS.Space.s3))
+            : AnyLayout(HStackLayout(spacing: DS.Space.s3))
+        return layout {
+            Button {
+                withAnimation(reduceMotion ? nil : DS.Motion.spring) { step -= 1 }
+            } label: {
+                Label("Back", systemImage: "chevron.left")
+            }
+            .buttonStyle(.dsTonal)
+            .disabled(step == 0)
+            Button {
+                if isLast { dismiss() } else {
+                    withAnimation(reduceMotion ? nil : DS.Motion.spring) { step += 1 }
+                }
+            } label: {
+                Label(isLast ? "Done" : "Next", systemImage: isLast ? "checkmark" : "chevron.right")
+            }
+            .buttonStyle(.dsPrimary)
+        }
+        .padding(.horizontal, DS.gutter)
+        .padding(.top, DS.Space.s3)
+        .padding(.bottom, DS.Space.s2)
+        .background(Color.dsBackground.ignoresSafeArea())
     }
 }
 
@@ -672,7 +682,7 @@ struct KnotEntry: Identifiable, Hashable {
             useCase: "Join two lengths of line or a leader to the main line.",
             strength: "About 90% of line strength",
             steps: [
-                "Overlap the two lines by about 20 cm.",
+                "Overlap the two lines by about \(Units.length(cm: 20)).",
                 "Form a loop with both lines together.",
                 "Pass both ends through the loop twice to make a double overhand.",
                 "Wet and pull all four strands evenly to seat, then trim the tags.",
