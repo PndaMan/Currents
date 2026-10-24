@@ -4,7 +4,8 @@ import UIKit
 /// Square rounded thumbnail for a lure, bait or tackle suggestion. Shows the
 /// bundled illustration (asset `lure_<key>`, made by
 /// scripts/generate_lure_art.py) on the same neutral plate the fish art sits
-/// on, otherwise a neutral placeholder: one SF Symbol for the lure's family.
+/// on, otherwise the SF Symbol for the lure's family on a tinted tile in the
+/// tackle box's lure hue (green), like the other tinted thumbs.
 struct LureArtView: View {
     let name: String
     var size: CGFloat = 56
@@ -16,8 +17,6 @@ struct LureArtView: View {
 
     private var key: String? { LureArt.key(for: name) }
 
-    private var radius: CGFloat { size < 48 ? size * 0.25 : DS.Radius.thumb }
-
     var body: some View {
         Group {
             if let key, LureArt.hasArt(for: key) {
@@ -28,12 +27,7 @@ struct LureArtView: View {
                         .padding(size * 0.1)
                 }
             } else {
-                ZStack {
-                    Color.dsFill2
-                    ThumbSymbol(systemImage: LureArt.symbol(for: key), tint: .dsText2, size: size)
-                }
-                .frame(width: size, height: size)
-                .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
+                ThumbView(systemImage: LureArt.symbol(for: key), tint: .green, size: size)
             }
         }
         .accessibilityElement(children: .ignore)
