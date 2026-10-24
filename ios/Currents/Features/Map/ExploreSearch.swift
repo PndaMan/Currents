@@ -23,8 +23,8 @@ enum ExploreSearchCategory: String, CaseIterable, Identifiable {
         case .dams: "Dams and lakes"
         case .rivers: "Rivers"
         case .estuaries: "Estuaries"
-        case .ramps: "Ramps"
-        case .spots: "My spots"
+        case .ramps: "Ramps and access"
+        case .spots: "Your spots"
         case .species: "Species"
         }
     }
@@ -118,6 +118,7 @@ struct ExploreSearchPane: View {
     let onPick: (ExploreSearchPick) -> Void
 
     @ObservedObject private var rampService = BoatRampService.shared
+    @AppStorage("units") private var units = "metric"
     @State private var text = ""
     @State private var category: ExploreSearchCategory?
     @State private var completer = MapSearchCompleter()
@@ -272,7 +273,7 @@ struct ExploreSearchPane: View {
         case .dams, .rivers, .estuaries:
             let list = nearestWaters(of: category.waterTypes, limit: 25, includeSaved: true)
             if list.isEmpty {
-                quietMessage("Nothing mapped within 100 km. Move the map over an area while online to load it.")
+                quietMessage("Nothing mapped within \(Units.distance(km: 100, imperial: units == "imperial")). Move the map over an area while online to load it.")
             }
             ForEach(list) { entry in
                 // A saved water is listed as your spot.
@@ -297,6 +298,9 @@ struct ExploreSearchPane: View {
         case .species:
             ForEach(allSpecies.sorted { $0.commonName < $1.commonName }.prefix(80)) { sp in
                 speciesButton(sp)
+            }
+            if allSpecies.count > 80 {
+                quietMessage("Showing the first 80 of \(allSpecies.count). Type a name to find the rest.")
             }
         }
     }
@@ -355,7 +359,7 @@ struct ExploreSearchPane: View {
                     Button { select(completion) } label: {
                         ExploreSearchRow(title: Self.highlight(completion.title, query),
                                          subtitle: completion.subtitle.isEmpty ? nil : completion.subtitle) {
-                            ThumbView(systemImage: "mappin.and.ellipse", tint: .gray, size: 48)
+                            ThumbView(systemImage: "mappin.and.ellipse", tint: DS.accent, size: 48)
                         }
                     }
                     .buttonStyle(.dsRow)
@@ -521,7 +525,7 @@ struct ExploreSearchPane: View {
             if let sp = allSpecies.first(where: { String($0.id) == recent.key }) {
                 ThumbView(species: sp, size: 48)
             } else {
-                ThumbView(systemImage: "fish", tint: .gray, size: 48)
+                ThumbView(systemImage: "fish", tint: .blue, size: 48)
             }
         case .place:
             PlaceSnapshotThumb(coordinate: recent.coordinate, size: 48)
