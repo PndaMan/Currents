@@ -283,13 +283,13 @@ enum ConditionText {
         return Units.temperature(celsius, imperial: imperial)
     }
 
-    /// A wind speed split into number and unit: ("32", "km/h") or ("20", "mph").
+    /// A wind speed split into number and unit, such as 32 and km/h. Both
+    /// come from `Units.speed`, so the unit always matches the setting.
     static func speedParts(_ kmh: Double?, imperial: Bool) -> (value: String, unit: String) {
-        let unit = imperial ? "mph" : "km/h"
-        guard let kmh else { return (missing, unit) }
-        let text = Units.speed(kmh: kmh, imperial: imperial)
-        let number = text.split(separator: " ").first.map(String.init) ?? text
-        return (number, unit)
+        let parts = Units.speed(kmh: kmh ?? 0, imperial: imperial).split(separator: " ", maxSplits: 1)
+        let unit = parts.count > 1 ? String(parts[1]) : ""
+        guard kmh != nil else { return (missing, unit) }
+        return (parts.first.map(String.init) ?? missing, unit)
     }
 
     /// The water temperature band the target species is happiest in, or the

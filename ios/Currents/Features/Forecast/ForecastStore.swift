@@ -403,8 +403,8 @@ enum ForecastFormat {
         return String(first) + name.dropFirst().lowercased()
     }
 
-    /// "Falling 1.2 hPa", "Rising 0.04 inHg" or "Steady". The time span is
-    /// the caller's label.
+    /// Falling 1.2 hPa, Rising 0.04 inHg or Steady. The time span is the
+    /// caller's label.
     static func pressureTrend(_ change: Double, imperial: Bool = Units.isImperial) -> String {
         if abs(change) < 0.5 { return "Steady" }
         let word = change < 0 ? "Falling" : "Rising"
