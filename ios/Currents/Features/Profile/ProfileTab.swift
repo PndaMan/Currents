@@ -215,14 +215,23 @@ struct SettingsView: View {
                 } label: {
                     VStack(spacing: DS.Space.s2) {
                         HStack {
-                            Text("Badges")
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(.dsText)
-                            Spacer()
-                            Text("\(earnedBadges) of \(totalBadges) earned")
-                                .font(.subheadline)
-                                .foregroundStyle(.dsText2)
-                                .monospacedDigit()
+                            // The count sits under "Badges" at accessibility sizes.
+                            let badgeLayout = typeSize.isAccessibilitySize
+                                ? AnyLayout(VStackLayout(alignment: .leading, spacing: DS.Space.s1))
+                                : AnyLayout(HStackLayout())
+                            badgeLayout {
+                                Text("Badges")
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundStyle(.dsText)
+                                if !typeSize.isAccessibilitySize {
+                                    Spacer()
+                                }
+                                Text("\(earnedBadges) of \(totalBadges) earned")
+                                    .font(.subheadline)
+                                    .foregroundStyle(.dsText2)
+                                    .monospacedDigit()
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
                             Image(systemName: "chevron.right")
                                 .font(.footnote.weight(.semibold))
                                 .foregroundStyle(.dsText3)
