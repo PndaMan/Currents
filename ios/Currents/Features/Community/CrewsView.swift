@@ -7,6 +7,10 @@ import PhotosUI
 struct CrewsListPage: View {
     @StateObject private var svc = CommunityService.shared
     @State private var setup: CrewSetupMode?
+    /// Members per crew code, fetched on open (cached ones show first).
+    @State private var members: [String: [CommunityService.GroupMember]] = [:]
+    /// Crew codes with a tournament running now.
+    @State private var tournamentLive: Set<String> = []
 
     var body: some View {
         ScrollView {
@@ -21,13 +25,9 @@ struct CrewsListPage: View {
                     }
                     .buttonStyle(ActionTileStyle(.primary))
                     Button { setup = .join } label: {
-                        Label("Join crew", systemImage: "person.badge.plus")
+                        Label("Join crew", systemImage: "number")
                     }
                     .buttonStyle(ActionTileStyle())
-                    NavigationLink(value: CrewRoute.tripSetup(crewCode: nil)) {
-                        ActionTileLabel("Group trip", systemImage: "calendar.badge.plus")
-                    }
-                    .buttonStyle(.dim)
                 }
                 .padding(.top, DS.Space.s5)
 
@@ -41,11 +41,12 @@ struct CrewsListPage: View {
                         ForEach(svc.myCrews) { crew in
                             NavigationLink(value: CrewRoute.crew(crew.code)) {
                                 ArtRow(title: crew.name,
-                                       subtitle: CrewText.crewSubtitle(crew, tournamentLive: false),
+                                       subtitle: CrewText.crewSubtitle(crew,
+                                                                       tournamentLive: tournamentLive.contains(crew.code)),
                                        chevron: true) {
                                     CrewThumb(code: crew.code, emoji: crew.emoji)
                                 } trailing: {
-                                    CrewAvatarStack(members: svc.cachedCrewMembers(crew.code))
+                                    CrewAvatarStack(members: members[crew.code] ?? svc.cachedCrewMembers(crew.code))
                                 }
                             }
                             .buttonStyle(.dsRow)
@@ -60,6 +61,27 @@ struct CrewsListPage: View {
         .detailTint(nil)
         .eventPageTitle("Your crews")
         .sheet(item: $setup) { mode in CrewSetupView(joining: mode == .join) }
+        .task(id: svc.myCrews.map(\.code)) { await loadCrewState() }
+    }
+
+    /// Each crew's members and whether a tournament is running, so a row
+    /// reads like the same crew on the Crew tab. Offline, the cached
+    /// members and the last tournament seen stand in.
+    private func loadCrewState() async {
+        guard svc.joined, CrewCloud.shared.isAvailable else { return }
+        for crew in svc.myCrews {
+            async let fetchedMembers = svc.crewMembers(code: crew.code)
+            async let fetchedTournament = svc.activeTournament(crewCode: crew.code)
+            let crewMembers = await fetchedMembers
+            let tournament = await fetchedTournament
+            guard !Task.isCancelled else { return }
+            members[crew.code] = crewMembers
+            if let tournament, !tournament.isEnded {
+                tournamentLive.insert(crew.code)
+            } else {
+                tournamentLive.remove(crew.code)
+            }
+        }
     }
 
     private var crewCountLine: String? {
