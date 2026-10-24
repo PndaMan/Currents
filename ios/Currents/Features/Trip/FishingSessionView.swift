@@ -1409,7 +1409,9 @@ struct TripOverviewHighlights: View {
                     }
                     .buttonStyle(.dsRow)
                 }
-                LogbookKeyValueList(rows: rows)
+                // One DS card on its own; the rows above sit on the page, so
+                // this never nests inside another card.
+                KeyValueList(rows: rows)
                     .padding(.top, DS.Space.s2)
             }
         }
