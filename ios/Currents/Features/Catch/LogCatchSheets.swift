@@ -546,7 +546,7 @@ struct LogCatchGearSheet: View {
                     ForEach(items) { item in
                         Text(item.displayName).tag(item.displayName)
                     }
-                    Text("Type one").tag(GearFieldPicker.customTag)
+                    Text("Type one").tag(GearFieldTag.custom)
                 }
             } label: {
                 CardRow(title, systemImage: systemImage, tint: tint) {
@@ -566,7 +566,7 @@ struct LogCatchGearSheet: View {
                 ForEach(FishingTechniques.presets, id: \.self) { technique in
                     Text(FishingTechniques.label(for: technique)).tag(technique)
                 }
-                Text("Type one").tag(GearFieldPicker.customTag)
+                Text("Type one").tag(GearFieldTag.custom)
             }
         } label: {
             CardRow("Technique", systemImage: "figure.fishing", tint: .teal) {
@@ -581,10 +581,10 @@ struct LogCatchGearSheet: View {
     /// keeps a typed value; a listed choice switches typing off.
     private func menuChoice(_ field: Field, selection: Binding<String>, known: [String]) -> Binding<String> {
         Binding(
-            get: { typing.contains(field) ? GearFieldPicker.customTag : selection.wrappedValue },
+            get: { typing.contains(field) ? GearFieldTag.custom : selection.wrappedValue },
             set: { newValue in
                 Haptics.selection()
-                if newValue == GearFieldPicker.customTag {
+                if newValue == GearFieldTag.custom {
                     typing.insert(field)
                     if known.contains(selection.wrappedValue) { selection.wrappedValue = "" }
                 } else {

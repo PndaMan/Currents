@@ -1278,7 +1278,7 @@ struct PresetSheet: View {
 
     private func clean(_ value: String) -> String? {
         let trimmed = value.trimmingCharacters(in: .whitespaces)
-        return trimmed.isEmpty || trimmed == GearFieldPicker.customTag ? nil : trimmed
+        return trimmed.isEmpty || trimmed == GearFieldTag.custom ? nil : trimmed
     }
 
     /// The weight field in grams. An untouched field keeps the stored value.
@@ -1591,7 +1591,7 @@ struct GearCardPicker: View {
                         ForEach(options, id: \.self) { option in
                             Text(label(option)).tag(option)
                         }
-                        Text("Custom").tag(GearFieldPicker.customTag)
+                        Text("Custom").tag(GearFieldTag.custom)
                     }
                     .pickerStyle(.menu)
                 }
@@ -1614,10 +1614,10 @@ struct GearCardPicker: View {
 
     private var choice: Binding<String> {
         Binding(
-            get: { isCustom ? GearFieldPicker.customTag : selection },
+            get: { isCustom ? GearFieldTag.custom : selection },
             set: { newValue in
                 Haptics.selection()
-                if newValue == GearFieldPicker.customTag {
+                if newValue == GearFieldTag.custom {
                     isCustom = true
                     selection = ""
                 } else {
@@ -1721,7 +1721,7 @@ struct PresetDraftHeader: View {
 
     private var lureName: String? {
         let trimmed = lure.trimmingCharacters(in: .whitespaces)
-        return trimmed.isEmpty || trimmed == GearFieldPicker.customTag ? nil : trimmed
+        return trimmed.isEmpty || trimmed == GearFieldTag.custom ? nil : trimmed
     }
 
     var body: some View {
@@ -1799,7 +1799,7 @@ struct TechniquePicker: View {
             ForEach(FishingTechniques.presets, id: \.self) { technique in
                 Text(FishingTechniques.label(for: technique)).tag(technique)
             }
-            Text("Custom").tag(GearFieldPicker.customTag)
+            Text("Custom").tag(GearFieldTag.custom)
         }
         .pickerStyle(.menu)
         if custom {
@@ -1810,10 +1810,10 @@ struct TechniquePicker: View {
 
     private var choice: Binding<String> {
         Binding(
-            get: { custom ? GearFieldPicker.customTag : selection },
+            get: { custom ? GearFieldTag.custom : selection },
             set: { newValue in
                 Haptics.selection()
-                if newValue == GearFieldPicker.customTag {
+                if newValue == GearFieldTag.custom {
                     custom = true
                     selection = ""
                 } else {

@@ -455,64 +455,13 @@ struct GearThumbnail: View {
     }
 }
 
-// MARK: - Gear field picker
+// MARK: - Gear field custom tag
 
-/// A gear field as a menu row: None, the owned items of that kind, and Custom,
-/// which adds a text row underneath for anything not in the tackle box.
-/// Custom mode is tracked apart from the value, so typing a custom name never
-/// hides the field.
-struct GearFieldPicker: View {
-    let placeholder: String
-    let items: [OwnedGear]
-    @Binding var selection: String
-    @State private var isCustom = false
-    @State private var customText = ""
-
-    static let customTag = "__custom__"
-
-    var body: some View {
-        Picker(placeholder, selection: choice) {
-            Text("None").tag("")
-            ForEach(items) { item in
-                Text(item.displayName).tag(item.displayName)
-            }
-            Text("Custom").tag(Self.customTag)
-        }
-        .pickerStyle(.menu)
-
-        if isCustom {
-            TextField(placeholder, text: $customText,
-                      prompt: Text("Type the \(placeholder.lowercased())"))
-                .onChange(of: customText) { _, newValue in selection = newValue }
-        }
-    }
-
-    private var choice: Binding<String> {
-        Binding(
-            get: { isCustom ? Self.customTag : selection },
-            set: { newValue in
-                Haptics.selection()
-                if newValue == Self.customTag {
-                    isCustom = true
-                    selection = customText   // keep any text already typed
-                } else {
-                    isCustom = false
-                    selection = newValue
-                }
-            }
-        )
-    }
-
-    init(placeholder: String, items: [OwnedGear], selection: Binding<String>) {
-        self.placeholder = placeholder
-        self.items = items
-        self._selection = selection
-        // Resume in custom mode if the stored value isn't one of the owned items.
-        let value = selection.wrappedValue
-        let isKnown = value.isEmpty || items.contains { $0.displayName == value }
-        _isCustom = State(initialValue: !isKnown)
-        _customText = State(initialValue: isKnown ? "" : value)
-    }
+/// The menu tag for typing your own value on the gear field menus in
+/// GearTab and the catch composer. The forms turn it back into the typed
+/// text, so it is never saved.
+enum GearFieldTag {
+    static let custom = "__custom__"
 }
 
 // MARK: - Tap-to-fullscreen images
