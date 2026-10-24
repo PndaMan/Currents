@@ -108,8 +108,9 @@ struct BiteStrip: View {
     }
 }
 
-/// One bite window, drawn like Today's window tiles: the time of day (or
-/// "Now"), the peak score, and the hours, "Until" while it runs or "Passed".
+/// One bite window, drawn as Today's window tiles are: the time of day,
+/// "Peak" and the best hour's score, and the hours, "Until" while it runs
+/// or "Passed". The outline marks the window you are in.
 private struct WindowTile: View {
     let window: BiteWindows.Window
     let use24Hour: Bool
@@ -125,15 +126,20 @@ private struct WindowTile: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Label(now ? "Now" : ForecastFormat.windowName(window.startHour),
+            Label(ForecastFormat.windowName(window.startHour),
                   systemImage: ForecastFormat.windowIcon(window.startHour))
                 .font(.subheadline)
                 .foregroundStyle(.dsText2)
                 .labelStyle(TintedIconLabelStyle(tint: DS.scoreInk(window.peakScore)))
-            Text("\(window.peakScore)")
-                .font(.title.bold())
-                .monospacedDigit()
-                .foregroundStyle(DS.scoreInk(window.peakScore))
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                Text("Peak")
+                    .font(.footnote)
+                    .foregroundStyle(.dsText2)
+                Text("\(window.peakScore)")
+                    .font(.title.bold())
+                    .monospacedDigit()
+                    .foregroundStyle(DS.scoreInk(window.peakScore))
+            }
             Text(time)
                 .font(.footnote)
                 .monospacedDigit()
