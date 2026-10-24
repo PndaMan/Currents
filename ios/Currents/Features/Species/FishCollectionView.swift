@@ -19,6 +19,8 @@ struct FishCollectionView: View {
     @State private var species: [Species] = []
     @State private var countById: [Int64: Int] = [:]
     @State private var caughtIds: Set<Int64> = []
+    /// Names two species share, which get the scientific name in the cell.
+    @State private var repeatedNames = RepeatedNames()
     @State private var loaded = false
     @State private var appeared = false
     @State private var searchText = ""
@@ -313,7 +315,9 @@ struct FishCollectionView: View {
                 ForEach(list) { sp in
                     NavigationLink(value: SpeciesRoute(species: sp)) {
                         FishdexCell(species: sp, count: countById[sp.id] ?? 0,
-                                    found: caughtIds.contains(sp.id), zoomNamespace: zoomNamespace)
+                                    found: caughtIds.contains(sp.id),
+                                    nameRepeats: repeatedNames.contains(sp),
+                                    zoomNamespace: zoomNamespace)
                     }
                     .buttonStyle(.dim)
                 }
@@ -326,6 +330,7 @@ struct FishCollectionView: View {
         if species.isEmpty {
             species = (try? appState.speciesRepository.fetchAll()) ?? []
             FishdexNumbers.count(species)
+            repeatedNames = RepeatedNames(species)
         }
         caughtIds = (try? appState.speciesRepository.caughtSpeciesIds()) ?? []
         let bests = (try? appState.catchRepository.personalBests()) ?? []
@@ -367,11 +372,13 @@ private struct RarityBar: View {
 
 /// One Fishdex entry: square art, number, name and catch count. The art is
 /// on its colour like every species thumbnail when found, and a flat
-/// silhouette on the fill when not.
+/// silhouette on the fill when not. A found fish whose common name another
+/// species shares also shows its scientific name.
 private struct FishdexCell: View {
     let species: Species
     let count: Int
     let found: Bool
+    let nameRepeats: Bool
     let zoomNamespace: Namespace.ID
     @Environment(\.colorScheme) private var scheme
     @Environment(\.dynamicTypeSize) private var typeSize
@@ -390,6 +397,13 @@ private struct FishdexCell: View {
                 .foregroundStyle(found ? Color.dsText : Color.dsText3)
                 .lineLimit(typeSize.isAccessibilitySize ? 3 : 2)
                 .multilineTextAlignment(.leading)
+            if found && nameRepeats {
+                Text(species.scientificName)
+                    .font(.caption)
+                    .foregroundStyle(.dsText2)
+                    .lineLimit(typeSize.isAccessibilitySize ? 3 : 2)
+                    .multilineTextAlignment(.leading)
+            }
             if found {
                 Text(count == 1 ? "1 caught" : "\(count) caught")
                     .font(.caption)
@@ -404,8 +418,12 @@ private struct FishdexCell: View {
         .contentShape(Rectangle())
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(found
-            ? "\(species.fishdexNumber), \(species.commonName), \(count) caught"
+            ? "\(species.fishdexNumber), \(spokenName), \(count) caught"
             : "\(species.fishdexNumber), not found yet")
+    }
+
+    private var spokenName: String {
+        nameRepeats ? "\(species.commonName), \(species.scientificName)" : species.commonName
     }
 
     /// A square as wide as the column. The art sits in overlays, which can

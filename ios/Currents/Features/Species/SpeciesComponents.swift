@@ -234,3 +234,29 @@ enum FishdexNumbers {
 
     static func position(of id: Int64) -> Int { positions[id] ?? Int(id) }
 }
+
+/// Common names that more than one species in a list carries, worked out
+/// from the list itself, so a row can add the scientific name and the two
+/// fish can be told apart.
+struct RepeatedNames {
+    private var keys: Set<String> = []
+
+    init() {}
+
+    init(_ species: [Species]) {
+        var seen: Set<String> = []
+        for sp in species {
+            let key = Self.key(sp.commonName)
+            if !seen.insert(key).inserted { keys.insert(key) }
+        }
+    }
+
+    func contains(_ species: Species) -> Bool {
+        keys.contains(Self.key(species.commonName))
+    }
+
+    private static func key(_ name: String) -> String {
+        name.trimmingCharacters(in: .whitespaces)
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
+    }
+}

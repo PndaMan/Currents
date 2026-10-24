@@ -17,6 +17,8 @@ struct SpeciesBrowserView: View {
 
     @State private var species: [Species] = []
     @State private var caughtIds: Set<Int64> = []
+    /// Names two species share, which get the scientific name on the row.
+    @State private var repeatedNames = RepeatedNames()
     @State private var loaded = false
     @State private var searchText = ""
     @State private var month: Int = SpeciesSeason.currentMonth
@@ -211,9 +213,13 @@ struct SpeciesBrowserView: View {
     }
 
     private func rowSubtitle(_ sp: Species) -> String {
-        [SpeciesSeason.habitatName(sp.habitat), SpeciesSeason.comfortText(sp, imperial: Units.isImperial)]
-            .compactMap { $0 }
-            .joined(separator: ", ")
+        let habitat = SpeciesSeason.habitatName(sp.habitat)
+        let comfort = SpeciesSeason.comfortText(sp, imperial: Units.isImperial)
+        guard repeatedNames.contains(sp) else {
+            return [habitat, comfort].compactMap { $0 }.joined(separator: ", ")
+        }
+        let parts: [String?] = [sp.scientificName, habitat?.lowercased(), comfort]
+        return parts.compactMap { $0 }.joined(separator: ", ")
     }
 
     // MARK: - Data
@@ -226,6 +232,7 @@ struct SpeciesBrowserView: View {
         if species.isEmpty {
             species = (try? appState.speciesRepository.fetchAll()) ?? []
             FishdexNumbers.count(species)
+            repeatedNames = RepeatedNames(species)
         }
         if scoredWater != year || scoresById.count != species.count {
             var scores: [Int64: [Int]] = [:]
