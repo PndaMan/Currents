@@ -140,7 +140,7 @@ struct TournamentSetupView: View {
             CardGroup {
                 stepperRow("Each fish", value: pointsText(perFish), systemImage: "fish.fill",
                            tint: CrewTint.fish, binding: $perFish, range: 0...100)
-                stepperRow("Each kilogram", value: "+\(perKg)", systemImage: "scalemass.fill",
+                stepperRow("Per kg", value: "+\(perKg)", systemImage: "scalemass.fill",
                            tint: CrewTint.weight, binding: $perKg, range: 0...50)
                 stepperRow("New species", value: "+\(speciesBonus)", systemImage: "leaf.fill",
                            tint: CrewTint.species, binding: $speciesBonus, range: 0...100)
@@ -317,8 +317,7 @@ struct TournamentView: View {
                 TournamentScoringSheet(rates: tournament.rates)
             }
             .sheet(isPresented: $showingNewTeam) {
-                NewTeamSheet(hasTeams: !standings.isEmpty, runningSession: unlinkedSessionName,
-                             create: createTeam(named:))
+                NewTeamSheet(runningSession: unlinkedSessionName, create: createTeam(named:))
             }
             .sheet(isPresented: $showingEnd) { endSheet }
             .task {
@@ -403,7 +402,7 @@ struct TournamentView: View {
                let linked = svc.groupCode(forTripId: active.id),
                standings.contains(where: { $0.id == linked }) {
                 _ = appState.tripTracker.end()
-                ToastCenter.shared.show("Your team session ended with the tournament",
+                ToastCenter.shared.show("Your session ended with the tournament",
                                         style: .info, haptic: false)
             }
             Task { await refresh() }
@@ -559,7 +558,7 @@ struct TournamentView: View {
                 StatTile("Fish", systemImage: "fish.fill", tint: CrewTint.fish,
                          value: "\(standings.reduce(0) { $0 + $1.fishCount })", width: 120)
                 StatTile("Top score", systemImage: "trophy.fill", tint: CrewTint.trophy,
-                         value: "\(standings.first?.points ?? 0)", unit: "pts", width: 120)
+                         value: "\(standings.first?.points ?? 0)", unit: "points", width: 120)
                 if let i = myIndex {
                     StatTile("Your place", systemImage: "flag.fill", tint: .orange,
                              value: eventOrdinal(i + 1), footnote: "of \(standings.count)", width: 120)
@@ -764,7 +763,6 @@ struct TournamentView: View {
         if !tournament.isEnded, let i = myIndex {
             CrewSection(title: "Your team", detail: pointsText(standings[i].points)) {
                 yourTeamRow(i)
-                SectionFootnote("Your score shows on the lock screen and in the Dynamic Island while you're on a team.")
             }
         }
     }
@@ -803,9 +801,6 @@ struct TournamentView: View {
                 standingsEmpty
             } else {
                 standingRows
-                if !tournament.isEnded && myTeam == nil {
-                    SectionFootnote("Open a team to join it, or start your own.")
-                }
             }
         }
     }
@@ -852,7 +847,7 @@ struct TournamentView: View {
 
     private var podium: some View {
         EventPodium(entries: standings.prefix(3).map { s in
-            EventPodiumEntry(id: s.id, name: s.teamName, value: "\(s.points)", unit: "pts",
+            EventPodiumEntry(id: s.id, name: s.teamName, value: "\(s.points)", unit: "points",
                              images: teamImages(s), isMe: s.memberCodes.contains(svc.friendCode))
         }) { entry in
             if let i = standings.firstIndex(where: { $0.id == entry.id }) {
@@ -931,7 +926,6 @@ struct TournamentView: View {
                 VStack(spacing: 0) {
                     ForEach(unassignedMembers, id: \.id) { m in assignRow(m) }
                 }
-                SectionFootnote("Pick a team for each crewmate. Their phone joins it on its own.")
             }
         }
     }
@@ -1061,7 +1055,7 @@ struct TournamentView: View {
         let r = tournament.rates
         var rows: [RuleRow] = [
             .init(label: "Each fish", symbol: "fish.fill", tint: CrewTint.fish, value: pointsText(r.perFish)),
-            .init(label: "Each kilogram", symbol: "scalemass.fill", tint: CrewTint.weight, value: "+\(r.perKg)"),
+            .init(label: "Per kg", symbol: "scalemass.fill", tint: CrewTint.weight, value: "+\(r.perKg)"),
             .init(label: "New species", symbol: "leaf.fill", tint: CrewTint.species, value: "+\(r.newSpeciesBonus)"),
             .init(label: "Teams", symbol: "location.fill", tint: CrewTint.spot, value: "Live sessions"),
             .init(label: "Started", symbol: "play.fill", tint: CrewTint.people,
@@ -1195,7 +1189,7 @@ private struct TeamRankRow: View {
                 EventAvatarStack(images: images, size: 48)
             }
         } trailing: {
-            Text(points == 1 ? "1 pt" : "\(points) pts")
+            Text(pointsText(points))
                 .contentTransition(.numericText())
         }
         .background(isMe ? DS.accent.opacity(0.12) : Color.clear)
@@ -1241,7 +1235,6 @@ private struct TeamRankMark: View {
 /// Start a team: the name at title size, as on the start screen. Start at
 /// the top right begins the team's live session.
 private struct NewTeamSheet: View {
-    let hasTeams: Bool
     /// The name of a session already running that no group trip uses.
     /// Starting the team asks before it becomes the team's session.
     var runningSession: String? = nil
@@ -1300,8 +1293,6 @@ private struct NewTeamSheet: View {
                             tint: CrewTint.fish)
                 }
                 .padding(.top, DS.Space.s5)
-                SectionFootnote(hasTeams ? "To join a team already fishing, open it from the standings."
-                                         : "Crewmates join your team from the tournament page.")
             }
             .pageWidth()
         }
@@ -1372,14 +1363,14 @@ private struct TournamentScoringSheet: View {
                 .padding(.top, DS.Space.s6)
             HStack(spacing: 10) {
                 StatTile("Each fish", systemImage: "fish.fill", tint: CrewTint.fish,
-                         value: "\(rates.perFish)", unit: "pts", width: nil)
+                         value: "\(rates.perFish)", unit: "points", width: nil)
                 StatTile("Per kg", systemImage: "scalemass.fill", tint: CrewTint.weight,
                          value: "+\(rates.perKg)", width: nil)
-                StatTile("Species", systemImage: "leaf.fill", tint: CrewTint.species,
+                StatTile("New species", systemImage: "leaf.fill", tint: CrewTint.species,
                          value: "+\(rates.newSpeciesBonus)", width: nil)
             }
             .padding(.horizontal, DS.gutter)
-            SectionFootnote("Weight rounds to the nearest kilogram. The species bonus is the team's first of its kind.")
+            SectionFootnote("Weight rounds to the nearest kg. The new species bonus is the team's first of its kind.")
         }
     }
 
@@ -1879,11 +1870,11 @@ struct TeamTournamentDetailView: View {
             ? Units.weight(kg: standing.totalWeightKg, imperial: imperial) : "Not weighed"
         return StatStrip {
             StatTile("Fish", systemImage: "fish.fill", tint: CrewTint.fish,
-                     value: "\(fishPts)", unit: "pts", footnote: "\(standing.fishCount) caught", width: 132)
+                     value: "\(fishPts)", unit: "points", footnote: "\(standing.fishCount) caught", width: 132)
             StatTile("Weight", systemImage: "scalemass.fill", tint: CrewTint.weight,
-                     value: "\(weightPts)", unit: "pts", footnote: weighed, width: 132)
-            StatTile("Species", systemImage: "leaf.fill", tint: CrewTint.species,
-                     value: "\(speciesPts)", unit: "pts", footnote: "\(standing.speciesCount) kinds", width: 132)
+                     value: "\(weightPts)", unit: "points", footnote: weighed, width: 132)
+            StatTile("New species", systemImage: "leaf.fill", tint: CrewTint.species,
+                     value: "\(speciesPts)", unit: "points", footnote: "\(standing.speciesCount) kinds", width: 132)
         }
     }
 
@@ -1894,7 +1885,7 @@ struct TeamTournamentDetailView: View {
         let weightPts = standing.points - fishPts - speciesPts
         return [
             .init(label: "\(standing.fishCount) fish, \(rates.perFish) each", value: "\(fishPts)"),
-            .init(label: "Weight, +\(rates.perKg) a kilogram", value: "\(weightPts)"),
+            .init(label: "Weight, +\(rates.perKg) per kg", value: "\(weightPts)"),
             .init(label: "\(standing.speciesCount) species, +\(rates.newSpeciesBonus) each", value: "\(speciesPts)"),
             .init(label: "Total", value: "\(standing.points)", emphasized: true),
         ]
