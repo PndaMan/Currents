@@ -615,10 +615,12 @@ struct ExplorePlacePage: View {
         guard let water = waterbody else { return }
         seedSpecies = water.decodedFishSpeciesIds.compactMap { try? appState.speciesRepository.fetch(id: $0) }
         isLoadingSpecies = true
+        // A dam, lake or river leaves out the sea fish recorded on the coast nearby.
         observedFish = await appState.observedSpeciesRepository.fishNear(
             latitude: water.latitude,
             longitude: water.longitude,
-            speciesRepository: appState.speciesRepository
+            speciesRepository: appState.speciesRepository,
+            freshwater: freshwater == true
         )
         isLoadingSpecies = false
     }

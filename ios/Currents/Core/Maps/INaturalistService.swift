@@ -12,6 +12,11 @@ actor INaturalistService {
     /// Tracks which geohash cells we've already queried this session.
     private var fetchedCells: Set<String> = []
 
+    /// Geohash precision of a query's cell, here and in the observed species
+    /// cache. Precision 5 is about 5 km across, close to the query radius, so
+    /// two waters a few kilometres apart each get their own records.
+    static let cellPrecision = 5
+
     private var lastQueryTime: Date = .distantPast
     private let minQueryInterval: TimeInterval = 1.5
 
@@ -29,7 +34,7 @@ actor INaturalistService {
         longitude: Double,
         radiusKm: Double = 10
     ) async -> FetchResult {
-        let cellKey = "\(Int(latitude * 10))_\(Int(longitude * 10))"
+        let cellKey = Geohash.encode(latitude: latitude, longitude: longitude, precision: Self.cellPrecision)
         if fetchedCells.contains(cellKey) { return .alreadyCached }
 
         // Rate limit — wait if needed
@@ -61,7 +66,7 @@ actor INaturalistService {
 
     /// Mark a cell as already fetched (when loaded from cache).
     func markFetched(latitude: Double, longitude: Double) {
-        let cellKey = "\(Int(latitude * 10))_\(Int(longitude * 10))"
+        let cellKey = Geohash.encode(latitude: latitude, longitude: longitude, precision: Self.cellPrecision)
         fetchedCells.insert(cellKey)
     }
 
