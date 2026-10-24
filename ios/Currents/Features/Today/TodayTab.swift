@@ -243,10 +243,9 @@ struct TodayTab: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             if !typeSize.isAccessibilitySize { Spacer(minLength: 0) }
+            // A small tonal button, as on the Crew notices.
             Button("Turn on location", action: turnOnLocation)
-                .font(.subheadline.weight(.semibold))
-                .buttonStyle(.dim)
-                .foregroundStyle(DS.accent)
+                .buttonStyle(TonalButtonStyle(fullWidth: false))
         }
         .padding(14)
         .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.button, style: .continuous))
