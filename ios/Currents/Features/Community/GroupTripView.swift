@@ -412,6 +412,8 @@ struct GroupTripView: View {
     @State private var confirmingEndSession = false
     /// Removing a deleted trip while its GPS session still runs.
     @State private var confirmingRemoveMissing = false
+    /// On screen, not covered by a pushed page, so the poll can pause.
+    @State private var isVisible = false
     /// The trip's record is confirmed GONE from the server (deleted, not just
     /// unreachable), so show the dead-end screen instead of a join form.
     @State private var tripMissing = false
@@ -516,6 +518,8 @@ struct GroupTripView: View {
                 LogCatchView(groupCodeOverride: code)
             }
             .sheet(isPresented: $showingInvite) { inviteSheet }
+            .onAppear { isVisible = true }
+            .onDisappear { isVisible = false }
             .task { await load() }
     }
 
@@ -593,12 +597,14 @@ struct GroupTripView: View {
         await pollLoop()
     }
 
-    // Light polling so members + catches stay in sync while the view is open.
+    // Light polling so members + catches stay in sync while the view is on
+    // screen. It skips while a page is pushed on top and stops for good once
+    // the trip has ended, since nothing changes after that.
     private func pollLoop() async {
-        while !Task.isCancelled {
+        while !Task.isCancelled, !ended {
             try? await Task.sleep(nanoseconds: 15_000_000_000)
             guard !Task.isCancelled else { return }
-            if code != nil, !confirming { await refresh() }
+            if isVisible, code != nil, !confirming { await refresh() }
         }
     }
 
@@ -1175,6 +1181,8 @@ struct GroupTripView: View {
                     .dsScreenBackground()
                     .eventSheetTitle("Invite friends")
             }
+            // Friends load when the sheet opens, not on every poll.
+            .task { await loadFriendProfiles() }
             .dsSheet([.medium, .large])
         }
     }
@@ -1210,7 +1218,10 @@ struct GroupTripView: View {
     @ViewBuilder private func friendRows(_ code: String) -> some View {
         let memberCodes = Set(members.map(\.id))
         let invitable = friendProfiles.filter { !memberCodes.contains($0.id) }
-        if friendProfiles.isEmpty {
+        if friendProfiles.isEmpty && !service.friends.isEmpty {
+            // The sheet's first load, still running.
+            EventSkeletonRows(count: min(3, service.friends.count), thumbSize: 44, label: "Loading friends")
+        } else if friendProfiles.isEmpty {
             InlineEmpty(text: "Add friends on the Crew tab to invite them in one tap.", systemImage: "person.2")
         } else if invitable.isEmpty {
             InlineEmpty(text: "All your friends are on this trip.", systemImage: "checkmark.circle")
@@ -1550,7 +1561,6 @@ struct GroupTripView: View {
             _ = appState.tripTracker.end()
             ToastCenter.shared.show("Session ended. The shared trip is over.", style: .info)
         }
-        await loadFriendProfiles()
         await loadMemberAvatars()
     }
 
@@ -1570,18 +1580,16 @@ struct GroupTripView: View {
         }
     }
 
+    /// One batched fetch, cache first. A friend whose profile can't load
+    /// still shows, by angler code.
     private func loadFriendProfiles() async {
-        var result: [CommunityService.Profile] = []
-        for c in service.friends {
-            if let p = await service.fetchProfile(code: c) {
-                result.append(p)
-            } else {
-                result.append(CommunityService.Profile(
-                    id: c, name: "Angler \(c)", bio: "", region: "", homeWater: "",
-                    avatar: nil, memberSince: .now, totalCatches: 0, speciesCount: 0,
-                    bestWeightKg: 0, bestLengthCm: 0, favoriteSpecies: ""))
-            }
+        let codes = service.friends
+        let fetched = await service.profiles(for: codes)
+        friendProfiles = codes.map { c in
+            fetched[c] ?? CommunityService.Profile(
+                id: c, name: "Angler code \(c)", bio: "", region: "", homeWater: "",
+                avatar: nil, memberSince: .now, totalCatches: 0, speciesCount: 0,
+                bestWeightKg: 0, bestLengthCm: 0, favoriteSpecies: "")
         }
-        friendProfiles = result
     }
 }
