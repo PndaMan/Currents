@@ -18,11 +18,19 @@ struct GearTab: View {
     /// context menu shouldn't erase an item, its photo and its stock alerts.
     @State private var gearToDelete: OwnedGear?
     @State private var loadoutToDelete: GearLoadout?
+    /// Edit or Delete chosen on the preset detail. It runs once that sheet
+    /// has gone, so the next sheet or dialog is not presented mid-dismiss.
+    @State private var presetFollowUp: PresetFollowUp?
     @State private var viewMode: ViewMode = .items
     @State private var filter: GearFilter = .all
     @State private var didLoad = false
     @State private var titleShown = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private enum PresetFollowUp {
+        case edit(GearLoadout)
+        case delete(GearLoadout)
+    }
 
     enum ViewMode: String, CaseIterable {
         case items = "My gear"
@@ -136,16 +144,15 @@ struct GearTab: View {
             .sheet(isPresented: $showingCatalog, onDismiss: reload) {
                 GearCatalogSheet()
             }
-            .sheet(item: $selectedLoadout) { loadout in
+            .sheet(item: $selectedLoadout, onDismiss: runPresetFollowUp) { loadout in
                 GearDetailSheet(loadout: loadout, onEdit: { edited in
+                    presetFollowUp = .edit(edited)
                     selectedLoadout = nil
-                    editingLoadout = edited
                 }, onDelete: { doomed in
+                    presetFollowUp = .delete(doomed)
                     selectedLoadout = nil
-                    loadoutToDelete = doomed
                 })
-                .presentationDetents([.medium, .large])
-                .presentationDragIndicator(.visible)
+                .dsSheet([.medium, .large])
             }
             .sheet(item: $editingOwnedGear, onDismiss: reload) { gear in
                 EditOwnedGearSheet(gear: gear)
@@ -155,26 +162,43 @@ struct GearTab: View {
             }
     }
 
-    private func deleteChosenGear() {
-        if let item = gearToDelete {
-            try? appState.ownedGearRepository.delete(item)
-            if let p = item.photoPath { PhotoManager.delete(p) }
-            NotificationManager.shared.cancelLowStockAlert(itemId: item.id)
-            Haptics.warning()
-            ToastCenter.shared.show("Gear deleted", style: .info, haptic: false)
-            reload()
+    private func runPresetFollowUp() {
+        guard let next = presetFollowUp else { return }
+        presetFollowUp = nil
+        switch next {
+        case .edit(let loadout): editingLoadout = loadout
+        case .delete(let loadout): loadoutToDelete = loadout
         }
-        gearToDelete = nil
+    }
+
+    private func deleteChosenGear() {
+        defer { gearToDelete = nil }
+        guard let item = gearToDelete else { return }
+        do {
+            try appState.ownedGearRepository.delete(item)
+        } catch {
+            ToastCenter.shared.show("Could not delete this gear", style: .error)
+            return
+        }
+        if let p = item.photoPath { PhotoManager.delete(p) }
+        NotificationManager.shared.cancelLowStockAlert(itemId: item.id)
+        Haptics.warning()
+        ToastCenter.shared.show("Gear deleted", style: .info, haptic: false)
+        reload()
     }
 
     private func deleteChosenLoadout() {
-        if let loadout = loadoutToDelete {
-            try? appState.gearRepository.delete(loadout)
-            Haptics.warning()
-            ToastCenter.shared.show("Preset deleted", style: .info, haptic: false)
-            reload()
+        defer { loadoutToDelete = nil }
+        guard let loadout = loadoutToDelete else { return }
+        do {
+            try appState.gearRepository.delete(loadout)
+        } catch {
+            ToastCenter.shared.show("Could not delete this preset", style: .error)
+            return
         }
-        loadoutToDelete = nil
+        Haptics.warning()
+        ToastCenter.shared.show("Preset deleted", style: .info, haptic: false)
+        reload()
     }
 
     // MARK: - Owned gear
@@ -508,8 +532,8 @@ struct EditOwnedGearSheet: View {
 }
 
 /// The one form for adding and editing tackle box items, laid out like a
-/// Contacts edit sheet: the photo on top, then labelled rows, Cancel and
-/// Add or Save in the bar.
+/// Contacts edit sheet: the photo on top, then labelled rows on cards,
+/// Cancel and Add or Save in the bar.
 struct OwnedGearSheet: View {
     @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss
@@ -525,6 +549,9 @@ struct OwnedGearSheet: View {
     @State private var photo: UIImage?
     @State private var showingScanner = false
     @State private var lookupState: BarcodeLookupState = .idle
+    @FocusState private var nameFocused: Bool
+    /// "Type it in" on the scanner: focus Name once the scanner has gone.
+    @State private var typeInAfterScan = false
 
     init(editing: OwnedGear? = nil) {
         self.editing = editing
@@ -542,20 +569,24 @@ struct OwnedGearSheet: View {
 
     var body: some View {
         NavigationStack {
-            List {
-                Section {
+            ScrollView {
+                VStack(alignment: .leading, spacing: DS.Space.s6) {
                     GearPhotoField(image: $photo, category: category, name: name)
-                        .gearFormBareRow()
+                    detailsSection
+                    if category.isConsumable {
+                        stockSection
+                    }
+                    if BarcodeScannerView.isDeviceSupported || !barcode.isEmpty {
+                        barcodeSection
+                    }
                 }
-                detailsSection
-                if category.isConsumable {
-                    stockSection
-                }
-                if BarcodeScannerView.isDeviceSupported || !barcode.isEmpty {
-                    barcodeSection
-                }
+                .padding(.top, DS.Space.s2)
+                .padding(.bottom, DS.Space.s8)
+                .pageWidth()
             }
-            .gearFormStyle()
+            .scrollDismissesKeyboard(.interactively)
+            .detailScrollEdge()
+            .dsScreenBackground()
             .navigationTitle(editing == nil ? "Add gear" : "Edit gear")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -567,78 +598,109 @@ struct OwnedGearSheet: View {
                         .bold()
                         .disabled(trimmedName.isEmpty)
                 }
-            }
-            .sheet(isPresented: $showingScanner) {
-                BarcodeScannerSheet { code in
-                    Task { await handleScan(code) }
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("Done") { GearKeyboard.dismiss() }
                 }
             }
+            .sheet(isPresented: $showingScanner, onDismiss: focusNameIfAsked) {
+                BarcodeScannerSheet(onScan: { code in
+                    Task { await handleScan(code) }
+                }, onTypeIn: {
+                    typeInAfterScan = true
+                })
+            }
         }
+        .dsSheet([.large])
     }
 
     private var detailsSection: some View {
-        Section {
-            Picker("Type", selection: $category) {
-                ForEach(OwnedGear.Category.allCases, id: \.self) { cat in
-                    Text(cat.rawValue).tag(cat)
+        GearFormSection("Details") {
+            GearCardField("Type") {
+                Picker("Type", selection: $category) {
+                    ForEach(OwnedGear.Category.allCases, id: \.self) { cat in
+                        Text(cat.rawValue).tag(cat)
+                    }
                 }
+                .pickerStyle(.menu)
+                .haptic(.selection, trigger: category)
             }
-            .pickerStyle(.menu)
-            .haptic(.selection, trigger: category)
-            GearFormField("Name", text: $name, prompt: "Stradic 2500")
-            GearFormField("Brand", text: $brand, prompt: "Optional")
-            GearFormField("Specs", text: $specs, prompt: "Length, weight or notes")
-        } header: {
-            Text("Details")
+            GearCardField("Name") {
+                TextField("Name", text: $name, prompt: Text("Stradic 2500"))
+                    .gearCardInput()
+                    .focused($nameFocused)
+            }
+            GearCardField("Brand") {
+                TextField("Brand", text: $brand, prompt: Text("Optional"))
+                    .gearCardInput()
+            }
+            GearCardField("Specs") {
+                TextField("Specs", text: $specs, prompt: Text("Length, weight or notes"))
+                    .gearCardInput()
+            }
         }
-        .pfRows()
     }
 
     private var stockSection: some View {
-        Section {
+        GearFormSection("Stock", note: "You get a reminder when you are down to \(lowStockThreshold).") {
             GearStockRow(title: "In stock", value: $stock, range: 0...999)
             GearStockRow(title: "Remind me at", value: $lowStockThreshold, range: 0...99)
-        } header: {
-            Text("Stock")
-        } footer: {
-            Text("You get a reminder when you are down to \(lowStockThreshold).")
         }
-        .pfRows()
     }
 
     private var barcodeSection: some View {
-        Section {
-            if !barcode.isEmpty {
-                LabeledContent("Barcode") {
-                    Text(barcode)
-                        .monospacedDigit()
-                        .textSelection(.enabled)
+        VStack(alignment: .leading, spacing: 0) {
+            SectionTitle("Barcode")
+            CardGroup(separatorInset: DS.Space.s4) {
+                if !barcode.isEmpty {
+                    GearCardField("Barcode") {
+                        Text(barcode)
+                            .monospacedDigit()
+                            .foregroundStyle(.dsText2)
+                            .textSelection(.enabled)
+                    }
+                }
+                if BarcodeScannerView.isDeviceSupported {
+                    Button {
+                        Task { await startScan() }
+                    } label: {
+                        CardRow(barcode.isEmpty ? "Scan barcode" : "Scan again",
+                                systemImage: "barcode.viewfinder", tint: DS.accent)
+                    }
+                    .buttonStyle(.dsCardRow)
                 }
             }
-            if BarcodeScannerView.isDeviceSupported {
-                Button {
-                    Task { await startScan() }
-                } label: {
-                    Label(barcode.isEmpty ? "Scan barcode" : "Scan again", systemImage: "barcode.viewfinder")
-                }
+            if lookupState == .idle {
+                SectionFootnote("Scanning fills in the name and brand when the product is known.")
+            } else {
+                BarcodeLookupStatus(state: lookupState)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, DS.gutter)
+                    .padding(.top, DS.Space.s2)
             }
-            BarcodeLookupStatus(state: lookupState)
-        } header: {
-            Text("Barcode")
-        } footer: {
-            Text("Scanning fills in the name and brand when the product is known.")
         }
-        .pfRows()
     }
 
+    private func focusNameIfAsked() {
+        guard typeInAfterScan else { return }
+        typeInAfterScan = false
+        nameFocused = true
+    }
+
+    /// Camera off and a device that cannot scan get different copy, since
+    /// only the first can be fixed in Settings.
     private func startScan() async {
         let allowed = await CameraAccess.request()
-        if allowed && BarcodeScannerView.isSupported {
-            if lookupState == .cameraOff { lookupState = .idle }
-            showingScanner = true
-        } else {
+        guard allowed else {
             lookupState = .cameraOff
+            return
         }
+        guard BarcodeScannerView.isSupported else {
+            lookupState = .unsupported
+            return
+        }
+        if lookupState == .cameraOff || lookupState == .unsupported { lookupState = .idle }
+        showingScanner = true
     }
 
     private func handleScan(_ code: String) async {
@@ -671,7 +733,13 @@ struct OwnedGearSheet: View {
         item.lowStockThreshold = consumable ? lowStockThreshold : nil
         item.barcode = barcode.isEmpty ? nil : barcode
         savePhoto(into: &item)
-        try? appState.ownedGearRepository.save(&item)
+        do {
+            try appState.ownedGearRepository.save(&item)
+        } catch {
+            ToastCenter.shared.show(editing == nil ? "Could not add this gear" : "Could not save this gear",
+                                    style: .error)
+            return
+        }
         if item.isLowStock {
             Task { await NotificationManager.shared.scheduleLowStockAlert(item: item) }
         } else if editing != nil {
@@ -697,10 +765,10 @@ struct OwnedGearSheet: View {
 // MARK: - Barcode lookup status
 
 enum BarcodeLookupState: Equatable {
-    case idle, looking, found(String), notFound, invalid, offline, cameraOff
+    case idle, looking, found(String), notFound, invalid, offline, cameraOff, unsupported
 }
 
-/// One row under the scan button saying what the last scan found, or why
+/// One line under the barcode card saying what the last scan found, or why
 /// scanning can't start.
 struct BarcodeLookupStatus: View {
     let state: BarcodeLookupState
@@ -717,16 +785,20 @@ struct BarcodeLookupStatus: View {
             Label("Found \(title)", systemImage: "checkmark.circle.fill")
                 .font(.footnote).foregroundStyle(.dsScoreGood)
         case .notFound:
-            Label("Barcode saved. No match found, so add the details yourself.", systemImage: "questionmark.circle")
+            Label("No match. Fill in the details.", systemImage: "questionmark.circle")
                 .font(.footnote).foregroundStyle(.dsText2)
         case .invalid:
             Label("That doesn't look like a product barcode. Try again.", systemImage: "exclamationmark.triangle")
                 .font(.footnote).foregroundStyle(.dsScoreLow)
         case .offline:
-            Label("Barcode saved. The product database could not be reached, so add the details yourself.", systemImage: "wifi.slash")
+            Label("The product database could not be reached. Fill in the details.", systemImage: "wifi.slash")
                 .font(.footnote).foregroundStyle(.dsText2)
         case .cameraOff:
             cameraOff
+        case .unsupported:
+            Label("Scanning is not available on this device right now. Fill in the details.",
+                  systemImage: "barcode.viewfinder")
+                .font(.footnote).foregroundStyle(.dsText2)
         }
     }
 
@@ -761,6 +833,7 @@ struct GearCatalogSheet: View {
                     }
                 }
         }
+        .dsSheet([.medium, .large])
     }
 }
 
@@ -980,7 +1053,7 @@ struct GearCatalogRow: View {
         case .lure, .bait:
             LureArtView(name: item.displayName, size: 52)
         case .terminal:
-            ThumbView(systemImage: GearItem.icon(for: .terminal), tint: .gray, size: 52)
+            ThumbView(systemImage: GearItem.icon(for: .terminal), tint: item.ownedCategory.tint, size: 52)
         default:
             GearThumbnail(photoPath: nil, category: item.ownedCategory, size: 52)
         }
@@ -1050,7 +1123,7 @@ struct EditLoadoutSheet: View {
 }
 
 /// The one form for adding and editing presets: the lure's picture and name
-/// on top, then rod and reel, lure or bait and technique as labelled rows.
+/// on top, then rod and reel, lure or bait and technique as card rows.
 /// Gear the angler owns is offered as a menu, with Custom for anything else.
 struct PresetSheet: View {
     @Environment(AppState.self) private var appState
@@ -1064,12 +1137,24 @@ struct PresetSheet: View {
     @State private var leaderLb: String
     @State private var lure: String
     @State private var lureColor: String
-    @State private var lureWeightG: String
+    /// Grams, or ounces when the units setting is imperial. Stored in grams.
+    @State private var lureWeight: String
     @State private var technique: String
     @State private var ownedGear: [OwnedGear] = []
+    /// The units the weight field was filled in, fixed while the form is open.
+    private let imperialWeight: Bool
+    /// The weight as first shown, so saving an untouched field keeps the
+    /// stored grams exactly instead of round-tripping through ounces.
+    private let initialLureWeight: String
+
+    static let gramsPerOunce = 28.349523
 
     init(editing: GearLoadout? = nil) {
         self.editing = editing
+        let imperial = Units.isImperial
+        let weight = editing?.lureWeightG.map { Self.number(imperial ? $0 / Self.gramsPerOunce : $0) } ?? ""
+        imperialWeight = imperial
+        initialLureWeight = weight
         _name = State(initialValue: editing?.name ?? "")
         _rod = State(initialValue: editing?.rod ?? "")
         _reel = State(initialValue: editing?.reel ?? "")
@@ -1077,7 +1162,7 @@ struct PresetSheet: View {
         _leaderLb = State(initialValue: editing?.leaderLb.map(Self.number) ?? "")
         _lure = State(initialValue: editing?.lure ?? "")
         _lureColor = State(initialValue: editing?.lureColor ?? "")
-        _lureWeightG = State(initialValue: editing?.lureWeightG.map(Self.number) ?? "")
+        _lureWeight = State(initialValue: weight)
         _technique = State(initialValue: editing?.technique ?? "")
     }
 
@@ -1090,25 +1175,29 @@ struct PresetSheet: View {
 
     var body: some View {
         NavigationStack {
-            List {
-                Section {
+            ScrollView {
+                VStack(alignment: .leading, spacing: DS.Space.s6) {
                     PresetDraftHeader(name: name, lure: lure)
-                        .gearFormBareRow()
+                        .padding(.horizontal, DS.gutter)
+                    GearFormSection {
+                        GearCardField("Name") {
+                            TextField("Name", text: $name, prompt: Text("Bass finesse"))
+                                .gearCardInput()
+                        }
+                    }
+                    rodSection
+                    lureSection
+                    GearFormSection {
+                        TechniquePicker(selection: $technique, style: .card)
+                    }
                 }
-                Section {
-                    GearFormField("Name", text: $name, prompt: "Bass finesse")
-                }
-                .pfRows()
-                rodSection
-                lureSection
-                Section {
-                    TechniquePicker(selection: $technique)
-                } header: {
-                    Text("Technique")
-                }
-                .pfRows()
+                .padding(.top, DS.Space.s2)
+                .padding(.bottom, DS.Space.s8)
+                .pageWidth()
             }
-            .gearFormStyle()
+            .scrollDismissesKeyboard(.interactively)
+            .detailScrollEdge()
+            .dsScreenBackground()
             .navigationTitle(editing == nil ? "New preset" : "Edit preset")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -1120,41 +1209,50 @@ struct PresetSheet: View {
                         .bold()
                         .disabled(trimmedName.isEmpty)
                 }
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("Done") { GearKeyboard.dismiss() }
+                }
             }
             .task {
                 ownedGear = (try? appState.ownedGearRepository.fetchAll()) ?? []
             }
         }
+        .dsSheet([.large])
     }
 
     private var rodSection: some View {
-        Section {
+        GearFormSection("Rod and reel") {
             gearPicker(.rod, selection: $rod, placeholder: "Rod")
             gearPicker(.reel, selection: $reel, placeholder: "Reel")
-            GearFormField("Line", text: $lineLb, prompt: "Optional", keyboard: .decimalPad, unit: "lb")
-            GearFormField("Leader", text: $leaderLb, prompt: "Optional", keyboard: .decimalPad, unit: "lb")
-        } header: {
-            Text("Rod and reel")
+            numberRow("Line", text: $lineLb, unit: "lb")
+            numberRow("Leader", text: $leaderLb, unit: "lb")
         }
-        .pfRows()
     }
 
     private var lureSection: some View {
-        Section {
+        GearFormSection("Lure or bait") {
             gearPicker(.lure, selection: $lure, placeholder: "Lure or bait")
             colourRow
-            GearFormField("Weight", text: $lureWeightG, prompt: "Optional", keyboard: .decimalPad, unit: "g")
-        } header: {
-            Text("Lure or bait")
+            numberRow("Weight", text: $lureWeight, unit: imperialWeight ? "oz" : "g")
         }
-        .pfRows()
+    }
+
+    private func numberRow(_ label: String, text: Binding<String>, unit: String) -> some View {
+        GearCardField(label) {
+            HStack(spacing: DS.Space.s1) {
+                TextField(label, text: text, prompt: Text("Optional"))
+                    .gearCardInput(.decimalPad)
+                Text(unit).foregroundStyle(.dsText2)
+            }
+        }
     }
 
     private var colourRow: some View {
-        LabeledContent("Colour") {
+        GearCardField("Colour") {
             HStack(spacing: DS.Space.s2) {
                 TextField("Colour", text: $lureColor, prompt: Text("Green pumpkin"))
-                    .multilineTextAlignment(.trailing)
+                    .gearCardInput()
                 if LureColorSwatch.isKnown(lureColor) {
                     LureColorSwatch(name: lureColor, size: 18)
                 }
@@ -1162,22 +1260,32 @@ struct PresetSheet: View {
         }
     }
 
-    /// Owned gear of that kind as a menu with Custom, or a plain labelled
+    /// Owned gear of that kind as a picker with Custom, or a plain labelled
     /// field when the tackle box has none.
     @ViewBuilder
     private func gearPicker(_ category: OwnedGear.Category, selection: Binding<String>,
                             placeholder: String) -> some View {
         let items = ownedGear.filter { $0.category == category }
         if items.isEmpty {
-            GearFormField(placeholder, text: selection, prompt: "Optional")
+            GearCardField(placeholder) {
+                TextField(placeholder, text: selection, prompt: Text("Optional"))
+                    .gearCardInput()
+            }
         } else {
-            GearFieldPicker(placeholder: placeholder, items: items, selection: selection)
+            GearCardPicker(placeholder: placeholder, options: items.map(\.displayName), selection: selection)
         }
     }
 
     private func clean(_ value: String) -> String? {
         let trimmed = value.trimmingCharacters(in: .whitespaces)
         return trimmed.isEmpty || trimmed == GearFieldPicker.customTag ? nil : trimmed
+    }
+
+    /// The weight field in grams. An untouched field keeps the stored value.
+    private var lureWeightGrams: Double? {
+        if lureWeight == initialLureWeight, let stored = editing?.lureWeightG { return stored }
+        guard let value = lureWeight.measurementValue else { return nil }
+        return imperialWeight ? value * Self.gramsPerOunce : value
     }
 
     private func save() {
@@ -1189,9 +1297,15 @@ struct PresetSheet: View {
         loadout.leaderLb = leaderLb.measurementValue
         loadout.lure = clean(lure)
         loadout.lureColor = clean(lureColor)
-        loadout.lureWeightG = lureWeightG.measurementValue
+        loadout.lureWeightG = lureWeightGrams
         loadout.technique = clean(technique)
-        try? appState.gearRepository.save(&loadout)
+        do {
+            try appState.gearRepository.save(&loadout)
+        } catch {
+            ToastCenter.shared.show(editing == nil ? "Could not add this preset" : "Could not save this preset",
+                                    style: .error)
+            return
+        }
         ToastCenter.shared.show(editing == nil ? "Preset added" : "Preset updated")
         dismiss()
     }
@@ -1206,6 +1320,7 @@ struct GearDetailSheet: View {
     var onEdit: ((GearLoadout) -> Void)?
     var onDelete: ((GearLoadout) -> Void)? = nil
     @State private var catches: [CatchDetail] = []
+    @AppStorage("units") private var units = "metric"
 
     private var rows: [(String, String)] {
         var result: [(String, String)] = []
@@ -1215,7 +1330,9 @@ struct GearDetailSheet: View {
         if let leader = loadout.leaderLb { result.append(("Leader", "\(PresetSheet.number(leader)) lb")) }
         if let lure = loadout.lure { result.append(("Lure", lure)) }
         if let color = loadout.lureColor { result.append(("Colour", color)) }
-        if let weight = loadout.lureWeightG { result.append(("Lure weight", "\(PresetSheet.number(weight)) g")) }
+        if let weight = loadout.lureWeightG {
+            result.append(("Lure weight", Units.lureWeight(grams: weight, imperial: units == "imperial")))
+        }
         if let technique = loadout.technique { result.append(("Technique", FishingTechniques.label(for: technique))) }
         return result
     }
@@ -1301,26 +1418,101 @@ struct GearDetailSheet: View {
 // MARK: - Form pieces
 
 extension View {
-    /// The gear forms: an inset grouped list on the page background with
-    /// `dsFill` rows, like the settings pages, sentence case headers and a
-    /// hard edge under the title.
+    /// An inset grouped list on the page background with `dsFill` rows, like
+    /// the settings pages. The gear forms are card pages now; the profile
+    /// editor and the log-catch gear sheet still use this.
     func gearFormStyle() -> some View {
         pfGroupedList()
             .textCase(nil)
             .detailTint(nil)
     }
 
-    /// A clear, full-width form row for content that brings its own
-    /// background (the photo row, the preset preview).
-    func gearFormBareRow() -> some View {
-        listRowInsets(EdgeInsets())
-            .listRowBackground(Color.clear)
-            .listRowSeparator(.hidden)
+    /// A text field inside `GearCardField`: trailing like a Settings value,
+    /// leading once the field sits under its label at accessibility sizes.
+    func gearCardInput(_ keyboard: UIKeyboardType = .default) -> some View {
+        modifier(GearCardInput(keyboard: keyboard))
     }
 }
 
-/// A labelled text row: the label on the left, the field on the right, an
-/// optional unit after it.
+private struct GearCardInput: ViewModifier {
+    let keyboard: UIKeyboardType
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    func body(content: Content) -> some View {
+        content
+            .multilineTextAlignment(typeSize.isAccessibilitySize ? .leading : .trailing)
+            .keyboardType(keyboard)
+            .foregroundStyle(.dsText)
+    }
+}
+
+/// Closes the keyboard whichever field has it, for the keyboard bar's Done
+/// (decimal pads have no return key).
+@MainActor
+enum GearKeyboard {
+    static func dismiss() {
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+    }
+}
+
+/// A titled card of form rows: `SectionTitle`, the rows on one `CardGroup`
+/// and an optional note, like `CardSection`, with the hairlines inset to the
+/// text because form rows have no icon tile.
+struct GearFormSection<Content: View>: View {
+    let title: String?
+    var note: String? = nil
+    private let content: Content
+
+    init(_ title: String? = nil, note: String? = nil, @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.note = note
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if let title { SectionTitle(title) }
+            CardGroup(separatorInset: DS.Space.s4) { content }
+            if let note, !note.isEmpty { SectionFootnote(note) }
+        }
+    }
+}
+
+/// One form row on a card: the label on the left and its control on the
+/// right, padded like `CardRow`. At accessibility sizes the control moves
+/// under the label so neither is cut off.
+struct GearCardField<Control: View>: View {
+    let label: String
+    private let control: Control
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    init(_ label: String, @ViewBuilder control: () -> Control) {
+        self.label = label
+        self.control = control()
+    }
+
+    var body: some View {
+        let stacked = typeSize.isAccessibilitySize
+        let layout = stacked
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: DS.Space.s1))
+            : AnyLayout(HStackLayout(spacing: DS.Space.s3))
+        layout {
+            Text(label)
+                .font(.body)
+                .foregroundStyle(.dsText)
+                .fixedSize(horizontal: false, vertical: true)
+                .layoutPriority(1)
+            control
+                .frame(maxWidth: .infinity, alignment: stacked ? .leading : .trailing)
+        }
+        .padding(.horizontal, DS.Space.s4)
+        .padding(.vertical, 10)
+        .frame(minHeight: 54)
+    }
+}
+
+/// The plain list-row field, kept for the profile editor. The gear forms
+/// use `GearCardField`.
 struct GearFormField: View {
     let label: String
     @Binding var text: String
@@ -1351,18 +1543,182 @@ struct GearFormField: View {
     }
 }
 
-/// A count with the tackle box's minus and plus capsule.
+/// A count with the tackle box's minus and plus capsule, as a card row.
 struct GearStockRow: View {
     let title: String
     @Binding var value: Int
     let range: ClosedRange<Int>
 
     var body: some View {
-        LabeledContent(title) {
+        GearCardField(title) {
             PFStepper(value: "\(value)", canDecrement: value > range.lowerBound, label: title) { delta in
                 value = min(max(value + delta, range.lowerBound), range.upperBound)
             }
         }
+    }
+}
+
+/// One pick-one card row for a list of named options with None and Custom.
+/// Up to `menuLimit` options it is a menu, and Custom adds a text row under
+/// it; past that the row pushes `GearOptionList`, which searches and takes
+/// anything typed. Needs a NavigationStack.
+struct GearCardPicker: View {
+    let placeholder: String
+    let options: [String]
+    var label: (String) -> String = { $0 }
+    @Binding var selection: String
+    @State private var isCustom: Bool
+
+    /// Longer lists are hard to scan in a menu.
+    static let menuLimit = 8
+
+    init(placeholder: String, options: [String], label: @escaping (String) -> String = { $0 },
+         selection: Binding<String>) {
+        self.placeholder = placeholder
+        self.options = options
+        self.label = label
+        self._selection = selection
+        let value = selection.wrappedValue
+        _isCustom = State(initialValue: !value.isEmpty && !options.contains(value))
+    }
+
+    private var shown: String { selection.isEmpty ? "None" : label(selection) }
+
+    var body: some View {
+        if options.count > Self.menuLimit {
+            NavigationLink {
+                GearOptionList(title: placeholder, options: options, label: label, selection: $selection)
+            } label: {
+                CardRow(placeholder, value: shown, chevron: true)
+            }
+            .buttonStyle(.dsCardRow)
+        } else {
+            VStack(spacing: 0) {
+                GearCardField(placeholder) {
+                    Picker(placeholder, selection: choice) {
+                        Text("None").tag("")
+                        ForEach(options, id: \.self) { option in
+                            Text(label(option)).tag(option)
+                        }
+                        Text("Custom").tag(GearFieldPicker.customTag)
+                    }
+                    .pickerStyle(.menu)
+                }
+                if isCustom {
+                    Rectangle()
+                        .fill(Color.dsSeparator)
+                        .frame(height: 0.5)
+                        .padding(.leading, DS.Space.s4)
+                    TextField(placeholder, text: $selection,
+                              prompt: Text("Type the \(placeholder.lowercased())"))
+                        .foregroundStyle(.dsText)
+                        .autocorrectionDisabled()
+                        .padding(.horizontal, DS.Space.s4)
+                        .padding(.vertical, 10)
+                        .frame(minHeight: 54)
+                }
+            }
+        }
+    }
+
+    private var choice: Binding<String> {
+        Binding(
+            get: { isCustom ? GearFieldPicker.customTag : selection },
+            set: { newValue in
+                Haptics.selection()
+                if newValue == GearFieldPicker.customTag {
+                    isCustom = true
+                    selection = ""
+                } else {
+                    isCustom = false
+                    selection = newValue
+                }
+            }
+        )
+    }
+}
+
+/// A long pick-one list pushed from a form row, like a Settings picker: the
+/// title, a search field under it, then None and every option on one card
+/// with a tick on the chosen one. Text that matches nothing can be used as
+/// typed. Picking goes back.
+struct GearOptionList: View {
+    let title: String
+    let options: [String]
+    var label: (String) -> String = { $0 }
+    @Binding var selection: String
+    @Environment(\.dismiss) private var dismiss
+    @State private var query = ""
+    @State private var titleShown = false
+
+    private var typed: String { query.trimmingCharacters(in: .whitespaces) }
+
+    private var filtered: [String] {
+        guard !typed.isEmpty else { return options }
+        return options.filter { label($0).localizedCaseInsensitiveContains(typed) }
+    }
+
+    /// The current value when it was typed rather than picked.
+    private var customValue: String? {
+        selection.isEmpty || options.contains(selection) ? nil : selection
+    }
+
+    /// Typed text that is not already an option or the current value.
+    private var newValue: String? {
+        guard !typed.isEmpty else { return nil }
+        let known = options.map(label) + [customValue].compactMap { $0 }
+        if known.contains(where: { $0.caseInsensitiveCompare(typed) == .orderedSame }) { return nil }
+        return typed.prefix(1).uppercased() + String(typed.dropFirst())
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                DetailHeader(title: title)
+                PFSearchField(prompt: "Search or type your own", text: $query)
+                    .padding(.top, DS.Space.s4)
+                    .padding(.bottom, DS.Space.s4)
+                CardGroup(separatorInset: DS.Space.s4) {
+                    if let newValue {
+                        row("Use \u{201C}\(newValue)\u{201D}", value: newValue, selected: false)
+                    }
+                    if typed.isEmpty {
+                        row("None", value: "", selected: selection.isEmpty)
+                        if let customValue {
+                            row(customValue, value: customValue, selected: true)
+                        }
+                    }
+                    ForEach(filtered, id: \.self) { option in
+                        row(label(option), value: option, selected: selection == option)
+                    }
+                }
+            }
+            .padding(.bottom, DS.Space.s8)
+            .pageWidth()
+        }
+        .scrollDismissesKeyboard(.interactively)
+        .detailScrollEdge()
+        .dsScreenBackground()
+        .pfTrackScroll($titleShown, threshold: 60)
+        .pfScrollTitle(title, shown: titleShown)
+    }
+
+    private func row(_ text: String, value: String, selected: Bool) -> some View {
+        Button {
+            selection = value
+            dismiss()
+        } label: {
+            CardRow(text) {
+                if selected {
+                    Image(systemName: "checkmark")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(DS.accent)
+                }
+            }
+        }
+        .buttonStyle(.dsCardRow)
+        .buttonHaptic(.selection)
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }
 
@@ -1403,19 +1759,50 @@ struct PresetDraftHeader: View {
 
 // MARK: - Technique picker (preset list + custom)
 
-/// Techniques are a catch attribute, not inventory. A menu of the shared
-/// list plus Custom, which adds a text row; stores the plain technique.
+/// Techniques are a catch attribute, not inventory. Stores the plain
+/// technique. The shared list is longer than a menu should be, so the row
+/// pushes a searchable list that also takes a technique typed in; it needs a
+/// NavigationStack. `.listRow` is a row in a List or Form, `.card` a row on
+/// a `CardGroup`.
 struct TechniquePicker: View {
+    enum Style { case listRow, card }
+
     @Binding var selection: String
+    var style: Style = .listRow
     @State private var custom: Bool
 
-    init(selection: Binding<String>) {
+    init(selection: Binding<String>, style: Style = .listRow) {
         _selection = selection
+        self.style = style
         let v = selection.wrappedValue
         _custom = State(initialValue: !v.isEmpty && !FishingTechniques.presets.contains(v))
     }
 
+    private static var isLong: Bool { FishingTechniques.presets.count > GearCardPicker.menuLimit }
+
+    private var shown: String { selection.isEmpty ? "None" : FishingTechniques.label(for: selection) }
+
     var body: some View {
+        switch style {
+        case .card:
+            GearCardPicker(placeholder: "Technique", options: FishingTechniques.presets,
+                           label: FishingTechniques.label(for:), selection: $selection)
+        case .listRow:
+            if Self.isLong {
+                NavigationLink {
+                    GearOptionList(title: "Technique", options: FishingTechniques.presets,
+                                   label: FishingTechniques.label(for:), selection: $selection)
+                } label: {
+                    LabeledContent("Technique", value: shown)
+                }
+            } else {
+                menu
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var menu: some View {
         Picker("Technique", selection: choice) {
             Text("None").tag("")
             ForEach(FishingTechniques.presets, id: \.self) { technique in

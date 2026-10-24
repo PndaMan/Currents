@@ -32,15 +32,23 @@ struct BarcodeScannerView: UIViewControllerRepresentable {
         return scanner
     }
 
+    /// Starts the camera once it is on screen. Later updates leave a running
+    /// scanner alone, and nothing restarts it after a code has been taken.
     func updateUIViewController(_ scanner: DataScannerViewController, context: Context) {
+        guard !scanner.isScanning, !context.coordinator.handled else { return }
         try? scanner.startScanning()
+    }
+
+    /// Turns the camera off as soon as the sheet goes.
+    static func dismantleUIViewController(_ scanner: DataScannerViewController, coordinator: Coordinator) {
+        scanner.stopScanning()
     }
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
     final class Coordinator: NSObject, DataScannerViewControllerDelegate {
         let parent: BarcodeScannerView
-        private var handled = false
+        private(set) var handled = false
         init(_ parent: BarcodeScannerView) { self.parent = parent }
 
         func dataScanner(_ dataScanner: DataScannerViewController, didAdd addedItems: [RecognizedItem], allItems: [RecognizedItem]) {
@@ -66,16 +74,29 @@ struct BarcodeScannerView: UIViewControllerRepresentable {
 }
 
 /// The scanner in its own sheet: Cancel in the bar and a one-line hint under
-/// the camera.
+/// the camera. After `timeout` with nothing read, the hint becomes "No
+/// barcode found" with Type it in, which closes the scanner and calls
+/// `onTypeIn`. Scanning carries on behind it.
 struct BarcodeScannerSheet: View {
     var onScan: (String) -> Void
+    var onTypeIn: (() -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
+    @State private var timedOut = false
+
+    private static let timeout: Duration = .seconds(8)
 
     var body: some View {
         NavigationStack {
             BarcodeScannerView(onScan: onScan)
                 .ignoresSafeArea(edges: .top)
-                .safeAreaInset(edge: .bottom) { hint }
+                .safeAreaInset(edge: .bottom) {
+                    if timedOut { nothingFound } else { hint }
+                }
+                .task {
+                    try? await Task.sleep(for: Self.timeout)
+                    guard !Task.isCancelled else { return }
+                    timedOut = true
+                }
                 .navigationTitle("Scan barcode")
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
@@ -84,6 +105,18 @@ struct BarcodeScannerSheet: View {
                     }
                 }
         }
+    }
+
+    private var nothingFound: some View {
+        InlineEmpty(systemImage: "barcode.viewfinder",
+                    text: "No barcode found. Hold the packet flat in good light, or type the details in.",
+                    actionTitle: "Type it in") {
+            onTypeIn?()
+            dismiss()
+        }
+        .padding(.vertical, DS.Space.s4)
+        .frame(maxWidth: .infinity)
+        .background(Color.dsBackground)
     }
 
     private var hint: some View {
