@@ -21,10 +21,12 @@ func eventTimeText(_ date: Date, now: Date = .now) -> String {
     if Calendar.current.isDate(date, inSameDayAs: now) {
         return ForecastFormat.time(date)
     }
+    // The time part follows the 24-hour setting; only the day comes from
+    // the system formatter.
     if abs(date.timeIntervalSince(now)) < 6 * 86_400 {
-        return date.formatted(.dateTime.weekday(.abbreviated).hour().minute())
+        return "\(ForecastFormat.shortDay(date)) \(ForecastFormat.time(date))"
     }
-    return date.formatted(.dateTime.day().month(.abbreviated).hour().minute())
+    return "\(date.formatted(.dateTime.day().month(.abbreviated))), \(ForecastFormat.time(date))"
 }
 
 // MARK: - Live tag
