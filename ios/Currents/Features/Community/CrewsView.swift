@@ -393,18 +393,10 @@ struct CrewDetailView: View {
         }
         // Keeps the clock legible over a bright cover, as on the map.
         .statusBarScrim()
-        .navigationTitle(crew?.name ?? "")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .principal) {
-                Text(crew?.name ?? "")
-                    .font(.headline)
-                    .lineLimit(1)
-                    .opacity(scrollStage == 2 ? 1 : 0)
-                    .animation(.easeOut(duration: DS.Motion.fast), value: scrollStage)
-                    .accessibilityHidden(scrollStage != 2)
-            }
-        }
+        // The scrim turns the bar backdrop off so the cover shows under the
+        // bar; it comes back once the cover has scrolled away.
+        .pageBarBackdrop(scrollStage >= 1)
+        .pageInlineTitle(crew?.name ?? "", shown: scrollStage == 2)
     }
 
     private var content: some View {
