@@ -160,7 +160,7 @@ enum LureEngine {
                   minTempC: 8, maxTempC: 22,
                   clarity: [.clear: 0.8, .stained: 0.9, .muddy: 0.5],
                   lowLightBonus: 0.10, windBonus: 0.05, fallingBonus: 0.10, postFrontBonus: 0.0,
-                  depth: 0.3...1.5, technique: "Cast upstream and retrieve just fast enough to turn the blade."),
+                  depth: 0.3...1.5, technique: "Cast across the current and retrieve just fast enough to turn the blade."),
 
         Archetype(name: "Live or natural bait", keywords: ["live", "worm", "bait", "minnow", "prawn", "shrimp", "cut"],
                   minTempC: -2, maxTempC: 35,
@@ -169,11 +169,12 @@ enum LureEngine {
                   depth: nil, depthWord: "Bottom or suspended", technique: "Use the smallest weight you can get away with, and give them time to eat."),
     ]
 
-    /// Weedless and bass-style families that have no place in the surf or an
-    /// estuary. Skipped only when a saltwater or estuary species is targeted.
+    /// Weedless, bass-style and stream families that have no place in the
+    /// surf or an estuary. Skipped only when a saltwater or estuary species is
+    /// targeted.
     private static let freshwaterOnly: Set<String> = [
         "Spinnerbait", "Chatterbait", "Squarebill crankbait", "Skirted jig",
-        "Ned rig", "Texas-rigged worm", "Hollow-body frog",
+        "Ned rig", "Texas-rigged worm", "Hollow-body frog", "Inline spinner",
     ]
 
     // MARK: - Colour selection
