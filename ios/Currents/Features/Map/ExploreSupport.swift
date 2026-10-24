@@ -512,35 +512,10 @@ struct ExploreActionRow: View {
 
 extension View {
     /// The inline title of a scrolling Explore page or sheet, faded in once
-    /// the header has scrolled away, as on TodayPage. Apply to the ScrollView.
+    /// its `DetailHeader` has scrolled away, as on TodayPage. Apply to the
+    /// ScrollView, after `detailTint` or `detailScrollEdge`.
     func exploreInlineTitle(_ title: String) -> some View {
-        modifier(ExploreInlineTitle(title: title))
-    }
-}
-
-private struct ExploreInlineTitle: ViewModifier {
-    let title: String
-    @State private var shown = false
-
-    func body(content: Content) -> some View {
-        content
-            .onScrollGeometryChange(for: Bool.self) { geo in
-                geo.contentOffset.y + geo.contentInsets.top > 60
-            } action: { _, past in
-                shown = past
-            }
-            .navigationTitle(title)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .principal) {
-                    Text(title)
-                        .font(.headline)
-                        .lineLimit(1)
-                        .opacity(shown ? 1 : 0)
-                        .animation(.easeOut(duration: DS.Motion.fast), value: shown)
-                        .accessibilityHidden(!shown)
-                }
-            }
+        pageTitleFade(title)
     }
 }
 
