@@ -203,7 +203,7 @@ struct TripRecapCardView: View {
             if let species {
                 ThumbView(species: species, size: 36)
             } else {
-                ThumbView(systemImage: "fish.fill", tint: .gray, size: 36)
+                ThumbView(systemImage: "fish.fill", tint: DS.accent, size: 36)
             }
             Text(name)
                 .font(.subheadline.weight(.medium))

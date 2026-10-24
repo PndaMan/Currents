@@ -248,6 +248,15 @@ struct BiteWindowTiles: View {
     var hour: Int? = nil
     var use24 = true
     var onSelect: ((Int) -> Void)? = nil
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    /// Side by side, or one under another at accessibility sizes so the
+    /// names and times are not cut off.
+    private var tileLayout: AnyLayout {
+        typeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(spacing: 10))
+            : AnyLayout(HStackLayout(spacing: 10))
+    }
 
     var body: some View {
         if windows.isEmpty {
@@ -262,7 +271,7 @@ struct BiteWindowTiles: View {
                 }
             }
         } else {
-            HStack(spacing: 10) {
+            tileLayout {
                 ForEach(windows) { w in
                     let on = hour.map { $0 >= w.startHour && $0 <= w.endHour } ?? false
                     tile(isOn: on, tint: DS.scoreColor(w.peakScore), select: w.startHour) {
@@ -272,7 +281,7 @@ struct BiteWindowTiles: View {
                                 .font(.subheadline)
                                 .foregroundStyle(.dsText2)
                                 .labelStyle(TintedIconLabelStyle(tint: DS.scoreInk(w.peakScore)))
-                                .lineLimit(1)
+                                .lineLimit(typeSize.isAccessibilitySize ? 2 : 1)
                             Text("\(w.peakScore)")
                                 .font(.title.bold())
                                 .monospacedDigit()
@@ -281,7 +290,7 @@ struct BiteWindowTiles: View {
                                 .font(.footnote)
                                 .monospacedDigit()
                                 .foregroundStyle(.dsText2)
-                                .lineLimit(1)
+                                .lineLimit(typeSize.isAccessibilitySize ? 2 : 1)
                                 .minimumScaleFactor(0.75)
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
