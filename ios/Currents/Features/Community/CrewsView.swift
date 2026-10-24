@@ -1975,6 +1975,9 @@ struct CrewCommentsSheet: View {
     private var svc: CommunityService { .shared }
     @State private var comments: [CommunityService.CrewComment] = []
     @State private var loading = true
+    /// True when the thread couldn't load and nothing was cached, which is
+    /// not the same as a post with no comments.
+    @State private var loadFailed = false
     @State private var draft = ""
     @State private var sending = false
     @FocusState private var composerFocused: Bool
@@ -2003,6 +2006,11 @@ struct CrewCommentsSheet: View {
                 Spacer()
                 FishLoader(message: "Loading comments")
                     .frame(height: 120)
+                Spacer()
+            } else if comments.isEmpty && loadFailed {
+                InlineEmpty(systemImage: "wifi.slash", text: "Comments need a connection",
+                            actionTitle: "Try again") { Task { await load() } }
+                    .padding(.top, DS.Space.s4)
                 Spacer()
             } else if comments.isEmpty {
                 Spacer()
@@ -2051,11 +2059,21 @@ struct CrewCommentsSheet: View {
         .dsScreenBackground()
         .navigationTitle("Comments")
         .navigationBarTitleDisplayMode(.inline)
-        .task {
-            comments = await svc.comments(postId: post.id)
-            loading = false
-            onCountChange(comments.count)
+        .task { await load() }
+    }
+
+    /// Loads the thread. A failed load with nothing cached leaves the count
+    /// on the post alone rather than reporting zero.
+    private func load() async {
+        loading = true
+        if let loaded = await svc.loadComments(postId: post.id) {
+            comments = loaded
+            loadFailed = false
+            onCountChange(loaded.count)
+        } else {
+            loadFailed = true
         }
+        loading = false
     }
 
     private func commentRow(_ comment: CommunityService.CrewComment, isReply: Bool) -> some View {
