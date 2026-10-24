@@ -11,9 +11,13 @@ struct OnboardingView: View {
     @AppStorage("targetSpeciesId") private var targetSpeciesId: Int = 0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dynamicTypeSize) private var typeSize
+    @AppStorage("use24HourTime") private var use24 = true
     @State private var page = 0
     @State private var posters: [Species] = []
     @State private var picks: [Species] = []
+    /// True while the location prompt is up, so the page moves on only once
+    /// the angler has answered it.
+    @State private var awaitingLocation = false
 
     private let pageCount = 4
     /// Species shown on the welcome posters, in poster order.
@@ -62,6 +66,11 @@ struct OnboardingView: View {
             .padding(.top, DS.Space.s3)
         }
         .dsScreenBackground()
+        .onChange(of: appState.locationManager.authorizationStatus) { _, status in
+            guard awaitingLocation, status != .notDetermined else { return }
+            awaitingLocation = false
+            if page == 1 { next() }
+        }
         .task {
             posters = Self.posterSpeciesIDs.compactMap { (try? appState.speciesRepository.fetch(id: $0)) ?? nil }
             picks = Self.pickSpeciesIDs.compactMap { (try? appState.speciesRepository.fetch(id: $0)) ?? nil }
@@ -118,31 +127,45 @@ struct OnboardingView: View {
 
     // MARK: Page 0, welcome
 
-    private var welcomePage: some View {
-        VStack(spacing: DS.Space.s5) {
-            posterWall
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            VStack(spacing: DS.Space.s3) {
-                HStack(spacing: 8) {
-                    LogoView(style: .symbol, size: 28)
-                    Text("Currents")
-                        .font(.headline)
-                        .foregroundStyle(.dsText)
-                }
-                Text("Read the bite before you leave home")
-                    .font(.largeTitle.bold())
-                    .foregroundStyle(.dsText)
-                    .multilineTextAlignment(.center)
-                Text("A forecast for your water, a catch log and your tackle box. All of it works with no signal.")
-                    .font(.callout)
-                    .foregroundStyle(.dsText2)
-                    .multilineTextAlignment(.center)
+    /// At accessibility sizes the posters would sit on the title, so the
+    /// page drops them and scrolls instead.
+    @ViewBuilder private var welcomePage: some View {
+        if typeSize.isAccessibilitySize {
+            ScrollView {
+                welcomeText
+                    .padding(.vertical, DS.Space.s6)
             }
-            .padding(.horizontal, DS.gutter)
+            .scrollIndicators(.hidden)
+        } else {
+            VStack(spacing: DS.Space.s5) {
+                posterWall
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                welcomeText
+            }
         }
     }
 
-    /// Species art on tilted white cards, scattered like posters on a wall.
+    private var welcomeText: some View {
+        VStack(spacing: DS.Space.s3) {
+            HStack(spacing: 8) {
+                LogoView(style: .symbol, size: 28)
+                Text("Currents")
+                    .font(.headline)
+                    .foregroundStyle(.dsText)
+            }
+            Text("Read the bite before you leave home")
+                .font(.largeTitle.bold())
+                .foregroundStyle(.dsText)
+                .multilineTextAlignment(.center)
+            Text("A forecast for your water, a catch log and your tackle box. All of it works with no signal.")
+                .font(.callout)
+                .foregroundStyle(.dsText2)
+                .multilineTextAlignment(.center)
+        }
+        .padding(.horizontal, DS.gutter)
+    }
+
+    /// Species art on tilted cards, scattered like posters on a wall.
     private var posterWall: some View {
         GeometryReader { geo in
             let layout: [(rotation: Double, x: CGFloat, y: CGFloat)] = [
@@ -160,7 +183,11 @@ struct OnboardingView: View {
                     }
                     .padding(5)
                     .frame(width: width, height: width * 1.25)
-                    .background(Color.white, in: RoundedRectangle(cornerRadius: DS.Radius.thumb, style: .continuous))
+                    .background(Color.dsElevated, in: RoundedRectangle(cornerRadius: DS.Radius.thumb, style: .continuous))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: DS.Radius.thumb, style: .continuous)
+                            .strokeBorder(Color.dsSeparator, lineWidth: 1)
+                    }
                     .rotationEffect(.degrees(spot.rotation))
                     .offset(x: geo.size.width * spot.x, y: geo.size.height * spot.y)
                 }
@@ -179,7 +206,7 @@ struct OnboardingView: View {
             body: "Your location picks the nearest water for the forecast and pins your catches. It stays on this phone unless you share it."
         ) {
             VStack(spacing: DS.Space.s5) {
-                ScoreRing(score: 81, size: 150, caption: "of 100")
+                ScoreRing(score: 81, size: typeSize.isAccessibilitySize ? 96 : 150, caption: "of 100")
                 Label("Your nearest water", systemImage: "mappin")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.dsText)
@@ -195,20 +222,27 @@ struct OnboardingView: View {
 
     private var alertsPage: some View {
         primerPage(
-            title: "Never miss prime time",
-            body: "Prime windows at your spots, low tackle and licence reminders. Only the ones you choose."
+            title: "Never miss a bite window",
+            body: "Bite windows at your spots, low tackle and licence reminders. Only the ones you choose."
         ) {
             VStack(spacing: 10) {
-                banner(title: "Prime window at your spot",
-                       detail: "The bite score peaks at dawn. Get ready.")
-                banner(title: "Licence expires soon",
-                       detail: "Your angling licence expires in 12 days.")
+                // Worded as the real notifications are (NotificationManager).
+                banner(title: "Bite window open at your spot",
+                       detail: "Bite score up to 82 from \(sampleTime(hour: 6)) to \(sampleTime(hour: 8)).")
+                banner(title: "Fishing licence reminder",
+                       detail: "Freshwater licence expires in 2 weeks.")
                     .opacity(0.75)
                     .scaleEffect(0.95)
             }
             .padding(.horizontal, DS.gutter)
             .accessibilityHidden(true)
         }
+    }
+
+    /// A sample banner time today, in the 24-hour setting.
+    private func sampleTime(hour: Int) -> String {
+        let date = Calendar.current.date(bySettingHour: hour, minute: 10, second: 0, of: .now) ?? .now
+        return ForecastFormat.time(date, use24: use24)
     }
 
     private func banner(title: String, detail: String) -> some View {
@@ -301,31 +335,63 @@ struct OnboardingView: View {
 
     // MARK: Scaffold
 
+    /// The art fills the space above the title. At accessibility sizes the
+    /// page scrolls instead, so the text never runs under the buttons.
     private func primerPage<Content: View>(title: String, body: String,
                                            @ViewBuilder art: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: DS.Space.s3) {
-            art()
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            Text(title)
-                .font(.largeTitle.bold())
-                .foregroundStyle(.dsText)
-                .padding(.horizontal, DS.gutter)
-            Text(body)
-                .font(.callout)
-                .foregroundStyle(.dsText2)
-                .padding(.horizontal, DS.gutter)
+        let artView = art()
+        let titleText = Text(title)
+            .font(.largeTitle.bold())
+            .foregroundStyle(.dsText)
+            .padding(.horizontal, DS.gutter)
+        let bodyText = Text(body)
+            .font(.callout)
+            .foregroundStyle(.dsText2)
+            .padding(.horizontal, DS.gutter)
+        return Group {
+            if typeSize.isAccessibilitySize {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: DS.Space.s3) {
+                        artView
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, DS.Space.s4)
+                        titleText
+                            .fixedSize(horizontal: false, vertical: true)
+                        bodyText
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .padding(.bottom, DS.Space.s4)
+                }
+                .scrollIndicators(.hidden)
+            } else {
+                VStack(alignment: .leading, spacing: DS.Space.s3) {
+                    artView
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    titleText
+                    bodyText
+                }
+            }
         }
     }
 
     // MARK: Actions
 
+    /// Each permission page moves on once its system prompt is answered, so
+    /// the prompt never sits over the next page.
     private func advance() {
         switch page {
-        case 1: appState.locationManager.requestPermission()
-        case 2: Task { _ = await NotificationManager.shared.requestPermission() }
-        default: break
+        case 1:
+            guard appState.locationManager.authorizationStatus == .notDetermined else { next(); return }
+            awaitingLocation = true
+            appState.locationManager.requestPermission()
+        case 2:
+            Task {
+                _ = await NotificationManager.shared.requestPermission()
+                if page == 2 { next() }
+            }
+        default:
+            next()
         }
-        next()
     }
 
     private func next() {
