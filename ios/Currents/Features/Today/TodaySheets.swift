@@ -219,7 +219,7 @@ struct TodaySessionSheet: View {
             }
             StatTile("Started", systemImage: "play.circle", tint: .green,
                      value: ForecastFormat.time(trip.startDate, use24: use24), width: nil)
-            StatTile("Catches", systemImage: "fish", tint: DS.ink(.orange),
+            StatTile("Catches", systemImage: "fish", tint: .orange,
                      value: "\(catches)", width: nil)
         }
         .padding(.horizontal, DS.gutter)

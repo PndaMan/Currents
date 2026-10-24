@@ -660,18 +660,18 @@ enum TargetText {
             let band = ConditionText.comfort(for: species)
             let low = Units.temperature(band.lowerBound, imperial: imperial)
             let high = Units.temperature(band.upperBound, imperial: imperial)
-            items.append(TargetNoteItem(icon: "thermometer.medium", tint: ForecastCondition.water.ink,
+            items.append(TargetNoteItem(icon: "thermometer.medium", tint: ForecastCondition.water.tint,
                                         title: "Its own comfort band",
                                         text: "Water is scored against \(low) to \(high)"))
         }
         let traits = ForecastEngine.SpeciesTraits(species)
         switch traits.tide {
         case .heavier:
-            items.append(TargetNoteItem(icon: "water.waves", tint: ForecastCondition.tide.ink,
+            items.append(TargetNoteItem(icon: "water.waves", tint: ForecastCondition.tide.tint,
                                         title: "Tide counts for more",
                                         text: "Saltwater and estuary fish feed on the moving tide"))
         case .ignored:
-            items.append(TargetNoteItem(icon: "water.waves.slash", tint: ForecastCondition.tide.ink,
+            items.append(TargetNoteItem(icon: "water.waves.slash", tint: ForecastCondition.tide.tint,
                                         title: "Tide left out",
                                         text: "It lives in fresh water"))
         case .general:
@@ -697,10 +697,10 @@ enum TargetText {
 
     /// What targeting does, for the page with nothing targeted.
     static var general: [TargetNoteItem] { [
-        TargetNoteItem(icon: "thermometer.medium", tint: ForecastCondition.water.ink,
+        TargetNoteItem(icon: "thermometer.medium", tint: ForecastCondition.water.tint,
                        title: "Its own comfort band",
                        text: "The bite score checks the water against that fish's range"),
-        TargetNoteItem(icon: "water.waves", tint: ForecastCondition.tide.ink,
+        TargetNoteItem(icon: "water.waves", tint: ForecastCondition.tide.tint,
                        title: "Tide where it matters",
                        text: "More weight for saltwater fish, none for freshwater fish"),
         TargetNoteItem(icon: "moon.stars", tint: .indigo,

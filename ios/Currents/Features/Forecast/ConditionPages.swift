@@ -63,10 +63,10 @@ struct ConditionGrid: View {
         switch slot {
         case .condition(let c):
             r = ConditionReading.make(c, day: day, store: store, use24: use24, imperial: imperial)
-            tint = c.ink
+            tint = c.tint
         case .rain:
             r = ConditionReading.rain(day, store: store, use24: use24)
-            tint = ForecastCondition.tide.ink
+            tint = ForecastCondition.tide.tint
         }
         return ConditionTile(r.label, systemImage: r.icon, iconTint: tint,
                              value: r.value, unit: r.unit, footnote: r.meaning) {
@@ -534,7 +534,7 @@ struct ConditionPage: View {
                     CardSection("Key numbers", note: page.footnote) {
                         ForEach(Array(page.figures.enumerated()), id: \.offset) { _, figure in
                             CardRow(figure.label, subtitle: figure.detail, systemImage: figure.icon,
-                                    tint: condition.ink, value: figure.value)
+                                    tint: condition.tint, value: figure.value)
                         }
                     }
                     .padding(.top, 28)
