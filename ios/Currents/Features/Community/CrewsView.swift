@@ -2101,13 +2101,15 @@ struct CrewCommentsSheet: View {
                                 .id(thread.parent.id)
                                 .listRowSeparator(.hidden)
                                 .listRowBackground(Color.clear)
-                                .listRowInsets(EdgeInsets(top: 8, leading: DS.gutter, bottom: 4, trailing: 12))
+                                .listRowInsets(EdgeInsets(top: DS.Space.s2, leading: DS.gutter,
+                                                              bottom: DS.Space.s1, trailing: DS.Space.s3))
                             ForEach(thread.replies) { reply in
                                 commentRow(reply, isReply: true)
                                     .id(reply.id)
                                     .listRowSeparator(.hidden)
                                     .listRowBackground(Color.clear)
-                                    .listRowInsets(EdgeInsets(top: 4, leading: DS.gutter + 40, bottom: 4, trailing: 12))
+                                    .listRowInsets(EdgeInsets(top: DS.Space.s1, leading: DS.gutter + DS.Space.s8 + DS.Space.s2,
+                                                                  bottom: DS.Space.s1, trailing: DS.Space.s3))
                             }
                         }
                     }
@@ -2171,8 +2173,8 @@ struct CrewCommentsSheet: View {
                     }
                     Text(comment.text).font(.body).foregroundStyle(.dsText)
                 }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 10)
+                .padding(.horizontal, DS.Space.s3)
+                .padding(.vertical, DS.Space.s2)
                 .background(mine ? DS.accent.opacity(0.14) : Color.dsFill,
                             in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
                 // Reply sits under the comment, always visible.
@@ -2186,7 +2188,7 @@ struct CrewCommentsSheet: View {
                         .foregroundStyle(DS.accent)
                 }
                 .buttonStyle(.dim)
-                .padding(.leading, 14)
+                .padding(.leading, DS.Space.s3)
             }
             Spacer(minLength: 0)
             if mine || canModerate {
@@ -2208,7 +2210,7 @@ struct CrewCommentsSheet: View {
                     Image(systemName: "ellipsis")
                         .font(.subheadline)
                         .foregroundStyle(.dsText2)
-                        .frame(width: 36, height: 36)
+                        .frame(width: 44, height: 44)
                         .contentShape(Rectangle())
                 }
                 .accessibilityLabel("Comment options")
@@ -2237,20 +2239,26 @@ struct CrewCommentsSheet: View {
                         Image(systemName: "xmark.circle.fill")
                             .font(.body)
                             .foregroundStyle(.dsText3)
+                            .frame(width: 44, height: 44)
+                            .contentShape(Rectangle())
                     }
                     .buttonStyle(.dim)
                     .accessibilityLabel(editing != nil ? "Cancel editing" : "Cancel reply")
                 }
                 .foregroundStyle(.dsText2)
-                .padding(.horizontal, DS.gutter).padding(.top, 8)
+                // Same trailing inset as the composer row, so the close
+                // target sits in one column with the send button below.
+                .padding(.leading, DS.gutter)
+                .padding(.trailing, DS.gutter - DS.Space.s1)
             }
-            HStack(spacing: 10) {
+            HStack(spacing: DS.Space.s2) {
                 TextField(editing != nil ? "Edit your comment"
                           : replyingTo != nil ? "Write a reply" : "Add a comment",
                           text: $draft, axis: .vertical)
                     .lineLimit(1...4)
                     .focused($composerFocused)
-                    .padding(.horizontal, 14).padding(.vertical, 10)
+                    .padding(.horizontal, DS.Space.s4)
+                    .padding(.vertical, DS.Space.s3)
                     .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
                 Button {
                     send()
@@ -2260,13 +2268,20 @@ struct CrewCommentsSheet: View {
                         .foregroundStyle(draftEmpty ? Color.dsText3 : Color.dsOnPrimary)
                         .frame(width: 36, height: 36)
                         .background(draftEmpty ? Color.dsFill : Color.dsPrimaryButton, in: Circle())
+                        // A 44 pt target around the 36 pt circle.
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.dim)
                 .buttonHaptic(.press)
                 .disabled(sending || draftEmpty)
                 .accessibilityLabel(editing != nil ? "Save comment" : "Post comment")
             }
-            .padding(.horizontal, DS.gutter).padding(.vertical, 10)
+            // The send circle sits 4 pt inside its target, so the trailing
+            // gutter is 4 pt short to keep the circle on the gutter line.
+            .padding(.leading, DS.gutter)
+            .padding(.trailing, DS.gutter - DS.Space.s1)
+            .padding(.vertical, DS.Space.s2)
         }
         .background(Color.dsBackground)
         .overlay(alignment: .top) { Divider().overlay(Color.dsSeparator) }
