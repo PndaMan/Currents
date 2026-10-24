@@ -236,7 +236,8 @@ struct PlannedRow: View {
     private var subtitle: String {
         guard let outlook else { return "Turn on location to see the bite" }
         guard let best = outlook.best else { return "No strong windows that day" }
-        return "Best \(best.peakScore) from \(ForecastFormat.hour(best.startHour, use24: use24))"
+        // The grade word, not a bare number beside the ring's own score.
+        return "\(ForecastFormat.grade(best.peakScore)) from \(ForecastFormat.hour(best.startHour, use24: use24))"
     }
 
     /// "Tomorrow, 05:30": the day, then the time, in Today's order.
@@ -895,12 +896,12 @@ struct SessionDetailView: View {
                         .clipShape(RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
                         .padding(.horizontal, DS.gutter)
                         .padding(.top, DS.Space.s6)
-                    // Keys only for what the map draws: no End or route
-                    // without two track points, no Catch without a pin.
+                    // A key only for a drawn route. Without one, the pins
+                    // carry their own names and a key would repeat them.
                     let pointCount = trip.allTrackPoints.count
                     let hasPins = catches.contains(where: SessionTrackMap.hasPin)
-                    if pointCount > 0 || hasPins {
-                        TrackLegend(showsStart: pointCount > 0, showsEnd: pointCount > 1, showsCatch: hasPins)
+                    if pointCount > 1 {
+                        TrackLegend(showsStart: true, showsEnd: true, showsCatch: hasPins)
                             .padding(.horizontal, DS.gutter)
                             .padding(.top, DS.Space.s2)
                     }
@@ -920,7 +921,7 @@ struct SessionDetailView: View {
                     .padding(.horizontal, DS.gutter)
                     .padding(.top, DS.Space.s4)
 
-                    SessionBiteChart(trip: trip, catches: catches)
+                    SessionBiteChart(trip: trip, catches: catches, spot: sessionSpot)
 
                     if canReplay {
                         TripScrubberCard(trip: trip, catches: catches, playToken: replayToken)
@@ -1141,6 +1142,8 @@ struct TrackLegend: View {
 struct SessionBiteChart: View {
     let trip: Trip
     let catches: [CatchDetail]
+    /// The session's spot, for a session saved without a track.
+    var spot: Spot? = nil
     @State private var hours: [HourScore] = []
     @AppStorage("use24HourTime") private var use24 = true
 
@@ -1192,12 +1195,32 @@ struct SessionBiteChart: View {
                 }
             }
         }
-        .task(id: trip.id) { compute() }
+        .task(id: originKey) { compute() }
+    }
+
+    /// Where the bite is worked out: where the track starts, else the
+    /// session's spot or planned place, else the first catch with a pin.
+    private var origin: CLLocationCoordinate2D? {
+        if let first = trip.allTrackPoints.first ?? trip.allDayLogs.first?.track.first {
+            return CLLocationCoordinate2D(latitude: first.lat, longitude: first.lon)
+        }
+        if let spot {
+            return CLLocationCoordinate2D(latitude: spot.latitude, longitude: spot.longitude)
+        }
+        if let planned = trip.plannedCoordinate { return planned }
+        return catches.first(where: SessionTrackMap.hasPin).map {
+            CLLocationCoordinate2D(latitude: $0.catchRecord.latitude, longitude: $0.catchRecord.longitude)
+        }
+    }
+
+    /// Works the chart out again once the spot or catches have loaded.
+    private var originKey: String {
+        guard let origin else { return "\(trip.id)|none" }
+        return "\(trip.id)|\(origin.latitude),\(origin.longitude)"
     }
 
     private func compute() {
-        guard let first = trip.allTrackPoints.first ?? trip.allDayLogs.first?.track.first else { hours = []; return }
-        let coord = CLLocationCoordinate2D(latitude: first.lat, longitude: first.lon)
+        guard let coord = origin else { hours = []; return }
         let cal = Calendar.current
         let start = trip.startDate
         let end = trip.endDate ?? trip.allTrackPoints.last?.t ?? start
