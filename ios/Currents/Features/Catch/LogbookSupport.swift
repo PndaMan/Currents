@@ -148,15 +148,20 @@ struct CatchTileArt: View {
 // MARK: - Search
 
 /// Search across every catch by species, spot, notes or gear. Opens a catch
-/// by handing its id back to the Logbook, which pushes it.
+/// by handing its id back to the Logbook, which pushes it. Laid out like the
+/// Explore and Today sheets: a section title over catch rows, the field
+/// focused as it opens.
 struct LogbookSearchSheet: View {
     let catches: [CatchDetail]
     let onOpen: (String) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var query = ""
+    @FocusState private var searchFocused: Bool
+
+    private var trimmedQuery: String { query.trimmingCharacters(in: .whitespaces) }
 
     private var results: [CatchDetail] {
-        let q = query.trimmingCharacters(in: .whitespaces)
+        let q = trimmedQuery
         guard !q.isEmpty else { return Array(catches.prefix(30)) }
         return catches.filter { d in
             d.species?.commonName.localizedCaseInsensitiveContains(q) == true ||
@@ -170,51 +175,62 @@ struct LogbookSearchSheet: View {
 
     var body: some View {
         NavigationStack {
-            Group {
-                if catches.isEmpty {
-                    ContentUnavailableView("No catches yet", systemImage: "fish",
-                                           description: Text("Log your first fish and you can search it here."))
-                } else if results.isEmpty {
-                    ContentUnavailableView("No catches found", systemImage: "magnifyingglass",
-                                           description: Text("Search by species, spot, lure or notes."))
-                } else {
-                    List {
-                        Section {
-                            ForEach(results) { d in
-                                Button {
-                                    dismiss()
-                                    onOpen(d.catchRecord.id)
-                                } label: {
-                                    ArtRow(title: d.species?.commonName ?? "Unknown species",
-                                           subtitle: [LogbookFormat.size(d.catchRecord), d.gearLoadout?.lure]
-                                               .compactMap { $0 }.joined(separator: ", "),
-                                           chevron: true) {
-                                        CatchThumb(detail: d, size: 52)
-                                    }
-                                }
-                                .buttonStyle(.dsRow)
-                                .dsListRow()
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    let found = results
+                    if catches.isEmpty {
+                        InlineEmpty(systemImage: "fish",
+                                    text: "No catches yet. Log your first fish and you can search it here.")
+                            .padding(.top, DS.Space.s4)
+                    } else if found.isEmpty {
+                        InlineEmpty(systemImage: "magnifyingglass",
+                                    text: "No catches match. Search by species, spot, lure or notes.")
+                            .padding(.top, DS.Space.s4)
+                    } else {
+                        SectionTitle(trimmedQuery.isEmpty ? "Recent" : "Results",
+                                     detail: trimmedQuery.isEmpty ? nil : "\(found.count)")
+                            .padding(.top, DS.Space.s4)
+                        ForEach(found) { d in
+                            Button {
+                                dismiss()
+                                onOpen(d.catchRecord.id)
+                            } label: {
+                                row(d)
                             }
-                        } header: {
-                            Text(query.isEmpty ? "Recent" : "\(results.count) \(results.count == 1 ? "catch" : "catches")")
-                                .padding(.horizontal, DS.gutter)
+                            .buttonStyle(.dsRow)
                         }
                     }
-                    .dsPlainList()
                 }
+                .padding(.bottom, DS.Space.s6)
             }
+            .dsScreenBackground()
+            .detailScrollEdge()
             .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always),
                         prompt: "Species, spot or lure")
+            .searchFocused($searchFocused)
             .navigationTitle("Search catches")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Done") { dismiss() }
-                }
+                ToolbarItem(placement: .confirmationAction) { SheetDoneButton() }
             }
+            .onAppear { searchFocused = true }
         }
-        .presentationDetents([.large])
-        .presentationDragIndicator(.visible)
+        .dsSheet([.large])
+    }
+
+    /// The same row as the Logbook list: when and where over the species,
+    /// then the size and lure.
+    private func row(_ d: CatchDetail) -> some View {
+        let over = [LogbookFormat.relativeDay(d.catchRecord.caughtAt), d.spot?.name]
+            .compactMap { $0 }.joined(separator: ", ")
+        let detail = [LogbookFormat.size(d.catchRecord), d.gearLoadout?.lure]
+            .compactMap { $0 }.joined(separator: ", ")
+        return ArtRow(over: over,
+                      title: d.species?.commonName ?? "Unknown species",
+                      subtitle: detail.isEmpty ? nil : detail,
+                      chevron: true) {
+            CatchThumb(detail: d, size: 52)
+        }
     }
 }
 
