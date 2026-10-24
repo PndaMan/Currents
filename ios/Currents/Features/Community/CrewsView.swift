@@ -39,7 +39,8 @@ struct CrewsListPage: View {
                             NavigationLink(value: CrewRoute.crew(crew.code)) {
                                 ArtRow(title: crew.name,
                                        subtitle: CrewText.crewSubtitle(crew,
-                                                                       tournamentLive: tournamentLive.contains(crew.code)),
+                                                                       tournamentLive: tournamentLive.contains(crew.code),
+                                                                       memberCount: members[crew.code]?.count),
                                        chevron: true) {
                                     CrewThumb(code: crew.code, emoji: crew.emoji)
                                 } trailing: {

@@ -553,9 +553,12 @@ struct CrewMetaLine: View {
 }
 
 extension CrewText {
-    /// "6 anglers, tournament live" or "6 anglers".
-    @MainActor static func crewSubtitle(_ crew: CommunityService.Crew, tournamentLive: Bool) -> String {
-        let n = CommunityService.shared.cachedCrewMembers(crew.code).count
+    /// "6 anglers, tournament live" or "6 anglers". `memberCount` is a count
+    /// the page has just loaded; without one the cached roster answers.
+    @MainActor static func crewSubtitle(_ crew: CommunityService.Crew, tournamentLive: Bool,
+                                        memberCount: Int? = nil) -> String {
+        let n = memberCount.flatMap { $0 > 0 ? $0 : nil }
+            ?? CommunityService.shared.cachedCrewMembers(crew.code).count
         let people = n > 0 ? anglers(n) : "Crew code \(crew.code)"
         return tournamentLive ? "\(people), tournament live" : people
     }

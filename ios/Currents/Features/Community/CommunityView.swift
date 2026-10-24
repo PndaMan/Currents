@@ -31,6 +31,9 @@ struct CommunityView: View {
     @State private var friendProfiles: [CommunityService.Profile] = []
     /// Live tournaments and trips per crew code.
     @State private var live: [String: CrewLive] = [:]
+    /// Member counts for crews with no cached roster, so a crew row says
+    /// "6 anglers" rather than its code.
+    @State private var memberCounts: [String: Int] = [:]
     /// Cached angler stats so a full catch-table scan doesn't run on every
     /// SwiftUI body re-render; refreshed on appear and when catches change.
     @State private var cachedStats: CommunityService.MyStats?
@@ -422,7 +425,9 @@ struct CommunityView: View {
                 ForEach(svc.myCrews) { crew in
                     NavigationLink(value: CrewRoute.crew(crew.code)) {
                         ArtRow(title: crew.name,
-                               subtitle: CrewText.crewSubtitle(crew, tournamentLive: live[crew.code]?.tournament.map { !$0.isEnded } ?? false),
+                               subtitle: CrewText.crewSubtitle(crew,
+                                                               tournamentLive: live[crew.code]?.tournament.map { !$0.isEnded } ?? false,
+                                                               memberCount: memberCounts[crew.code]),
                                chevron: true) {
                             CrewThumb(code: crew.code, emoji: crew.emoji)
                         }
@@ -562,6 +567,12 @@ struct CommunityView: View {
             next[crew.code] = state
         }
         live = next
+        // Rosters only where nothing is cached and nothing was counted yet;
+        // the crew page keeps the cache fresh after that.
+        for crew in svc.myCrews where memberCounts[crew.code] == nil && svc.cachedCrewMembers(crew.code).isEmpty {
+            let n = await svc.crewMembers(code: crew.code).count
+            if n > 0 { memberCounts[crew.code] = n }
+        }
     }
 
     /// Publish the full local catch history so the leaderboards reflect
