@@ -2381,10 +2381,11 @@ final class CommunityService: ObservableObject {
         return live.sorted { $0.date > $1.date }
     }
 
-    /// The joined trip, or nil when joining failed.
+    /// The joined trip, or nil when joining failed. The invite is deleted only
+    /// once the join went through, so a failed join can be tried again.
     @discardableResult
     func acceptInvite(_ invite: TripInvite) async -> GroupTrip? {
-        let trip = await joinGroupTrip(code: invite.groupCode)
+        guard let trip = await joinGroupTrip(code: invite.groupCode) else { return nil }
         _ = try? await db.deleteRecord(withID: CKRecord.ID(recordName: invite.id))
         return trip
     }
