@@ -143,9 +143,13 @@ struct ContentView: View {
         .task { checkPlannedSession() }
         .task {
             // Screenshot mode: push the screen CI asked for once the tabs exist.
-            guard let tab = ScreenshotSupport.initialTab, let path = ScreenshotSupport.initialPath else { return }
+            guard let tab = ScreenshotSupport.initialTab else { return }
+            let path = ScreenshotSupport.initialPath
+            let link = ScreenshotSupport.launchURL
+            guard path != nil || link != nil else { return }
             try? await Task.sleep(for: .milliseconds(700))
-            paths[tab] = path
+            if let path { paths[tab] = path }
+            if let link { appState.pendingDeepLink = link }
         }
         .task {
             // On cold launch (scenePhase .onChange doesn't fire for the initial
