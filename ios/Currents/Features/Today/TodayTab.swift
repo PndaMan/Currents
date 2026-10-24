@@ -8,6 +8,8 @@ struct TodayTab: View {
     @Environment(\.openURL) private var openURL
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.dynamicTypeSize) private var typeSize
+    @ScaledMetric(relativeTo: .subheadline) private var dayCardWidth: CGFloat = 112
     @AppStorage("use24HourTime") private var use24 = true
     /// Angler's clarity call, remembered between sessions. Empty means infer it.
     @AppStorage("waterClarityOverride") private var clarityOverride = ""
@@ -26,20 +28,8 @@ struct TodayTab: View {
 
     @State private var showLocation = false
     @State private var showSession = false
-    @State private var planning: PlanTarget?
+    @State private var showPlanner = false
     @State private var confirmEnd = false
-
-    /// What the planner sheet opens with.
-    private enum PlanTarget: Identifiable {
-        case new
-        case edit(Trip)
-        var id: String {
-            switch self {
-            case .new: "new"
-            case .edit(let t): t.id
-            }
-        }
-    }
 
     // MARK: - Derived
 
@@ -69,16 +59,22 @@ struct TodayTab: View {
 
     private var weather: WeatherService.WeatherData? { store.weather(for: 0) }
 
+    /// Today's weather when it is a real reading. Offline with nothing saved,
+    /// only the barometer is real, so the picks go without the rest.
+    private var measuredWeather: WeatherService.WeatherData? {
+        store.weatherIsEstimate ? nil : weather
+    }
+
     private var clarity: WaterClarity {
-        WaterClarity(rawValue: clarityOverride) ?? WaterClarity.inferred(precipMm: weather?.precipMm)
+        WaterClarity(rawValue: clarityOverride) ?? WaterClarity.inferred(precipMm: measuredWeather?.precipMm)
     }
 
     private var suggestions: [LureEngine.Suggestion] {
         let conditions = LureEngine.Conditions(
-            waterTempC: weather?.waterTempC,
+            waterTempC: measuredWeather?.waterTempC,
             clarity: clarity,
-            cloudCoverPct: weather?.cloudCoverPct,
-            windSpeedKmh: weather?.windSpeedKmh,
+            cloudCoverPct: measuredWeather?.cloudCoverPct,
+            windSpeedKmh: measuredWeather?.windSpeedKmh,
             pressureChange6h: weather?.pressureChange6h
         )
         return LureEngine.recommend(conditions: conditions, species: store.species,
@@ -97,7 +93,7 @@ struct TodayTab: View {
             VStack(alignment: .leading, spacing: 0) {
                 LargeTitleHeader("Today") {
                     HeaderIconButton("Plan a session", systemImage: "calendar.badge.plus") {
-                        planning = .new
+                        showPlanner = true
                     }
                 }
 
@@ -111,7 +107,7 @@ struct TodayTab: View {
                     TargetRow(store: store).padding(.top, 20)
                     upNextRow
                     WhatToThrowSection(
-                        suggestions: suggestions, weather: weather, clarity: clarity,
+                        suggestions: suggestions, weather: measuredWeather, clarity: clarity,
                         clarityIsGuess: clarityOverride.isEmpty, hasGear: !ownedGear.isEmpty,
                         onClarity: { clarityOverride = $0.rawValue }
                     )
@@ -130,8 +126,8 @@ struct TodayTab: View {
         .dsScreenBackground()
         .largeTitleChrome("Today")
         .refreshable {
-            await reload(force: true)
-            Haptics.softPress()
+            let live = await reload(force: true)
+            ForecastStore.refreshFeedback(live)
         }
         .navigationDestination(for: ForecastRoute.self) { route in
             ForecastDestination(store: store, route: route)
@@ -142,9 +138,20 @@ struct TodayTab: View {
             let loc = resolvedLocation
             store.setLocation(loc.coordinate, name: loc.name)
             await reload(force: false)
+            // Name the phone's location after the town, as Explore does.
+            // Offline the lookup fails and the line keeps "Current location".
+            if loc.name == "Current location", let town = await townName(loc.coordinate), !Task.isCancelled {
+                store.setLocation(loc.coordinate, name: town)
+                writeWidget()
+            }
         }
         .onAppear { refreshLocalData() }
-        .onChange(of: appState.tripTracker.isTracking) { _, _ in refreshLocalData() }
+        .onChange(of: appState.tripTracker.isTracking) { _, tracking in
+            refreshLocalData()
+            // Ended elsewhere (Explore, the Live Activity): close the sheet
+            // rather than leave it blank.
+            if !tracking { showSession = false }
+        }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { Task { await refreshIfStale() } }
         }
@@ -170,14 +177,15 @@ struct TodayTab: View {
                 TodaySessionSheet(trip: trip, catches: sessionCatches,
                                   onLogCatch: logCatch,
                                   onOpenMap: { openMapAfterSession = true },
-                                  onEnd: endSession)
+                                  onEnd: endSession,
+                                  isDayActive: appState.tripTracker.isDayActive,
+                                  onStartNextDay: startNextDay)
+            } else {
+                TodaySessionEndedSheet()
             }
         }
-        .sheet(item: $planning, onDismiss: refreshLocalData) { target in
-            switch target {
-            case .new: PlanSessionSheet()
-            case .edit(let trip): PlanSessionSheet(editingTrip: trip)
-            }
+        .sheet(isPresented: $showPlanner, onDismiss: refreshLocalData) {
+            PlanSessionSheet()
         }
         .confirmationDialog("End this session?", isPresented: $confirmEnd, titleVisibility: .visible) {
             Button("End session", role: .destructive) { endSession() }
@@ -214,14 +222,20 @@ struct TodayTab: View {
     }
 
     private var locationNotice: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "location.slash")
-                .foregroundStyle(.dsText2)
-            Text("Location is off, so this is the forecast for Cape Town.")
-                .font(.subheadline)
-                .foregroundStyle(.dsText2)
-                .fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 0)
+        // Text and button side by side, stacked at accessibility sizes.
+        let layout = typeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 12))
+            : AnyLayout(HStackLayout(spacing: 12))
+        return layout {
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                Image(systemName: "location.slash")
+                    .foregroundStyle(.dsText2)
+                Text("Location is off, so this is the forecast for Cape Town.")
+                    .font(.subheadline)
+                    .foregroundStyle(.dsText2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if !typeSize.isAccessibilitySize { Spacer(minLength: 0) }
             Button("Turn on location", action: turnOnLocation)
                 .font(.subheadline.weight(.semibold))
                 .buttonStyle(.dim)
@@ -235,41 +249,57 @@ struct TodayTab: View {
 
     // MARK: - Session
 
+    /// The running session, or a multi-day session between days: "Day 1
+    /// done" with its time frozen and a button to start the next day.
     private func sessionBanner(_ trip: Trip) -> some View {
-        Button { showSession = true } label: {
-            HStack(spacing: 12) {
-                Image(systemName: "record.circle")
-                    .font(.title3)
-                    .foregroundStyle(Color.dsScoreSlow)
-                    .symbolEffect(.pulse, options: .repeating, isActive: !reduceMotion)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("Session running")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.dsText)
-                    TimelineView(.periodic(from: .now, by: 60)) { context in
-                        Text("\(trip.name), \(minutes(since: trip.currentDayStart ?? trip.startDate, now: context.date))")
-                            .font(.footnote)
-                            .foregroundStyle(.dsText2)
-                            .lineLimit(1)
+        let dayDone = !appState.tripTracker.isDayActive && !trip.decodedDays.isEmpty
+        let tint: Color = dayDone ? DS.accent : .dsScoreSlow
+        let lines = typeSize.isAccessibilitySize ? 3 : 1
+        return VStack(alignment: .leading, spacing: 12) {
+            Button { showSession = true } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: dayDone ? "pause.circle" : "record.circle")
+                        .font(.title3)
+                        .foregroundStyle(tint)
+                        .symbolEffect(.pulse, options: .repeating, isActive: !reduceMotion && !dayDone)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(dayDone ? "Day \(trip.decodedDays.count) done" : "Session running")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.dsText)
+                        if dayDone {
+                            Text("\(trip.name), \(ForecastFormat.elapsed(trip.totalDurationSeconds)) so far")
+                                .font(.footnote)
+                                .foregroundStyle(.dsText2)
+                                .lineLimit(lines)
+                        } else {
+                            // Redrawn each minute; the total runs to now across every day.
+                            TimelineView(.periodic(from: .now, by: 60)) { _ in
+                                Text("\(trip.name), \(ForecastFormat.elapsed(trip.totalDurationSeconds))")
+                                    .font(.footnote)
+                                    .foregroundStyle(.dsText2)
+                                    .lineLimit(lines)
+                            }
+                        }
                     }
+                    Spacer(minLength: 0)
+                    Image(systemName: "chevron.right")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(.dsText3)
                 }
-                Spacer(minLength: 0)
-                Image(systemName: "chevron.right")
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(.dsText3)
+                .contentShape(Rectangle())
             }
-            .padding(14)
-            .background(Color.dsScoreSlow.opacity(0.12),
-                        in: RoundedRectangle(cornerRadius: DS.Radius.button, style: .continuous))
+            .buttonStyle(.dim)
+
+            if dayDone {
+                Button("Start day \(trip.decodedDays.count + 1)", action: startNextDay)
+                    .buttonStyle(.dsPrimary)
+            }
         }
-        .buttonStyle(.dim)
+        .padding(14)
+        .background(tint.opacity(0.12),
+                    in: RoundedRectangle(cornerRadius: DS.Radius.button, style: .continuous))
         .padding(.horizontal, DS.gutter)
         .padding(.top, 12)
-    }
-
-    private func minutes(since start: Date, now: Date) -> String {
-        let m = max(0, Int(now.timeIntervalSince(start) / 60))
-        return m >= 60 ? "\(m / 60) h \(m % 60) min" : "\(m) min"
     }
 
     // MARK: - Hero
@@ -281,7 +311,8 @@ struct TodayTab: View {
         return VStack(alignment: .leading, spacing: 18) {
             HStack(alignment: .center, spacing: 16) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Bite right now")
+                    // The verdict already says "now", so the label names the hour.
+                    Text("This hour")
                         .font(.subheadline)
                         .foregroundStyle(.dsText2)
                     Text(ForecastFormat.verdict(score))
@@ -353,25 +384,28 @@ struct TodayTab: View {
 
     // MARK: - Plans
 
+    /// The next plan opens on its own page; with none, the row starts one.
+    @ViewBuilder
     private var upNextRow: some View {
-        Button {
-            planning = nextPlan.map { PlanTarget.edit($0) } ?? PlanTarget.new
-        } label: {
-            if let plan = nextPlan {
+        if let plan = nextPlan {
+            NavigationLink(value: AppRoute.plan(plan.id)) {
                 ArtRow(over: "Up next", title: plan.name,
                        subtitle: plan.plannedDate.map { planDate($0) } ?? "Planned",
                        subtitleIcon: "calendar", chevron: true) {
                     ThumbView(systemImage: "calendar", tint: DS.accent, size: 52)
                 }
-            } else {
+            }
+            .buttonStyle(.dsRow)
+        } else {
+            Button { showPlanner = true } label: {
                 ArtRow(over: "Up next", title: "Plan a session",
                        subtitle: "Pick a day and get the best times and a gear list",
                        chevron: true) {
                     ThumbView(systemImage: "calendar.badge.plus", tint: DS.accent, size: 52)
                 }
             }
+            .buttonStyle(.dsRow)
         }
-        .buttonStyle(.dsRow)
     }
 
     private func planDate(_ date: Date) -> String {
@@ -401,6 +435,8 @@ struct TodayTab: View {
                         .buttonStyle(.dim)
                     }
                 }
+                // Cards share the tallest card's height when one wraps.
+                .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, DS.gutter)
             }
         }
@@ -420,12 +456,14 @@ struct TodayTab: View {
                 }
             }
             ScoreRing(score: d.peakScore, size: 52)
-            Text(d.bestWindow.map { ForecastFormat.hour($0.startHour, use24: use24) } ?? "No window")
+            Text(d.bestWindow.map { ForecastFormat.hour($0.startHour, use24: use24) } ?? "No standout window")
                 .font(.footnote)
                 .foregroundStyle(.dsText2)
                 .monospacedDigit()
+                .fixedSize(horizontal: false, vertical: true)
         }
-        .frame(width: 112, alignment: .leading)
+        .frame(width: dayCardWidth, alignment: .leading)
+        .frame(maxHeight: .infinity, alignment: .top)
         .padding(14)
         .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
         .accessibilityElement(children: .combine)
@@ -438,38 +476,41 @@ struct TodayTab: View {
         VStack(alignment: .leading, spacing: 0) {
             SectionTitle("Conditions")
             ConditionGrid(store: store, day: day, use24: use24)
-            if let updated = store.updatedAt {
-                Text(updatedLine(updated))
-                    .font(.footnote)
-                    .foregroundStyle(.dsText2)
-                    .padding(.horizontal, DS.gutter)
-                    .padding(.top, 10)
+            if store.weatherIsEstimate {
+                SectionFootnote("No weather offline. The score uses pressure, tide, moon and season until there is signal.")
+            } else if let updated = store.updatedAt {
+                SectionFootnote(updatedLine(updated))
             } else if store.hasLoaded {
-                Text("No weather saved yet. The score uses tide, moon and season until there is a connection.")
-                    .font(.footnote)
-                    .foregroundStyle(.dsText2)
-                    .padding(.horizontal, DS.gutter)
-                    .padding(.top, 10)
+                SectionFootnote("No weather saved yet. The score uses tide, moon and season until there is signal.")
             }
         }
     }
 
+    /// "Updated 20 min ago.", with a nudge to refresh once it is old.
     private func updatedLine(_ date: Date) -> String {
-        let f = RelativeDateTimeFormatter()
-        f.unitsStyle = .full
-        let ago = f.localizedString(for: date, relativeTo: .now)
+        let line = ForecastFormat.updated(date)
         if Date.now.timeIntervalSince(date) > 3 * 3600 {
-            return "Weather is stale since \(ago). Pull to refresh when you have signal."
+            return line + ". Pull to refresh when you have signal."
         }
-        return "Weather updated \(ago)."
+        return line + "."
     }
 
     // MARK: - Actions
 
     private func startSession() {
         _ = appState.tripTracker.start(name: SessionFormat.defaultName(), spotId: selectedSpot?.id)
-        ToastCenter.shared.show("Session started. Tracking your spot", icon: "play.fill")
+        guard appState.tripTracker.isTracking else { return }
+        ToastCenter.shared.show("Session started", icon: "play.fill")
         refreshLocalData()
+    }
+
+    /// The next day of a multi-day session.
+    private func startNextDay() {
+        let tracker = appState.tripTracker
+        let next = (tracker.activeTrip?.decodedDays.count ?? 0) + 1
+        tracker.startNextDay()
+        guard tracker.isDayActive else { return }
+        ToastCenter.shared.show("Day \(next) started", icon: "play.fill")
     }
 
     private func endSession() {
@@ -507,10 +548,14 @@ struct TodayTab: View {
         }
     }
 
-    private func reload(force: Bool) async {
+    /// Reads the local data and the weather. False when the weather service
+    /// could not be reached.
+    @discardableResult
+    private func reload(force: Bool) async -> Bool {
         refreshLocalData()
-        await store.load(force: force)
+        let live = await store.load(force: force)
         writeWidget()
+        return live
     }
 
     private func writeWidget() {
@@ -523,10 +568,18 @@ struct TodayTab: View {
             hourly: hourly)
     }
 
+    /// The town for a coordinate, or nil when the lookup fails (offline).
+    private func townName(_ coordinate: CLLocationCoordinate2D) async -> String? {
+        let location = CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)
+        guard let place = try? await CLGeocoder().reverseGeocodeLocation(location).first else { return nil }
+        return place.locality ?? place.subAdministrativeArea ?? place.name
+    }
+
     /// Back in the app after a while: the score is for an old moment and the
     /// weather may have moved, so read it again.
     private func refreshIfStale() async {
-        guard let updated = store.updatedAt, Date.now.timeIntervalSince(updated) > 15 * 60 else { return }
+        // No real reading yet (an offline estimate) counts as stale too.
+        if let updated = store.updatedAt, Date.now.timeIntervalSince(updated) <= 15 * 60 { return }
         await reload(force: false)
     }
 }

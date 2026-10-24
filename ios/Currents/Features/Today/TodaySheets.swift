@@ -43,6 +43,7 @@ struct ClaritySegments: View {
 // MARK: - Location
 
 /// Where Today's forecast is for: the phone's location or a saved spot.
+/// A tap applies straight away, so the sheet only needs "Done".
 struct TodayLocationSheet: View {
     let spots: [Spot]
     let selectedSpotId: String
@@ -51,6 +52,9 @@ struct TodayLocationSheet: View {
     let onRequestLocation: () -> Void
     let onOpenExplore: () -> Void
     @Environment(\.dismiss) private var dismiss
+    /// Set when "Current location" was tapped with location off, so the row
+    /// is chosen as soon as permission comes through.
+    @State private var wantsCurrentLocation = false
 
     var body: some View {
         NavigationStack {
@@ -61,6 +65,7 @@ struct TodayLocationSheet: View {
                             onSelect("")
                             dismiss()
                         } else {
+                            wantsCurrentLocation = true
                             onRequestLocation()
                         }
                     } label: {
@@ -81,18 +86,12 @@ struct TodayLocationSheet: View {
                         .padding(.top, 20)
 
                     if spots.isEmpty {
-                        ContentUnavailableView {
-                            Label("No saved spots", systemImage: "mappin.slash")
-                        } description: {
-                            Text("Save a spot on the Explore map to get its forecast here.")
-                        } actions: {
-                            Button("Open Explore") {
-                                dismiss()
-                                onOpenExplore()
-                            }
-                            .buttonStyle(.dsTonal)
+                        InlineEmpty(systemImage: "mappin.slash",
+                                    text: "Save a spot on the Explore map to get its forecast here.",
+                                    actionTitle: "Open Explore") {
+                            dismiss()
+                            onOpenExplore()
                         }
-                        .padding(.vertical, 8)
                     } else {
                         ForEach(spots) { spot in
                             Button {
@@ -120,77 +119,95 @@ struct TodayLocationSheet: View {
             .navigationTitle("Forecast for")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) { SheetDoneButton() }
             }
         }
-        .presentationDetents([.medium])
-        .presentationDragIndicator(.visible)
+        .onChange(of: locationAuthorized) { _, granted in
+            guard granted, wantsCurrentLocation else { return }
+            wantsCurrentLocation = false
+            onSelect("")
+            dismiss()
+        }
+        .dsSheet([.medium, .large])
     }
 }
 
 // MARK: - Live session
 
-/// The running session: timer, catches and the actions for it.
+/// The running session: time, catches and the actions for it. Between the
+/// days of a multi-day session it shows the day as done, with its time
+/// stopped, and a button to start the next one.
 struct TodaySessionSheet: View {
     let trip: Trip
     let catches: Int
     let onLogCatch: () -> Void
     let onOpenMap: () -> Void
     let onEnd: () -> Void
+    /// False between the days of a multi-day session.
+    var isDayActive: Bool = true
+    var onStartNextDay: () -> Void = {}
     @AppStorage("use24HourTime") private var use24 = true
     @State private var confirmEnd = false
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    private var dayDone: Bool { !isDayActive && !trip.decodedDays.isEmpty }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            VStack(alignment: .leading, spacing: 4) {
-                Label("Session running", systemImage: "record.circle")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(Color.dsScoreSlow)
-                    .symbolEffect(.pulse, options: .repeating, isActive: !reduceMotion)
-                Text(trip.name)
-                    .font(.title2.bold())
-                    .foregroundStyle(.dsText)
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    Label(dayDone ? "Day \(trip.decodedDays.count) done" : "Session running",
+                          systemImage: dayDone ? "pause.circle" : "record.circle")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(dayDone ? DS.accent : Color.dsScoreSlow)
+                        .symbolEffect(.pulse, options: .repeating, isActive: !reduceMotion && !dayDone)
+                        .padding(.horizontal, DS.gutter)
+
+                    stats
+
+                    if dayDone {
+                        Button("Start day \(trip.decodedDays.count + 1)", action: onStartNextDay)
+                            .buttonStyle(.dsPrimary)
+                            .padding(.horizontal, DS.gutter)
+                    }
+
+                    ActionTriple {
+                        Button {
+                            dismiss()
+                            onLogCatch()
+                        } label: {
+                            Label("Log catch", systemImage: "plus")
+                        }
+                        .buttonStyle(ActionTileStyle(.primary))
+
+                        Button {
+                            dismiss()
+                            onOpenMap()
+                        } label: {
+                            Label("Live map", systemImage: "map")
+                        }
+                        .buttonStyle(ActionTileStyle(.tonal))
+
+                        Button { confirmEnd = true } label: {
+                            Label("End session", systemImage: "stop.fill")
+                        }
+                        .buttonStyle(ActionTileStyle(.destructive))
+                    }
+                }
+                .padding(.top, DS.Space.s2)
+                .padding(.bottom, 24)
             }
-
-            HStack(spacing: 12) {
-                TimelineView(.periodic(from: .now, by: 1)) { context in
-                    stat("Time out", elapsed(since: trip.currentDayStart ?? trip.startDate, now: context.date))
-                }
-                stat("Started", ForecastFormat.time(trip.startDate, use24: use24))
-                stat("Catches", "\(catches)")
+            .dsScreenBackground()
+            .detailScrollEdge()
+            .navigationTitle(trip.name)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) { SheetDoneButton() }
             }
-
-            ActionTriple {
-                Button {
-                    dismiss()
-                    onLogCatch()
-                } label: {
-                    Label("Log catch", systemImage: "plus")
-                }
-                .buttonStyle(ActionTileStyle(.primary))
-
-                Button {
-                    dismiss()
-                    onOpenMap()
-                } label: {
-                    Label("Live map", systemImage: "map")
-                }
-                .buttonStyle(ActionTileStyle(.tonal))
-
-                Button { confirmEnd = true } label: {
-                    Label("End session", systemImage: "stop.fill")
-                }
-                .buttonStyle(ActionTileStyle(.destructive))
-            }
-            .padding(.horizontal, -DS.gutter)
         }
-        .padding(DS.gutter)
-        .padding(.top, 8)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .presentationDetents([.medium])
-        .presentationDragIndicator(.visible)
+        .dsSheet([.medium, .large])
         .confirmationDialog("End this session?", isPresented: $confirmEnd, titleVisibility: .visible) {
             Button("End session", role: .destructive) {
                 dismiss()
@@ -202,24 +219,50 @@ struct TodaySessionSheet: View {
         }
     }
 
-    private func stat(_ label: String, _ value: String) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(label).font(.footnote).foregroundStyle(.dsText2)
-            Text(value)
-                .font(.title3.weight(.semibold))
-                .monospacedDigit()
-                .foregroundStyle(.dsText)
-                .contentTransition(.numericText())
+    /// Time fishing counts by the minute while a day runs, and holds still
+    /// between days.
+    private var stats: some View {
+        // Three across, stacked at accessibility sizes.
+        let layout = typeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(spacing: DS.Space.s3))
+            : AnyLayout(HStackLayout(alignment: .top, spacing: DS.Space.s3))
+        return layout {
+            if dayDone {
+                StatTile("Time fishing", systemImage: "clock", tint: .blue,
+                         value: ForecastFormat.elapsed(trip.totalDurationSeconds), width: nil)
+            } else {
+                // Redrawn each minute; the total runs to now across every day.
+                TimelineView(.periodic(from: .now, by: 60)) { _ in
+                    StatTile("Time fishing", systemImage: "clock", tint: .blue,
+                             value: ForecastFormat.elapsed(trip.totalDurationSeconds), width: nil)
+                }
+            }
+            StatTile("Started", systemImage: "play.circle", tint: .green,
+                     value: ForecastFormat.time(trip.startDate, use24: use24), width: nil)
+            StatTile("Catches", systemImage: "fish", tint: DS.ink(.orange),
+                     value: "\(catches)", width: nil)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(12)
-        .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.button, style: .continuous))
-        .accessibilityElement(children: .combine)
+        .padding(.horizontal, DS.gutter)
     }
+}
 
-    private func elapsed(since start: Date, now: Date) -> String {
-        let s = max(0, Int(now.timeIntervalSince(start)))
-        let h = s / 3600, m = (s % 3600) / 60
-        return h > 0 ? "\(h) h \(m) min" : "\(m) min"
+/// What the session sheet shows if its session ends while it is open, for
+/// the moment before it closes.
+struct TodaySessionEndedSheet: View {
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                InlineEmpty(systemImage: "checkmark.circle",
+                            text: "This session has ended. You will find it in your Logbook.")
+                    .padding(.top, DS.Space.s2)
+            }
+            .dsScreenBackground()
+            .navigationTitle("Session")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) { SheetDoneButton() }
+            }
+        }
+        .dsSheet([.medium, .large])
     }
 }
