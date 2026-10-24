@@ -9,7 +9,6 @@ struct RegulationsView: View {
     @State private var region: String?
     @State private var selectedId: String?
     @State private var didLoad = false
-    @State private var titleShown = false
 
     private var regions: [String] {
         Array(Set(regulations.map(\.region))).sorted()
@@ -79,8 +78,7 @@ struct RegulationsView: View {
             .pageWidth()
         }
         .detailTint(nil)
-        .pfTrackScroll($titleShown, threshold: 60)
-        .pfScrollTitle("Size and bag limits", shown: titleShown)
+        .pageTitleFade("Size and bag limits")
         .navigationDestination(item: $selectedId) { id in
             if let reg = regulations.first(where: { $0.id == id }) {
                 RegulationDetailView(reg: reg)

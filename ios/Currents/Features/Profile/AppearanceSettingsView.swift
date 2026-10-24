@@ -14,7 +14,6 @@ struct AppearanceSettingsView: View {
     @AppStorage("appIconFollowsTheme") private var iconFollowsTheme = true
     @AppStorage(Haptics.enabledKey) private var hapticsEnabled = true
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var titleShown = false
 
     private let themeColumns = [GridItem(.adaptive(minimum: 68), spacing: 12)]
     private let iconColumns = [GridItem(.adaptive(minimum: 76), spacing: 12)]
@@ -83,8 +82,7 @@ struct AppearanceSettingsView: View {
             .pageWidth()
         }
         .detailTint(nil)
-        .pfTrackScroll($titleShown, threshold: 60)
-        .pfScrollTitle("Appearance", shown: titleShown)
+        .pageTitleFade("Appearance")
     }
 
     // MARK: - Mode cards

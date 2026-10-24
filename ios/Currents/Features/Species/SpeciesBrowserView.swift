@@ -18,7 +18,6 @@ struct SpeciesBrowserView: View {
     @State private var species: [Species] = []
     @State private var caughtIds: Set<Int64> = []
     @State private var loaded = false
-    @State private var titleShown = false
     @State private var searchText = ""
     @State private var month: Int = SpeciesSeason.currentMonth
     @State private var habitat: HabitatFilter = .all
@@ -96,8 +95,7 @@ struct SpeciesBrowserView: View {
         }
         .scrollDismissesKeyboard(.immediately)
         .detailTint(nil)
-        .pfTrackScroll($titleShown, threshold: 60)
-        .pfScrollTitle("Species guide", shown: titleShown)
+        .pageTitleFade("Species guide")
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Menu {

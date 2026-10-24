@@ -21,7 +21,6 @@ struct FishCollectionView: View {
     @State private var caughtIds: Set<Int64> = []
     @State private var loaded = false
     @State private var appeared = false
-    @State private var titleShown = false
     @State private var searchText = ""
     @State private var filter: Filter = .all
     @State private var rarityFilter: SpeciesRarity?
@@ -125,8 +124,7 @@ struct FishCollectionView: View {
         }
         .scrollDismissesKeyboard(.immediately)
         .detailTint(nil)
-        .pfTrackScroll($titleShown, threshold: 60)
-        .pfScrollTitle("Fishdex", shown: titleShown)
+        .pageTitleFade("Fishdex")
         .toolbar {
             ToolbarItem(placement: .primaryAction) { optionsMenu }
         }

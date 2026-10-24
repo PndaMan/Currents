@@ -1155,7 +1155,6 @@ extension URL: @retroactive Identifiable {
 struct UnitsSettingsView: View {
     @AppStorage("units") private var units = "metric"
     @AppStorage("use24HourTime") private var use24HourTime = true
-    @State private var titleShown = false
     @Environment(\.dynamicTypeSize) private var typeSize
 
     /// The two choice cards sit side by side, and stack at accessibility
@@ -1189,8 +1188,7 @@ struct UnitsSettingsView: View {
             .pageWidth()
         }
         .detailTint(nil)
-        .pfTrackScroll($titleShown, threshold: 60)
-        .pfScrollTitle("Units", shown: titleShown)
+        .pageTitleFade("Units")
     }
 
     /// A choice card that shows a real catch in that system, so the choice
@@ -1433,7 +1431,6 @@ private struct BlurRadiusPreview: View {
 /// Today does, so both show today's real bite and sessions.
 struct WidgetsSiriView: View {
     @Environment(AppState.self) private var appState
-    @State private var titleShown = false
     @State private var snapshot: CurrentsSnapshot?
     /// The next plan, read from the trips the same way Today reads it. The
     /// shared snapshot only gets it at launch and when a plan is saved, so it
@@ -1511,8 +1508,7 @@ struct WidgetsSiriView: View {
             .pageWidth()
         }
         .detailTint(nil)
-        .pfTrackScroll($titleShown, threshold: 60)
-        .pfScrollTitle("Widgets and Siri", shown: titleShown)
+        .pageTitleFade("Widgets and Siri")
         .task {
             snapshot = SharedStore.load()
             nextPlan = ((try? appState.tripRepository.fetchPlanned()) ?? [])
