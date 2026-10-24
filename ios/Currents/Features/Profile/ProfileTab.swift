@@ -327,18 +327,48 @@ private struct LocalProfileEditSheet: View {
     @State private var avatarItem: PhotosPickerItem?
     @State private var earnedFlairs: [TitleFlair] = []
     @State private var showingTitlePicker = false
+    /// The values as loaded, so a swipe can't throw away an edit.
+    @State private var saved = (name: "", homeWater: "", bio: "", title: "")
+    @State private var loaded = false
 
     private var trimmedName: String { name.trimmingCharacters(in: .whitespaces) }
+    private var flair: TitleFlair? { TitleFlair.resolve(title) }
+
+    private var hasChanges: Bool {
+        avatarChanged || name != saved.name || homeWater != saved.homeWater
+            || bio != saved.bio || title != saved.title
+    }
 
     var body: some View {
         NavigationStack {
-            List {
-                photoSection
-                aboutSection
-                bioSection
-                titleSection
+            ScrollView {
+                VStack(alignment: .leading, spacing: DS.Space.s6) {
+                    photoHeader
+                    field("Name") {
+                        TextField("Your name", text: $name)
+                            .textContentType(.name)
+                            .submitLabel(.done)
+                            .modifier(FilledField())
+                    }
+                    field("Home water") {
+                        TextField("Optional", text: $homeWater)
+                            .submitLabel(.done)
+                            .modifier(FilledField())
+                    }
+                    field("Bio") {
+                        TextField("What and where you fish", text: $bio, axis: .vertical)
+                            .lineLimit(2...4)
+                            .modifier(FilledField(multiline: true))
+                    }
+                    titleSection
+                }
+                .padding(.top, DS.Space.s4)
+                .padding(.bottom, DS.Space.s8)
+                .pageWidth()
             }
-            .gearFormStyle()
+            .detailScrollEdge()
+            .scrollDismissesKeyboard(.interactively)
+            .background(Color.dsBackground)
             .navigationTitle("Edit profile")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -349,6 +379,7 @@ private struct LocalProfileEditSheet: View {
                         .disabled(trimmedName.isEmpty)
                 }
             }
+            .interactiveDismissDisabled(hasChanges)
             .task { load() }
             .onChange(of: avatarItem) { _, item in
                 Task {
@@ -363,21 +394,19 @@ private struct LocalProfileEditSheet: View {
                 TitleFlairPickerSheet(selection: $title, flairs: earnedFlairs)
             }
         }
+        .dsSheet([.large])
     }
 
-    private var photoSection: some View {
-        Section {
-            HStack(spacing: DS.Space.s4) {
-                avatarImage
-                Text("Photo")
-                    .foregroundStyle(.dsText)
-                Spacer(minLength: DS.Space.s2)
-                PhotosPicker(selection: $avatarItem, matching: .images) {
-                    Text(avatar == nil ? "Choose" : "Change")
-                }
+    /// The photo, large and centred, with the button that changes it.
+    private var photoHeader: some View {
+        VStack(spacing: DS.Space.s3) {
+            avatarImage
+            PhotosPicker(selection: $avatarItem, matching: .images) {
+                Label(avatar == nil ? "Add photo" : "Change photo", systemImage: "photo")
             }
+            .buttonStyle(TonalButtonStyle(fullWidth: false))
         }
-        .pfRows()
+        .frame(maxWidth: .infinity)
     }
 
     private var avatarImage: some View {
@@ -385,66 +414,63 @@ private struct LocalProfileEditSheet: View {
             Circle().fill(DS.accent)
             if let avatar {
                 Image(uiImage: avatar).resizable().scaledToFill()
+            } else if let initial = trimmedName.first {
+                Text(String(initial).uppercased())
+                    .font(.largeTitle.weight(.semibold))
+                    .foregroundStyle(.white)
             } else {
                 Image(systemName: "figure.fishing")
-                    .font(.title3.weight(.semibold))
+                    .font(.largeTitle.weight(.semibold))
                     .foregroundStyle(.white)
             }
         }
-        .frame(width: 56, height: 56)
+        .frame(width: 104, height: 104)
         .clipShape(Circle())
         .accessibilityHidden(true)
     }
 
-    private var aboutSection: some View {
-        Section {
-            GearFormField("Name", text: $name, prompt: "Your name")
-                .textContentType(.name)
-            GearFormField("Home water", text: $homeWater, prompt: "Optional")
-        } header: {
-            Text("About you")
-        }
-        .pfRows()
-    }
-
-    private var bioSection: some View {
-        Section {
-            TextField("Bio", text: $bio, prompt: Text("What and where you fish"), axis: .vertical)
-                .lineLimit(2...4)
-        } header: {
-            Text("Bio")
-        }
-        .pfRows()
-    }
-
     private var titleSection: some View {
-        Section {
-            Button { showingTitlePicker = true } label: {
-                LabeledContent("Title") {
-                    HStack(spacing: DS.Space.s1) {
-                        Text(TitleFlair.resolve(title)?.name ?? "None")
-                        Image(systemName: "chevron.right")
-                            .font(.footnote.weight(.semibold))
-                            .foregroundStyle(.dsText3)
-                    }
+        VStack(alignment: .leading, spacing: 0) {
+            CardGroup {
+                Button { showingTitlePicker = true } label: {
+                    CardRow("Title", subtitle: flair?.unlockLine, systemImage: "rosette", tint: titleTint,
+                            value: flair?.name ?? "None", chevron: true)
                 }
-                .foregroundStyle(.dsText)
+                .buttonStyle(.dsCardRow)
+                .accessibilityHint("Choose the title shown under your name")
             }
-            .disabled(earnedFlairs.isEmpty)
-        } footer: {
-            Text(earnedFlairs.isEmpty
-                 ? "Titles unlock from achievements."
-                 : "Titles unlock from achievements. Only crew and friends see your profile once you join Crew.")
+            SectionFootnote(earnedFlairs.isEmpty
+                            ? "Titles unlock from badges."
+                            : "Titles unlock from badges. Only crew and friends see your profile once you join Crew.")
         }
-        .pfRows()
+    }
+
+    /// The worn title's rarity colour. Common titles use orange, since their
+    /// grey isn't a tile colour.
+    private var titleTint: Color {
+        guard let flair, flair.rarity != .common else { return .orange }
+        return flair.rarity.color
+    }
+
+    private func field<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: DS.Space.s2) {
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.dsText2)
+                .padding(.horizontal, DS.gutter)
+            content()
+        }
     }
 
     private func load() {
+        guard !loaded else { return }
+        loaded = true
         name = UserDefaults.standard.string(forKey: "communityName") ?? ""
         homeWater = svc.myHomeWater
         bio = svc.myBio
         title = svc.myTitle
         avatar = svc.myAvatar
+        saved = (name: name, homeWater: homeWater, bio: bio, title: title)
         let all = (try? appState.catchRepository.fetchAll(limit: 2000)) ?? []
         let streak = BadgeDefinition.streakWeeks(from: all)
         let earned = Set(BadgeDefinition.compute(from: all, streakWeeks: streak)
@@ -471,6 +497,21 @@ private struct LocalProfileEditSheet: View {
     }
 }
 
+/// A text field on a filled rounded rectangle, as on the spot form.
+private struct FilledField: ViewModifier {
+    var multiline = false
+
+    func body(content: Content) -> some View {
+        content
+            .font(.body)
+            .padding(.horizontal, DS.Space.s4)
+            .padding(.vertical, multiline ? DS.Space.s4 : 0)
+            .frame(minHeight: 50)
+            .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.button, style: .continuous))
+            .padding(.horizontal, DS.gutter)
+    }
+}
+
 // MARK: - Share card
 
 /// A picture of the angler's profile to share. No spots or locations on it.
@@ -482,7 +523,6 @@ private struct ProfileShareSheet: View {
     let species: Int
     let spots: Int
 
-    @Environment(\.dismiss) private var dismiss
     @State private var rendered: UIImage?
 
     var body: some View {
@@ -503,7 +543,7 @@ private struct ProfileShareSheet: View {
             .navigationTitle("Share card")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) { SheetDoneButton() }
             }
             .task { rendered = ShareCardRenderer.image(card) }
         }
