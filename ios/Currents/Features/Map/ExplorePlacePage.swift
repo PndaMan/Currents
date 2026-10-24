@@ -11,6 +11,7 @@ struct ExplorePlacePage: View {
 
     @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dynamicTypeSize) private var typeSize
     @AppStorage("cloudSyncEnabled") private var cloudSyncEnabled = false
 
     let style: Style
@@ -272,10 +273,10 @@ struct ExplorePlacePage: View {
 
     // MARK: Header and actions
 
-    /// Name and the day's grade beside the ring. The windows are told once,
-    /// under the bite strip.
+    /// Name and the day's grade beside the ring (the ring under them at
+    /// accessibility sizes). The windows are told once, under the bite strip.
     private var header: some View {
-        HStack(alignment: .center, spacing: DS.Space.s3) {
+        headerLayout {
             DetailHeader(
                 over: overLine,
                 title: name,
@@ -285,10 +286,16 @@ struct ExplorePlacePage: View {
             )
             if let bite {
                 ScoreRing(score: bite.day, size: 88, caption: "today")
-                    .padding(.trailing, DS.gutter)
+                    .padding(typeSize.isAccessibilitySize ? Edge.Set.leading : Edge.Set.trailing, DS.gutter)
             }
         }
         .padding(.top, style == .page ? DS.Space.s5 : DS.Space.s2)
+    }
+
+    private var headerLayout: AnyLayout {
+        typeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: DS.Space.s3))
+            : AnyLayout(HStackLayout(alignment: .center, spacing: DS.Space.s3))
     }
 
     /// Save spot, Directions and Share, in the order of every place sheet.
