@@ -27,6 +27,14 @@ actor WeatherService {
         /// value, but a real local trend. Optional so older cached JSON (which
         /// predates this field) still decodes.
         var pressureIsEstimated: Bool?
+        /// True when nothing was ever fetched for this place and only the
+        /// barometer is real: temperature, wind, cloud and sky are
+        /// placeholders that must not be shown as a reading. Optional so
+        /// older cached JSON still decodes.
+        var isEstimate: Bool?
+
+        /// Shorthand for `isEstimate == true`.
+        var isEstimated: Bool { isEstimate == true }
     }
 
     struct HourlyForecast: Sendable {
@@ -85,29 +93,56 @@ actor WeatherService {
         "\(Int(coordinate.latitude * 100))_\(Int(coordinate.longitude * 100))"
     }
 
+    /// How long a weather request may wait before the saved weather is used
+    /// instead. Signal at the water is often weak, and the default is 60 s.
+    private static let requestTimeout: TimeInterval = 10
+
+    private static func request(_ url: URL) -> URLRequest {
+        var request = URLRequest(url: url)
+        request.timeoutInterval = requestTimeout
+        return request
+    }
+
+    /// The weather saved on the phone for a coordinate, without touching the
+    /// network: the last current reading and the last outlook. Lets a page
+    /// draw straight away while a fresh fetch runs.
+    func saved(for coordinate: CLLocationCoordinate2D) -> (current: WeatherData?, days: [WeatherData]) {
+        loadDiskIfNeeded()
+        let key = Self.cacheKey(coordinate)
+        return (cache[key]?.data, dailyCache[key]?.days ?? [])
+    }
+
     /// Fetch current weather for a coordinate. Returns cached data if <30 min
     /// old; when the network is down, the last data ever fetched (any age,
     /// persisted across launches) is returned instead of nothing.
     func current(for coordinate: CLLocationCoordinate2D, force: Bool = false) async -> WeatherData? {
+        await currentReading(for: coordinate, force: force).data
+    }
+
+    /// Current weather, and whether it is live: true when it came from the
+    /// weather service just now or from a reading under 30 minutes old;
+    /// false when the service could not be reached and saved or estimated
+    /// weather came back instead.
+    func currentReading(for coordinate: CLLocationCoordinate2D, force: Bool = false) async -> (data: WeatherData?, isLive: Bool) {
         loadDiskIfNeeded()
         let key = Self.cacheKey(coordinate)
 
         // Return cache if fresh (skipped on a manual refresh).
         if !force, let cached = cache[key], Date.now.timeIntervalSince(cached.fetchedAt) < 1800 {
-            return cached.data
+            return (cached.data, true)
         }
 
         // Try fetching from Open-Meteo
         let urlString = "https://api.open-meteo.com/v1/forecast?latitude=\(coordinate.latitude)&longitude=\(coordinate.longitude)&current=temperature_2m,relative_humidity_2m,pressure_msl,surface_pressure,wind_speed_10m,wind_direction_10m,cloud_cover,precipitation,weather_code,uv_index&hourly=pressure_msl&forecast_hours=7&timezone=auto"
 
-        guard let url = URL(string: urlString) else { return cache[key]?.data }
+        guard let url = URL(string: urlString) else { return (cache[key]?.data, false) }
 
         do {
-            let (data, _) = try await URLSession.shared.data(from: url)
+            let (data, _) = try await URLSession.shared.data(for: Self.request(url))
             let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
 
             guard let current = json?["current"] as? [String: Any] else {
-                return cache[key]?.data
+                return (cache[key]?.data, false)
             }
 
             let pressureNow = current["pressure_msl"] as? Double ?? current["surface_pressure"] as? Double ?? 1013.25
@@ -148,12 +183,12 @@ actor WeatherService {
 
             cache[key] = (data: weather, fetchedAt: .now)
             persistToDisk()
-            return weather
+            return (weather, true)
         } catch {
             // Offline: prefer the last cached reading, but if its pressure is
             // stale, overlay a live on-device barometer reading so the bite
             // forecast still reflects the current local pressure trend.
-            return Self.withBarometerFallback(cache[key]?.data)
+            return (Self.withBarometerFallback(cache[key]?.data), false)
         }
     }
 
@@ -179,7 +214,8 @@ actor WeatherService {
                 pressureIsEstimated: true
             )
         }
-        // No cache at all — pressure-only reading (temps/wind unknown).
+        // No cache at all: a pressure-only reading. The other fields are
+        // placeholders, flagged by `isEstimate` so no page shows them.
         return WeatherData(
             pressureHpa: snap.pressureHpa,
             pressureChange6h: snap.change6h,
@@ -193,7 +229,8 @@ actor WeatherService {
             humidity: 50,
             uvIndex: 0,
             fetchedAt: Date(timeIntervalSince1970: UserDefaults.standard.double(forKey: BarometerService.updatedKey)),
-            pressureIsEstimated: true
+            pressureIsEstimated: true,
+            isEstimate: true
         )
     }
 
@@ -213,7 +250,7 @@ actor WeatherService {
         guard let url = URL(string: urlString) else { return dailyCache[key]?.days ?? [] }
 
         do {
-            let (data, _) = try await URLSession.shared.data(from: url)
+            let (data, _) = try await URLSession.shared.data(for: Self.request(url))
             let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
             guard let hourly = json?["hourly"] as? [String: Any],
                   let times = hourly["time"] as? [String],
@@ -286,7 +323,7 @@ actor WeatherService {
         guard let url = URL(string: urlString) else { return nil }
 
         do {
-            let (data, _) = try await URLSession.shared.data(from: url)
+            let (data, _) = try await URLSession.shared.data(for: Self.request(url))
             let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
             guard let hourly = json?["hourly"] as? [String: Any],
                   let times = hourly["time"] as? [NSNumber],
