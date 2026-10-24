@@ -54,6 +54,26 @@ struct Spot: Codable, Identifiable, Sendable {
             case .offshore: "ferry.fill"
             }
         }
+
+        /// The name shown to people.
+        var label: String {
+            switch self {
+            case .general: "Spot"
+            case .lake: "Lake"
+            case .dam: "Dam or reservoir"
+            case .river: "River"
+            case .creek: "Creek or stream"
+            case .pond: "Pond"
+            case .canal: "Canal"
+            case .estuary: "Estuary"
+            case .beach: "Beach or surf"
+            case .rocks: "Rocks or jetty"
+            case .pier: "Pier or dock"
+            case .harbour: "Harbour or marina"
+            case .reef: "Reef"
+            case .offshore: "Offshore or boat"
+            }
+        }
     }
 
     /// Typed accessor over the raw `spotType` column.
