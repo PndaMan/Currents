@@ -689,22 +689,11 @@ struct CatchesTab: View {
         return result
     }
 
+    /// The Sessions page's row, so both lists show a session the same way.
     private func sessionRow(_ trip: Trip) -> some View {
-        let n = summary.catchesByTrip[trip.id] ?? 0
-        let best = summary.bestScoreByTrip[trip.id]
-        return NavigationLink(value: LogbookRoute.session(trip.id)) {
-            ArtRow(over: sessionOver(trip), title: trip.name,
-                   subtitle: "\(LogbookFormat.duration(trip.totalDurationSeconds)), \(n) \(n == 1 ? "catch" : "catches")",
-                   chevron: best == nil) {
-                TrackThumb(points: trip.allTrackPoints, tint: best.map { DS.scoreColor($0) } ?? DS.accent,
-                           photoPath: summary.photoByTrip[trip.id])
-            } trailing: {
-                if let best {
-                    Text("\(best)")
-                        .foregroundStyle(DS.scoreInk(best))
-                        .accessibilityLabel("Best bite score \(best)")
-                }
-            }
+        NavigationLink(value: LogbookRoute.session(trip.id)) {
+            SessionRow(trip: trip, catchCount: summary.catchesByTrip[trip.id] ?? 0,
+                       photoPath: summary.photoByTrip[trip.id], bestScore: summary.bestScoreByTrip[trip.id])
         }
         .buttonStyle(.dsRow)
         .contextMenu {
@@ -712,17 +701,6 @@ struct CatchesTab: View {
             Divider()
             Button(role: .destructive) { tripToDelete = trip } label: { Label("Delete session", systemImage: "trash") }
         }
-    }
-
-    /// The day, plus which shared trip it was: a tournament team, a crew trip
-    /// or a plain shared trip.
-    private func sessionOver(_ trip: Trip) -> String {
-        let day = LogbookFormat.longDay(trip.startDate)
-        guard let code = CommunityService.shared.groupCode(forTripId: trip.id),
-              let ref = CommunityService.shared.myGroups.first(where: { $0.code == code }) else { return day }
-        if let team = ref.teamName { return "\(day), team \(team)" }
-        if ref.crewCode != nil { return "\(day), crew trip" }
-        return "\(day), shared"
     }
 
     // MARK: - Plans pane
@@ -758,26 +736,11 @@ struct CatchesTab: View {
         }
     }
 
+    /// The Sessions page's Upcoming row, so both lists show a plan the same way.
     private func planRow(_ trip: Trip) -> some View {
-        let date = trip.plannedDate ?? trip.startDate
-        let outlook = planOutlooks[trip.id]
-        let subtitle: String = {
-            guard let outlook else { return "Turn on location to see the bite" }
-            guard let best = outlook.best else { return "No strong windows that day" }
-            return "Best \(best.peakScore) from \(ForecastFormat.hour(best.startHour, use24: use24))"
-        }()
+        let outlook = planOutlooks[trip.id].map { PlanRowOutlook(score: $0.score, best: $0.best) }
         return NavigationLink(value: LogbookRoute.plan(trip.id)) {
-            ArtRow(over: "\(LogbookFormat.time(date, use24: use24)), \(relativePlan(date))",
-                   title: trip.name,
-                   subtitle: subtitle,
-                   chevron: outlook == nil) {
-                PlanDateThumb(date: date, size: 64)
-            } trailing: {
-                if let outlook {
-                    ScoreRing(score: outlook.score, size: 44)
-                        .accessibilityLabel("Bite \(outlook.score) at the planned time")
-                }
-            }
+            PlannedRow(trip: trip, outlook: outlook)
         }
         .buttonStyle(.dsRow)
         .contextMenu {
@@ -788,17 +751,6 @@ struct CatchesTab: View {
             Button { planToEdit = trip } label: { Label("Edit", systemImage: "pencil") }
             Divider()
             Button(role: .destructive) { tripToDelete = trip } label: { Label("Delete plan", systemImage: "trash") }
-        }
-    }
-
-    private func relativePlan(_ date: Date) -> String {
-        let cal = Calendar.current
-        let days = cal.dateComponents([.day], from: cal.startOfDay(for: .now), to: cal.startOfDay(for: date)).day ?? 0
-        switch days {
-        case ..<0: return "overdue"
-        case 0: return "today"
-        case 1: return "tomorrow"
-        default: return "in \(days) days"
         }
     }
 
