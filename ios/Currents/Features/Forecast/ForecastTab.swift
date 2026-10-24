@@ -87,7 +87,13 @@ struct TargetSpeciesPage: View {
         let near = nearby(excluding: recent)
         List {
             Section {
+                // In the list, as on the species guide, rather than the
+                // system's floating search capsule.
+                PFSearchField(prompt: "Name or family", text: $search)
+                    .padding(.top, DS.Space.s2)
+                    .dsListRow()
                 FilterChips(SpeciesHabitatFilter.options, selection: $habitat, title: { $0.title })
+                    .padding(.top, DS.Space.s2)
                     .dsListRow()
                 Button { pick(nil) } label: {
                     ArtRow(title: "Any species", subtitle: "General forecast and lures") {
@@ -122,12 +128,9 @@ struct TargetSpeciesPage: View {
                 }
             }
 
-            if loaded && rows.isEmpty && search.isEmpty {
+            if loaded && rows.isEmpty {
                 Section {
-                    InlineEmpty(systemImage: all.isEmpty ? "fish" : "line.3.horizontal.decrease",
-                                text: all.isEmpty
-                                    ? "The species guide is still being set up. Try again in a moment."
-                                    : "No species in this group. Pick another habitat.")
+                    emptyState
                         .padding(.top, DS.Space.s4)
                         .dsListRow()
                 }
@@ -137,7 +140,7 @@ struct TargetSpeciesPage: View {
                 // A row, not a section header: plain-list headers pin and
                 // draw over the rows on this clear background.
                 Section {
-                    SectionTitle("Species", detail: "\(rows.count)")
+                    SectionTitle("Species", detail: rows.count.formatted())
                         .padding(.top, DS.Space.s4)
                         .dsListRow()
                     ForEach(rows) { sp in
@@ -147,22 +150,36 @@ struct TargetSpeciesPage: View {
             }
         }
         .dsPlainList()
+        .scrollDismissesKeyboard(.immediately)
         .detailScrollEdge()
         .overlay {
             if !loaded {
                 FishLoader(message: "Loading species")
-            } else if rows.isEmpty && !search.isEmpty {
-                ContentUnavailableView.search(text: search)
             }
         }
         .navigationTitle("Target species")
         .navigationBarTitleDisplayMode(.inline)
-        .searchable(text: $search, placement: .navigationBarDrawer(displayMode: .always), prompt: "Name or family")
         .task {
             guard !loaded else { return }
             all = (try? appState.speciesRepository.fetchAll()) ?? []
             nearbyIds = TargetData.nearbySpeciesIds(near: store.coordinate, appState: appState)
             loaded = true
+        }
+    }
+
+    /// Nothing to list: the guide is not set up yet, the search matches
+    /// nothing, or the habitat has no species.
+    @ViewBuilder
+    private var emptyState: some View {
+        if all.isEmpty {
+            InlineEmpty(systemImage: "fish",
+                        text: "The species guide is still being set up. Try again in a moment.")
+        } else if !search.isEmpty {
+            InlineEmpty(systemImage: "magnifyingglass",
+                        text: "No species found. Try the common name, the family or the scientific name.")
+        } else {
+            InlineEmpty(systemImage: "line.3.horizontal.decrease",
+                        text: "No species in this group. Pick another habitat.")
         }
     }
 
