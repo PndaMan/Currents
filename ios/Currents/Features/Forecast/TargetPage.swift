@@ -112,6 +112,9 @@ struct TargetPage: View {
 
     @Environment(AppState.self) private var appState
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var typeSize
+    /// Matches the rank column in `LureSuggestionRow`.
+    @ScaledMetric(relativeTo: .headline) private var rankWidth: CGFloat = 16
     @AppStorage("targetSpeciesId") private var targetSpeciesId: Int = 0
     @AppStorage(RecentTargets.key) private var recentTargets = ""
     @AppStorage("waterClarityOverride") private var clarityOverride = ""
@@ -130,6 +133,12 @@ struct TargetPage: View {
     @State private var titleShown = false
 
     private var imperial: Bool { units == "imperial" }
+
+    /// Hairlines between picks start under the lure name, past the rank and
+    /// the picture; at accessibility sizes the row stacks, so at the edge.
+    private var pickSeparatorInset: CGFloat {
+        typeSize.isAccessibilitySize ? DS.Space.s4 : DS.Space.s4 + rankWidth + 12 + 56 + 12
+    }
 
     private var loadKey: String {
         let c = store.coordinate
@@ -364,12 +373,14 @@ struct TargetPage: View {
             }
             .buttonStyle(.dim)
 
-            ForEach(Array(picks.enumerated()), id: \.element.id) { index, pick in
-                LureSuggestionRow(suggestion: pick, rank: index + 1)
-                if index < picks.count - 1 {
-                    Divider()
-                        .overlay(Color.dsSeparator)
-                        .padding(.leading, DS.gutter + 28 + 56 + 12)
+            // On one card, as on the What to throw page.
+            if picks.isEmpty {
+                InlineEmpty(text: "No picks yet. They appear once the weather loads.")
+            } else {
+                CardGroup(separatorInset: pickSeparatorInset) {
+                    ForEach(Array(picks.enumerated()), id: \.element.id) { index, pick in
+                        LureSuggestionRow(suggestion: pick, rank: index + 1, inCard: true)
+                    }
                 }
             }
 
