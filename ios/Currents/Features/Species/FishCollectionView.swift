@@ -40,6 +40,7 @@ struct FishCollectionView: View {
         case found = "Found"
         case freshwater = "Freshwater"
         case saltwater = "Saltwater"
+        case estuary = "Estuary"
     }
 
     private let columns = [GridItem(.flexible(), spacing: 10, alignment: .top),
@@ -54,7 +55,8 @@ struct FishCollectionView: View {
         case .all: break
         case .found: result = result.filter { caughtIds.contains($0.id) }
         case .freshwater: result = result.filter { $0.habitat == .freshwater }
-        case .saltwater: result = result.filter { $0.habitat == .marine || $0.habitat == .brackish }
+        case .saltwater: result = result.filter { $0.habitat == .marine }
+        case .estuary: result = result.filter { $0.habitat == .brackish }
         }
         if let rarity = rarityFilter {
             result = result.filter { $0.rarity == rarity }
@@ -362,7 +364,7 @@ private struct FishdexCell: View {
             Text(found ? species.commonName : "Not found yet")
                 .font(.footnote.weight(found ? .semibold : .medium))
                 .foregroundStyle(found ? Color.dsText : Color.dsText3)
-                .lineLimit(typeSize.isAccessibilitySize ? 3 : 1)
+                .lineLimit(typeSize.isAccessibilitySize ? 3 : 2)
                 .multilineTextAlignment(.leading)
             if found {
                 Text(count == 1 ? "1 caught" : "\(count) caught")
