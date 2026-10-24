@@ -1551,12 +1551,10 @@ struct SessionTrackMap: View {
 
 enum SessionFormat {
     static func duration(_ seconds: TimeInterval) -> String {
-        let s = Int(max(0, seconds))
-        let h = s / 3600, m = (s % 3600) / 60
-        return h > 0 ? "\(h)h \(m)m" : "\(m)m"
+        ForecastFormat.elapsed(seconds)
     }
     static func distance(_ meters: Double) -> String {
-        meters >= 1000 ? String(format: "%.1f km", meters / 1000) : "\(Int(meters)) m"
+        Units.distance(m: meters)
     }
     static func defaultName() -> String {
         let hour = Calendar.current.component(.hour, from: .now)

@@ -34,7 +34,7 @@ enum LogbookFormat {
 
     /// "Saturday 12 October"
     static func longDay(_ date: Date) -> String {
-        date.formatted(.dateTime.weekday(.wide).day().month(.wide))
+        ForecastFormat.longDate(date)
     }
 
     /// "12 Oct"
@@ -42,8 +42,9 @@ enum LogbookFormat {
         date.formatted(.dateTime.day().month(.abbreviated))
     }
 
+    /// "06:40" or "6:40 am", following the 24-hour setting.
     static func time(_ date: Date) -> String {
-        date.formatted(date: .omitted, time: .shortened)
+        ForecastFormat.time(date)
     }
 
     /// "62 cm, 3.4 kg" from whatever was measured, or nil.
@@ -56,10 +57,7 @@ enum LogbookFormat {
 
     /// "2 h 5 min" for durations on detail pages.
     static func duration(_ seconds: TimeInterval) -> String {
-        let s = Int(max(0, seconds))
-        let h = s / 3600, m = (s % 3600) / 60
-        if h == 0 { return "\(m) min" }
-        return m == 0 ? "\(h) h" : "\(h) h \(m) min"
+        ForecastFormat.elapsed(seconds)
     }
 }
 
