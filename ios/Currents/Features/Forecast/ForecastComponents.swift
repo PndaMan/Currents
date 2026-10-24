@@ -205,6 +205,9 @@ struct WindowTiles: View {
                     .lineLimit(typeSize.isAccessibilitySize ? 3 : 1)
                     .minimumScaleFactor(0.75)
             }
+            // A passed window dims its content; the card keeps its fill, so
+            // it still reads as a tile on a white page.
+            .opacity(passed ? 0.5 : 1)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 12)
             .padding(.vertical, 12)
@@ -215,7 +218,6 @@ struct WindowTiles: View {
                         .strokeBorder(DS.scoreColor(w.peakScore), lineWidth: 1.5)
                 }
             }
-            .opacity(passed ? 0.5 : 1)
         }
         .buttonStyle(.dim)
         .accessibilityElement(children: .combine)
