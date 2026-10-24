@@ -1141,12 +1141,22 @@ final class CommunityService: ObservableObject {
 
     /// Whether a given angler has shared their catches with me. The result is
     /// remembered so screens can render the last-known answer instantly.
+    /// Only a missing grant record revokes access; a failed request keeps
+    /// the last-known answer.
     func hasCatchAccess(to code: String) async -> Bool {
         if code == Self.demoCode || ScreenshotSupport.isActive { return true }
         let id = CKRecord.ID(recordName: "catchgrant-\(code)-\(friendCode)")
-        let granted = (try? await db.record(for: id)) != nil
-        UserDefaults.standard.set(granted, forKey: "catchaccess-\(code.uppercased())")
-        return granted
+        let key = "catchaccess-\(code.uppercased())"
+        do {
+            _ = try await db.record(for: id)
+            UserDefaults.standard.set(true, forKey: key)
+            return true
+        } catch let e as CKError where e.code == .unknownItem {
+            UserDefaults.standard.set(false, forKey: key)
+            return false
+        } catch {
+            return cachedCatchAccess(code)
+        }
     }
 
     /// Last-known grant answer, for instant rendering while the check refreshes.
@@ -1176,9 +1186,21 @@ final class CommunityService: ObservableObject {
             let parts = id.recordName.split(separator: "-")
             guard parts.count >= 3 else { continue }
             let code = String(parts[1])
-            let granted = (try? res.get()) != nil
-            out[code] = granted
-            UserDefaults.standard.set(granted, forKey: "catchaccess-\(code.uppercased())")
+            let key = "catchaccess-\(code.uppercased())"
+            switch res {
+            case .success:
+                out[code] = true
+                UserDefaults.standard.set(true, forKey: key)
+            case .failure(let error):
+                // Only a missing grant record revokes access. Any other
+                // per-record error keeps the last-known answer.
+                if (error as? CKError)?.code == .unknownItem {
+                    out[code] = false
+                    UserDefaults.standard.set(false, forKey: key)
+                } else {
+                    out[code] = cachedCatchAccess(code)
+                }
+            }
         }
         return out
     }
