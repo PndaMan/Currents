@@ -38,8 +38,8 @@ extension BadgeMetrics {
         case .bestDay: return count(value(.bestDay), "catches in one day")
         // A new run has to be built, so the live streak is what counts here.
         case .streakWeeks: return count(Double(currentStreak), "weeks in a row")
-        case .weightKg: return sizeProgress(value(.weightKg), target, label: "Heaviest") { Units.weight(kg: $0) }
-        case .lengthCm: return sizeProgress(value(.lengthCm), target, label: "Longest") { Units.length(cm: $0) }
+        case .weightKg: return sizeProgress(value(.weightKg), target, label: "Heaviest", format: Self.weightText)
+        case .lengthCm: return sizeProgress(value(.lengthCm), target, label: "Longest", format: Self.lengthText)
         case .biteScore: return scoreProgress(value(.biteScore), target)
         case .weekend: return needs("Needs a catch on a Saturday or Sunday")
         case .night: return needs("Needs a catch between \(hour(22)) and \(hour(5))")
@@ -48,12 +48,33 @@ extension BadgeMetrics {
         }
     }
 
+    /// The best is rounded down and the target is not, so a fish just short
+    /// of the target never reads as the target.
     private func sizeProgress(_ best: Double, _ target: Double, label: String,
-                              format: (Double) -> String) -> BadgeProgress {
+                              format: (Double, Bool) -> String) -> BadgeProgress {
         let text = best > 0
-            ? "\(label) so far \(format(best)), needs \(format(target))"
-            : "Needs a fish of \(format(target)) or more"
+            ? "\(label) so far \(format(best, true)), needs \(format(target, false))"
+            : "Needs a fish of \(format(target, false)) or more"
         return BadgeProgress(value: best, target: target, text: text)
+    }
+
+    /// "99.5 cm" or "39.1 in", one decimal. `Units.length` rounds to whole
+    /// centimetres under a metre, which turned 99.5 cm into the 100 cm target.
+    private static func lengthText(_ cm: Double, roundingDown: Bool) -> String {
+        let cmPerUnit = Units.isImperial ? 2.54 : 1
+        var shown = cm / cmPerUnit
+        if roundingDown { shown = (shown * 10 + 1e-6).rounded(.down) / 10 }
+        let (value, unit) = Units.lengthParts(cm: shown * cmPerUnit)
+        return "\(value) \(unit)"
+    }
+
+    /// "9.84 kg" or "21.69 lb", two decimals, rounded down the same way.
+    private static func weightText(_ kg: Double, roundingDown: Bool) -> String {
+        let unitsPerKg = Units.isImperial ? 2.2046226 : 1
+        var shown = kg * unitsPerKg
+        if roundingDown { shown = (shown * 100 + 1e-6).rounded(.down) / 100 }
+        let (value, unit) = Units.weightParts(kg: shown / unitsPerKg)
+        return "\(value) \(unit)"
     }
 
     private func scoreProgress(_ best: Double, _ target: Double) -> BadgeProgress {
