@@ -31,7 +31,7 @@ extension ThumbView where Content == SpeciesThumbArt {
     /// The species' bundled art on its own art colour. `caught: false`
     /// greys it out (Fishdex not-yet-caught state).
     init(species: Species, size: CGFloat = 64, caught: Bool = true) {
-        self.init(tint: caught ? species.artTint : Color.gray, size: size) {
+        self.init(tint: caught ? species.artTint : Color.dsText3, size: size) {
             SpeciesThumbArt(species: species, size: size, caught: caught)
         }
     }
