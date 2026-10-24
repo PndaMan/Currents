@@ -1224,6 +1224,7 @@ struct TripScrubberCard: View {
     @State private var resumeAfterDrag = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage("use24HourTime") private var use24 = true
+    @AppStorage("mapStyleOption") private var mapStyleRaw = MapTab.MapStyleOption.standard.rawValue
 
     private var track: [Trip.TrackPoint] { trip.allTrackPoints }
 
@@ -1277,8 +1278,11 @@ struct TripScrubberCard: View {
                 .padding(.top, DS.Space.s8)
 
             Map(initialPosition: initialPosition) {
+                // The route still to come: pale on imagery, the text colour
+                // faded on the plain map, where pale would vanish.
                 MapPolyline(coordinates: track.map { CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon) })
-                    .stroke(Color.white.opacity(0.35), lineWidth: 3)
+                    .stroke(SessionMapLook.isImagery(mapStyleRaw) ? Color.white.opacity(0.35) : Color.dsText.opacity(0.3),
+                            lineWidth: 3)
                 if walked.count > 1 {
                     MapPolyline(coordinates: walked)
                         .stroke(DS.accent, lineWidth: 4)
@@ -1303,7 +1307,7 @@ struct TripScrubberCard: View {
                     }
                 }
             }
-            .mapStyle(.hybrid)
+            .mapStyle(SessionMapLook.style(mapStyleRaw))
             .frame(height: 220)
             .clipShape(RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
             .allowsHitTesting(false)
@@ -1597,11 +1601,39 @@ struct CatchLimitBar: View {
 
 // MARK: - Track map
 
+/// The map look picked in Explore's layers sheet, for the session maps.
+/// Offline packs draw only in Explore's own map view, so Offline shows the
+/// satellite hybrid here, as the catch page's map does.
+enum SessionMapLook {
+    static func style(_ raw: String) -> MapStyle {
+        switch MapTab.MapStyleOption(rawValue: raw) ?? .standard {
+        case .standard: .standard(elevation: .realistic)
+        case .fishing: .standard(elevation: .realistic, emphasis: .muted, pointsOfInterest: .excludingAll)
+        case .imagery: .imagery(elevation: .realistic)
+        case .offline, .hybrid: .hybrid(elevation: .realistic)
+        }
+    }
+
+    /// Satellite imagery under the route, so lines drawn on it go pale.
+    static func isImagery(_ raw: String) -> Bool {
+        switch MapTab.MapStyleOption(rawValue: raw) ?? .standard {
+        case .standard, .fishing: false
+        case .offline, .imagery, .hybrid: true
+        }
+    }
+}
+
 struct SessionTrackMap: View {
     let points: [Trip.TrackPoint]
     var showsUser: Bool
     /// Catches to drop as pins along the route.
     var catches: [CatchDetail] = []
+    @AppStorage("mapStyleOption") private var mapStyleRaw = MapTab.MapStyleOption.standard.rawValue
+
+    /// A catch with a real coordinate, not the 0,0 placeholder, gets a pin.
+    static func hasPin(_ detail: CatchDetail) -> Bool {
+        abs(detail.catchRecord.latitude) > 0.0001 || abs(detail.catchRecord.longitude) > 0.0001
+    }
 
     private var coords: [CLLocationCoordinate2D] {
         points.map { CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon) }
@@ -1609,7 +1641,7 @@ struct SessionTrackMap: View {
 
     /// Catches that carry a real coordinate (skip the 0,0 placeholders).
     private var catchPins: [CatchDetail] {
-        catches.filter { abs($0.catchRecord.latitude) > 0.0001 || abs($0.catchRecord.longitude) > 0.0001 }
+        catches.filter(Self.hasPin)
     }
 
     var body: some View {
@@ -1633,7 +1665,7 @@ struct SessionTrackMap: View {
             }
             if showsUser { UserAnnotation() }
         }
-        .mapStyle(.hybrid)
+        .mapStyle(SessionMapLook.style(mapStyleRaw))
     }
 
     /// Frame the whole route by default (no manual zoom-out needed); pan/zoom
