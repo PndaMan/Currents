@@ -21,12 +21,16 @@ struct SpeciesDetailView: View {
     @State private var openCatchId: String?
     @State private var aboutExpanded = false
     @State private var titleShown = false
+    @State private var showingAllCatches = false
+    @State private var showingRangeMap = false
     @AppStorage("units") private var units = "metric"
     /// Shared with Today's target species (0 means any species).
     @AppStorage("targetSpeciesId") private var targetSpeciesId: Int = 0
 
     private var imperial: Bool { units == "imperial" }
     private var tint: Color { species.artTint }
+    /// The Size and bag limits colour, as on the Profile row.
+    private static let limitsTint: Color = .purple
     private var isTargeted: Bool { targetSpeciesId == Int(species.id) }
     private var month: Int { SpeciesSeason.currentMonth }
     private var seasonScores: [Int] { SpeciesSeason.scores(species) }
@@ -100,6 +104,22 @@ struct SpeciesDetailView: View {
         }
         .navigationDestination(isPresented: $showingTarget) {
             TargetScreen()
+        }
+        .navigationDestination(isPresented: $showingAllCatches) {
+            SpeciesCatchesList(species: species)
+        }
+        .fullScreenCover(isPresented: $showingRangeMap) {
+            if let taxonId = info?.taxonId {
+                NavigationStack {
+                    SpeciesRangeMapView(taxonId: taxonId, interactive: true)
+                        .ignoresSafeArea(edges: .bottom)
+                        .navigationTitle("Where it is seen")
+                        .navigationBarTitleDisplayMode(.inline)
+                        .toolbar {
+                            ToolbarItem(placement: .confirmationAction) { SheetDoneButton() }
+                        }
+                }
+            }
         }
         .fullScreenCover(isPresented: $showingLogCatch, onDismiss: {
             Task { await load() }
@@ -216,7 +236,7 @@ struct SpeciesDetailView: View {
 
     private var statsSection: some View {
         section("Your stats") {
-            LogbookKeyValueList(rows: statRows)
+            KeyValueList(rows: statRows)
         }
     }
 
@@ -260,7 +280,13 @@ struct SpeciesDetailView: View {
                 .buttonStyle(.dsRow)
             }
             if catches.count > 5 {
-                SectionFoot("\(catches.count - 5) more in your Logbook.")
+                CardGroup {
+                    Button { showingAllCatches = true } label: {
+                        CardRow("See all \(catches.count) catches", chevron: true)
+                    }
+                    .buttonStyle(.dsCardRow)
+                }
+                .padding(.top, DS.Space.s2)
             }
         }
     }
@@ -291,7 +317,7 @@ struct SpeciesDetailView: View {
             SeasonChart(scores: seasonScores,
                         inSeason: (1...12).map { SpeciesSeason.isInSeason(species, month: $0) },
                         tint: tint)
-            SectionFoot(SpeciesSeason.peakText(seasonScores).map { "\($0), estimated from typical water temperatures." }
+            SectionFootnote(SpeciesSeason.peakText(seasonScores).map { "\($0), estimated from typical water temperatures." }
                         ?? "Estimated from typical water temperatures.")
         }
     }
@@ -306,7 +332,8 @@ struct SpeciesDetailView: View {
                 LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible())], spacing: 10) {
                     ConditionTile("Water in \(SpeciesSeason.fullMonths[month - 1])",
                                   systemImage: "thermometer.medium", iconTint: .dsScoreLow,
-                                  value: degrees(water), footnote: waterFootnote(water, band: band)) {
+                                  value: degreesValue(water), unit: imperial ? "°F" : "°C",
+                                  footnote: waterFootnote(water, band: band)) {
                         SpeciesTempBar(low: band.lower, high: band.upper, value: water)
                     }
                     ConditionTile("Feeds best", systemImage: "fish.fill", iconTint: tint,
@@ -315,11 +342,11 @@ struct SpeciesDetailView: View {
                                   footnote: survivesText.map { "Survives \($0)" })
                 }
                 .padding(.horizontal, DS.gutter)
-                SectionFoot("Typical surface water for the month, not a reading.")
+                SectionFootnote("Typical surface water for the month, not a reading.")
             }
         } else if let survives = survivesText {
             section("Water temperature") {
-                LogbookKeyValueList(rows: [("Survives", survives)])
+                KeyValueList(rows: [("Survives", survives)])
             }
         }
     }
@@ -332,10 +359,6 @@ struct SpeciesDetailView: View {
 
     private func degreesValue(_ celsius: Double) -> String {
         "\(Int((imperial ? celsius * 9 / 5 + 32 : celsius).rounded()))"
-    }
-
-    private func degrees(_ celsius: Double) -> String {
-        "\(degreesValue(celsius))°"
     }
 
     private func waterFootnote(_ water: Double, band: (lower: Double, optimal: Double, upper: Double)) -> String {
@@ -354,7 +377,7 @@ struct SpeciesDetailView: View {
                 BaitRow(rank: index + 1, name: sentenceCase(bait))
             }
             if let notes = species.baitNotes, !notes.isEmpty {
-                SectionFoot(notes)
+                SectionFootnote(notes)
             }
         }
     }
@@ -433,22 +456,19 @@ struct SpeciesDetailView: View {
         let reg = RegulationsService.shared.regulation(for: species)
         section("Size and bag limits", detail: reg?.region) {
             if let reg {
-                LogbookKeyValueList(rows: limitRows(reg))
+                KeyValueList(rows: limitRows(reg))
                 if let notes = reg.notes, !notes.isEmpty {
-                    SectionFoot(notes)
+                    SectionFootnote(notes)
                 }
             } else {
-                Text("None on file for this species. Check the local rules before you keep one.")
-                    .font(.subheadline)
-                    .foregroundStyle(.dsText2)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, DS.gutter)
+                InlineEmpty(systemImage: "list.bullet.clipboard",
+                            text: "None on file for this species. Check the local rules before you keep one.")
             }
             Button {
                 showingRules = true
             } label: {
                 ArtRow(title: "All size and bag limits", subtitle: "Every species, works offline", chevron: true) {
-                    ThumbView(systemImage: "list.bullet.clipboard", tint: .purple, size: 52)
+                    ThumbView(systemImage: "list.bullet.clipboard", tint: Self.limitsTint, size: 52)
                 }
             }
             .buttonStyle(.dsRow)
@@ -473,30 +493,31 @@ struct SpeciesDetailView: View {
 
     @ViewBuilder
     private var tipsSection: some View {
-        if let tip = tipText {
+        let place = whereToLook
+        let water = species.optimalTempC
+        if place != nil || water != nil {
             section("Tips") {
-                Text(tip)
-                    .font(.body)
-                    .foregroundStyle(.dsText)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, DS.gutter)
+                CardGroup {
+                    if let place {
+                        CardRow("Where to look", subtitle: place, systemImage: "scope", tint: DS.accent)
+                    }
+                    if let water {
+                        CardRow("Water to look for", systemImage: "thermometer.medium", tint: .dsScoreLow,
+                                value: Units.temperature(water, imperial: imperial))
+                    }
+                }
             }
         }
     }
 
-    /// Where to look, from its habitat and the water it likes.
-    private var tipText: String? {
-        var parts: [String] = []
+    /// Where to look, from its habitat.
+    private var whereToLook: String? {
         switch species.habitat {
-        case .freshwater: parts.append("Fish structure: fallen trees, rocks and weed beds.")
-        case .marine: parts.append("Work reefs, jetties and current lines around the tide.")
-        case .brackish: parts.append("Try estuaries, river mouths and mangroves.")
-        case nil: break
+        case .freshwater: "Fish structure: fallen trees, rocks and weed beds."
+        case .marine: "Work reefs, jetties and current lines around the tide."
+        case .brackish: "Try estuaries, river mouths and mangroves."
+        case nil: nil
         }
-        if let opt = species.optimalTempC {
-            parts.append("Look for water near \(Units.temperature(opt, imperial: imperial)).")
-        }
-        return parts.isEmpty ? nil : parts.joined(separator: " ")
     }
 
     /// The field guide entry: the summary when it has loaded, then family,
@@ -521,7 +542,7 @@ struct SpeciesDetailView: View {
                 .padding(.bottom, DS.Space.s2)
             }
             if !aboutRows.isEmpty {
-                LogbookKeyValueList(rows: aboutRows)
+                KeyValueList(rows: aboutRows)
             }
             if let wiki = info?.wikipediaURL, let url = URL(string: wiki) {
                 Button {
@@ -562,13 +583,20 @@ struct SpeciesDetailView: View {
 
     private func rangeSection(_ taxonId: Int) -> some View {
         section("Where it is seen") {
-            SpeciesRangeMapView(taxonId: taxonId)
-                .frame(maxWidth: .infinity)
-                .frame(height: 200)
-                .clipShape(RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
-                .padding(.horizontal, DS.gutter)
-                .accessibilityLabel("Map of where \(species.commonName) has been seen")
-            SectionFoot("Sightings from iNaturalist. Needs a connection.")
+            // Static in the page, so a swipe scrolls; a tap opens it full screen.
+            Button { showingRangeMap = true } label: {
+                SpeciesRangeMapView(taxonId: taxonId)
+                    .allowsHitTesting(false)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 200)
+                    .clipShape(RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.dim)
+            .padding(.horizontal, DS.gutter)
+            .accessibilityLabel("Map of where \(species.commonName) has been seen")
+            .accessibilityHint("Opens the map full screen")
+            SectionFootnote("Sightings from iNaturalist. Needs a connection.")
         }
     }
 
@@ -597,6 +625,83 @@ struct SpeciesDetailView: View {
             content()
         }
         .padding(.top, DS.Space.s8)
+    }
+}
+
+// MARK: - All catches
+
+/// Every catch of one species, newest first, pushed from "See all" on the
+/// species page. Rows match the page's catch history.
+private struct SpeciesCatchesList: View {
+    let species: Species
+    @Environment(AppState.self) private var appState
+    @AppStorage("units") private var units = "metric"
+    @State private var catches: [CatchDetail] = []
+    @State private var loaded = false
+    @State private var openCatchId: String?
+    @State private var titleShown = false
+
+    private var imperial: Bool { units == "imperial" }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                DetailHeader(over: species.commonName, title: "Your catches",
+                             subtitle: catches.count == 1 ? "1 catch" : "\(catches.count) catches")
+                    .padding(.top, DS.Space.s2)
+                    .padding(.bottom, DS.Space.s4)
+                if loaded && catches.isEmpty {
+                    InlineEmpty(systemImage: "fish", text: "No catches of this species yet.")
+                }
+                ForEach(catches) { detail in
+                    Button {
+                        openCatchId = detail.id
+                    } label: {
+                        ArtRow(over: LogbookFormat.relativeDay(detail.catchRecord.caughtAt),
+                               title: measureText(detail.catchRecord),
+                               subtitle: detail.spot?.name,
+                               chevron: true) {
+                            thumb(detail)
+                        }
+                    }
+                    .buttonStyle(.dsRow)
+                }
+            }
+            .padding(.bottom, DS.Space.s8)
+            .pageWidth()
+        }
+        .detailTint(nil)
+        .pfTrackScroll($titleShown, threshold: 60)
+        .pfScrollTitle("Your catches", shown: titleShown)
+        .navigationDestination(item: $openCatchId) { id in
+            if let detail = catches.first(where: { $0.id == id }) {
+                CatchDetailView(detail: detail)
+            }
+        }
+        // Reload on every return, so an edit or delete on a catch page shows.
+        .onAppear {
+            catches = (try? appState.catchRepository.fetchForSpecies(species.id)) ?? []
+            loaded = true
+        }
+    }
+
+    private func measureText(_ record: Catch) -> String {
+        let parts = [record.lengthCm.map { Units.length(cm: $0, imperial: imperial) },
+                     record.weightKg.map { Units.weight(kg: $0, imperial: imperial) }].compactMap { $0 }
+        if parts.isEmpty { return record.released ? "Released" : "Kept" }
+        return parts.joined(separator: ", ")
+    }
+
+    @ViewBuilder
+    private func thumb(_ detail: CatchDetail) -> some View {
+        if let path = detail.catchRecord.allPhotoPaths.first {
+            PhotoThumbnail(path: path, size: 52, cornerRadius: DS.Radius.thumb) {
+                ThumbView(species: species, size: 52)
+            }
+            .frame(width: 52, height: 52)
+        } else {
+            ThumbView(species: species, size: 52)
+        }
     }
 }
 
