@@ -318,8 +318,9 @@ struct EventPodiumEntry: Identifiable {
 }
 
 /// The top three on plinths (2nd, 1st, 3rd) with a crown over the leader.
-/// Entries are keyed by id, so when the order changes under an animation the
-/// anglers slide to their new places and the plinths resize.
+/// Always three equal columns: a place nobody holds yet shows its plinth
+/// dimmed. Entries are keyed by id, so when the order changes under an
+/// animation the anglers slide to their new places and the plinths resize.
 struct EventPodium<Destination: View>: View {
     let entries: [EventPodiumEntry]
     let destination: (EventPodiumEntry) -> Destination
@@ -331,25 +332,37 @@ struct EventPodium<Destination: View>: View {
         self.destination = destination
     }
 
-    private var slots: [(entry: EventPodiumEntry, place: Int)] {
+    /// One place on the podium, held or not yet held.
+    private struct Slot: Identifiable {
+        let place: Int
+        let entry: EventPodiumEntry?
+        var id: String { entry?.id ?? "empty-\(place)" }
+    }
+
+    private var slots: [Slot] {
         let top = Array(entries.prefix(3))
-        var out: [(entry: EventPodiumEntry, place: Int)] = []
-        if top.count > 1 { out.append((top[1], 2)) }
-        if !top.isEmpty { out.append((top[0], 1)) }
-        if top.count > 2 { out.append((top[2], 3)) }
-        return out
+        return [2, 1, 3].map { place in
+            Slot(place: place, entry: place <= top.count ? top[place - 1] : nil)
+        }
     }
 
     var body: some View {
         HStack(alignment: .bottom, spacing: DS.Space.s2) {
-            ForEach(slots, id: \.entry.id) { slot in
-                NavigationLink {
-                    destination(slot.entry)
-                } label: {
-                    EventPodiumColumn(entry: slot.entry, place: slot.place, valueSize: valueSize)
+            ForEach(slots) { slot in
+                if let entry = slot.entry {
+                    NavigationLink {
+                        destination(entry)
+                    } label: {
+                        EventPodiumColumn(entry: entry, place: slot.place, valueSize: valueSize)
+                    }
+                    .buttonStyle(.dim)
+                    .accessibilityLabel("\(eventOrdinal(slot.place)), \(entry.name), \(entry.value) \(entry.unit ?? "")")
+                } else {
+                    EventPodiumPlinth(place: slot.place)
+                        .opacity(0.4)
+                        .frame(maxWidth: .infinity)
+                        .accessibilityHidden(true)
                 }
-                .buttonStyle(.dim)
-                .accessibilityLabel("\(eventOrdinal(slot.place)), \(slot.entry.name), \(slot.entry.value) \(slot.entry.unit ?? "")")
             }
         }
         .padding(.horizontal, DS.gutter)
@@ -372,22 +385,6 @@ struct EventPodiumColumn: View {
         }
     }
 
-    private var plinthFill: Color {
-        switch place {
-        case 1: return Color.dsScoreFair.opacity(0.28)
-        case 2: return .dsFill2
-        default: return Color.dsScoreLow.opacity(0.26)
-        }
-    }
-
-    private var plinthHeight: CGFloat {
-        switch place {
-        case 1: return 112
-        case 2: return 80
-        default: return 56
-        }
-    }
-
     var body: some View {
         VStack(spacing: DS.Space.s1) {
             Image(systemName: "crown.fill")
@@ -403,7 +400,7 @@ struct EventPodiumColumn: View {
                 .lineLimit(2)
                 .minimumScaleFactor(0.8)
             valueLine
-            plinth
+            EventPodiumPlinth(place: place)
         }
         .frame(maxWidth: .infinity)
     }
@@ -424,11 +421,34 @@ struct EventPodiumColumn: View {
         .minimumScaleFactor(0.5)
     }
 
-    private var plinth: some View {
+}
+
+/// The numbered block under a podium place, in the medal colour and
+/// stepped by place.
+private struct EventPodiumPlinth: View {
+    let place: Int
+
+    private var fill: Color {
+        switch place {
+        case 1: return Color.dsScoreFair.opacity(0.28)
+        case 2: return .dsFill2
+        default: return Color.dsScoreLow.opacity(0.26)
+        }
+    }
+
+    private var height: CGFloat {
+        switch place {
+        case 1: return 112
+        case 2: return 80
+        default: return 56
+        }
+    }
+
+    var body: some View {
         UnevenRoundedRectangle(topLeadingRadius: DS.Radius.button, topTrailingRadius: DS.Radius.button,
                                style: .continuous)
-            .fill(plinthFill)
-            .frame(height: plinthHeight)
+            .fill(fill)
+            .frame(height: height)
             .overlay(alignment: .top) {
                 Text("\(place)")
                     .font(.title2.bold())
