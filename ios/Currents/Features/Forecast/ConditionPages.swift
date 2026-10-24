@@ -549,7 +549,9 @@ struct ConditionPage: View {
             .pageWidth()
         }
         .forecastTracksTitle($titleShown)
-        .detailTint(condition.tint)
+        // The wash fades out over the title and day strip, so the chart card
+        // sits on the plain page; a blue wash hides the grey card in light mode.
+        .detailTint(condition.tint, height: 300)
         .forecastInlineTitle(condition.title, shown: titleShown)
         .refreshable {
             let live = await store.load(force: true)
