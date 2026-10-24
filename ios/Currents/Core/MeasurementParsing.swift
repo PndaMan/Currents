@@ -8,9 +8,14 @@ extension String {
     /// decimal entry like 0.5 kg was silently dropped. This accepts either
     /// separator (and trims whitespace) so decimals always parse. Returns nil
     /// for empty/blank input so an untouched field stays unset rather than 0.
+    /// Negative numbers and non-finite values ("inf", "nan") also return nil:
+    /// no length, weight or depth can be below zero, and `Double` happily
+    /// parses those strings from a paste.
     var measurementValue: Double? {
         let trimmed = trimmingCharacters(in: .whitespaces)
-        guard !trimmed.isEmpty else { return nil }
-        return Double(trimmed.replacingOccurrences(of: ",", with: "."))
+        guard !trimmed.isEmpty,
+              let value = Double(trimmed.replacingOccurrences(of: ",", with: ".")),
+              value.isFinite, value >= 0 else { return nil }
+        return value
     }
 }
