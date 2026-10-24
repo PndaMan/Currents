@@ -32,8 +32,9 @@ struct CatchesTab: View {
     @State private var planOutlooks: [String: PlanOutlook] = [:]
     @AppStorage("use24HourTime") private var use24 = true
     @Environment(\.dynamicTypeSize) private var typeSize
-    /// The show-and-sort and layout buttons grow with the text.
-    @ScaledMetric(relativeTo: .subheadline) private var toolIconSize: CGFloat = 36
+    /// The show-and-sort and layout buttons keep their size at large text,
+    /// as the header's buttons do; a long press shows them enlarged.
+    private static let toolIconSize: CGFloat = 36
     @State private var showingNewSession = false
     @State private var showingPlanner = false
     @State private var planToEdit: Trip?
@@ -452,6 +453,9 @@ struct CatchesTab: View {
             }
             .accessibilityLabel("Show and sort")
             .accessibilityValue("\(filter.title), \(sortOrder.title)")
+            .accessibilityShowsLargeContentViewer {
+                Label("Show and sort", systemImage: "line.3.horizontal.decrease")
+            }
             Button {
                 withAnimation(DS.Motion.softSpring) {
                     layoutRaw = (layout == .list ? LayoutMode.gallery : .list).rawValue
@@ -461,6 +465,10 @@ struct CatchesTab: View {
             }
             .buttonStyle(.dim)
             .accessibilityLabel(layout == .list ? "Show as gallery" : "Show as list")
+            .accessibilityShowsLargeContentViewer {
+                Label(layout == .list ? "Show as gallery" : "Show as list",
+                      systemImage: layout == .list ? "square.grid.2x2" : "list.bullet")
+            }
             .padding(.trailing, DS.gutter - 4)
         }
         .padding(.top, DS.Space.s2)
@@ -469,8 +477,10 @@ struct CatchesTab: View {
     private func toolIcon(_ systemImage: String, active: Bool = false) -> some View {
         Image(systemName: systemImage)
             .font(.subheadline.weight(.semibold))
+            // The glyph stays at the default text size inside its fixed circle.
+            .dynamicTypeSize(...DynamicTypeSize.large)
             .foregroundStyle(active ? Color.dsOnPrimary : Color.dsText)
-            .frame(width: toolIconSize, height: toolIconSize)
+            .frame(width: Self.toolIconSize, height: Self.toolIconSize)
             .background(active ? Color.dsPrimaryButton : Color.dsFill, in: Circle())
             .padding(.leading, 6)
             .animation(.easeOut(duration: DS.Motion.fast), value: active)
