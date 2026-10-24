@@ -10,6 +10,7 @@ struct CrewLeaderboardView: View {
 
     @Environment(AppState.self) private var appState
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var typeSize
     @StateObject private var svc = CommunityService.shared
     @AppStorage("units") private var units = "metric"
     private var imperial: Bool { units == "imperial" }
@@ -60,6 +61,14 @@ struct CrewLeaderboardView: View {
                 .padding(.top, DS.Space.s5)
                 .id(metric)
                 .transition(.opacity)
+
+                // At accessibility sizes a pinned row would cover the podium,
+                // so your place ends the page instead.
+                if typeSize.isAccessibilitySize, let pinned = pinnedStanding {
+                    pinnedRow(pinned, floating: false)
+                        .padding(.horizontal, DS.gutter)
+                        .padding(.top, DS.Space.s5)
+                }
             }
             .padding(.bottom, DS.Space.s6)
             .pageWidth()
@@ -67,8 +76,8 @@ struct CrewLeaderboardView: View {
         .detailTint(tint)
         .eventPageTitle("Leaderboard")
         .safeAreaInset(edge: .bottom) {
-            if let pinned = pinnedStanding {
-                pinnedRow(pinned)
+            if !typeSize.isAccessibilitySize, let pinned = pinnedStanding {
+                pinnedRow(pinned, floating: true)
                     .padding(.horizontal, DS.gutter)
                     .padding(.bottom, DS.Space.s2)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
@@ -208,8 +217,9 @@ struct CrewLeaderboardView: View {
 
     // MARK: Pinned you
 
-    /// Where you stand, pinned above the tab bar: your place in the list when
-    /// you're on it, otherwise the standing the service worked out for you.
+    /// Where you stand, pinned above the tab bar (at the end of the page at
+    /// accessibility sizes): your place in the list when you're on it,
+    /// otherwise the standing the service worked out for you.
     /// In the top three you're already at the top of the board (the podium
     /// or the first catch cells), so nothing is pinned.
     private var pinnedStanding: (rank: Int, row: CommunityService.LeaderRow, onBoard: Bool)? {
@@ -222,8 +232,15 @@ struct CrewLeaderboardView: View {
         return nil
     }
 
-    private func pinnedRow(_ mine: (rank: Int, row: CommunityService.LeaderRow, onBoard: Bool)) -> some View {
-        HStack(spacing: DS.Space.s3) {
+    /// Your place as a row: on glass while it floats over the board, on a
+    /// card once it ends the page. At accessibility sizes the value moves
+    /// under your place rather than squeezing it into a column.
+    @ViewBuilder
+    private func pinnedRow(_ mine: (rank: Int, row: CommunityService.LeaderRow, onBoard: Bool),
+                           floating: Bool) -> some View {
+        let stacked = typeSize.isAccessibilitySize
+        let shape = RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous)
+        let row = HStack(alignment: stacked ? .top : .center, spacing: DS.Space.s3) {
             Text("\(mine.rank)")
                 .font(.headline.monospacedDigit())
                 .foregroundStyle(Color.dsText2)
@@ -237,16 +254,30 @@ struct CrewLeaderboardView: View {
                      : eventOrdinal(mine.rank))
                     .font(.subheadline)
                     .foregroundStyle(Color.dsText2)
+                if stacked {
+                    Text(value(mine.row))
+                        .font(.headline.monospacedDigit())
+                        .contentTransition(.numericText())
+                }
             }
-            Spacer()
-            Text(value(mine.row))
-                .font(.headline.monospacedDigit())
-                .contentTransition(.numericText())
+            if !stacked {
+                Spacer()
+                Text(value(mine.row))
+                    .font(.headline.monospacedDigit())
+                    .contentTransition(.numericText())
+            }
         }
         .foregroundStyle(Color.dsText)
         .padding(.horizontal, DS.Space.s4)
         .padding(.vertical, DS.Space.s3)
-        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
+        .frame(maxWidth: .infinity, alignment: .leading)
+        Group {
+            if floating {
+                row.glassEffect(.regular, in: shape)
+            } else {
+                row.background(Color.dsFill, in: shape)
+            }
+        }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Your place: \(eventOrdinal(mine.rank)), \(value(mine.row))")
     }
