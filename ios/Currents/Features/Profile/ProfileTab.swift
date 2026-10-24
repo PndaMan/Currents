@@ -3,6 +3,7 @@ import MapKit
 import PhotosUI
 import StoreKit
 import UniformTypeIdentifiers
+import UserNotifications
 import Charts
 
 /// Pages pushed from Profile and settings.
@@ -15,8 +16,7 @@ enum SettingsRoute: Hashable {
 /// settings, and support.
 struct SettingsView: View {
     @Environment(AppState.self) private var appState
-    /// Set when a deep link wants a specific screen (gear, licences, …).
-    var initialDestination: AppState.MoreDestination? = nil
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     @ObservedObject private var community = CommunityService.shared
     @AppStorage("communityName") private var storedName = ""
@@ -40,8 +40,7 @@ struct SettingsView: View {
     @State private var titleShown = false
     @State private var showingEdit = false
     @State private var showingShare = false
-    /// Programmatic destination pushed by a notification or Live Activity tap.
-    @State private var moreDest: AppState.MoreDestination?
+    @State private var notificationsDenied = false
 
     private var displayName: String {
         let trimmed = storedName.trimmingCharacters(in: .whitespaces)
@@ -104,19 +103,10 @@ struct SettingsView: View {
             case .regulations: RegulationsView()
             }
         }
-        .navigationDestination(item: $moreDest) { dest in
-            switch dest {
-            case .community: CommunityView()
-            case .gear: GearTab()
-            case .licenses: LicenseWalletView()
-            case .sessions: SessionsView()
-            }
+        .task {
+            load()
+            notificationsDenied = await NotificationManager.shared.checkPermissionStatus() == .denied
         }
-        .onAppear { if moreDest == nil { moreDest = initialDestination } }
-        .onChange(of: appState.moreDestination) { _, dest in
-            if let dest { moreDest = dest; appState.moreDestination = nil }
-        }
-        .task { load() }
         .sheet(isPresented: $showingEdit, onDismiss: load) {
             if community.joined {
                 ProfileEditView(stats: myStats)
@@ -127,8 +117,7 @@ struct SettingsView: View {
         .sheet(isPresented: $showingShare) {
             ProfileShareSheet(name: displayName, subtitle: subtitle, avatar: community.myAvatar,
                               catches: catches.count, species: speciesCount, spots: totalSpots)
-                .presentationDetents([.large])
-                .presentationDragIndicator(.visible)
+                .dsSheet([.large])
         }
     }
 
@@ -144,8 +133,8 @@ struct SettingsView: View {
                 Label("Share card", systemImage: "square.and.arrow.up")
             }
             .buttonStyle(ActionTileStyle())
-            NavigationLink(value: AppRoute.gear) {
-                ActionTileLabel("Tackle box", systemImage: "shippingbox")
+            NavigationLink(value: AppRoute.licenses) {
+                ActionTileLabel("Licences", systemImage: "person.text.rectangle")
             }
             .buttonStyle(.dim)
         }
@@ -171,7 +160,7 @@ struct SettingsView: View {
             row(SettingsRoute.units, "Units", "ruler.fill", .orange,
                 value: units == "imperial" ? "Imperial" : "Metric")
             row(SettingsRoute.notifications, "Notifications", "bell.badge.fill", .red,
-                value: alertsEnabled ? "On" : "Off")
+                value: notificationsDenied ? "Off in Settings" : (alertsEnabled ? "On" : "Off"))
             row(SettingsRoute.privacy, "Privacy", "hand.raised.fill", .blue)
             row(SettingsRoute.widgets, "Widgets and Siri", "square.grid.2x2.fill", .indigo)
             row(SettingsRoute.offlineMaps, "Offline maps", "map.fill", .green, value: regionsValue)
@@ -206,7 +195,10 @@ struct SettingsView: View {
                 TitleFlairChip(title: storedTitle)
             }
 
-            HStack(spacing: DS.Space.s5) {
+            let statLayout = typeSize.isAccessibilitySize
+                ? AnyLayout(VStackLayout(alignment: .leading, spacing: DS.Space.s1))
+                : AnyLayout(HStackLayout(spacing: DS.Space.s5))
+            statLayout {
                 statText(catches.count, "catches")
                 statText(speciesCount, "species")
                 statText(totalSpots, "spots")
@@ -219,7 +211,7 @@ struct SettingsView: View {
                 } label: {
                     VStack(spacing: DS.Space.s2) {
                         HStack {
-                            Text("Achievements")
+                            Text("Badges")
                                 .font(.subheadline.weight(.semibold))
                                 .foregroundStyle(.dsText)
                             Spacer()
@@ -234,7 +226,7 @@ struct SettingsView: View {
                 }
                 .buttonStyle(.dim)
                 .padding(.top, DS.Space.s2)
-                .accessibilityHint("Opens your achievements")
+                .accessibilityHint("Opens your badges")
             }
         }
         .padding(.horizontal, DS.gutter)
@@ -981,7 +973,7 @@ private struct StorageUsageBar: View {
             Part(name: "Offline maps", bytes: usage.maps, color: DS.accent),
             Part(name: "Catch photos", bytes: usage.photos, color: .dsScoreGood),
             Part(name: "Logbook", bytes: usage.logbook, color: .dsScoreFair),
-            Part(name: "Backups", bytes: usage.backups, color: .gray),
+            Part(name: "Backups", bytes: usage.backups, color: .blue),
         ].filter { $0.bytes > 0 }
     }
 
