@@ -16,11 +16,11 @@ struct OfflineMapsView: View {
     @State private var confirmClearCache = false
     @State private var cacheBytes: Int64 = 0
     @State private var freeBytes: Int64 = 0
-    @State private var titleShown = false
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     private var manager: MapManager { appState.mapManager }
 
-    // The page is built in steps (list, routes, then each dialog) so the
+    // The page is built in steps (page, routes, then each dialog) so the
     // type checker handles each part on its own.
     var body: some View {
         withLegacyDialog
@@ -36,9 +36,9 @@ struct OfflineMapsView: View {
             }
     }
 
-    private var list: some View {
-        List {
-            headerSection
+    private var page: some View {
+        TodayPage("Offline maps", subtitle: headerSubtitle) {
+            statTiles
             downloadSection
             yourMaps
             suggestedSection
@@ -46,16 +46,12 @@ struct OfflineMapsView: View {
             if !manager.legacyMaps.isEmpty {
                 legacySection
             }
-            attributionSection
+            SectionFootnote("\(OfflineTileOverlay.attribution). Country and province outlines from Natural Earth.")
         }
-        .pfGroupedList()
-        .detailTint(nil)
-        .pfTrackScroll($titleShown)
-        .pfScrollTitle("Offline maps", shown: titleShown)
     }
 
     private var routed: some View {
-        list
+        page
             .navigationDestination(for: OfflineMapsRoute.self) { route in
                 switch route {
                 case .regions: OfflineRegionBrowser()
@@ -96,7 +92,7 @@ struct OfflineMapsView: View {
                                                      set: { if !$0 { legacyToDelete = nil } }),
                                 titleVisibility: .visible,
                                 presenting: legacyToDelete) { region in
-                Button("Delete picture", role: .destructive) {
+                Button("Delete region", role: .destructive) {
                     Haptics.warning()
                     manager.deleteRegion(region)
                     ToastCenter.shared.show("\(region.name) deleted", style: .info, haptic: false)
@@ -107,197 +103,157 @@ struct OfflineMapsView: View {
     }
 
     private var packDialogTitle: String { "Delete \(packToDelete?.name ?? "this map")?" }
-    private var legacyDialogTitle: String { "Delete \(legacyToDelete?.name ?? "this picture")?" }
+    private var legacyDialogTitle: String { "Delete \(legacyToDelete?.name ?? "this region")?" }
 
     // MARK: Sections
 
-    private var headerSection: some View {
-        Section {
-            DetailHeader(title: "Offline maps", subtitle: headerSubtitle)
-                .padding(.bottom, DS.Space.s2)
-                .pfBareRow()
-            HStack(spacing: DS.Space.s2) {
-                StatTile("Maps", systemImage: "map.fill", tint: .green,
-                         value: OfflineFormat.bytes(mapsBytes),
-                         footnote: mapsFootnote, width: nil)
-                StatTile("Free", systemImage: "internaldrive", tint: .blue,
-                         value: OfflineFormat.bytes(freeBytes),
-                         footnote: "On this phone", width: nil)
-            }
-            .padding(.horizontal, DS.gutter)
-            .padding(.bottom, DS.Space.s2)
-            .pfBareRow()
+    /// Room taken by maps and room left; stacked at accessibility sizes.
+    private var statTiles: some View {
+        let layout = typeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(spacing: DS.Space.s2))
+            : AnyLayout(HStackLayout(spacing: DS.Space.s2))
+        return layout {
+            StatTile("Maps", systemImage: "map.fill", tint: .green,
+                     value: OfflineFormat.bytes(mapsBytes),
+                     footnote: mapsFootnote, width: nil)
+            StatTile("Free", systemImage: "internaldrive", tint: .blue,
+                     value: OfflineFormat.bytes(freeBytes),
+                     footnote: "On this phone", width: nil)
         }
+        .padding(.horizontal, DS.gutter)
     }
 
     private var downloadSection: some View {
-        Section {
+        CardSection("Download a map", note: "Close-ups around water and your spots.") {
             Button {
                 request = OfflineDownloadRequest(target: .area(nil, name: ""))
             } label: {
-                PFRowLabel(title: "Pick an area on the map", systemImage: "square.dashed", color: .green)
+                CardRow("Pick an area on the map", systemImage: "square.dashed", tint: .green)
             }
+            .buttonStyle(.dsCardRow)
             NavigationLink(value: OfflineMapsRoute.regions) {
-                PFRowLabel(title: "Countries and provinces", systemImage: "globe.europe.africa.fill", color: .blue)
+                CardRow("Countries and regions", systemImage: "globe.europe.africa.fill", tint: .blue, chevron: true)
             }
-        } header: {
-            Text("Download a map")
-        } footer: {
-            PFFootnote("Close-ups around water and your spots.")
+            .buttonStyle(.dsCardRow)
         }
-        .pfRows()
     }
 
     @ViewBuilder
     private var suggestedSection: some View {
         if !suggestions.isEmpty {
-            Section {
-                ForEach(showAllSuggestions ? suggestions : Array(suggestions.prefix(5))) { s in
-                    Button {
-                        request = OfflineDownloadRequest(target: s.target)
-                    } label: {
-                        SuggestionRow(suggestion: s)
+            VStack(alignment: .leading, spacing: 0) {
+                SectionTitle("Suggested")
+                CardGroup(separatorInset: Self.thumbInset) {
+                    ForEach(showAllSuggestions ? suggestions : Array(suggestions.prefix(5))) { s in
+                        Button {
+                            request = OfflineDownloadRequest(target: s.target)
+                        } label: {
+                            SuggestionRow(suggestion: s)
+                        }
+                        .buttonStyle(.dsCardRow)
+                        .accessibilityHint("Opens the download options")
                     }
-                    .accessibilityHint("Opens the download options")
                 }
                 if suggestions.count > 5 {
                     Button(showAllSuggestions ? "Show fewer" : "Show all \(suggestions.count)") {
                         withAnimation(.easeInOut(duration: DS.Motion.fast)) { showAllSuggestions.toggle() }
                     }
+                    .buttonStyle(TonalButtonStyle(fullWidth: false))
+                    .padding(.horizontal, DS.gutter)
+                    .padding(.top, DS.Space.s3)
                 }
-            } header: {
-                Text("Suggested")
             }
-            .pfRows()
         }
     }
 
     private var cacheSection: some View {
-        Section {
-            PFToggleRow(title: "Cache maps as I browse",
-                        detail: "Keeps tiles around you for no signal",
-                        systemImage: "square.stack.3d.down.right.fill", color: .cyan,
-                        isOn: Binding(get: { manager.autoCacheEnabled },
-                                      set: { manager.autoCacheEnabled = $0 }))
-            PFToggleRow(title: "Download on mobile data",
-                        detail: "Off waits for Wi-Fi",
-                        systemImage: "antenna.radiowaves.left.and.right", color: .green,
-                        isOn: Binding(get: { manager.downloadOnCellular },
-                                      set: { manager.downloadOnCellular = $0 }))
-            PFRowLabel(title: "Cached as you browse", systemImage: "internaldrive.fill", color: .blue,
-                       value: OfflineFormat.bytes(cacheBytes))
-            Button(role: .destructive) { confirmClearCache = true } label: {
-                PFRowLabel(title: "Clear map cache", systemImage: "trash.fill", color: .red)
+        CardSection("Cache and downloads") {
+            CardToggleRow("Cache maps as I browse",
+                          subtitle: "Keeps tiles around you for no signal",
+                          systemImage: "square.stack.3d.down.right.fill", tint: .cyan,
+                          isOn: Binding(get: { manager.autoCacheEnabled },
+                                        set: { manager.autoCacheEnabled = $0 }))
+            CardToggleRow("Download on mobile data",
+                          subtitle: "Off waits for Wi-Fi",
+                          systemImage: "antenna.radiowaves.left.and.right", tint: .green,
+                          isOn: Binding(get: { manager.downloadOnCellular },
+                                        set: { manager.downloadOnCellular = $0 }))
+            CardRow("Cached as you browse", systemImage: "internaldrive.fill", tint: .blue,
+                    value: OfflineFormat.bytes(cacheBytes))
+            Button { confirmClearCache = true } label: {
+                CardRow("Clear map cache", systemImage: "trash.fill", tint: .red)
             }
+            .buttonStyle(.dsCardRow)
             .disabled(cacheBytes == 0)
-        } header: {
-            Text("Cache and downloads")
-        }
-        .pfRows()
-    }
-
-    private var attributionSection: some View {
-        Section {
-            PFFootnote("\(OfflineTileOverlay.attribution). Country and province outlines from Natural Earth.")
-                .padding(.horizontal, DS.gutter)
-                .padding(.vertical, DS.Space.s2)
-                .pfBareRow()
+            .opacity(cacheBytes == 0 ? 0.5 : 1)
         }
     }
 
     // MARK: Your maps
 
+    /// Each map opens its page, which has update, pause and delete; a touch
+    /// and hold offers the same here.
     @ViewBuilder
     private var yourMaps: some View {
-        Section {
-            if manager.packs.isEmpty {
-                HStack(spacing: 14) {
-                    ThumbView(systemImage: "map", tint: .green, size: 44)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("No offline maps yet")
-                            .foregroundStyle(.dsText)
-                        Text("Download your waters before you lose signal.")
-                            .font(.subheadline)
-                            .foregroundStyle(.dsText2)
-                    }
-                }
-                .accessibilityElement(children: .combine)
-            } else {
-                ForEach(manager.packs) { pack in
-                    NavigationLink(value: OfflineMapsRoute.pack(pack.id)) {
-                        OfflinePackRow(pack: pack, live: manager.liveProgress[pack.id])
-                    }
-                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                        Button(role: .destructive) { packToDelete = pack } label: {
-                            Label("Delete", systemImage: "trash")
-                        }
-                    }
-                    .swipeActions(edge: .leading) {
-                        switch pack.status {
-                        case .downloading:
-                            Button { Haptics.toggle(); manager.pause(pack.id) } label: { Label("Pause", systemImage: "pause.fill") }
-                                .tint(.orange)
-                        case .paused:
-                            Button { Haptics.toggle(); manager.resume(pack.id) } label: { Label("Resume", systemImage: "play.fill") }
-                                .tint(.green)
-                        case .complete:
-                            Button { manager.update(pack.id) } label: { Label("Update", systemImage: "arrow.clockwise") }
-                                .tint(.blue)
-                        }
-                    }
-                    .contextMenu {
-                        switch pack.status {
-                        case .downloading:
-                            Button { manager.pause(pack.id) } label: { Label("Pause", systemImage: "pause") }
-                        case .paused:
-                            Button { manager.resume(pack.id) } label: { Label("Resume", systemImage: "play") }
-                        case .complete:
-                            Button { manager.update(pack.id) } label: { Label("Update", systemImage: "arrow.clockwise") }
-                        }
-                        Button(role: .destructive) { packToDelete = pack } label: {
-                            Label("Delete", systemImage: "trash")
-                        }
-                    }
-                }
+        if manager.packs.isEmpty {
+            VStack(alignment: .leading, spacing: 0) {
+                SectionTitle("Your maps")
+                InlineEmpty(systemImage: "map",
+                            text: "No offline maps yet. Download your waters before you lose signal.")
             }
-        } header: {
-            Text("Your maps")
-        } footer: {
-            if !manager.packs.isEmpty {
-                PFFootnote("Swipe to update, pause or delete.")
+        } else {
+            VStack(alignment: .leading, spacing: 0) {
+                SectionTitle("Your maps")
+                CardGroup(separatorInset: Self.thumbInset) {
+                    ForEach(manager.packs) { pack in
+                        NavigationLink(value: OfflineMapsRoute.pack(pack.id)) {
+                            OfflinePackRow(pack: pack, live: manager.liveProgress[pack.id])
+                        }
+                        .buttonStyle(.dsCardRow)
+                        .contextMenu { packMenu(pack) }
+                    }
+                }
+                SectionFootnote("Touch and hold a map to update, pause or delete it.")
             }
         }
-        .pfRows()
+    }
+
+    @ViewBuilder
+    private func packMenu(_ pack: OfflinePack) -> some View {
+        switch pack.status {
+        case .downloading:
+            Button { Haptics.toggle(); manager.pause(pack.id) } label: { Label("Pause", systemImage: "pause") }
+        case .paused:
+            Button { Haptics.toggle(); manager.resume(pack.id) } label: { Label("Resume", systemImage: "play") }
+        case .complete:
+            Button { manager.update(pack.id) } label: { Label("Update", systemImage: "arrow.clockwise") }
+        }
+        Button(role: .destructive) { packToDelete = pack } label: {
+            Label("Delete", systemImage: "trash")
+        }
     }
 
     private var legacySection: some View {
-        Section {
+        CardSection("Older saved regions", note: "These can't be used with no signal. Download the area again.") {
             ForEach(manager.legacyMaps) { region in
-                HStack(spacing: 14) {
-                    ThumbView(systemImage: "photo", tint: .orange, size: 44)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(region.name).foregroundStyle(.dsText)
-                        Text("\(region.formattedSize), saved \(OfflineFormat.date(region.downloadedAt))")
-                            .font(.subheadline)
-                            .foregroundStyle(.dsText2)
-                    }
-                    Spacer()
+                CardRow(region.name,
+                        subtitle: "\(region.formattedSize), saved \(OfflineFormat.date(region.downloadedAt))",
+                        systemImage: "photo", tint: .orange, combinesChildren: false) {
                     Button { legacyToDelete = region } label: {
                         Image(systemName: "trash")
-                            .foregroundStyle(.dsText2)
+                            .foregroundStyle(Color.dsScoreSlow)
                             .frame(width: 36, height: 36)
+                            .contentShape(Rectangle())
                     }
                     .buttonStyle(.dim)
                     .accessibilityLabel("Delete \(region.name)")
                 }
             }
-        } header: {
-            Text("Older saved regions")
-        } footer: {
-            PFFootnote("These can't be used with no signal. Download the area again.")
         }
-        .pfRows()
     }
+
+    /// Hairlines start past the 44 pt pictures on map and suggestion rows.
+    private static let thumbInset: CGFloat = DS.Space.s4 + 44 + 14
 
     // MARK: Data
 
@@ -348,11 +304,12 @@ struct OfflineMapsView: View {
 
 // MARK: - Rows
 
-/// A downloaded map: its own picture, name, and size or progress.
+/// A downloaded map on a card: its own picture, name, and size or progress.
 struct OfflinePackRow: View {
     let pack: OfflinePack
     let live: OfflineProgress?
     @State private var thumbnail: UIImage?
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
         HStack(spacing: 14) {
@@ -366,12 +323,13 @@ struct OfflinePackRow: View {
             .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 4) {
                 Text(pack.name)
+                    .font(.body)
                     .foregroundStyle(.dsText)
-                    .lineLimit(1)
+                    .lineLimit(typeSize.isAccessibilitySize ? 3 : 1)
                 Text(pack.pauseReason ?? OfflineFormat.status(pack, live: live))
                     .font(.subheadline)
-                    .foregroundStyle(pack.pauseReason == nil ? Color.dsText2 : Color.orange)
-                    .lineLimit(2)
+                    .foregroundStyle(pack.pauseReason == nil ? Color.dsText2 : DS.ink(Color.dsScoreLow))
+                    .lineLimit(typeSize.isAccessibilitySize ? 4 : 2)
                 if pack.status != .complete {
                     ProgressView(value: Double(live?.done ?? pack.doneUnits),
                                  total: Double(max(live?.total ?? pack.totalUnits, 1)))
@@ -379,7 +337,16 @@ struct OfflinePackRow: View {
                         .accessibilityHidden(true)
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            Image(systemName: "chevron.right")
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(.dsText3)
+                .accessibilityHidden(true)
         }
+        .padding(.horizontal, DS.Space.s4)
+        .padding(.vertical, 10)
+        .frame(minHeight: 54)
+        .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
         .task(id: thumbnailKey) {
             thumbnail = OfflinePackThumbnail.cached(pack)
@@ -395,9 +362,10 @@ struct OfflinePackRow: View {
     }
 }
 
-/// A suggested download: what and where, and roughly how big.
+/// A suggested download on a card: what and where, and roughly how big.
 private struct SuggestionRow: View {
     let suggestion: OfflineSuggestion
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
         HStack(spacing: 14) {
@@ -405,12 +373,13 @@ private struct SuggestionRow: View {
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
                 Text(suggestion.title)
+                    .font(.body)
                     .foregroundStyle(.dsText)
-                    .lineLimit(1)
+                    .lineLimit(typeSize.isAccessibilitySize ? 3 : 1)
                 Text(suggestion.subtitle)
                     .font(.subheadline)
                     .foregroundStyle(.dsText2)
-                    .lineLimit(2)
+                    .lineLimit(typeSize.isAccessibilitySize ? 4 : 2)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             if let estimate = suggestion.estimate {
@@ -420,9 +389,12 @@ private struct SuggestionRow: View {
                     .monospacedDigit()
             }
             Image(systemName: "arrow.down.circle")
-                .foregroundStyle(.tint)
+                .foregroundStyle(DS.accent)
                 .accessibilityHidden(true)
         }
+        .padding(.horizontal, DS.Space.s4)
+        .padding(.vertical, 10)
+        .frame(minHeight: 54)
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
     }
