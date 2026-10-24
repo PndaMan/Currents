@@ -635,7 +635,6 @@ struct StorageSettingsView: View {
     @State private var showingRestoreConfirm = false
     @State private var lastBackupDate: Date?
     @State private var iCloudAvailable = false
-    @State private var dbSize: String?
     @State private var snapshots: [FileBackup.Snapshot] = []
     @State private var restoreSnapshot: FileBackup.Snapshot?
     /// The snapshot confirmed in Backup history, restored once the sheet closes.
@@ -718,9 +717,10 @@ struct StorageSettingsView: View {
             CardToggleRow("Automatic daily backup",
                           subtitle: iCloudAvailable ? "On this phone and to iCloud" : "On this phone",
                           systemImage: "clock.arrow.circlepath", tint: .blue, isOn: $autoBackupEnabled)
+            // The logbook's size, measured as the bar above measures it.
             Button { backUpNow() } label: {
                 CardRow(isBackingUp ? "Backing up" : "Back up now", systemImage: "icloud.and.arrow.up.fill",
-                        tint: .cyan, value: isBackingUp ? nil : dbSize) {
+                        tint: .cyan, value: isBackingUp ? nil : usage.map { StorageUsage.format($0.logbook) }) {
                     if isBackingUp { ProgressView() }
                 }
             }
@@ -813,7 +813,6 @@ struct StorageSettingsView: View {
             lastBackupDate = max(lastBackupDate ?? .distantPast, localLast)
         }
         lastAutoFailure = AutoBackup.lastFailure
-        dbSize = await FileBackup.shared.databaseSize
         snapshots = await FileBackup.shared.snapshots()
         await measure()
     }
