@@ -15,8 +15,8 @@ struct SpeciesZoomSource {
 }
 
 /// Twelve tiny bars, one per month, the selected month highlighted, over a
-/// caption naming the peak months ("Nov to Mar"). Used at the end of species
-/// guide rows.
+/// caption naming the peak months ("Nov to Mar"): the peak that holds the
+/// selected month, else the best one. Used at the end of species guide rows.
 struct SeasonMiniBars: View {
     let scores: [Int]
     let highlight: Int   // 1 to 12
@@ -34,7 +34,7 @@ struct SeasonMiniBars: View {
                 }
             }
             .frame(height: 22, alignment: .bottom)
-            if let caption = SpeciesSeason.shortPeakText(scores) {
+            if let caption = SpeciesSeason.shortPeakText(scores, month: highlight) {
                 Text(caption)
                     .font(.caption2)
                     .foregroundStyle(.dsText2)
@@ -42,7 +42,8 @@ struct SeasonMiniBars: View {
             }
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(SpeciesSeason.peakText(scores) ?? "No clear peak season")
+        .accessibilityLabel(scores.isEmpty ? "Season not known"
+                            : SpeciesSeason.peakText(scores, month: highlight) ?? "No clear peak season")
     }
 }
 

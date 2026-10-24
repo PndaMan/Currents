@@ -23,9 +23,10 @@ struct SpeciesDetailView: View {
     @State private var titleShown = false
     @State private var showingAllCatches = false
     @State private var showingRangeMap = false
-    /// Whether the forecast's place is south of the equator, read on each
-    /// load. Starts from the time zone until then.
-    @State private var southern = SpeciesSeason.isSouthern(latitude: nil)
+    /// The estimated water through the year at the forecast's place, as the
+    /// species guide reads it. Starts from the time zone's hemisphere until
+    /// the first load.
+    @State private var water = SpeciesSeason.waterYear(latitude: nil)
     @AppStorage("units") private var units = "metric"
     /// Shared with Today's target species (0 means any species).
     @AppStorage("targetSpeciesId") private var targetSpeciesId: Int = 0
@@ -36,8 +37,9 @@ struct SpeciesDetailView: View {
     private static let limitsTint: Color = .purple
     private var isTargeted: Bool { targetSpeciesId == Int(species.id) }
     private var month: Int { SpeciesSeason.currentMonth }
-    private var seasonScores: [Int] { SpeciesSeason.scores(species, southern: southern) }
-    private var inSeasonNow: Bool { SpeciesSeason.isInSeason(species, month: month, southern: southern) }
+    private var knowsSeason: Bool { SpeciesSeason.knowsSeason(species) }
+    private var seasonScores: [Int] { SpeciesSeason.scores(species, water: water) }
+    private var inSeasonNow: Bool { SpeciesSeason.isInSeason(species, month: month, water: water) }
 
     var body: some View {
         ScrollView {
@@ -70,7 +72,9 @@ struct SpeciesDetailView: View {
                         .padding(.top, DS.Space.s6)
                 }
 
-                seasonSection
+                if knowsSeason {
+                    seasonSection
+                }
                 temperatureSection
                 if !species.parsedBaits.isEmpty {
                     baitsSection
@@ -133,7 +137,7 @@ struct SpeciesDetailView: View {
     }
 
     private func load() async {
-        southern = SpeciesSeason.isSouthernHemisphere(appState)
+        water = await SpeciesSeason.waterYear(appState)
         catches = (try? appState.catchRepository.fetchForSpecies(species.id)) ?? []
         loaded = true
         if info == nil {
@@ -171,7 +175,9 @@ struct SpeciesDetailView: View {
             } else if loaded {
                 SpeciesTag(text: "Not found yet")
             }
-            SpeciesTag(text: inSeasonNow ? "In season now" : "Out of season now")
+            if knowsSeason {
+                SpeciesTag(text: inSeasonNow ? "In season now" : "Out of season now")
+            }
             SpeciesTag(text: "\(species.rarity.label) find")
         }
     }
@@ -335,9 +341,9 @@ struct SpeciesDetailView: View {
     private var seasonSection: some View {
         section("Season") {
             SeasonChart(scores: seasonScores,
-                        inSeason: (1...12).map { SpeciesSeason.isInSeason(species, month: $0, southern: southern) },
+                        inSeason: (1...12).map { SpeciesSeason.isInSeason(species, month: $0, water: water) },
                         tint: tint)
-            SectionFootnote(SpeciesSeason.peakText(seasonScores).map { "\($0), estimated from typical water temperatures." }
+            SectionFootnote(SpeciesSeason.peakText(seasonScores, month: month).map { "\($0), estimated from typical water temperatures." }
                         ?? "Estimated from typical water temperatures.")
         }
     }
@@ -350,15 +356,15 @@ struct SpeciesDetailView: View {
         if SpeciesSeason.hasPlaceholderTemps(species) {
             EmptyView()
         } else if let band = SpeciesSeason.band(species) {
-            let water = SpeciesSeason.waterTemp(for: month, southern: southern)
+            let monthWater = water.temp(month)
             let feeds = ConditionText.comfort(for: species)
             section("Water temperature") {
                 LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible())], spacing: 10) {
                     ConditionTile("Water in \(SpeciesSeason.fullMonths[month - 1])",
                                   systemImage: "thermometer.medium", iconTint: .dsScoreLow,
-                                  value: degreesValue(water), unit: imperial ? "°F" : "°C",
-                                  footnote: waterFootnote(water, band: band, feeds: feeds)) {
-                        SpeciesTempBar(low: band.lower, high: band.upper, value: water)
+                                  value: degreesValue(monthWater), unit: imperial ? "°F" : "°C",
+                                  footnote: waterFootnote(monthWater, band: band, feeds: feeds)) {
+                        SpeciesTempBar(low: band.lower, high: band.upper, value: monthWater)
                     }
                     ConditionTile("Feeds best", systemImage: "fish.fill", iconTint: tint,
                                   value: "\(degreesValue(feeds.lowerBound)) to \(degreesValue(feeds.upperBound))",

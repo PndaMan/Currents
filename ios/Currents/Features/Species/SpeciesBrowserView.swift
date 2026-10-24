@@ -7,7 +7,8 @@ struct SpeciesNavID: Hashable {
 }
 
 /// The species guide: every species, split into in season and out of season
-/// for the chosen month, with search, habitat filter and sort. Pushed from
+/// for the chosen month (and the fish whose season is not known), with
+/// search, habitat filter and sort. Pushed from
 /// Explore (or shown in a sheet with its own stack). Replaces the old Field
 /// Guide and Seasons segments.
 struct SpeciesBrowserView: View {
@@ -23,13 +24,13 @@ struct SpeciesBrowserView: View {
     @State private var habitat: HabitatFilter = .all
     @AppStorage("seasonalSortOrder") private var sortOrder: SortOrder = .match
 
-    /// Whether the forecast's place is south of the equator, read on each
-    /// load. Starts from the time zone until then.
-    @State private var southern = SpeciesSeason.isSouthern(latitude: nil)
-    /// The hemisphere `scoresById` was worked out for.
-    @State private var scoredSouthern: Bool?
-    /// Best match tie-breaks: fish on record at the waters of the angler's
-    /// spots, and at waters near the forecast's place.
+    /// The estimated water through the year at the forecast's place, read on
+    /// each load. Starts from the time zone's hemisphere until then.
+    @State private var water = SpeciesSeason.waterYear(latitude: nil)
+    /// The water `scoresById` was worked out for.
+    @State private var scoredWater: WaterYear?
+    /// Best match puts local fish first: fish on record at the waters of the
+    /// angler's spots, and at waters near the forecast's place.
     @State private var spotSpeciesIds: Set<Int64> = []
     @State private var nearbySpeciesIds: Set<Int64> = []
 
@@ -37,6 +38,7 @@ struct SpeciesBrowserView: View {
     @State private var scoresById: [Int64: [Int]] = [:]
     @State private var inSeason: [Species] = []
     @State private var offSeason: [Species] = []
+    @State private var unknownSeason: [Species] = []
 
     enum SortOrder: String, CaseIterable, Identifiable {
         case match = "Best match"
@@ -66,7 +68,7 @@ struct SpeciesBrowserView: View {
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
-                DetailHeader(over: loaded ? SpeciesSeason.hemisphereName(southern: southern) : nil,
+                DetailHeader(over: loaded ? SpeciesSeason.hemisphereName(southern: water.southern) : nil,
                              title: "Species guide", subtitle: subtitle)
 
                 PFSearchField(prompt: "Search by name or family", text: $searchText)
@@ -150,13 +152,14 @@ struct SpeciesBrowserView: View {
     private var subtitle: String? {
         guard loaded else { return nil }
         let name = SpeciesSeason.fullMonths[month - 1]
-        let water = Units.temperature(SpeciesSeason.waterTemp(for: month, southern: southern))
-        return "\(inSeasonTotal.formatted()) of \(species.count.formatted()) in season in \(name), water about \(water)."
+        let temp = Units.temperature(water.temp(month))
+        return "\(inSeasonTotal.formatted()) of \(species.count.formatted()) in season in \(name), water about \(temp)."
     }
 
-    /// In season this month across the whole guide, ignoring search and habitat.
+    /// In season this month across the whole guide, ignoring search and
+    /// habitat. Fish whose season is not known never count.
     private var inSeasonTotal: Int {
-        species.reduce(0) { $0 + (SpeciesSeason.isInSeason($1, month: month, southern: southern) ? 1 : 0) }
+        species.reduce(0) { $0 + (SpeciesSeason.isInSeason($1, month: month, water: water) ? 1 : 0) }
     }
 
     // MARK: - List
@@ -171,7 +174,7 @@ struct SpeciesBrowserView: View {
             ContentUnavailableView("No species data", systemImage: "fish",
                                    description: Text("Species will appear here once the guide has loaded."))
                 .padding(.top, 40)
-        } else if inSeason.isEmpty && offSeason.isEmpty {
+        } else if inSeason.isEmpty && offSeason.isEmpty && unknownSeason.isEmpty {
             ContentUnavailableView("No species found", systemImage: "magnifyingglass",
                                    description: Text("Try the common name, the family or the scientific name."))
                 .padding(.top, 40)
@@ -185,6 +188,11 @@ struct SpeciesBrowserView: View {
                 SectionTitle("Out of season", detail: offSeason.count.formatted())
                     .padding(.top, DS.Space.s6)
                 ForEach(offSeason) { sp in row(sp) }
+            }
+            if !unknownSeason.isEmpty {
+                SectionTitle("Season not known", detail: unknownSeason.count.formatted())
+                    .padding(.top, DS.Space.s6)
+                ForEach(unknownSeason) { sp in row(sp) }
             }
         }
     }
@@ -213,21 +221,21 @@ struct SpeciesBrowserView: View {
     // MARK: - Data
 
     private func load() async {
-        // The forecast's place, read on every appear rather than once, so
-        // the hemisphere follows the place Today forecasts for.
+        // The forecast's place and its water, read on every appear rather
+        // than once, so the season follows the place Today forecasts for.
         let place = SpeciesSeason.forecastCoordinate(appState)
-        let isSouth = SpeciesSeason.isSouthern(latitude: place?.latitude)
+        let year = await SpeciesSeason.waterYear(appState)
         if species.isEmpty {
             species = (try? appState.speciesRepository.fetchAll()) ?? []
         }
-        if scoredSouthern != isSouth || scoresById.count != species.count {
+        if scoredWater != year || scoresById.count != species.count {
             var scores: [Int64: [Int]] = [:]
             scores.reserveCapacity(species.count)
-            for sp in species { scores[sp.id] = SpeciesSeason.scores(sp, southern: isSouth) }
+            for sp in species { scores[sp.id] = SpeciesSeason.scores(sp, water: year) }
             scoresById = scores
-            scoredSouthern = isSouth
+            scoredWater = year
         }
-        southern = isSouth
+        water = year
         caughtIds = (try? appState.speciesRepository.caughtSpeciesIds()) ?? []
         spotSpeciesIds = speciesAtSpots()
         nearbySpeciesIds = place.map { speciesNear($0) } ?? []
@@ -259,8 +267,8 @@ struct SpeciesBrowserView: View {
         return Set(waters.flatMap(\.decodedFishSpeciesIds))
     }
 
-    /// Breaks a best match tie toward the fish nearest the angler: caught
-    /// first, then on record at their spots, then near the forecast's place.
+    /// How near the angler a fish is: caught, then on record at their
+    /// spots, then near the forecast's place, then not known nearby.
     private func localRank(_ sp: Species) -> Int {
         if caughtIds.contains(sp.id) { return 0 }
         if spotSpeciesIds.contains(sp.id) { return 1 }
@@ -291,10 +299,14 @@ struct SpeciesBrowserView: View {
         let sorted: [Species]
         switch sortOrder {
         case .match:
+            // Fish known near the angler lead, best scoring first, then
+            // the rest of the world's fish by score.
             sorted = result.sorted {
+                let rankA = localRank($0), rankB = localRank($1)
+                let localA = rankA < 3, localB = rankB < 3
+                if localA != localB { return localA }
                 let a = score($0), b = score($1)
                 if a != b { return a > b }
-                let rankA = localRank($0), rankB = localRank($1)
                 if rankA != rankB { return rankA < rankB }
                 return $0.commonName < $1.commonName
             }
@@ -303,7 +315,9 @@ struct SpeciesBrowserView: View {
         case .temp:
             sorted = result.sorted { ($0.optimalTempC ?? 0) < ($1.optimalTempC ?? 0) }
         }
-        inSeason = sorted.filter { SpeciesSeason.isInSeason($0, month: month, southern: southern) }
-        offSeason = sorted.filter { !SpeciesSeason.isInSeason($0, month: month, southern: southern) }
+        let known = sorted.filter { SpeciesSeason.knowsSeason($0) }
+        inSeason = known.filter { SpeciesSeason.isInSeason($0, month: month, water: water) }
+        offSeason = known.filter { !SpeciesSeason.isInSeason($0, month: month, water: water) }
+        unknownSeason = sorted.filter { !SpeciesSeason.knowsSeason($0) }
     }
 }
