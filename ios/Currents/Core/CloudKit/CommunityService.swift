@@ -2078,6 +2078,7 @@ final class CommunityService: ObservableObject {
     }
 
     func groupTrip(code: String) async -> GroupTrip? {
+        if ScreenshotSupport.isActive { return ScreenshotSupport.demoGroupTrip(code: code) }
         let id = CKRecord.ID(recordName: "grouptrip-\(code)")
         guard let r = try? await db.record(for: id) else { return nil }
         let hostCode = r["hostCode"] as? String ?? ""
@@ -2127,6 +2128,7 @@ final class CommunityService: ObservableObject {
     }
 
     func groupMembers(code: String) async -> [GroupMember] {
+        if ScreenshotSupport.isActive { return ScreenshotSupport.demoGroupMembers(code: code) }
         // Server-side filter on the indexed `groupCode` so every member is found
         // regardless of how many group members exist across the whole public DB.
         let query = CKQuery(recordType: groupMemberType,
@@ -2149,6 +2151,7 @@ final class CommunityService: ObservableObject {
     /// Every catch shared into the group, newest first. Server-side filter on the
     /// indexed `groupCode` so the whole group's feed is reliable at any scale.
     func groupCatches(code: String) async -> [GroupCatch] {
+        if ScreenshotSupport.isActive { return ScreenshotSupport.demoGroupCatches(code: code) }
         let query = CKQuery(recordType: catchType,
                             predicate: NSPredicate(format: "groupCode == %@", code))
         guard let results = try? await db.records(matching: query, resultsLimit: 400) else {

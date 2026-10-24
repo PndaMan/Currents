@@ -713,6 +713,23 @@ enum ScreenshotSupport {
         seedFeed(picker: picker)
         seedLeaderboard(picker: picker)
         seedTournament()
+        seedGroupTrip(picker: picker)
+    }
+
+    /// Photos for the live trip's catches, and a link from the trip to a
+    /// session id that is never saved. The trip page links a member's
+    /// session on open and would otherwise save a new open session, which
+    /// would then show in every later Logbook capture.
+    @MainActor
+    private static func seedGroupTrip(picker: PhotoPicker) {
+        for c in demoTripCatches {
+            if let photo = picker.next(["bass"]) {
+                CommunityDiskCache.saveImage(photo, key: "catchphoto-\(c.id)")
+            }
+        }
+        if let trip = demoLiveTrips(crewCode: crewCode).first {
+            CommunityService.shared.setGroupCode(trip.id, forTripId: "demo-group-trip-session")
+        }
     }
 
     private static let demoPosts: [(author: String, species: String, kg: Double, cm: Double,
@@ -898,11 +915,62 @@ enum ScreenshotSupport {
     }
 
     /// A crewmate's session in progress, for `CommunityService.liveCrewTrips`.
+    /// Named for the part of the day it started in, so the name agrees with
+    /// the times shown beside it whenever CI runs.
     static func demoLiveTrips(crewCode code: String) -> [CommunityService.GroupTrip] {
         guard code == crewCode else { return [] }
+        let started = Date(timeIntervalSinceNow: -5400)
         return [CommunityService.GroupTrip(
-            id: "EVEN42", name: "Steenbras evening", hostCode: mates[1].code, hostName: mates[1].name,
-            createdAt: Date(timeIntervalSinceNow: -5400), isHost: false, endedAt: nil, crewCode: code)]
+            id: "EVEN42", name: "Steenbras \(partOfDay(started))", hostCode: mates[1].code,
+            hostName: mates[1].name, createdAt: started, isHost: false, endedAt: nil, crewCode: code)]
+    }
+
+    /// The live trip by its join code, for `CommunityService.groupTrip`.
+    static func demoGroupTrip(code: String) -> CommunityService.GroupTrip? {
+        demoLiveTrips(crewCode: crewCode).first { $0.id == code }
+    }
+
+    /// Who is on the live trip, for `CommunityService.groupMembers`: the host,
+    /// two crewmates and me, so the trip page opens as a member sees it.
+    static func demoGroupMembers(code: String) -> [CommunityService.GroupMember] {
+        guard let trip = demoGroupTrip(code: code) else { return [] }
+        let joined: [(code: String, minutesIn: Double)] = [
+            (mates[1].code, 0), (mates[0].code, 10), (me.code, 25), (mates[2].code, 40),
+        ]
+        return joined.map { j in
+            CommunityService.GroupMember(id: j.code, name: angler(j.code).name,
+                                         joinedAt: trip.createdAt.addingTimeInterval(j.minutesIn * 60))
+        }
+    }
+
+    /// Catches shared into the live trip, newest first. Bass, the fish the
+    /// demo log has at Steenbras. `seedCommunity` caches a photo for each id.
+    private static let demoTripCatches: [(id: String, code: String, kg: Double, cm: Double, minutesAgo: Double)] = [
+        ("grouptrip-demo-1", "TIDE22", 0.9, 37, 12),
+        ("grouptrip-demo-2", "REEF07", 1.2, 40, 34),
+        ("grouptrip-demo-3", "KLIP31", 1.7, 45, 51),
+        ("grouptrip-demo-4", "TIDE22", 2.2, 49, 70),
+    ]
+
+    /// The live trip's catch feed, for `CommunityService.groupCatches`.
+    static func demoGroupCatches(code: String) -> [CommunityService.GroupCatch] {
+        guard demoGroupTrip(code: code) != nil else { return [] }
+        return demoTripCatches.map { c in
+            CommunityService.GroupCatch(id: c.id, anglerName: angler(c.code).name, friendCode: c.code,
+                                        species: "Largemouth Bass", weightKg: c.kg, lengthCm: c.cm,
+                                        date: Date(timeIntervalSinceNow: -c.minutesAgo * 60))
+        }
+    }
+
+    /// "morning", "afternoon", "evening" or "night" for the hour a demo
+    /// session started, so its name matches its start time.
+    private static func partOfDay(_ date: Date) -> String {
+        switch Calendar.current.component(.hour, from: date) {
+        case 4..<12: "morning"
+        case 12..<17: "afternoon"
+        case 17..<21: "evening"
+        default: "night"
+        }
     }
 
     // MARK: - Fallback artwork
