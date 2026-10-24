@@ -275,7 +275,9 @@ struct GearTab: View {
 
     private var filterOptions: [GearFilter] {
         var options: [GearFilter] = [.all]
-        if !lowItems.isEmpty || filter == .low { options.append(.low) }
+        // The running-low card sets this filter, so the chip shows only
+        // once the card has been tapped and is hidden.
+        if filter == .low { options.append(.low) }
         options += ownedCategories.map { GearFilter.category($0) }
         return options
     }
