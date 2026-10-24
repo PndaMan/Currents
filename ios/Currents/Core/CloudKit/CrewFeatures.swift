@@ -938,7 +938,7 @@ extension CommunityService {
             guard let rec = try? r.get(), let code = rec["code"] as? String,
                   rec["endedAt"] == nil, rec["tournamentCode"] == nil else { return nil }
             return GroupTrip(id: code,
-                             name: rec["name"] as? String ?? "Group Trip",
+                             name: rec["name"] as? String ?? "Group trip",
                              hostCode: rec["hostCode"] as? String ?? "",
                              hostName: rec["hostName"] as? String ?? "",
                              createdAt: rec["createdAt"] as? Date ?? .distantPast,

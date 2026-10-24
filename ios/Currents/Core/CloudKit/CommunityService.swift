@@ -2087,7 +2087,7 @@ final class CommunityService: ObservableObject {
         if let endedAt { markGroupEnded(code: code, at: endedAt) }
         return GroupTrip(
             id: r["code"] as? String ?? code,
-            name: r["name"] as? String ?? "Group Trip",
+            name: r["name"] as? String ?? "Group trip",
             hostCode: hostCode,
             hostName: r["hostName"] as? String ?? "Host",
             createdAt: r["createdAt"] as? Date ?? .now,
@@ -2222,7 +2222,7 @@ final class CommunityService: ObservableObject {
             guard let rec = try? r.get(), let code = rec["code"] as? String,
                   rec["tournamentCode"] == nil else { return nil }
             return GroupTrip(id: code,
-                             name: rec["name"] as? String ?? "Group Trip",
+                             name: rec["name"] as? String ?? "Group trip",
                              hostCode: rec["hostCode"] as? String ?? "",
                              hostName: rec["hostName"] as? String ?? "",
                              createdAt: rec["createdAt"] as? Date ?? .distantPast,
@@ -2344,7 +2344,7 @@ final class CommunityService: ObservableObject {
             let inv = TripInvite(
                 id: r.recordID.recordName,
                 groupCode: r["groupCode"] as? String ?? "",
-                tripName: r["tripName"] as? String ?? "Group Trip",
+                tripName: r["tripName"] as? String ?? "Group trip",
                 fromName: r["fromName"] as? String ?? "A friend",
                 fromCode: r["fromCode"] as? String ?? "",
                 date: r["createdAt"] as? Date ?? .now
