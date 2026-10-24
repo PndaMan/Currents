@@ -333,36 +333,27 @@ struct CrewFeedRow: View {
         return post.caption.isEmpty ? (post.tripName.isEmpty ? nil : post.tripName) : post.caption
     }
 
-    /// The most used reaction's stored key; a tie goes to the first given.
-    private var topReaction: String {
-        var counts: [String: Int] = [:]
-        var order: [String] = []
-        for r in post.reactions {
-            if counts[r.emoji] == nil { order.append(r.emoji) }
-            counts[r.emoji, default: 0] += 1
-        }
-        return order.max { (counts[$0] ?? 0) < (counts[$1] ?? 0) } ?? ""
-    }
-
     var body: some View {
         ArtRow(over: "\(who), \(post.caughtAt.formatted(.relative(presentation: .named)))",
                title: CrewText.catchTitle(species: post.species, lengthCm: post.lengthCm, weightKg: post.weightKg),
                subtitle: subtitle) {
             thumb
         } trailing: {
+            // One quiet glyph for the tally on every row; the reactions
+            // themselves, in their colours, are on the catch sheet.
             let total = post.reactions.count
             if total > 0 {
-                let top = topReaction
                 HStack(spacing: 4) {
-                    Image(systemName: CrewReactionStyle.symbol(top))
+                    Image(systemName: "face.smiling")
                         .font(.subheadline)
-                        .foregroundStyle(DS.ink(CrewReactionStyle.tint(top)))
+                        .foregroundStyle(.dsText2)
                     Text("\(total)")
                         .font(.subheadline.weight(.medium))
                         .foregroundStyle(.dsText2)
                         .contentTransition(.numericText())
                 }
-                .accessibilityLabel("\(total) reactions")
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(total == 1 ? "1 reaction" : "\(total) reactions")
             }
         }
         .task(id: post.id) {
