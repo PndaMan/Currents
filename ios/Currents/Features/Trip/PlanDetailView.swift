@@ -371,7 +371,12 @@ struct PlanDetailView: View {
     private func saveChecklist() {
         guard var t = trip else { return }
         t.checklist = Trip.encodeChecklist(checklist)
-        try? appState.tripRepository.save(&t)
+        do {
+            try appState.tripRepository.save(&t)
+        } catch {
+            ToastCenter.shared.show("Could not save the checklist", style: .error)
+            return
+        }
         trip = t
     }
 
