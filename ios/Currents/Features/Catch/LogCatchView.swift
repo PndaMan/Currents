@@ -2467,6 +2467,7 @@ struct SpeciesPickerSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var searchText = ""
     @State private var habitat: HabitatFilter = .all
+    @State private var repeatedNames = RepeatedNames()
 
     enum HabitatFilter: String, CaseIterable, Hashable {
         case all = "All"
@@ -2555,6 +2556,7 @@ struct SpeciesPickerSheet: View {
             }
             .scrollDismissesKeyboard(.immediately)
             .detailTint(nil)
+            .task(id: species.count) { repeatedNames = RepeatedNames(species) }
             .navigationTitle("Species")
             .navigationBarTitleDisplayMode(.inline)
             .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always),
@@ -2678,7 +2680,8 @@ struct SpeciesPickerSheet: View {
             dismiss()
         } label: {
             ArtRow(title: sp.commonName,
-                   subtitle: confidence.map { matchLine(sp, confidence: $0) } ?? habitatLine(sp)) {
+                   subtitle: confidence.map { matchLine(sp, confidence: $0) }
+                       ?? (repeatedNames.contains(sp) ? sp.scientificName : habitatLine(sp))) {
                 ThumbView(tint: sp.artTint) {
                     SpeciesArtworkView(species: sp, caught: true, size: 52)
                 }
