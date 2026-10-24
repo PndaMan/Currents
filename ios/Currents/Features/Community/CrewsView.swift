@@ -2402,7 +2402,7 @@ struct JoinCrewConfirmView: View {
             }
             .padding(.top, DS.Space.s4)
         } else if lookupFailed {
-            PageHero(label: "Code \(shownCode)", value: "Can't reach Crew right now") {
+            PageHero(label: "Crew code \(shownCode)", value: "Can't reach Crew right now") {
                 ThumbView(systemImage: "wifi.slash", tint: .orange, size: 92)
             }
             .padding(.top, DS.Space.s4)
@@ -2411,7 +2411,7 @@ struct JoinCrewConfirmView: View {
                 .padding(.horizontal, DS.gutter)
                 .padding(.top, DS.Space.s5)
         } else {
-            PageHero(label: "Code \(shownCode)", value: "No crew found") {
+            PageHero(label: "Crew code \(shownCode)", value: "No crew found") {
                 ThumbView(systemImage: "person.3.fill", tint: CrewTint.people, size: 92)
             }
             .padding(.top, DS.Space.s4)
