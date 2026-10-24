@@ -1663,6 +1663,8 @@ struct CrewPostSheet: View {
     @Environment(AppState.self) private var appState
     private var svc: CommunityService { .shared }
     @State private var photo: UIImage?
+    /// True once the photo couldn't be fetched, so the hero stops spinning.
+    @State private var photoFailed = false
     @State private var caption: String?
     @State private var editingCaption = false
     @State private var captionDraft = ""
@@ -1722,9 +1724,12 @@ struct CrewPostSheet: View {
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
         .task(id: post.id) {
-            if post.hasPhoto, photo == nil, CrewCloud.shared.isAvailable {
+            guard post.hasPhoto, photo == nil else { return }
+            photoFailed = false
+            if CrewCloud.shared.isAvailable {
                 photo = await svc.crewPostImage(recordName: post.id)
             }
+            photoFailed = photo == nil
         }
         .sheet(isPresented: $showingComments) {
             CrewCommentsSheet(post: post, crew: crew) { count in
@@ -1766,12 +1771,25 @@ struct CrewPostSheet: View {
                     Color.dsFill
                         .frame(maxWidth: .infinity)
                         .frame(height: 260)
-                        .overlay(ProgressView())
+                        .overlay {
+                            if photoFailed {
+                                VStack(spacing: DS.Space.s3) {
+                                    ThumbView(systemImage: "photo", tint: CrewTint.fish, size: 72)
+                                    Text("Photo unavailable offline")
+                                        .font(.subheadline)
+                                        .foregroundStyle(.dsText2)
+                                        .multilineTextAlignment(.center)
+                                }
+                                .padding(.horizontal, DS.Space.s4)
+                            } else {
+                                ProgressView()
+                            }
+                        }
                         .clipShape(RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
                 }
             }
             .zoomableOnTap(photo)
-            .accessibilityLabel("Catch photo")
+            .accessibilityLabel(photoFailed ? "Photo unavailable offline" : "Catch photo")
         } else if let sp = SpeciesArtLookup.species(named: post.species, appState: appState) {
             ThumbView(species: sp, size: 100)
         } else {
