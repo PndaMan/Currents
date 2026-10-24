@@ -10,6 +10,7 @@ struct LicenseWalletView: View {
     @State private var licenses: [FishingLicense] = []
     @State private var showingAdd = false
     @State private var didLoad = false
+    @State private var loadFailed = false
     @State private var titleShown = false
     @State private var toDelete: FishingLicense?
     @State private var opened: LicenseRoute?
@@ -21,11 +22,21 @@ struct LicenseWalletView: View {
 
     var body: some View {
         List {
-            DetailHeader(title: "Licences", subtitle: summary)
-                .padding(.bottom, DS.Space.s2)
-                .dsListRow()
-            if didLoad && licenses.isEmpty {
-                emptyState
+            if didLoad && !loadFailed && licenses.isEmpty {
+                emptyHero
+                    .dsListRow()
+                addButton
+                    .padding(.top, DS.Space.s5)
+                    .dsListRow()
+            } else {
+                DetailHeader(title: "Licences", subtitle: summary)
+                    .padding(.bottom, DS.Space.s2)
+                    .dsListRow()
+            }
+            if loadFailed {
+                InlineEmpty(systemImage: "exclamationmark.triangle",
+                            text: "Your licences could not be read. Nothing is lost.",
+                            actionTitle: "Try again") { reload() }
                     .padding(.top, DS.Space.s4)
                     .dsListRow()
             }
@@ -82,7 +93,7 @@ struct LicenseWalletView: View {
     /// One line under the title: what needs doing, or how many are kept.
     /// Each row carries its own expiry status, so this only counts.
     private var summary: String? {
-        guard didLoad, !licenses.isEmpty else { return nil }
+        guard didLoad, !loadFailed, !licenses.isEmpty else { return nil }
         let due = current.filter(\.isRenewalDue).count
         if due > 0 { return due == 1 ? "1 licence to renew" : "\(due) licences to renew" }
         if current.isEmpty {
@@ -91,10 +102,25 @@ struct LicenseWalletView: View {
         return current.count == 1 ? "1 valid licence" : "\(current.count) valid licences"
     }
 
-    private var emptyState: some View {
-        InlineEmpty(systemImage: "person.text.rectangle",
-                    text: "Scan a licence to keep it here, with a reminder before it expires.",
-                    actionTitle: "Add licence") { showingAdd = true }
+    /// Nothing kept yet: the licence art, one line and the one action, the
+    /// way Target greets an angler who has not picked a species.
+    private var emptyHero: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ThumbView(systemImage: "person.text.rectangle.fill", tint: .green, size: 112)
+                .padding(.horizontal, DS.gutter)
+                .accessibilityHidden(true)
+            DetailHeader(title: "Licences",
+                         subtitle: "Scan a licence to keep it here, with a reminder before it expires.")
+                .padding(.top, DS.Space.s4)
+        }
+    }
+
+    private var addButton: some View {
+        Button { showingAdd = true } label: {
+            Label("Add licence", systemImage: "plus")
+        }
+        .buttonStyle(.dsPrimary)
+        .padding(.horizontal, DS.gutter)
     }
 
     private func rows(_ list: [FishingLicense]) -> some View {
@@ -126,7 +152,17 @@ struct LicenseWalletView: View {
     }
 
     private func reload() {
-        licenses = (try? appState.licenseRepository.fetchAll()) ?? []
+        do {
+            licenses = try appState.licenseRepository.fetchAll()
+            loadFailed = false
+        } catch {
+            // Say so rather than show an empty wallet, and leave the
+            // reminders alone: rescheduling from an empty list clears them.
+            licenses = []
+            loadFailed = true
+            didLoad = true
+            return
+        }
         didLoad = true
         let all = licenses
         Task { await LicenseReminders.reschedule(all) }
