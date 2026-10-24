@@ -92,44 +92,59 @@ struct AnalyticsView: View {
             : AnyLayout(HStackLayout(spacing: 10))
     }
 
+    /// Every tile carries a short footnote that adds a fact, so each row
+    /// keeps one height and the footnote fits one line at a third width.
     private var totalsTiles: some View {
         let released = allCatches.filter { $0.catchRecord.released }.count
         let rate = allCatches.isEmpty ? 0 : Int((Double(released) / Double(allCatches.count) * 100).rounded())
         let weights = allCatches.compactMap(\.catchRecord.weightKg)
         let avgWeight = weights.isEmpty ? nil : weights.reduce(0, +) / Double(weights.count)
-        let biggest = personalBests.compactMap(\.heaviestKg).max()
-        let longest = personalBests.compactMap(\.longestCm).max()
+        let heaviest = personalBests.filter { $0.heaviestKg != nil }
+            .max { ($0.heaviestKg ?? 0) < ($1.heaviestKg ?? 0) }
+        let longest = personalBests.filter { $0.longestCm != nil }
+            .max { ($0.longestCm ?? 0) < ($1.longestCm ?? 0) }
+        let cal = Calendar.current
+        let year = cal.component(.year, from: .now)
+        let thisYear = allCatches.filter { cal.component(.year, from: $0.catchRecord.caughtAt) == year }
+        let speciesThisYear = Set(thisYear.compactMap(\.catchRecord.speciesId)).count
         return VStack(spacing: 10) {
             tileRow {
                 StatTile("Catches", systemImage: "fish.fill", tint: DS.accent,
-                         value: "\(totalCatches)", width: nil)
+                         value: "\(totalCatches)", footnote: "\(thisYear.count) this year", width: nil)
                 StatTile("Species", systemImage: "leaf.fill", tint: .dsScoreGood,
-                         value: "\(personalBests.count)", width: nil)
-                StatTile("Released", systemImage: "arrow.uturn.backward", tint: .dsScoreLow,
+                         value: "\(personalBests.count)", footnote: "\(speciesThisYear) this year", width: nil)
+                StatTile("Released", systemImage: "arrow.uturn.backward", tint: DS.ink(.dsScoreLow),
                          value: "\(rate)", unit: "%", footnote: "\(released) of \(allCatches.count)", width: nil)
             }
-            if biggest != nil || avgWeight != nil || longest != nil {
+            if heaviest != nil || avgWeight != nil || longest != nil {
                 tileRow {
-                    if let biggest {
-                        let p = Units.weightParts(kg: biggest, imperial: imperial)
+                    if let heaviest, let kg = heaviest.heaviestKg {
+                        let p = Units.weightParts(kg: kg, imperial: imperial)
                         StatTile("Heaviest", systemImage: "trophy.fill", tint: DS.ink(.dsScoreFair),
-                                 value: p.0, unit: p.1, width: nil)
+                                 value: p.0, unit: p.1, footnote: heaviest.commonName, width: nil)
                     }
                     if let avgWeight {
-                        let p = Units.weightParts(kg: avgWeight, imperial: imperial)
-                        StatTile("Average", systemImage: "scalemass", tint: .dsText2,
-                                 value: p.0, unit: p.1, width: nil)
+                        let p = Units.weightParts(kg: oneDecimal(avgWeight), imperial: imperial)
+                        StatTile("Average", systemImage: "scalemass", tint: .teal,
+                                 value: p.0, unit: p.1, footnote: "\(weights.count) weighed", width: nil)
                     }
-                    if let longest {
-                        let p = Units.lengthParts(cm: longest, imperial: imperial)
-                        StatTile("Longest", systemImage: "ruler", tint: .dsText2,
-                                 value: p.0, unit: p.1, width: nil)
+                    if let longest, let cm = longest.longestCm {
+                        let p = Units.lengthParts(cm: cm, imperial: imperial)
+                        StatTile("Longest", systemImage: "ruler", tint: .indigo,
+                                 value: p.0, unit: p.1, footnote: longest.commonName, width: nil)
                     }
                 }
             }
         }
         .padding(.horizontal, DS.gutter)
         .padding(.top, DS.Space.s5)
+    }
+
+    /// An average weight rounded to one decimal in the shown unit: two
+    /// decimals beside the heaviest fish claimed a precision it lacks.
+    private func oneDecimal(_ kg: Double) -> Double {
+        let perKg = imperial ? 2.2046226 : 1
+        return (kg * perKg * 10).rounded() / 10 / perKg
     }
 
     // MARK: - Patterns
