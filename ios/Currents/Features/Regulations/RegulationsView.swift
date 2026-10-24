@@ -143,6 +143,54 @@ extension FishingRegulation {
         guard !first.isEmpty, first != commonName else { return nil }
         return (try? repository.fetchByCommonName(first)) ?? nil
     }
+
+    // MARK: Closed season
+
+    /// The closed season, when its stored text names the months. Read as
+    /// the target page reads it, so both agree on whether it is closed.
+    var closedDates: TargetClosedSeason? {
+        guard let text = closedSeason, !text.isEmpty else { return nil }
+        return TargetClosedSeason(text)
+    }
+
+    /// True while today falls inside the closed season.
+    var isClosedNow: Bool { closedDates?.isClosed() ?? false }
+
+    /// "1 October to 30 November", the closed season in full. The stored
+    /// text when it names no month; nil when there is no closed season.
+    var closedSeasonRange: String? {
+        guard let text = closedSeason?.trimmingCharacters(in: .whitespaces), !text.isEmpty else { return nil }
+        guard let dates = closedDates else { return text }
+        let start = Self.monthName(dates.startMonth), end = Self.monthName(dates.endMonth)
+        // Text that names only months reads from the 1st to the 31st.
+        if dates.startDay == 1 && dates.endDay == 31 {
+            return dates.startMonth == dates.endMonth ? "All of \(start)" : "\(start) to \(end)"
+        }
+        return "\(dates.startDay) \(start) to \(dates.endDay) \(end)"
+    }
+
+    /// For a labelled row: "Closed now, until 30 November" while today
+    /// falls inside the closed season, else the range.
+    var closedSeasonValue: String? {
+        guard let range = closedSeasonRange else { return nil }
+        guard let dates = closedDates, dates.isClosed() else { return range }
+        let end = Self.monthName(dates.endMonth)
+        let until = dates.startDay == 1 && dates.endDay == 31 ? "the end of \(end)" : "\(dates.endDay) \(end)"
+        return "Closed now, until \(until)"
+    }
+
+    /// For a list line, where nothing labels it: "Closed now, until 30
+    /// November", else "Closed 1 October to 30 November".
+    var closedSeasonLine: String? {
+        guard let value = closedSeasonValue else { return nil }
+        guard let dates = closedDates, !dates.isClosed() else { return value }
+        return "Closed \(value)"
+    }
+
+    private static func monthName(_ month: Int) -> String {
+        let names = Calendar.current.monthSymbols
+        return names.indices.contains(month - 1) ? names[month - 1] : ""
+    }
 }
 
 /// One row: the species art thumb, the name and its key limits.
@@ -172,10 +220,10 @@ private struct RegulationRow: View {
                     .font(.subheadline)
                     .foregroundStyle(.dsText2)
                     .lineLimit(lines)
-                if let closed = reg.closedSeason {
-                    Label("Closed season: \(closed)", systemImage: "calendar")
+                if let closed = reg.closedSeasonLine {
+                    Label(closed, systemImage: "calendar")
                         .font(.footnote)
-                        .foregroundStyle(.dsScoreLow)
+                        .foregroundStyle(reg.isClosedNow ? DS.ink(.dsScoreLow) : Color.dsText2)
                         .lineLimit(lines)
                 }
             }
@@ -226,27 +274,17 @@ struct RegulationDetailView: View {
 
             VStack(alignment: .leading, spacing: 0) {
                 SectionTitle(reg.region.isEmpty ? "Limits" : "Limits in \(reg.region)")
-                VStack(alignment: .leading, spacing: DS.Space.s2) {
-                    limitTiles
-                    if let closed = reg.closedSeason, !closed.isEmpty {
-                        HStack(spacing: 12) {
-                            ThumbView(systemImage: "calendar", tint: .dsScoreLow, size: 44)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("Closed season")
-                                    .foregroundStyle(.dsText)
-                                Text(closed)
-                                    .font(.subheadline)
-                                    .foregroundStyle(.dsText2)
-                                    .fixedSize(horizontal: false, vertical: true)
-                            }
-                            Spacer(minLength: 0)
-                        }
-                        .padding(DS.Space.s3)
-                        .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
-                        .accessibilityElement(children: .combine)
+                limitTiles
+                    .padding(.horizontal, DS.gutter)
+                if let range = reg.closedSeasonRange {
+                    // Says whether the season is closed today, beside its dates.
+                    CardGroup {
+                        CardRow("Closed season", subtitle: range, systemImage: "calendar", tint: .dsScoreLow,
+                                value: reg.closedDates.map { $0.isClosed() ? "Closed now" : "Open now" },
+                                valueTint: reg.isClosedNow ? DS.ink(.dsScoreLow) : .dsText2)
                     }
+                    .padding(.top, DS.Space.s2)
                 }
-                .padding(.horizontal, DS.gutter)
                 if let limitNote {
                     SectionFootnote(limitNote)
                 }

@@ -529,11 +529,7 @@ struct SpeciesDetailView: View {
             rows.append(("Maximum size", Units.length(cm: max, imperial: imperial)))
         }
         rows.append(("Bag limit", reg.bagLimit.map { "\($0) a day" } ?? "None"))
-        if let closed = reg.closedSeason, !closed.isEmpty {
-            rows.append(("Closed season", closed))
-        } else {
-            rows.append(("Closed season", "None"))
-        }
+        rows.append(("Closed season", reg.closedSeasonValue ?? "None"))
         return rows
     }
 
