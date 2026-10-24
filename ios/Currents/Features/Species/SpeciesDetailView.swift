@@ -211,8 +211,7 @@ struct SpeciesDetailView: View {
         Button {
             showingTarget = true
         } label: {
-            ArtRow(over: "Targeting", title: "Today for this fish",
-                   subtitle: "Score, best times and where to go", chevron: true) {
+            ArtRow(title: "Best times today", subtitle: "Bite score and where to go", chevron: true) {
                 ThumbView(systemImage: "scope", tint: DS.accent, size: 52)
             }
         }
