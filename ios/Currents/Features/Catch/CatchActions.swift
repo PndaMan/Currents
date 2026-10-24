@@ -6,32 +6,57 @@ import SwiftUI
 @MainActor
 enum CatchActions {
 
-    /// Removes the catch, its photos and any shared copies.
-    static func delete(_ detail: CatchDetail, appState: AppState) {
+    /// Removes the catch, its photos and any shared copies. The database row
+    /// goes first; when that fails nothing else is touched, an error toast
+    /// shows and the result is false.
+    @discardableResult
+    static func delete(_ detail: CatchDetail, appState: AppState) -> Bool {
         let id = detail.catchRecord.id
+        do {
+            try appState.catchRepository.delete(detail.catchRecord)
+        } catch {
+            ToastCenter.shared.show("Couldn't delete the catch", style: .error)
+            return false
+        }
         PhotoManager.deleteAll(detail.catchRecord.allPhotoPaths)
-        try? appState.catchRepository.delete(detail.catchRecord)
         // Pull it from the shared leaderboard and any group feed too.
         Task { await CommunityService.shared.removeCatch(id: id) }
         ToastCenter.shared.show("Catch deleted", style: .info, icon: "trash")
+        return true
     }
 
-    /// Flips the favourite flag and returns the saved record.
+    /// Flips the favourite flag and returns the saved record. When the save
+    /// fails an error toast shows and the original record comes back.
     @discardableResult
     static func toggleFavourite(_ detail: CatchDetail, appState: AppState) -> Catch {
         var record = detail.catchRecord
         record.isFavorite.toggle()
-        try? appState.catchRepository.save(&record)
+        do {
+            try appState.catchRepository.save(&record)
+        } catch {
+            ToastCenter.shared.show("Couldn't update the catch", style: .error)
+            return detail.catchRecord
+        }
         return record
     }
 
     /// Saves an edit from the log catch composer and re-publishes it: the edit is how a
     /// quick-logged catch gets its species and size, and the public record
-    /// must follow.
+    /// must follow. Falls back to the edit as passed when the save fails;
+    /// `saveEditChecked` tells the caller about that.
     @discardableResult
     static func saveEdit(_ updated: Catch, appState: AppState) -> Catch {
+        saveEditChecked(updated, appState: appState) ?? updated
+    }
+
+    /// `saveEdit` that returns nil, and publishes nothing, when the save fails.
+    static func saveEditChecked(_ updated: Catch, appState: AppState) -> Catch? {
         var record = updated
-        try? appState.catchRepository.save(&record)
+        do {
+            try appState.catchRepository.save(&record)
+        } catch {
+            return nil
+        }
         let published = record
         let name = record.speciesId.flatMap { try? appState.speciesRepository.fetch(id: $0) }?.commonName
         Task { await CommunityService.shared.publishLoggedCatch(published, speciesName: name) }
