@@ -73,7 +73,7 @@ struct RegulationsView: View {
                     }
                 }
 
-                PFFootnote("A guide only, and it works without signal. Confirm current rules with the local authority before you keep a fish.")
+                SectionFootnote("A guide only. Confirm current rules with the local authority before you keep a fish.")
             }
             .padding(.bottom, DS.Space.s8)
             .pageWidth()
@@ -341,7 +341,7 @@ struct RegulationDetailView: View {
                 .padding(.horizontal, DS.gutter)
             }
 
-            PFFootnote("Rules change. Confirm them with the local authority before you keep a fish.")
+            SectionFootnote("Rules change. Confirm them with the local authority before you keep a fish.")
         }
         .task {
             species = reg.species(in: appState.speciesRepository)
