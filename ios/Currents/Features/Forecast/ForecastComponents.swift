@@ -12,6 +12,19 @@ struct BiteBars: View {
     @Binding var selected: Int?
     var height: CGFloat = 64
     var use24: Bool = true
+    /// The score right now. When set, the current hour's bar is drawn from
+    /// it, so the bar matches the hero ring above the chart.
+    var nowScore: Int? = nil
+
+    /// The gap between bars. `HourAxis` lays its labels out on the same grid.
+    static let barSpacing: CGFloat = 3
+
+    /// The centre of an hour's bar across a row `width` wide.
+    static func barCentre(_ index: Int, count: Int, width: CGFloat) -> CGFloat {
+        let n = CGFloat(max(1, count))
+        let slot = max(0, (width - barSpacing * (n - 1)) / n)
+        return CGFloat(index) * (slot + barSpacing) + slot / 2
+    }
 
     @State private var appeared = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -22,7 +35,7 @@ struct BiteBars: View {
 
     var body: some View {
         VStack(spacing: 6) {
-            HStack(alignment: .bottom, spacing: 3) {
+            HStack(alignment: .bottom, spacing: Self.barSpacing) {
                 ForEach(Array(hourly.enumerated()), id: \.element.hour) { index, point in
                     bar(point, index: index)
                 }
@@ -32,11 +45,11 @@ struct BiteBars: View {
             if let currentHour {
                 // The now dot sits under its bar.
                 GeometryReader { geo in
-                    let w = geo.size.width / CGFloat(max(1, hourly.count))
+                    let index = hourly.firstIndex { $0.hour == currentHour } ?? currentHour
                     Circle()
                         .fill(Color.dsText)
                         .frame(width: 5, height: 5)
-                        .position(x: w * (CGFloat(currentHour) + 0.5), y: 2.5)
+                        .position(x: Self.barCentre(index, count: hourly.count, width: geo.size.width), y: 2.5)
                 }
                 .frame(height: 5)
                 .accessibilityHidden(true)
@@ -53,8 +66,9 @@ struct BiteBars: View {
         let isSelected = selected == point.hour
         let isNow = currentHour == point.hour
         let isPast = currentHour.map { point.hour < $0 } ?? false
-        let lit = inWindow(point.hour) || isNow || isSelected || point.score >= 50
-        let fraction = max(0.08, CGFloat(point.score) / 100)
+        let score = isNow ? (nowScore ?? point.score) : point.score
+        let lit = inWindow(point.hour) || isNow || isSelected || score >= 50
+        let fraction = max(0.08, CGFloat(score) / 100)
 
         return Button {
             // Ticks here, not on change: the plan sheet also moves the
@@ -65,7 +79,7 @@ struct BiteBars: View {
             }
         } label: {
             RoundedRectangle(cornerRadius: 4, style: .continuous) // ui-lint: allow, chart bar, not a card
-                .fill(lit ? DS.scoreColor(point.score) : Color.dsFill2)
+                .fill(lit ? DS.scoreColor(score) : Color.dsFill2)
                 .opacity(isPast && !isSelected ? 0.35 : (selected != nil && !isSelected ? 0.45 : 1))
                 .frame(height: appeared ? height * fraction : 4)
                 .overlay {
@@ -80,25 +94,46 @@ struct BiteBars: View {
                            value: appeared)
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("\(ForecastFormat.hour(point.hour, use24: use24)), score \(point.score)")
+        .accessibilityLabel("\(ForecastFormat.hour(point.hour, use24: use24)), score \(score)")
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }
 
-/// Evenly spaced axis labels under a 24-hour chart.
+/// Hour labels under `BiteBars`, each centred on its own bar, with the
+/// first and last kept inside the edges. Uses the bars' spacing, so it lines
+/// up when it is as wide as the bars.
 struct HourAxis: View {
     var labels: [String] = ["12 am", "6 am", "Noon", "6 pm", "11 pm"]
+    /// The hour each label names, in order.
+    var hours: [Int] = [0, 6, 12, 18, 23]
+    /// Bars in the chart above.
+    var count: Int = 24
 
     var body: some View {
-        HStack {
-            ForEach(Array(labels.enumerated()), id: \.offset) { index, label in
-                Text(label)
-                if index < labels.count - 1 { Spacer(minLength: 0) }
+        // A hidden label gives the row its height; the real labels sit over
+        // it, each at its bar.
+        Text(labels.first ?? " ")
+            .hidden()
+            .frame(maxWidth: .infinity)
+            .overlay(alignment: .topLeading) {
+                GeometryReader { geo in
+                    let width = geo.size.width
+                    ZStack(alignment: .topLeading) {
+                        Color.clear.frame(width: width, height: 0)
+                        ForEach(Array(zip(hours, labels).enumerated()), id: \.offset) { _, item in
+                            let centre = BiteBars.barCentre(item.0, count: count, width: width)
+                            Text(item.1)
+                                .fixedSize()
+                                .alignmentGuide(HorizontalAlignment.leading) { d in
+                                    -min(max(0, centre - d.width / 2), max(0, width - d.width))
+                                }
+                        }
+                    }
+                }
             }
-        }
-        .font(.caption)
-        .foregroundStyle(.dsText2)
-        .accessibilityHidden(true)
+            .font(.caption)
+            .foregroundStyle(.dsText2)
+            .accessibilityHidden(true)
     }
 }
 
@@ -143,19 +178,26 @@ struct WindowTiles: View {
         let end = ForecastFormat.hour(w.endHour + 1, use24: use24)
         let time = isNow ? "Until \(end)" : passed ? "Passed" : ForecastFormat.range(w, use24: use24)
 
+        // The window's name and its best hour's score. The score this hour is
+        // the hero's; the outline marks the window you are in.
         return Button {
             onSelect(isNow ? nowHour : w.startHour)
         } label: {
             VStack(alignment: .leading, spacing: 2) {
-                Label(isNow ? "Now" : ForecastFormat.windowName(w.startHour),
+                Label(ForecastFormat.windowName(w.startHour),
                       systemImage: ForecastFormat.windowIcon(w.startHour))
                     .font(.subheadline)
                     .foregroundStyle(.dsText2)
                     .labelStyle(TintedIconLabelStyle(tint: DS.scoreInk(w.peakScore)))
-                Text("\(w.peakScore)")
-                    .font(.title.bold())
-                    .monospacedDigit()
-                    .foregroundStyle(DS.scoreInk(w.peakScore))
+                HStack(alignment: .firstTextBaseline, spacing: 4) {
+                    Text("Peak")
+                        .font(.footnote)
+                        .foregroundStyle(.dsText2)
+                    Text("\(w.peakScore)")
+                        .font(.title.bold())
+                        .monospacedDigit()
+                        .foregroundStyle(DS.scoreInk(w.peakScore))
+                }
                 Text(time)
                     .font(.footnote)
                     .monospacedDigit()
@@ -206,9 +248,19 @@ struct HourInfoBox: View {
     var onClose: (() -> Void)? = nil
     @AppStorage("units") private var units = "metric"
 
+    /// The score shown for an hour: this moment's for the current hour of
+    /// today, so it matches the hero ring and the bar, otherwise the hour's own.
+    private func shownScore(_ hour: Int) -> Int? {
+        isNow(hour) ? day.result.score : day.score(at: hour)
+    }
+
+    private func isNow(_ hour: Int) -> Bool {
+        day.isToday && hour == Calendar.current.component(.hour, from: .now)
+    }
+
     var body: some View {
         Group {
-            if let hour, let score = day.score(at: hour) {
+            if let hour, let score = shownScore(hour) {
                 filled(hour: hour, score: score)
                     .contentShape(Rectangle())
                     .onTapGesture { close() }
@@ -227,7 +279,8 @@ struct HourInfoBox: View {
     }
 
     private func filled(hour: Int, score: Int) -> some View {
-        let detail = store.hourDetail(day: day.offset, hour: hour)
+        // This moment's reading for the current hour, as the hero shows.
+        let detail = isNow(hour) ? day.result : store.hourDetail(day: day.offset, hour: hour)
         let hourDate = Calendar.current.startOfDay(for: day.date).addingTimeInterval(Double(hour) * 3600 + 1800)
         let feeding = detail.feedingWindows.contains { hourDate >= $0.start && hourDate <= $0.end }
         let wx = day.hourWeather(hour)

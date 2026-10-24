@@ -333,7 +333,8 @@ struct TodayTab: View {
 
             VStack(spacing: 8) {
                 BiteBars(hourly: day.result.hourlyScores, windows: day.windows,
-                         currentHour: currentHour, selected: $selectedHour, height: 72, use24: use24)
+                         currentHour: currentHour, selected: $selectedHour, height: 72, use24: use24,
+                         nowScore: score)
                 HourAxis(labels: use24 ? ["00:00", "06:00", "12:00", "18:00", "23:00"]
                                        : ["12 am", "6 am", "Noon", "6 pm", "11 pm"])
                 Group {
