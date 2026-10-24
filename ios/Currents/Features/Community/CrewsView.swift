@@ -11,7 +11,7 @@ struct CrewsListPage: View {
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
-                CommunityHero(label: "Fish together", title: "Your crews", line: crewCountLine) {
+                PageHero(label: "Fish together", value: "Your crews", callout: crewCountLine) {
                     ThumbView(systemImage: "person.3.fill", tint: CrewTint.people, size: 92)
                 }
                 .padding(.top, DS.Space.s2)
@@ -32,8 +32,8 @@ struct CrewsListPage: View {
                 .padding(.top, DS.Space.s5)
 
                 if svc.myCrews.isEmpty {
-                    GroupedCard {
-                        IconRow("No crews yet", subtitle: "Start one or join with its code.",
+                    CardGroup {
+                        CardRow("No crews yet", subtitle: "Start one or join with its code.",
                                 systemImage: "person.3.fill", tint: CrewTint.people)
                     }
                     .padding(.top, DS.Space.s6)
@@ -136,11 +136,11 @@ struct CrewSetupView: View {
 
     @ViewBuilder private var setupHero: some View {
         if mode == .start {
-            CommunityHero(label: "New crew", title: "Start a crew", line: "A shared feed, challenges and tournaments.") {
+            PageHero(label: "New crew", value: "Start a crew", callout: "A shared feed, challenges and tournaments.") {
                 ThumbView(systemImage: "person.3.fill", tint: CrewTint.people, size: 72)
             }
         } else {
-            CommunityHero(label: "Got a code?", title: "Join a crew", line: "Ask whoever started it for the code.") {
+            PageHero(label: "Got a code?", value: "Join a crew", callout: "Ask whoever started it for the code.") {
                 ThumbView(systemImage: "person.badge.plus", tint: .dsScoreGood, size: 72)
             }
         }
@@ -401,8 +401,8 @@ struct CrewDetailView: View {
     }
 
     private var unavailable: some View {
-        GroupedCard {
-            IconRow("Crew not available", subtitle: "It may be deleted, or you're offline.",
+        CardGroup {
+            CardRow("Crew not available", subtitle: "It may be deleted, or you're offline.",
                     systemImage: "person.3.fill", tint: CrewTint.lock)
         }
         .padding(.top, DS.Space.s8)
@@ -1358,8 +1358,8 @@ struct CrewSettingsView: View {
 
     /// For members who can't edit: the crew as it looks, and who can change it.
     private var identitySummary: some View {
-        CommunityHero(label: "Crew code \(currentCrew.code)", title: currentCrew.name,
-                      line: "The captain and mates can change the crew's look.") {
+        PageHero(label: "Crew code \(currentCrew.code)", value: currentCrew.name,
+                 callout: "The captain and mates can change the crew's look.") {
             CrewThumb(code: currentCrew.code, emoji: currentCrew.emoji, size: 72)
         }
         .padding(.top, DS.Space.s2)
@@ -1497,9 +1497,8 @@ struct CrewSettingsView: View {
 
     private var membersSection: some View {
         CrewSection(title: "Members", detail: "\(members.count)") {
-            GroupedCard {
-                ForEach(Array(members.enumerated()), id: \.element.id) { i, m in
-                    if i > 0 { CardDivider(inset: DS.Space.s4 + 44 + DS.Space.s3) }
+            CardGroup(separatorInset: DS.Space.s4 + 44 + DS.Space.s3) {
+                ForEach(members, id: \.id) { m in
                     memberRow(m)
                 }
             }
@@ -1654,9 +1653,8 @@ struct CrewSettingsView: View {
     /// The whole ladder with yours marked, so everyone knows what each role means.
     private var rolesSection: some View {
         CrewSection(title: "Roles") {
-            GroupedCard {
-                ForEach(Array([CrewRole.captain, .mate, .admin, .member].enumerated()), id: \.element) { i, role in
-                    if i > 0 { CardDivider(inset: DS.Space.s4 + 40 + DS.Space.s3) }
+            CardGroup(separatorInset: DS.Space.s4 + 40 + DS.Space.s3) {
+                ForEach([CrewRole.captain, .mate, .admin, .member], id: \.self) { role in
                     roleRow(role)
                 }
             }
@@ -1718,6 +1716,7 @@ struct CrewPostSheet: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(AppState.self) private var appState
+    @Environment(\.dynamicTypeSize) private var typeSize
     private var svc: CommunityService { .shared }
     @State private var photo: UIImage?
     /// True once the photo couldn't be fetched, so the hero stops spinning.
@@ -1750,10 +1749,10 @@ struct CrewPostSheet: View {
                             .padding(.top, DS.Space.s2)
                             .padding(.bottom, DS.Space.s5)
                     }
-                    CommunityHero(label: post.caughtAt.formatted(.relative(presentation: .named)),
-                                  title: CrewText.catchTitle(species: post.species, lengthCm: post.lengthCm,
-                                                             weightKg: post.weightKg),
-                                  line: post.tripName.isEmpty ? crew?.name : "On \(post.tripName)") {
+                    PageHero(label: post.caughtAt.formatted(.relative(presentation: .named)),
+                             value: CrewText.catchTitle(species: post.species, lengthCm: post.lengthCm,
+                                                        weightKg: post.weightKg),
+                             callout: post.tripName.isEmpty ? crew?.name : "On \(post.tripName)") {
                         if !post.hasPhoto { hero }
                     }
                     .padding(.top, post.hasPhoto ? 0 : DS.Space.s2)
@@ -1762,11 +1761,11 @@ struct CrewPostSheet: View {
                     SectionTitle("Reactions")
                         .padding(.top, DS.Space.s6)
                     reactionRow
-                    GroupedCard { commentsRow }
+                    CardGroup { commentsRow }
                         .padding(.top, DS.Space.s3)
                     SectionTitle("Caught by")
                         .padding(.top, DS.Space.s6)
-                    GroupedCard { authorRow }
+                    CardGroup { authorRow }
                 }
                 .padding(.bottom, DS.Space.s6)
                 .pageWidth()
@@ -1931,11 +1930,11 @@ struct CrewPostSheet: View {
             detent = .large
             showingComments = true
         } label: {
-            IconLinkRow("Comments", subtitle: count == 0 ? "Start the conversation" : nil,
-                        systemImage: "bubble.left.and.bubble.right.fill", tint: .blue,
-                        value: count > 0 ? "\(count)" : nil)
+            CardRow("Comments", subtitle: count == 0 ? "Start the conversation" : nil,
+                    systemImage: "bubble.left.and.bubble.right.fill", tint: .blue,
+                    value: count > 0 ? "\(count)" : nil, chevron: true)
         }
-        .buttonStyle(.dim)
+        .buttonStyle(.dsCardRow)
         .accessibilityLabel(count == 1 ? "1 comment" : "\(count) comments")
     }
 
@@ -1943,27 +1942,30 @@ struct CrewPostSheet: View {
         NavigationLink {
             FriendProfileView(code: post.authorCode)
         } label: {
-            HStack(spacing: DS.Space.s3) {
+            // CardRow's anatomy with the angler's face in place of the icon tile.
+            HStack(spacing: 14) {
                 CrewAvatar(image: isMine ? svc.myAvatar : svc.cachedProfiles(for: [post.authorCode]).first?.avatar,
                            name: post.authorName, size: 44)
-                VStack(alignment: .leading, spacing: 1) {
+                VStack(alignment: .leading, spacing: 2) {
                     Text(isMine ? "You" : post.authorName)
-                        .font(.body.weight(.medium))
+                        .font(.body)
                         .foregroundStyle(.dsText)
+                        .lineLimit(typeSize.isAccessibilitySize ? 3 : 1)
                     Text(isMine ? "Your catch" : "See their profile")
-                        .font(.footnote)
+                        .font(.subheadline)
                         .foregroundStyle(.dsText2)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 Image(systemName: "chevron.right")
-                    .font(.subheadline.weight(.semibold))
+                    .font(.footnote.weight(.semibold))
                     .foregroundStyle(.dsText3)
             }
             .padding(.horizontal, DS.Space.s4)
             .padding(.vertical, 10)
+            .frame(minHeight: 54)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.dim)
+        .buttonStyle(.dsCardRow)
         .accessibilityElement(children: .combine)
     }
 
@@ -2444,20 +2446,9 @@ struct JoinCrewConfirmView: View {
     }
 
     private func inviteFacts(_ crew: CommunityService.Crew) -> some View {
-        GroupedCard {
-            IconRow("Anglers", systemImage: "person.2.fill", tint: CrewTint.people) {
-                Text("\(members)")
-                    .font(.headline)
-                    .monospacedDigit()
-                    .foregroundStyle(.dsText)
-            }
-            CardDivider()
-            IconRow("Started by", systemImage: "flag.fill", tint: .orange) {
-                Text(crew.createdByName)
-                    .font(.body)
-                    .foregroundStyle(.dsText2)
-                    .lineLimit(1)
-            }
+        CardGroup {
+            CardRow("Anglers", systemImage: "person.2.fill", tint: CrewTint.people, value: "\(members)")
+            CardRow("Started by", systemImage: "flag.fill", tint: .orange, value: crew.createdByName)
         }
         .padding(.top, DS.Space.s5)
         .accessibilityElement(children: .combine)
