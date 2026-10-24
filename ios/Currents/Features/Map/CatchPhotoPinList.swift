@@ -21,39 +21,39 @@ struct CatchStackSheet: View {
 
     var body: some View {
         NavigationStack {
-            Group {
-                if catches.isEmpty {
-                    ContentUnavailableView("No catches here", systemImage: "fish",
-                                           description: Text("Catches you log at this place show up here."))
-                } else {
-                    List {
-                        Section {
-                            ForEach(catches) { detail in
-                                Button {
-                                    onOpen(detail)
-                                    dismiss()
-                                } label: {
-                                    row(detail)
-                                }
-                                .buttonStyle(.dsRow)
-                                .dsListRow()
-                                .accessibilityHint("Opens this catch")
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    if catches.isEmpty {
+                        InlineEmpty(systemImage: "fish",
+                                    text: "No catches here. Catches you log at this place show up here.")
+                            .padding(.top, DS.Space.s2)
+                    } else {
+                        ForEach(catches) { detail in
+                            Button {
+                                onOpen(detail)
+                                dismiss()
+                            } label: {
+                                row(detail)
                             }
+                            .buttonStyle(.dsRow)
+                            .accessibilityHint("Opens this catch")
                         }
                     }
-                    .dsPlainList()
                 }
+                .padding(.vertical, DS.Space.s2)
+                .pageWidth()
             }
+            .detailScrollEdge()
+            .background(Color.dsBackground.ignoresSafeArea())
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Done") { dismiss() }
+                ToolbarItem(placement: .confirmationAction) {
+                    SheetDoneButton()
                 }
             }
         }
-        .presentationDetents([.medium, .large])
-        .presentationDragIndicator(.visible)
+        .dsSheet([.medium, .large])
     }
 
     /// The Logbook's catch row: day over the species, size and release below.

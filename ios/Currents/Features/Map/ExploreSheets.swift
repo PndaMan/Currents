@@ -36,9 +36,7 @@ struct PinPeekSheet: View {
         }
         .scrollBounceBehavior(.basedOnSize)
         .background(Color.dsBackground.ignoresSafeArea())
-        .presentationDetents([.medium, .large])
-        .presentationDragIndicator(.visible)
-        .presentationBackground(Color.dsBackground)
+        .dsSheet([.medium, .large])
     }
 
     @ViewBuilder
@@ -69,8 +67,9 @@ struct PinPeekSheet: View {
             Button { onOpen(.catchDetail(CatchRef(c))) } label: { Label("Open catch", systemImage: "book.closed") }
                 .buttonStyle(ActionTileStyle(.primary))
             if let sp = c.species {
-                Button { onOpen(.species(sp)) } label: { Label(sp.commonName, systemImage: "fish") }
+                Button { onOpen(.species(sp)) } label: { Label("Open species", systemImage: "fish") }
                     .buttonStyle(ActionTileStyle())
+                    .accessibilityHint("Opens the \(sp.commonName) page")
             }
         }
         .padding(.horizontal, DS.gutter)
@@ -92,8 +91,8 @@ enum SpotFormat {
 
 // MARK: - Ramp sheet
 
-/// Tap a ramp or fishing access point: what it is, then Directions, Save
-/// and Share, the same three actions as every other place.
+/// Tap a ramp or fishing access point: what it is, then Save spot,
+/// Directions and Share, the same three actions as every other place.
 struct RampDetailSheet: View {
     @Environment(AppState.self) private var appState
     let ramp: BoatRamp
@@ -107,55 +106,23 @@ struct RampDetailSheet: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 14) {
-                PlaceSnapshotThumb(place: ramp)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(ramp.name)
-                        .font(.title2.bold())
-                        .foregroundStyle(.dsText)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Text(subtitle)
-                        .font(.subheadline)
-                        .foregroundStyle(.dsText2)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                header
+                actions
+                VStack(spacing: 0) {
+                    KVRow("Type", ramp.kind.label)
+                    KVRow("Location", ExploreFormat.coords(ramp.coordinate), divider: false)
                 }
-                Spacer(minLength: 0)
+                .padding(.top, DS.Space.s4)
+                ExploreFootnote("From OpenStreetMap. Check access and fees at the gate.")
             }
-            .padding(.horizontal, DS.gutter)
-            .padding(.top, DS.Space.s6)
-
-            ActionTriple {
-                DirectionsMenu(coordinate: ramp.coordinate, name: ramp.name) {
-                    ActionTileLabel("Directions", systemImage: "location.north.line", kind: .primary)
-                }
-                Button {
-                    if savedSpot == nil { save() } else { confirmingRemove = true }
-                } label: {
-                    Label(savedSpot == nil ? "Save" : "Saved", systemImage: savedSpot == nil ? "bookmark" : "bookmark.fill")
-                }
-                .buttonStyle(ActionTileStyle())
-                .symbolEffect(.bounce, value: savedTick)
-                if let shareURL {
-                    ShareLink(item: shareURL) {
-                        Label("Share", systemImage: "square.and.arrow.up")
-                    }
-                    .buttonStyle(ActionTileStyle())
-                }
-            }
-            .padding(.top, DS.Space.s5)
-
-            VStack(spacing: 0) {
-                KVRow("Type", ramp.kind.label)
-                KVRow("Location", ExploreFormat.coords(ramp.coordinate), divider: false)
-            }
-            .padding(.top, DS.Space.s4)
-            ExploreFootnote("From OpenStreetMap. Check access and fees at the gate.")
-            Spacer(minLength: 0)
+            .padding(.bottom, DS.Space.s6)
+            .pageWidth()
         }
+        .scrollBounceBehavior(.basedOnSize)
         .background(Color.dsBackground.ignoresSafeArea())
-        .presentationDetents([.medium])
-        .presentationDragIndicator(.visible)
-        .presentationBackground(Color.dsBackground)
+        .dsSheet([.medium, .large])
         .confirmationDialog("Remove \(ramp.name) from your spots?", isPresented: $confirmingRemove, titleVisibility: .visible) {
             Button("Remove spot", role: .destructive) { Haptics.warning(); remove() }
         } message: {
@@ -166,6 +133,48 @@ struct RampDetailSheet: View {
                 abs($0.latitude - ramp.lat) < 0.0002 && abs($0.longitude - ramp.lon) < 0.0002
             }
         }
+    }
+
+    private var header: some View {
+        HStack(spacing: 14) {
+            PlaceSnapshotThumb(place: ramp)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(ramp.name)
+                    .font(.title2.bold())
+                    .foregroundStyle(.dsText)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(subtitle)
+                    .font(.subheadline)
+                    .foregroundStyle(.dsText2)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, DS.gutter)
+        .padding(.top, DS.Space.s6)
+    }
+
+    /// Save spot, Directions and Share, in the order of every place sheet.
+    private var actions: some View {
+        ActionTriple {
+            Button {
+                if savedSpot == nil { save() } else { confirmingRemove = true }
+            } label: {
+                Label(savedSpot == nil ? "Save spot" : "Saved", systemImage: savedSpot == nil ? "bookmark" : "bookmark.fill")
+            }
+            .buttonStyle(ActionTileStyle(savedSpot == nil ? .primary : .tonal))
+            .symbolEffect(.bounce, value: savedTick)
+            .accessibilityHint(savedSpot == nil ? "Adds it to your spots" : "Removes it from your spots")
+            DirectionsMenu(coordinate: ramp.coordinate, name: ramp.name) {
+                ActionTileLabel("Directions", systemImage: "location.north.line")
+            }
+            if let shareURL {
+                ShareLink(item: shareURL) {
+                    Label("Share", systemImage: "square.and.arrow.up")
+                }
+                .buttonStyle(ActionTileStyle())
+            }
+        }
+        .padding(.top, DS.Space.s5)
     }
 
     private var subtitle: String {
@@ -180,7 +189,7 @@ struct RampDetailSheet: View {
             self.savedSpot = nil
             ToastCenter.shared.show("Removed from your spots", style: .info, haptic: false, icon: "bookmark")
         } catch {
-            ToastCenter.shared.show("Could not remove this spot", style: .error)
+            ToastCenter.shared.show("Couldn't remove the spot", style: .error)
         }
     }
 
@@ -193,7 +202,7 @@ struct RampDetailSheet: View {
             savedTick += 1
             ToastCenter.shared.show("\(ramp.name) saved to your spots", icon: "bookmark.fill")
         } catch {
-            ToastCenter.shared.show("Could not save this spot", style: .error)
+            ToastCenter.shared.show("Couldn't save the spot", style: .error)
         }
     }
 }
@@ -237,7 +246,7 @@ struct MapLayersSheet: View {
                     toggle("Your spots", "mappin", $showSpots)
                     toggle("Your catches", "fish", $showCatches)
                     toggle("Water bodies", "water.waves", $showWater)
-                    toggle("Fishing access and ramps", "figure.fishing", $showRamps, divider: false)
+                    toggle("Ramps and access", "figure.fishing", $showRamps, divider: false)
 
                     GroupLabel("Overlays")
                     toggle("Depth and sea marks", "ruler", $nautical, detail: "From OpenSeaMap")
@@ -267,13 +276,11 @@ struct MapLayersSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
+                    SheetDoneButton()
                 }
             }
         }
-        .presentationDetents([.medium, .large])
-        .presentationDragIndicator(.visible)
-        .presentationBackground(Color.dsBackground)
+        .dsSheet([.medium, .large])
     }
 
     private func styleTile(_ option: MapTab.MapStyleOption) -> some View {
