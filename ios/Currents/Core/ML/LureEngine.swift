@@ -197,11 +197,72 @@ enum LureEngine {
         }
     }
 
-    private static func colorReason(_ clarity: WaterClarity) -> String {
+    /// What a family's colour has to do. Families not listed in `colorRoles`
+    /// are soft plastics, jigs and bait, which want natural food colours.
+    private enum ColorRole {
+        case natural
+        case baitfish
+        case flash
+        case surface
+    }
+
+    private static let colorRoles: [String: ColorRole] = [
+        "Lipless crankbait": .baitfish, "Squarebill crankbait": .baitfish,
+        "Jerkbait": .baitfish, "Swimbait": .baitfish,
+        "Spinnerbait": .flash, "Inline spinner": .flash, "Jigging spoon": .flash,
+        "Topwater walker": .surface, "Hollow-body frog": .surface,
+    ]
+
+    /// The palette colour for a lure family, so picks differ where the
+    /// palette allows: soft plastics natural, hard baits like a baitfish,
+    /// blades bright, and surface lures a dark shape at low light.
+    private static func familyColor(_ name: String, palette: [String],
+                                    clarity: WaterClarity, lowLight: Bool) -> String {
+        let role = colorRoles[name] ?? .natural
+        let wanted: String
+        switch (clarity, lowLight) {
+        case (.clear, false):
+            switch role {
+            case .natural: wanted = "Green pumpkin"
+            case .baitfish: wanted = "Natural shad"
+            case .flash: wanted = "Chrome and silver"
+            case .surface: wanted = "Watermelon"
+            }
+        case (.clear, true):
+            switch role {
+            case .natural, .baitfish: wanted = "Pearl shad"
+            case .flash: wanted = "White"
+            case .surface: wanted = "Black and silver"
+            }
+        case (.stained, false):
+            switch role {
+            case .natural, .surface: wanted = "Chartreuse and white"
+            case .baitfish: wanted = "Firetiger"
+            case .flash: wanted = "Gold"
+            }
+        case (.stained, true):
+            switch role {
+            case .natural, .surface: wanted = "Chartreuse"
+            case .baitfish: wanted = "Orange"
+            case .flash: wanted = "White and chartreuse"
+            }
+        case (.muddy, _):
+            switch role {
+            case .natural: wanted = "Black and blue"
+            case .baitfish: wanted = "Red and orange"
+            case .flash: wanted = "High-vis chartreuse"
+            case .surface: wanted = "Black"
+            }
+        }
+        // Always one of the palette's own colours, so a pick matches the strip.
+        return palette.contains(wanted) ? wanted : palette.first ?? "Natural"
+    }
+
+    private static func colorReason(_ clarity: WaterClarity, color: String) -> String {
         switch clarity {
-        case .clear:   "Clear water suits natural, see-through colours"
-        case .stained: "Stained water calls for bright chartreuse"
-        case .muddy:   "Muddy water calls for a dark outline and vibration"
+        case .clear:   "\(color) suits clear water"
+        case .stained: "\(color) stands out in stained water"
+        case .muddy:   "\(color) shows up in muddy water"
         }
     }
 
@@ -237,6 +298,7 @@ enum LureEngine {
             if saltwater && freshwaterOnly.contains(a.name) { continue }
             var score = 0.42
             var reasons: [String] = []
+            let color = familyColor(a.name, palette: palette, clarity: c.clarity, lowLight: c.isLowLight)
 
             // Water temperature — the strongest gate on lure family.
             if let t = c.waterTempC {
@@ -253,7 +315,7 @@ enum LureEngine {
             // Water clarity — drives both family and colour.
             let clarityFit = a.clarity[c.clarity] ?? 0.5
             score += (clarityFit - 0.5) * 0.42
-            if clarityFit >= 0.85 { reasons.append(colorReason(c.clarity)) }
+            if clarityFit >= 0.85 { reasons.append(colorReason(c.clarity, color: color)) }
 
             // Light, wind, pressure.
             if c.isLowLight && a.lowLightBonus != 0 {
@@ -302,7 +364,7 @@ enum LureEngine {
 
             out.append(Suggestion(
                 lure: a.name,
-                color: palette.first ?? "Natural",
+                color: color,
                 technique: a.technique,
                 depth: a.depth.map(depthText) ?? a.depthWord ?? "",
                 reasons: Array(reasons.prefix(3)),
