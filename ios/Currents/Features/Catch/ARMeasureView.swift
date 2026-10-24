@@ -1,5 +1,6 @@
 import SwiftUI
 import ARKit
+import AVFoundation
 import SceneKit
 
 /// Measure a fish's length in AR: point the camera at the fish on a flat
@@ -15,6 +16,9 @@ struct ARMeasureView: View {
     @State private var measuredCm: Double?
     @State private var pointCount = 0
     @State private var resetToken = 0
+    /// The last tap hit no surface.
+    @State private var missedTap = false
+    @State private var cameraAccess = AVCaptureDevice.authorizationStatus(for: .video)
 
     static var isSupported: Bool { ARWorldTrackingConfiguration.isSupported }
 
@@ -22,8 +26,17 @@ struct ARMeasureView: View {
 
     var body: some View {
         ZStack {
-            ARMeasureContainer(measuredCm: $measuredCm, pointCount: $pointCount, resetToken: resetToken)
-                .ignoresSafeArea()
+            switch cameraAccess {
+            case .authorized:
+                ARMeasureContainer(measuredCm: $measuredCm, pointCount: $pointCount, missedTap: $missedTap,
+                                   resetToken: resetToken)
+                    .ignoresSafeArea()
+            case .notDetermined:
+                Color.black.ignoresSafeArea()
+            default:
+                Color.black.ignoresSafeArea()
+                cameraDenied
+            }
 
             VStack(spacing: DS.Space.s3) {
                 HStack {
@@ -45,67 +58,98 @@ struct ARMeasureView: View {
                 }
                 .padding(.horizontal, DS.Space.s4)
 
-                Text(instruction)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, DS.Space.s3)
-                    .padding(.vertical, 6)
-                    .background(Color.black.opacity(0.55), in: Capsule())
-                    .contentTransition(.opacity)
-                    .animation(reduceMotion ? nil : DS.Motion.easeOut, value: pointCount)
+                if cameraAccess == .authorized {
+                    Text(instruction)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, DS.Space.s3)
+                        .padding(.vertical, 6)
+                        .background(Color.black.opacity(0.55), in: Capsule())
+                        .contentTransition(.opacity)
+                        .animation(reduceMotion ? nil : DS.Motion.easeOut, value: instruction)
+                }
 
                 Spacer()
 
-                VStack(spacing: DS.Space.s3) {
-                    if let cm = measuredCm {
-                        let parts = Units.lengthParts(cm: cm, imperial: imperial)
-                        HStack(alignment: .firstTextBaseline, spacing: 4) {
-                            Text(parts.0)
-                                .font(.system(size: numeralSize, weight: .bold, design: .rounded)) // ui-lint: allow, measurement numeral scaled with @ScaledMetric
-                                .monospacedDigit()
-                                .contentTransition(.numericText())
-                            Text(parts.1)
-                                .font(.title3.weight(.semibold))
-                                .foregroundStyle(Color.dsText2)
-                        }
-                        .foregroundStyle(Color.dsText)
-                        .accessibilityElement(children: .combine)
-
-                        Button {
-                            onMeasured((cm * 10).rounded() / 10)
-                            dismiss()
-                        } label: {
-                            Label("Use \(Units.length(cm: cm, imperial: imperial))", systemImage: "checkmark")
-                        }
-                        .buttonStyle(.dsPrimary)
-                    } else {
-                        Label("Lay the fish flat and point the camera straight down", systemImage: "camera.metering.center.weighted")
-                            .font(.subheadline)
-                            .foregroundStyle(Color.dsText2)
-                            .multilineTextAlignment(.center)
-                    }
-                    Button {
-                        measuredCm = nil; pointCount = 0; resetToken += 1
-                    } label: {
-                        Label("Start again", systemImage: "arrow.counterclockwise")
-                    }
-                    .buttonStyle(.dsTonal)
-                    .disabled(pointCount == 0)
+                if cameraAccess == .authorized {
+                    measurePanel
                 }
-                .padding(DS.Space.s4)
-                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: DS.Radius.sheet, style: .continuous)) // ui-lint: allow, floating panel over the AR camera
-                .padding(.horizontal, DS.Space.s3)
-                .padding(.bottom, DS.Space.s2)
             }
         }
         .environment(\.colorScheme, .dark)
+        .task {
+            // ARKit would ask on its own; asking first lets a refusal show
+            // the way to Settings instead of a black screen.
+            guard cameraAccess == .notDetermined else { return }
+            _ = await AVCaptureDevice.requestAccess(for: .video)
+            cameraAccess = AVCaptureDevice.authorizationStatus(for: .video)
+        }
         // The first point ticks, the second lands the measurement. Clear
         // (back to zero) already played its button's press.
         .haptic(.selection, trigger: pointCount) { _, new in new == 1 }
         .haptic(.success, trigger: measuredCm) { _, new in new != nil }
     }
 
+    /// The LogCatch camera's denied state, with the way back to Settings.
+    private var cameraDenied: some View {
+        ContentUnavailableView {
+            Label("Camera is off for Currents", systemImage: "camera")
+        } description: {
+            Text("Turn it on in Settings to measure, or type the length instead.")
+        } actions: {
+            if let url = URL(string: UIApplication.openSettingsURLString) {
+                Button("Open Settings") { UIApplication.shared.open(url) }
+                    .buttonStyle(TonalButtonStyle(fullWidth: false))
+            }
+        }
+        .foregroundStyle(.white)
+    }
+
+    private var measurePanel: some View {
+        VStack(spacing: DS.Space.s3) {
+            if let cm = measuredCm {
+                let parts = Units.lengthParts(cm: cm, imperial: imperial)
+                HStack(alignment: .firstTextBaseline, spacing: 4) {
+                    Text(parts.0)
+                        .font(.system(size: numeralSize, weight: .bold, design: .rounded)) // ui-lint: allow, measurement numeral scaled with @ScaledMetric
+                        .monospacedDigit()
+                        .contentTransition(.numericText())
+                    Text(parts.1)
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(Color.dsText2)
+                }
+                .foregroundStyle(Color.dsText)
+                .accessibilityElement(children: .combine)
+
+                Button {
+                    onMeasured((cm * 10).rounded() / 10)
+                    dismiss()
+                } label: {
+                    Label("Use \(Units.length(cm: cm, imperial: imperial))", systemImage: "checkmark")
+                }
+                .buttonStyle(.dsPrimary)
+            } else {
+                Label("Lay the fish flat and point the camera straight down", systemImage: "camera.metering.center.weighted")
+                    .font(.subheadline)
+                    .foregroundStyle(Color.dsText2)
+                    .multilineTextAlignment(.center)
+            }
+            Button {
+                measuredCm = nil; pointCount = 0; missedTap = false; resetToken += 1
+            } label: {
+                Label("Start again", systemImage: "arrow.counterclockwise")
+            }
+            .buttonStyle(.dsTonal)
+            .disabled(pointCount == 0)
+        }
+        .padding(DS.Space.s4)
+        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: DS.Radius.sheet, style: .continuous))
+        .padding(.horizontal, DS.Space.s3)
+        .padding(.bottom, DS.Space.s2)
+    }
+
     private var instruction: String {
+        if missedTap { return "Point at a flat surface" }
         switch pointCount {
         case 0: return "Tap the nose"
         case 1: return "Now tap the tail"
@@ -117,6 +161,7 @@ struct ARMeasureView: View {
 private struct ARMeasureContainer: UIViewRepresentable {
     @Binding var measuredCm: Double?
     @Binding var pointCount: Int
+    @Binding var missedTap: Bool
     var resetToken: Int
 
     func makeUIView(context: Context) -> ARSCNView {
@@ -164,7 +209,10 @@ private struct ARMeasureContainer: UIViewRepresentable {
             guard let view else { return }
             let location = gesture.location(in: view)
             guard let query = view.raycastQuery(from: location, allowing: .estimatedPlane, alignment: .any),
-                  let result = view.session.raycast(query).first else { return }
+                  let result = view.session.raycast(query).first else {
+                DispatchQueue.main.async { self.parent.missedTap = true }
+                return
+            }
 
             let t = result.worldTransform
             let pos = SIMD3<Float>(t.columns.3.x, t.columns.3.y, t.columns.3.z)
@@ -174,6 +222,7 @@ private struct ARMeasureContainer: UIViewRepresentable {
             addMarker(at: pos, in: view)
 
             DispatchQueue.main.async {
+                self.parent.missedTap = false
                 self.parent.pointCount = self.points.count
                 if self.points.count == 2 {
                     let d = simd_distance(self.points[0], self.points[1])
