@@ -252,8 +252,9 @@ struct ExplorePlacePage: View {
         }
         .sheet(isPresented: $showingShareSheet) {
             if let shareImage, let spot {
-                ImageShareSheet(image: shareImage, filename: "Currents-\(spot.name)",
-                                caption: SpotShareCard.caption(for: spot))
+                SpotSharePreview(image: shareImage, name: spot.name,
+                                 caption: SpotShareCard.caption(for: spot))
+                    .dsSheet([.large])
             }
         }
         .confirmationDialog("Remove \(name) from your spots?", isPresented: $confirmingRemove, titleVisibility: .visible) {
@@ -685,8 +686,56 @@ struct ExplorePlacePage: View {
             if let card {
                 shareImage = card
                 showingShareSheet = true
+            } else {
+                ToastCenter.shared.show("Couldn't make the share card", style: .error)
             }
         }
+    }
+}
+
+// MARK: - Share preview
+
+/// The spot card before it goes out, like the profile share card: the card,
+/// a note that it shows the exact spot, and the share button.
+private struct SpotSharePreview: View {
+    let image: UIImage
+    let name: String
+    let caption: String
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(spacing: DS.Space.s4) {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFit()
+                        .clipShape(RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
+                        .padding(.horizontal, DS.gutter)
+                        .accessibilityLabel("Share card for \(name)")
+                    SectionFootnote("This card shows the exact spot.")
+                }
+                .padding(.top, DS.Space.s4)
+                .padding(.bottom, DS.Space.s8)
+                .frame(maxWidth: .infinity)
+            }
+            .detailTint(nil)
+            .safeAreaInset(edge: .bottom) { shareButton }
+            .navigationTitle("Share card")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) { SheetDoneButton() }
+            }
+        }
+    }
+
+    private var shareButton: some View {
+        let card = Image(uiImage: image)
+        return ShareLink(item: card, message: Text(caption), preview: SharePreview(name, image: card)) {
+            Label("Share card", systemImage: "square.and.arrow.up")
+        }
+        .buttonStyle(.dsPrimary)
+        .padding(.horizontal, DS.gutter)
+        .padding(.bottom, DS.Space.s4)
     }
 }
 
