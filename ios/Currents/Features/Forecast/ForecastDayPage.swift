@@ -70,7 +70,7 @@ struct ForecastDayPage: View {
                     if !day.hours.isEmpty {
                         VStack(alignment: .leading, spacing: 0) {
                             SectionTitle("Hour by hour")
-                            HourStrip(day: day, use24: use24)
+                            HourStrip(day: day, following: day.isToday ? store.day(1).hours : [], use24: use24)
                         }
                     }
 

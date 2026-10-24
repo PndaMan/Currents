@@ -411,8 +411,12 @@ struct HourInfoBox: View {
 
 // MARK: - Hour by hour weather
 
+/// The weather hour by hour. Today starts at the current hour and runs on
+/// into tomorrow, so it always shows the next day's worth of hours.
 struct HourStrip: View {
     let day: ForecastDay
+    /// The next day's hours, which today's strip continues into.
+    var following: [WeatherService.HourlyPoint] = []
     var use24: Bool = true
     @AppStorage("units") private var units = "metric"
     @ScaledMetric(relativeTo: .headline) private var columnWidth: CGFloat = 54
@@ -428,15 +432,19 @@ struct HourStrip: View {
 
     private var points: [WeatherService.HourlyPoint] {
         guard day.isToday else { return day.hours }
-        return day.hours.filter { Calendar.current.component(.hour, from: $0.date) >= nowHour }
+        let ahead = day.hours.filter { Calendar.current.component(.hour, from: $0.date) >= nowHour }
+        return Array((ahead + following).prefix(24))
     }
 
     var body: some View {
+        let shown = points
+        // The rain line only when an hour has rain to show.
+        let wet = shown.contains { $0.precipMm >= 0.1 }
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 0) {
-                ForEach(points, id: \.date) { p in
+                ForEach(shown, id: \.date) { p in
                     let h = Calendar.current.component(.hour, from: p.date)
-                    let isNow = day.isToday && h == nowHour
+                    let isNow = day.isToday && Calendar.current.isDate(p.date, equalTo: .now, toGranularity: .hour)
                     VStack(spacing: 8) {
                         Text(isNow ? "Now" : String(ForecastFormat.hour(h, use24: use24).prefix(use24 ? 2 : 5)))
                             .font(.footnote.weight(.semibold))
@@ -459,17 +467,22 @@ struct HourStrip: View {
                         }
                         .font(.footnote)
                         .foregroundStyle(.dsText2)
-                        Text(p.precipMm >= 0.1 ? String(format: "%.1f", p.precipMm) : " ")
-                            .font(.caption)
-                            .foregroundStyle(ForecastCondition.tide.ink)
+                        if wet {
+                            Text(p.precipMm >= 0.1 ? String(format: "%.1f", p.precipMm) : " ")
+                                .font(.caption)
+                                .foregroundStyle(ForecastCondition.tide.ink)
+                        }
                     }
                     .frame(minWidth: columnWidth)
-                    .padding(.vertical, 14)
+                    .padding(.vertical, 10)
+                    // Inset inside the card, so the highlight's corners clear
+                    // its top and bottom edges.
                     .background {
                         if isNow {
                             RoundedRectangle(cornerRadius: DS.Radius.button, style: .continuous).fill(Color.dsFill2)
                         }
                     }
+                    .padding(.vertical, 4)
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel("\(isNow ? "Now" : ForecastFormat.hour(h, use24: use24)), \(Units.temperature(p.temperatureC, imperial: imperial)), wind \(Units.speed(kmh: p.windSpeedKmh, imperial: imperial))")
                 }
