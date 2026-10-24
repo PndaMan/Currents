@@ -26,6 +26,9 @@ struct SettingsView: View {
     @AppStorage("appearanceMode") private var appearanceMode = "dark"
     @AppStorage("units") private var units = "metric"
     @AppStorage("alertsEnabled") private var alertsEnabled = false
+    @AppStorage("primeWindowAlerts") private var primeWindowAlerts = false
+    @AppStorage("coldStreakNudges") private var coldStreakNudges = true
+    @AppStorage("lowStockAlerts") private var lowStockAlerts = true
 
     @State private var catches: [CatchDetail] = []
     @State private var speciesCount = 0
@@ -40,7 +43,8 @@ struct SettingsView: View {
     @State private var titleShown = false
     @State private var showingEdit = false
     @State private var showingShare = false
-    @State private var notificationsDenied = false
+    /// Nil until read, so the row shows no value rather than a wrong one.
+    @State private var notificationStatus: UNAuthorizationStatus?
 
     private var displayName: String {
         let trimmed = storedName.trimmingCharacters(in: .whitespaces)
@@ -103,9 +107,11 @@ struct SettingsView: View {
             case .regulations: RegulationsView()
             }
         }
-        .task {
-            load()
-            notificationsDenied = await NotificationManager.shared.checkPermissionStatus() == .denied
+        .task { load() }
+        .onAppear {
+            // Read again on the way back from Notifications, where
+            // permission may have just been given.
+            Task { notificationStatus = await NotificationManager.shared.checkPermissionStatus() }
         }
         .sheet(isPresented: $showingEdit, onDismiss: load) {
             if community.joined {
@@ -164,7 +170,7 @@ struct SettingsView: View {
             row(SettingsRoute.units, "Units", "ruler.fill", .orange,
                 value: units == "imperial" ? "Imperial" : "Metric")
             row(SettingsRoute.notifications, "Notifications", "bell.badge.fill", .red,
-                value: notificationsDenied ? "Off in Settings" : (alertsEnabled ? "On" : "Off"))
+                value: notificationsValue)
             row(SettingsRoute.privacy, "Privacy", "hand.raised.fill", .blue)
             row(SettingsRoute.widgets, "Widgets and Siri", "square.grid.2x2.fill", .indigo)
             row(SettingsRoute.offlineMaps, "Offline maps", "map.fill", .green, value: regionsValue)
@@ -283,6 +289,20 @@ struct SettingsView: View {
             return (days == 0 ? "Expires today" : (days == 1 ? "1 day left" : "\(days) days left"), DS.ink(.dsScoreLow))
         }
         return (licenceCount == 0 ? "" : "\(licenceCount)", .dsText2)
+    }
+
+    /// "Not set up" until permission is asked for, "Off in Settings" once it
+    /// is refused, else "On" while any of the four alert switches on the
+    /// Notifications page is on.
+    private var notificationsValue: String? {
+        switch notificationStatus {
+        case nil: return nil
+        case .notDetermined?: return "Not set up"
+        case .denied?: return "Off in Settings"
+        default:
+            let anyOn = alertsEnabled || primeWindowAlerts || coldStreakNudges || lowStockAlerts
+            return anyOn ? "On" : "Off"
+        }
     }
 
     private var regionsValue: String {
