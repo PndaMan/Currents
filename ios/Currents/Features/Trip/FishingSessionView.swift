@@ -727,7 +727,8 @@ struct ActiveSessionView: View {
             HStack(spacing: 10) {
                 StatTile(trip.isMultiDay ? "Total time" : "Time", systemImage: "clock", tint: DS.accent,
                          value: SessionFormat.duration(priorDur + curDur), width: nil)
-                StatTile("Distance", systemImage: "point.topleft.down.to.point.bottomright.curvepath", tint: .dsScoreFair,
+                StatTile("Distance", systemImage: "point.topleft.down.to.point.bottomright.curvepath",
+                         tint: DS.ink(.dsScoreFair),
                          value: SessionFormat.distance(priorDist + trackDistance()), width: nil)
                 StatTile("Catches", systemImage: "fish.fill", tint: .dsScoreGood,
                          value: "\(catches.count)", width: nil)
@@ -894,15 +895,25 @@ struct SessionDetailView: View {
                         .clipShape(RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
                         .padding(.horizontal, DS.gutter)
                         .padding(.top, DS.Space.s6)
-                    TrackLegend()
-                        .padding(.horizontal, DS.gutter)
-                        .padding(.top, DS.Space.s2)
+                    // Keys only for what the map draws: no End or route
+                    // without two track points, no Catch without a pin.
+                    let pointCount = trip.allTrackPoints.count
+                    let hasPins = catches.contains(where: SessionTrackMap.hasPin)
+                    if pointCount > 0 || hasPins {
+                        TrackLegend(showsStart: pointCount > 0, showsEnd: pointCount > 1, showsCatch: hasPins)
+                            .padding(.horizontal, DS.gutter)
+                            .padding(.top, DS.Space.s2)
+                    }
 
                     HStack(spacing: 10) {
                         StatTile("Duration", systemImage: "clock", tint: DS.accent,
                                  value: SessionFormat.duration(trip.totalDurationSeconds), width: nil)
-                        StatTile("Distance", systemImage: "point.topleft.down.to.point.bottomright.curvepath", tint: .dsScoreFair,
-                                 value: SessionFormat.distance(trip.totalTrackDistanceMeters), width: nil)
+                        // No track, no distance: "0 m" only read as a fault.
+                        if pointCount > 1 {
+                            StatTile("Distance", systemImage: "point.topleft.down.to.point.bottomright.curvepath",
+                                     tint: DS.ink(.dsScoreFair),
+                                     value: SessionFormat.distance(trip.totalTrackDistanceMeters), width: nil)
+                        }
                         StatTile("Catches", systemImage: "fish.fill", tint: .dsScoreGood,
                                  value: "\(catches.count)", width: nil)
                     }
@@ -1096,13 +1107,18 @@ struct SessionDetailView: View {
     }
 }
 
-/// Start, end and catch keys under a session map.
+/// Start, end and catch keys under a session map. Callers leave out the
+/// keys for markers the map does not draw.
 struct TrackLegend: View {
+    var showsStart = true
+    var showsEnd = true
+    var showsCatch = true
+
     var body: some View {
         HStack(spacing: 14) {
-            item(.dsScoreGood, "Start")
-            item(.dsScoreSlow, "End")
-            item(DS.accent, "Catch")
+            if showsStart { item(.dsScoreGood, "Start") }
+            if showsEnd { item(.dsScoreSlow, "End") }
+            if showsCatch { item(DS.accent, "Catch") }
             Spacer(minLength: 0)
         }
         .font(.footnote)
