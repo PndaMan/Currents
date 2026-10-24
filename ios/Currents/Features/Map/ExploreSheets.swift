@@ -143,9 +143,11 @@ struct RampDetailSheet: View {
                     .font(.title2.bold())
                     .foregroundStyle(.dsText)
                     .fixedSize(horizontal: false, vertical: true)
-                Text(subtitle)
-                    .font(.subheadline)
-                    .foregroundStyle(.dsText2)
+                if !subtitle.isEmpty {
+                    Text(subtitle)
+                        .font(.subheadline)
+                        .foregroundStyle(.dsText2)
+                }
             }
             Spacer(minLength: 0)
         }
@@ -179,7 +181,7 @@ struct RampDetailSheet: View {
 
     private var subtitle: String {
         let d = ExploreFormat.distance(from: appState.locationManager.currentLocation?.coordinate, to: ramp.coordinate)
-        return d.map { "\(ramp.kind.label), \($0) away" } ?? ramp.kind.label
+        return ExploreFormat.rampLine(ramp, distance: d.map { "\($0) away" })
     }
 
     private func remove() {

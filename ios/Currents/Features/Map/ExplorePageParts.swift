@@ -260,7 +260,7 @@ struct ExploreNearbyPlaces: View {
                 ForEach(list) { entry in
                     Button { appState.pendingDeepLink = MapLink.ramp(entry.place) } label: {
                         ArtRow(title: entry.place.name,
-                               subtitle: "\(entry.place.kind.label), \(Units.distance(m: entry.metres))",
+                               subtitle: ExploreFormat.rampLine(entry.place, distance: Units.distance(m: entry.metres)),
                                chevron: true) {
                             PlaceSnapshotThumb(place: entry.place)
                         }

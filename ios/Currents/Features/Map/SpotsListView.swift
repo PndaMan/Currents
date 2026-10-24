@@ -20,6 +20,12 @@ struct SpotsListView: View {
     @State private var loaded = false
     @State private var showingAddSpot = false
     @State private var searchText = ""
+    @AppStorage("cloudSyncEnabled") private var cloudSyncEnabled = false
+
+    /// Where spots are kept, which is also the iCloud account when sync is on.
+    private var savedWhere: String {
+        cloudSyncEnabled && CloudCapability.isAvailable ? "Saved on this phone and your iCloud" : "Saved on this phone"
+    }
 
     private var filtered: [Spot] {
         let base = searchText.isEmpty ? spots : spots.filter {
@@ -32,7 +38,7 @@ struct SpotsListView: View {
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
-                DetailHeader(over: "Saved on this phone", title: "Your spots",
+                DetailHeader(over: savedWhere, title: "Your spots",
                              subtitle: spots.isEmpty ? nil : "\(spots.count) \(spots.count == 1 ? "spot" : "spots"), best bite today first")
                     .padding(.bottom, DS.Space.s4)
 
@@ -42,7 +48,7 @@ struct SpotsListView: View {
                     } description: {
                         Text("Long press anywhere on the map, or save a spot when you log a catch.")
                     } actions: {
-                        Button("Add a spot") { showingAddSpot = true }
+                        Button("Add spot") { showingAddSpot = true }
                             .buttonStyle(PrimaryButtonStyle(fullWidth: false))
                     }
                     .padding(.top, DS.Space.s8)
@@ -63,8 +69,7 @@ struct SpotsListView: View {
             .pageWidth()
         }
         .detailScrollEdge()
-        .navigationTitle("")
-        .navigationBarTitleDisplayMode(.inline)
+        .exploreInlineTitle("Your spots")
         .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "Search your spots")
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
@@ -187,18 +192,21 @@ struct WaterListView: View {
     @State private var filter: WaterFilter = .all
     /// Water saved as a spot, which opens as that spot.
     @State private var savedIds: Set<Int64> = []
+    /// No location yet, so the list is around the fallback point.
+    @State private var usingFallback = false
+    @AppStorage("units") private var units = "metric"
 
+    /// Reservoirs are often mapped as lakes, so the two go together, as in search.
     enum WaterFilter: String, CaseIterable, Hashable {
-        case all = "All", dams = "Dams", rivers = "Rivers", lakes = "Lakes", coast = "Coast and estuaries"
+        case all = "All", dams = "Dams and lakes", rivers = "Rivers", coast = "Coast and estuaries"
     }
 
     private var filtered: [(Waterbody, Double)] {
         waters.filter { wb, _ in
             switch filter {
             case .all: true
-            case .dams: wb.type == .dam
+            case .dams: wb.type == .dam || wb.type == .lake
             case .rivers: wb.type == .river
-            case .lakes: wb.type == .lake
             case .coast: wb.type == .coast || wb.type == .estuary
             }
         }
@@ -207,24 +215,26 @@ struct WaterListView: View {
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
-                DetailHeader(over: "Within about 100 km", title: "Water",
+                DetailHeader(over: "Within about \(Units.distance(km: 100, imperial: units == "imperial"))", title: "Water",
                              subtitle: loaded && !waters.isEmpty ? "\(waters.count) dams, rivers and lakes, nearest first" : nil)
                     .padding(.bottom, DS.Space.s3)
 
                 FilterChips(WaterFilter.allCases, selection: $filter, title: { $0.rawValue })
                     .padding(.bottom, DS.Space.s3)
 
+                if loaded && usingFallback {
+                    InlineEmpty(systemImage: "location.slash",
+                                text: "Showing Cape Town. Turn on location for water near you.")
+                        .padding(.bottom, DS.Space.s3)
+                }
+
                 if !loaded {
-                    ProgressView()
+                    FishLoader(message: "Finding water")
                         .frame(maxWidth: .infinity)
                         .padding(.top, DS.Space.s8)
                 } else if filtered.isEmpty {
-                    ContentUnavailableView {
-                        Label("No water found", systemImage: "water.waves.slash")
-                    } description: {
-                        Text("Nothing mapped near you yet. Move the map over an area while online to load it.")
-                    }
-                    .padding(.top, DS.Space.s6)
+                    InlineEmpty(systemImage: "water.waves",
+                                text: "No water found here yet. Move the map over an area while online to load it.")
                 } else {
                     ForEach(Array(filtered.enumerated()), id: \.offset) { _, entry in
                         let (wb, distance) = entry
@@ -250,15 +260,15 @@ struct WaterListView: View {
             .pageWidth()
         }
         .detailScrollEdge()
-        .navigationTitle("")
-        .navigationBarTitleDisplayMode(.inline)
+        .exploreInlineTitle("Water")
         .task { await load() }
     }
 
     private func load() async {
         await BundledMapData.importWaterIfNeeded(into: appState.db)
-        let c = appState.locationManager.currentLocation?.coordinate
-            ?? CLLocationCoordinate2D(latitude: -33.9, longitude: 18.4)
+        let here = appState.locationManager.currentLocation?.coordinate
+        usingFallback = here == nil
+        let c = here ?? CLLocationCoordinate2D(latitude: -33.9, longitude: 18.4)
         let origin = CLLocation(latitude: c.latitude, longitude: c.longitude)
         let bodies = (try? appState.waterbodyRepository.fetchForRegion(
             minLat: c.latitude - 1, maxLat: c.latitude + 1,
@@ -281,7 +291,7 @@ struct WaterListView: View {
     }
 }
 
-// MARK: - Fishing access and ramps
+// MARK: - Ramps and access
 
 /// Public fishing access points and boat ramps near the angler, nearest
 /// first. Each opens on the map in its sheet.
@@ -324,8 +334,14 @@ struct RampListView: View {
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
-                DetailHeader(over: "From OpenStreetMap", title: "Access and ramps", subtitle: countLine)
+                DetailHeader(over: "From OpenStreetMap", title: "Ramps and access", subtitle: countLine)
                     .padding(.bottom, DS.Space.s3)
+
+                if appState.locationManager.currentLocation == nil {
+                    InlineEmpty(systemImage: "location.slash",
+                                text: "Distances are from Cape Town. Turn on location for ramps and access near you.")
+                        .padding(.bottom, DS.Space.s3)
+                }
 
                 if !rampService.ramps.isEmpty {
                     FilterChips(PlaceFilter.allCases, selection: $filter, title: { $0.rawValue })
@@ -334,16 +350,12 @@ struct RampListView: View {
 
                 if rampService.ramps.isEmpty {
                     if loading {
-                        ProgressView()
+                        FishLoader(message: "Finding ramps and access")
                             .frame(maxWidth: .infinity)
                             .padding(.top, DS.Space.s8)
                     } else {
-                        ContentUnavailableView {
-                            Label("Nothing loaded here", systemImage: "figure.fishing")
-                        } description: {
-                            Text("Move the map over an area while online to load its fishing access and ramps.")
-                        }
-                        .padding(.top, DS.Space.s6)
+                        InlineEmpty(systemImage: "figure.fishing",
+                                    text: "Nothing loaded here yet. Move the map over an area while online to load its ramps and access.")
                     }
                 } else {
                     ForEach(Array(sorted.prefix(150).enumerated()), id: \.offset) { _, entry in
@@ -352,7 +364,8 @@ struct RampListView: View {
                             appState.pendingDeepLink = MapLink.ramp(ramp)
                         } label: {
                             ArtRow(title: ramp.name,
-                                   subtitle: "\(ramp.kind.label), \(Units.distance(m: distance)) away") {
+                                   subtitle: ExploreFormat.rampLine(ramp, distance: "\(Units.distance(m: distance)) away"),
+                                   chevron: true) {
                                 PlaceSnapshotThumb(place: ramp)
                             }
                         }
@@ -365,8 +378,7 @@ struct RampListView: View {
             .pageWidth()
         }
         .detailScrollEdge()
-        .navigationTitle("")
-        .navigationBarTitleDisplayMode(.inline)
+        .exploreInlineTitle("Ramps and access")
         .task {
             guard rampService.ramps.isEmpty else { return }
             loading = true

@@ -114,6 +114,13 @@ enum ExploreFormat {
         Units.area(km2: km2, smallInHectares: true)
     }
 
+    /// A ramp's kind and distance, leaving the kind out when it is already
+    /// the name (an unnamed ramp is called by its kind).
+    static func rampLine(_ ramp: BoatRamp, distance: String?) -> String {
+        let kind = ramp.name == ramp.kind.label ? nil : ramp.kind.label
+        return [kind, distance].compactMap { $0 }.joined(separator: ", ")
+    }
+
     /// Fishing access in the accent, ramps in teal, wherever they are drawn as thumbs.
     static func placeTint(_ kind: BoatRamp.Kind) -> Color {
         kind == .access ? DS.accent : .teal
