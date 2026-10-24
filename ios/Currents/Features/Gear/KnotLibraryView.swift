@@ -96,7 +96,7 @@ struct KnotLibraryView: View {
         let steps = knot.steps.count == 1 ? "1 step" : "\(knot.steps.count) steps"
         return ArtRow(over: "\(knot.category.rawValue), \(steps)", title: knot.name,
                       subtitle: knot.useCase, chevron: true) {
-            KnotThumb(knot: knot, size: 56)
+            KnotThumb(knot: knot, size: 64)
         } trailing: {
             if saved {
                 Image(systemName: "star.fill")
@@ -137,20 +137,22 @@ enum KnotFavourites {
 
 
 /// The knot's bundled line art drawn in the text colour on the cyan tint,
-/// or its category symbol. The whole plate fits inside the tile, as on the
+/// or its category symbol. The whole drawing fits inside the tile, as on the
 /// knot's page: filling the square cut tall plates to meaningless slices.
+/// The blank paper and the page shading round the drawing are trimmed and
+/// the padding is slight, so the drawing gets most of the tile.
 struct KnotThumb: View {
     let knot: KnotEntry
-    var size: CGFloat = 56
+    var size: CGFloat = 64
 
     var body: some View {
-        if let art = KnotImageStore.lineArt(knot.imageName) {
+        if let art = KnotImageStore.thumbArt(knot.imageName) {
             ThumbView(tint: .cyan, size: size) {
                 Image(uiImage: art)
                     .renderingMode(.template)
                     .resizable().scaledToFit()
                     .foregroundStyle(Color.dsText)
-                    .padding(size * 0.1)
+                    .padding(size * 0.06)
                     .frame(width: size, height: size)
             }
             .accessibilityHidden(true)
@@ -502,6 +504,58 @@ enum KnotImageStore {
         guard let source = image(name), let art = removingPaper(from: source) else { return nil }
         artCache[name] = art
         return art
+    }
+
+    /// The line art trimmed to its ink, for thumbnails. The blank paper round
+    /// the drawing and the faint page shading at a plate's edges go; every
+    /// inked line stays. Falls back to the whole plate.
+    static func thumbArt(_ name: String?) -> UIImage? {
+        guard let name, let art = lineArt(name) else { return nil }
+        let key = "\(name)|thumb"
+        if let cached = artCache[key] { return cached }
+        guard let cg = art.cgImage, let box = inkBounds(of: cg),
+              let cropped = cg.cropping(to: box) else { return art }
+        let trimmed = UIImage(cgImage: cropped, scale: art.scale, orientation: art.imageOrientation)
+            .withRenderingMode(.alwaysTemplate)
+        artCache[key] = trimmed
+        return trimmed
+    }
+
+    /// The box, in pixels from the top left, round every pixel inked at
+    /// least 30 percent, with a small margin. Page shading stays under that
+    /// level. Nil when nothing is inked.
+    private static func inkBounds(of cg: CGImage) -> CGRect? {
+        let width = cg.width
+        let height = cg.height
+        guard width > 0, height > 0 else { return nil }
+        var pixels = [UInt8](repeating: 0, count: width * height * 4)
+        let drawn = pixels.withUnsafeMutableBytes { buffer -> Bool in
+            guard let context = CGContext(data: buffer.baseAddress, width: width, height: height,
+                                          bitsPerComponent: 8, bytesPerRow: width * 4,
+                                          space: CGColorSpaceCreateDeviceRGB(),
+                                          bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+            else { return false }
+            context.draw(cg, in: CGRect(x: 0, y: 0, width: width, height: height))
+            return true
+        }
+        guard drawn else { return nil }
+        var minX = width, minY = height, maxX = -1, maxY = -1
+        for y in 0..<height {
+            let row = y * width * 4
+            for x in 0..<width where pixels[row + x * 4 + 3] >= 77 {
+                minX = min(minX, x)
+                maxX = max(maxX, x)
+                minY = min(minY, y)
+                maxY = max(maxY, y)
+            }
+        }
+        guard maxX >= minX, maxY >= minY else { return nil }
+        let margin = max(width, height) / 50
+        let left = max(0, minX - margin)
+        let top = max(0, minY - margin)
+        let right = min(width, maxX + 1 + margin)
+        let bottom = min(height, maxY + 1 + margin)
+        return CGRect(x: left, y: top, width: right - left, height: bottom - top)
     }
 
     /// The line art drawn in the text colour for one appearance, for UIKit
