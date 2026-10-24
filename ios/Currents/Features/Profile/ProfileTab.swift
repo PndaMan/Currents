@@ -1606,7 +1606,7 @@ struct WidgetsSiriView: View {
                     .font(.headline)
                     .foregroundStyle(.dsText)
                     .lineLimit(2)
-                Text("\(date.formatted(.dateTime.day().month(.abbreviated))), \(ForecastFormat.time(date, use24: use24))")
+                Text(planDate(date))
                     .font(.caption)
                     .foregroundStyle(.dsText2)
                     .lineLimit(1)
@@ -1666,6 +1666,15 @@ struct WidgetsSiriView: View {
             .accessibilityLabel(score.map { "Bite score \($0) out of 100" } ?? "No forecast yet")
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    /// "Tomorrow, 05:30", as Today writes the plan. Past the coming week
+    /// the day shortens to "31 Oct" so it fits the tile.
+    private func planDate(_ date: Date) -> String {
+        let cal = Calendar.current
+        let days = cal.dateComponents([.day], from: cal.startOfDay(for: .now), to: cal.startOfDay(for: date)).day ?? 0
+        let day = (0..<7).contains(days) ? ForecastFormat.dayName(days, date: date) : LogbookFormat.shortDay(date)
+        return "\(day), \(ForecastFormat.time(date, use24: use24))"
     }
 }
 
