@@ -401,11 +401,10 @@ struct TargetPage: View {
                 }
             }
 
-            let notes = species.baitNotes.map(ForecastFormat.clean) ?? ""
+            let notes = species.baitNotes.map(TargetText.baitNotes) ?? ""
             if !baits.isEmpty {
                 CardSection(note: notes) {
-                    CardRow("Known baits", subtitle: baits.joined(separator: ", "),
-                            systemImage: "fish", tint: .green)
+                    KnownBaitsRow(baits: baits)
                 }
                 .padding(.top, DS.Space.s4)
             } else if !notes.isEmpty {
@@ -651,6 +650,20 @@ enum TargetText {
     static func announce(_ species: Species?) {
         ToastCenter.shared.show(species.map { "Targeting \($0.commonName)" } ?? "Target cleared",
                                 style: .info, icon: "scope")
+    }
+
+    /// The species' bait notes as prose: "dawn/dusk" reads "dawn and dusk".
+    static func baitNotes(_ notes: String) -> String {
+        ForecastFormat.clean(notes)
+            .replacingOccurrences(of: #"(?<=\p{L})/(?=\p{L})"#, with: " and ", options: .regularExpression)
+    }
+
+    /// "Spinnerbait, swimbait, Texas-rigged soft plastics": the list as
+    /// stored, with the first word capitalised.
+    static func baitList(_ baits: [String]) -> String {
+        let list = baits.joined(separator: ", ")
+        guard let first = list.first else { return list }
+        return String(first).uppercased() + list.dropFirst()
     }
 
     /// "Happiest in 18°C to 24°C water", the feeding band the score uses.
@@ -929,5 +942,32 @@ enum TargetData {
             minLon: c.longitude - lonDelta, maxLon: c.longitude + lonDelta,
             limit: 2000)) ?? []
         return nearby.filter { $0.fishSpeciesIds != nil && $0.decodedFishSpeciesIds.contains(speciesId) }
+    }
+}
+
+/// The species' known baits as one card row, laid out as a CardRow, with
+/// the whole list wrapping under the title rather than stopping at two lines.
+private struct KnownBaitsRow: View {
+    let baits: [String]
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    var body: some View {
+        HStack(alignment: typeSize.isAccessibilitySize ? .top : .center, spacing: 14) {
+            TintIcon(systemImage: "fish", tint: .green)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Known baits")
+                    .font(.body)
+                    .foregroundStyle(.dsText)
+                Text(TargetText.baitList(baits))
+                    .font(.subheadline)
+                    .foregroundStyle(.dsText2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.horizontal, DS.Space.s4)
+        .padding(.vertical, 10)
+        .frame(minHeight: 54)
+        .accessibilityElement(children: .combine)
     }
 }
