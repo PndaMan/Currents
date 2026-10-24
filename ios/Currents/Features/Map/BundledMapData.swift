@@ -72,6 +72,7 @@ enum BundledMapData {
         let lon: Double
         /// Metres, as if the water were round.
         let radius: Double
+        let isRiver: Bool
     }
 
     /// The bundled water by half-degree tile. Decoded once, on first use.
@@ -83,30 +84,55 @@ enum BundledMapData {
         }
         let waters = file.water
             .filter { !$0.name.trimmingCharacters(in: .whitespaces).isEmpty }
-            .map { NamedWater(name: $0.name, lat: $0.lat, lon: $0.lon, radius: ($0.km2 / .pi).squareRoot() * 1000) }
+            .map { NamedWater(name: $0.name, lat: $0.lat, lon: $0.lon, radius: ($0.km2 / .pi).squareRoot() * 1000,
+                              isRiver: $0.type == "river") }
         return Dictionary(grouping: waters) { tileKey(latitude: $0.lat, longitude: $0.lon) }
     }()
 
+    /// How far past a water's edge a ramp may lie and still be named after
+    /// it. Wider than this and a harbour slipway takes the name of a dam
+    /// behind the mountain.
+    static let waterMarginMetres = 250.0
+
     /// The bundled water a point is on or beside: the water whose edge is
-    /// nearest, counting each water as a circle half as wide again as its
-    /// area gives, when that edge is within 2 km. A long river is stored as
-    /// one point, so a ramp far along it finds nothing and keeps its plain
-    /// name. Nil outside the bundled region.
+    /// nearest, counting each water as a circle of its area, when that edge
+    /// is within 250 m. A long river is stored as one point, so a ramp far
+    /// along it finds nothing and keeps its plain name. Nil outside the
+    /// bundled region.
     static func waterName(near coordinate: CLLocationCoordinate2D) -> String? {
+        water(near: coordinate)?.name
+    }
+
+    /// The bundled water a point is on or beside, as `waterName(near:)`
+    /// finds it, and the side of the water the point is on, measured from
+    /// the water's centre: "North shore". A river is stored as one point,
+    /// so a ramp on it is on the "East side", not on a bank.
+    static func water(near coordinate: CLLocationCoordinate2D) -> (name: String, side: String)? {
         let latIndex = Int((coordinate.latitude / 0.5).rounded(.down))
         let lonIndex = Int((coordinate.longitude / 0.5).rounded(.down))
-        var best: (name: String, gap: Double)?
+        var best: (water: NamedWater, gap: Double)?
         for dLat in -1...1 {
             for dLon in -1...1 {
                 for water in watersByTile["\(latIndex + dLat)_\(lonIndex + dLon)"] ?? [] {
-                    let gap = metres(coordinate.latitude, coordinate.longitude, water.lat, water.lon) - water.radius * 1.5
-                    if gap <= 2_000, gap < (best?.gap ?? .infinity) {
-                        best = (water.name, gap)
+                    let gap = metres(coordinate.latitude, coordinate.longitude, water.lat, water.lon) - water.radius
+                    if gap <= waterMarginMetres, gap < (best?.gap ?? .infinity) {
+                        best = (water, gap)
                     }
                 }
             }
         }
-        return best?.name
+        guard let water = best?.water else { return nil }
+        return (water.name, side(of: coordinate, from: water))
+    }
+
+    /// The eight-point side of a water a point is on, from the water's centre.
+    private static func side(of coordinate: CLLocationCoordinate2D, from water: NamedWater) -> String {
+        let east = (coordinate.longitude - water.lon) * cos(water.lat * .pi / 180)
+        let north = coordinate.latitude - water.lat
+        let degrees = (atan2(east, north) * 180 / .pi + 360).truncatingRemainder(dividingBy: 360)
+        let names = ["North", "Northeast", "East", "Southeast", "South", "Southwest", "West", "Northwest"]
+        let index = Int((degrees + 22.5) / 45) % 8
+        return names[index] + (water.isRiver ? " side" : " shore")
     }
 
     /// Distance in metres, flat-earth, which is plenty at these ranges.

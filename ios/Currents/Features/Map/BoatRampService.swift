@@ -132,15 +132,32 @@ final class BoatRampService: ObservableObject {
     /// often as a point and as an outline.
     static let samePlaceMetres = 50.0
 
+    /// Unnamed places of one kind on one water closer than this are one
+    /// launch site mapped lane by lane, or as a point and an outline.
+    static let sameSiteMetres = 200.0
+
     /// Places whose name was made from the water they are on, so a merge
     /// still prefers a place OpenStreetMap names.
     private var madeNames = Set<String>()
+    /// The side of its water each place with a made name is on.
+    private var sides: [String: String] = [:]
+    /// Made names that more than one place has, "Ramp at Sandvlei".
+    private var sharedNames = Set<String>()
+
+    /// The side of its water a place is on, "Southeast shore", when another
+    /// place has the same made name; nil when its name already tells it apart.
+    func side(of place: BoatRamp) -> String? {
+        guard sharedNames.contains(place.name) else { return nil }
+        return sides[place.id]
+    }
 
     /// Adds a tile's places. A place within 50 m of one of the same kind is
     /// the same place: the one with a name in OpenStreetMap is kept, else the
     /// outline (a way) over the point (a node), else the one already here.
     /// An unnamed place is then named after the water it is on, when it is
-    /// on bundled water: "Ramp at Theewaterskloof Dam".
+    /// on bundled water: "Ramp at Theewaterskloof Dam". Places with the same
+    /// made name within 200 m of each other are one site, and the first is
+    /// kept. Those still sharing a name are told apart by their side.
     private func merge(_ new: [BoatRamp], tile: String) {
         loadedTiles.insert(tile)
         var list = ramps
@@ -178,23 +195,34 @@ final class BoatRampService: ObservableObject {
         }
         for index in touched where list[index].name == list[index].kind.label {
             let place = list[index]
-            guard let water = BundledMapData.waterName(near: place.coordinate) else { continue }
-            list[index] = BoatRamp(id: place.id, name: place.kind.waterNamePrefix + water,
+            guard let water = BundledMapData.water(near: place.coordinate) else { continue }
+            list[index] = BoatRamp(id: place.id, name: place.kind.waterNamePrefix + water.name,
                                    kind: place.kind, lat: place.lat, lon: place.lon)
             madeNames.insert(place.id)
+            sides[place.id] = water.side
         }
+        var sites: [String: [BoatRamp]] = [:]
+        list = list.filter { place in
+            guard madeNames.contains(place.id) else { return true }
+            if sites[place.name]?.contains(where: { Self.metres($0, place) < Self.sameSiteMetres }) == true {
+                return false
+            }
+            sites[place.name, default: []].append(place)
+            return true
+        }
+        sharedNames = Set(sites.filter { $0.value.count > 1 }.keys)
         ramps = list
     }
 
     /// A place by its OpenStreetMap id or, for one merged into a neighbour,
-    /// the place that stands for it now.
+    /// the place that stands for it now (within 50 m, or 200 m for one site).
     func place(id: String, near: CLLocationCoordinate2D?) -> BoatRamp? {
         if let hit = ramps.first(where: { $0.id == id }) { return hit }
         guard let near else { return nil }
         let probe = BoatRamp(id: id, name: "", kind: .ramp, lat: near.latitude, lon: near.longitude)
         return ramps
             .map { ($0, Self.metres($0, probe)) }
-            .filter { $0.1 < Self.samePlaceMetres }
+            .filter { $0.1 < (madeNames.contains($0.0.id) ? Self.sameSiteMetres : Self.samePlaceMetres) }
             .min { $0.1 < $1.1 }?.0
     }
 
