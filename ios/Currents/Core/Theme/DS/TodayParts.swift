@@ -39,21 +39,39 @@ struct TodayPage<Content: View>: View {
     }
 }
 
-/// TodayPage's inline title: hidden at rest, faded in once the page has
-/// scrolled 60 pt, so the large title in the page is never doubled. Apply
-/// to the page's ScrollView. Pages that draw their own header (a count or
-/// a hero rather than the page name) use it too.
+/// TodayPage's inline title: hidden at rest, faded in once the page's
+/// `DetailHeader` over line and large title have scrolled under the bar, so
+/// the large title is never doubled. Apply to the page's ScrollView. Pages
+/// that draw their own header (a count or a hero rather than the page name)
+/// use it too; without a `DetailHeader` it waits for one large title line.
 struct PageTitleFade: ViewModifier {
     let title: String
     @State private var shown = false
+    /// What the page's `DetailHeader` reports; 0 until it does.
+    @State private var headerHeight: CGFloat = 0
+    @ScaledMetric(relativeTo: .largeTitle) private var titleLine: CGFloat = 41
 
     func body(content: Content) -> some View {
+        let threshold = headerHeight > 0 ? headerHeight : titleLine
         content
+            .onPreferenceChange(DetailHeaderTitleHeightKey.self) { headerHeight = $0 }
             .onScrollGeometryChange(for: Bool.self) { geo in
-                geo.contentOffset.y + geo.contentInsets.top > 60
+                geo.contentOffset.y + geo.contentInsets.top >= threshold
             } action: { _, past in
                 shown = past
             }
+            .pageInlineTitle(title, shown: shown)
+    }
+}
+
+/// The inline title of a pushed page, faded in with a hairline under the
+/// bar while `shown`, as Today's inline title comes in.
+private struct PageInlineTitle: ViewModifier {
+    let title: String
+    let shown: Bool
+
+    func body(content: Content) -> some View {
+        content
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -66,14 +84,37 @@ struct PageTitleFade: ViewModifier {
                         .accessibilityHidden(!shown)
                 }
             }
+            .safeAreaInset(edge: .top, spacing: 0) {
+                Color.clear
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 0)
+                    .overlay(alignment: .top) {
+                        Rectangle()
+                            .fill(Color.dsSeparator)
+                            .frame(height: 0.5)
+                            .opacity(shown ? 1 : 0)
+                            .animation(.easeOut(duration: DS.Motion.fast), value: shown)
+                    }
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
     }
 }
 
 extension View {
-    /// The inline title that fades in once the page has scrolled, as on
-    /// TodayPage.
+    /// The inline title that fades in once the page's header has scrolled
+    /// away, as on TodayPage.
     func pageTitleFade(_ title: String) -> some View {
         modifier(PageTitleFade(title: title))
+    }
+
+    /// A pushed page's inline title and the hairline under the bar, shown
+    /// while `shown` is true. For pages that work out when their own header
+    /// or hero has gone; `pageTitleFade` uses it. Apply outside
+    /// `detailTint` or `detailScrollEdge`, so the hairline draws over the
+    /// bar backdrop.
+    func pageInlineTitle(_ title: String, shown: Bool) -> some View {
+        modifier(PageInlineTitle(title: title, shown: shown))
     }
 }
 
