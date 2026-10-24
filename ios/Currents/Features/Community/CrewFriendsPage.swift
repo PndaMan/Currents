@@ -357,7 +357,7 @@ struct CrewRequestsPage: View {
         VStack(alignment: .leading, spacing: DS.Space.s2) {
             ArtRow(over: "Invited by \(inv.fromName)", title: inv.tripName,
                    subtitle: inv.date.formatted(.relative(presentation: .named))) {
-                ThumbView(systemImage: "person.3.fill", tint: CrewTint.region)
+                ThumbView(systemImage: "person.3.fill", tint: CrewTint.people)
             }
             CrewAcceptDecline(acceptTitle: "Join trip") {
                 // Only a joined trip opens; a failed join keeps the invite.
@@ -498,9 +498,9 @@ struct CrewAddSheet: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     option(.newCrew, title: "New crew", subtitle: "A group with a shared feed, challenges and tournaments",
-                           systemImage: "person.3.fill", tint: DS.accent)
+                           systemImage: "person.3.fill", tint: CrewTint.people)
                     option(.groupTrip, title: "Group trip", subtitle: "Fish together now or plan a day",
-                           systemImage: "calendar.badge.plus", tint: .dsScoreLow)
+                           systemImage: "calendar.badge.plus", tint: CrewTint.calendar)
                     option(.addFriend, title: "Add a friend", subtitle: "Send a request with their angler code",
                            systemImage: "person.badge.plus", tint: .dsScoreGood)
                 }

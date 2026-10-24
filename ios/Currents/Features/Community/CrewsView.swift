@@ -581,7 +581,7 @@ struct CrewDetailView: View {
                          title: trip.name,
                          subtitle: amIn ? "You're in" : "Open to join",
                          pill: amIn ? nil : "Join") {
-                ThumbView(systemImage: "dot.radiowaves.left.and.right", tint: .dsScoreSlow)
+                ThumbView(systemImage: "dot.radiowaves.left.and.right", tint: CrewTint.live)
             }
         }
         .buttonStyle(.dsRow)

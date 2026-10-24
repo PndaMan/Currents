@@ -99,7 +99,7 @@ struct GroupTripSetupView: View {
             PageHero(label: crewCode.flatMap { svc.crew(withCode: $0)?.name } ?? "Fish together",
                      value: "Group trip",
                      callout: "Everyone sees every catch, live") {
-                ThumbView(systemImage: "person.3.fill", tint: CrewTint.region, size: 92)
+                ThumbView(systemImage: "person.3.fill", tint: CrewTint.people, size: 92)
             }
             .padding(.top, DS.Space.s2)
             actions(proxy)
@@ -343,7 +343,7 @@ private struct StartLiveTripSheet: View {
         VStack(alignment: .leading, spacing: DS.Space.s5) {
             PageHero(label: "Live now", value: "Start a group trip",
                      callout: "GPS starts where you are") {
-                ThumbView(systemImage: "dot.radiowaves.left.and.right", tint: .dsScoreGood, size: 72)
+                ThumbView(systemImage: "dot.radiowaves.left.and.right", tint: CrewTint.live, size: 72)
             }
             .padding(.horizontal, -DS.gutter)
             CrewTextField(label: "Name", placeholder: "Morning session", text: $name)
@@ -666,7 +666,7 @@ struct GroupTripView: View {
 
     @ViewBuilder private var heroVisual: some View {
         if members.isEmpty {
-            ThumbView(systemImage: "person.3.fill", tint: CrewTint.region, size: 92)
+            ThumbView(systemImage: "person.3.fill", tint: CrewTint.people, size: 92)
         } else {
             EventAvatarStack(images: members.prefix(3).map { memberAvatars[$0.id] }, size: 52)
         }
@@ -758,7 +758,7 @@ struct GroupTripView: View {
         VStack(alignment: .leading, spacing: 0) {
             PageHero(label: "Group trip", value: tripName,
                      callout: "Everyone you invite sees every catch, live") {
-                ThumbView(systemImage: "person.3.fill", tint: CrewTint.region, size: 92)
+                ThumbView(systemImage: "person.3.fill", tint: CrewTint.people, size: 92)
             }
             .padding(.top, DS.Space.s2)
             Button { Task { await startShared() } } label: {
@@ -1138,7 +1138,7 @@ struct GroupTripView: View {
                                   systemImage: "flag.checkered", tint: CrewTint.calendar))
             }
             if let crewCode = trip.crewCode, let crew = svc.crew(withCode: crewCode) {
-                rows.append(.init(title: "Crew", value: crew.name, systemImage: "person.3.fill", tint: CrewTint.region))
+                rows.append(.init(title: "Crew", value: crew.name, systemImage: "person.3.fill", tint: CrewTint.people))
             }
             if let team = trip.teamName {
                 rows.append(.init(title: "Tournament team", value: team, systemImage: "trophy.fill",

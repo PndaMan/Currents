@@ -357,7 +357,7 @@ struct CommunityView: View {
             CrewEventRow(isLive: true, over: item.crew.name, title: item.trip.name,
                          subtitle: item.trip.hostCode == svc.friendCode
                             ? "You're hosting" : "Hosted by \(item.trip.hostName)") {
-                ThumbView(systemImage: "dot.radiowaves.left.and.right", tint: .dsScoreGood)
+                ThumbView(systemImage: "dot.radiowaves.left.and.right", tint: CrewTint.live)
             }
         }
         .buttonStyle(.dsRow)
@@ -378,7 +378,7 @@ struct CommunityView: View {
             NavigationLink(value: CrewRoute.tripSetup(crewCode: nil)) {
                 ArtRow(title: "Plan a group trip", subtitle: "Start now or pick a day, then invite friends",
                        chevron: true) {
-                    ThumbView(systemImage: "calendar.badge.plus", tint: DS.accent)
+                    ThumbView(systemImage: "calendar.badge.plus", tint: CrewTint.calendar)
                 }
             }
             .buttonStyle(.dsRow)
@@ -393,7 +393,7 @@ struct CommunityView: View {
                          title: g.name,
                          subtitle: g.teamName.map { "Tournament team \($0)" } ?? "Trip code \(g.code)") {
                 ThumbView(systemImage: g.teamName != nil ? "trophy.fill" : "person.3.fill",
-                          tint: .dsScoreLow)
+                          tint: g.teamName != nil ? CrewTint.trophy : CrewTint.people)
             }
             // An ended trip keeps its colour and steps back as a whole.
             .opacity(ended ? 0.6 : 1)
@@ -446,7 +446,7 @@ struct CommunityView: View {
                        subtitle: GameCenter.shared.isAuthenticated ? "Friends and global rankings"
                            : "Sign in to Game Center to see rankings",
                        chevron: true) {
-                    ThumbView(systemImage: "gamecontroller.fill", tint: CrewTint.people)
+                    ThumbView(systemImage: "gamecontroller.fill", tint: CrewTint.gameCenter)
                 }
             }
             .buttonStyle(.dsRow)
@@ -797,7 +797,7 @@ private struct AnglerProfileHeader: View {
 }
 
 /// An angler's facts as a scrolling row of filled chips, each icon in its
-/// own colour: water cyan, region orange, fish blue, calendar red.
+/// own colour: water cyan, region orange, fish blue, calendar in the accent.
 private struct AnglerFactsLine: View {
     let facts: [(String, String)]
 

@@ -79,13 +79,17 @@ enum CrewTint {
     static var exact: Color { .teal }
     static var water: Color { .cyan }
     static var region: Color { .orange }
-    static var calendar: Color { .dsScoreSlow }
+    static var calendar: Color { DS.accent }
     static var weight: Color { .purple }
     static var length: Color { .orange }
     static var species: Color { .teal }
     static var people: Color { DS.accent }
     static var trophy: Color { .dsScoreFair }
     static var lock: Color { .orange }
+    /// Something happening right now: a live trip or tournament.
+    static var live: Color { .dsScoreGood }
+    /// Game Center, the same green the Profile tab's Game Center section uses.
+    static var gameCenter: Color { .green }
 }
 
 // MARK: - Title badge art
@@ -296,7 +300,7 @@ struct TitleMedallion: View {
 // MARK: - Title badge
 
 /// A worn title as a badge: the medallion, the rarity in its colour, the
-/// title in bold rounded type and an optional line under it, on a card
+/// title in bold type and an optional line under it, on a card
 /// tinted with the rarity colour. Rare and up get a rarity stroke; epic and
 /// up a faint repeating pattern of the title's symbol behind it.
 struct TitleBadge<Trailing: View>: View {
@@ -359,7 +363,6 @@ struct TitleBadge<Trailing: View>: View {
             .foregroundStyle(ink)
             Text(flair.displayName)
                 .font(.title3.weight(.bold))
-                .fontDesign(.rounded)
                 .foregroundStyle(.dsText)
                 .fixedSize(horizontal: false, vertical: true)
             if let subtitle, !subtitle.isEmpty {
