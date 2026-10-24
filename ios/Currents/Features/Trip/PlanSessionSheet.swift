@@ -1,5 +1,6 @@
 import SwiftUI
 import CoreLocation
+import UserNotifications
 
 /// Plan an upcoming session in one short flow: name, when, where, a bite
 /// outlook per day (tap a day to plan it, a bar to set the start time), then
@@ -443,7 +444,16 @@ struct PlanSessionSheet: View {
         }
         PlanWidget.refresh(appState.tripRepository)
         let saved = trip
-        Task { await NotificationManager.shared.schedulePlannedSessionAlert(trip: saved) }
+        let previousDate = editingTrip?.plannedDate
+        Task {
+            // An edited plan keeps a reminder that was switched off: no
+            // reminder pending while its time was still ahead means it is off.
+            if let previousDate, previousDate.addingTimeInterval(-30 * 60) > .now {
+                let pending = await UNUserNotificationCenter.current().pendingNotificationRequests()
+                guard pending.contains(where: { $0.identifier == "session-plan-\(saved.id)" }) else { return }
+            }
+            await NotificationManager.shared.schedulePlannedSessionAlert(trip: saved)
+        }
         ToastCenter.shared.show(editingTrip == nil ? "Session planned" : "Plan updated", icon: "calendar.badge.checkmark")
         onSaved?(trip.id)
         dismiss()

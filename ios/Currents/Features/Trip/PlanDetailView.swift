@@ -94,13 +94,14 @@ struct PlanDetailView: View {
                     }
                     .buttonStyle(ActionTileStyle(.tonal))
 
-                    Button { setReminder(trip) } label: {
+                    Button { toggleReminder(trip) } label: {
                         Label(reminderOn ? "Reminder on" : "Reminder",
                               systemImage: reminderOn ? "bell.fill" : "bell")
                             .symbolEffect(.bounce, value: reminderOn)
                     }
                     .buttonStyle(ActionTileStyle(.tonal))
                     .accessibilityValue(reminderOn ? "On, 30 minutes before" : "Off")
+                    .accessibilityAddTraits(reminderOn ? .isSelected : [])
                 }
                 .padding(.top, DS.Space.s5)
 
@@ -382,11 +383,12 @@ struct PlanDetailView: View {
         addingItem = true
     }
 
-    /// Schedules the 30-minute reminder. There is no way to switch one off
-    /// yet, so when it is on this only confirms it.
-    private func setReminder(_ trip: Trip) {
+    /// Turns the 30-minute reminder on, or off when it is already on.
+    private func toggleReminder(_ trip: Trip) {
         guard !reminderOn else {
-            ToastCenter.shared.show("Reminder on, 30 minutes before", style: .info, icon: "bell.fill")
+            NotificationManager.shared.cancelPlannedSessionAlert(tripId: trip.id)
+            withAnimation(DS.Motion.spring) { reminderOn = false }
+            ToastCenter.shared.show("Reminder off", style: .info, icon: "bell.slash")
             return
         }
         guard plannedDate(trip).addingTimeInterval(-30 * 60) > .now else {
