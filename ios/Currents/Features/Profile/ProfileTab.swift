@@ -1068,13 +1068,12 @@ extension URL: @retroactive Identifiable {
 struct UnitsSettingsView: View {
     @AppStorage("units") private var units = "metric"
     @AppStorage("use24HourTime") private var use24HourTime = true
-    @AppStorage("dateOrder") private var dateOrder = "auto"
     @State private var titleShown = false
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: DS.Space.s6) {
-                DetailHeader(title: "Units", subtitle: "How catches, weather and dates read.")
+                DetailHeader(title: "Units", subtitle: "How catches, weather and times read.")
 
                 VStack(alignment: .leading, spacing: DS.Space.s3) {
                     SectionTitle("Measurements")
@@ -1085,24 +1084,9 @@ struct UnitsSettingsView: View {
                     .padding(.horizontal, DS.gutter)
                 }
 
-                VStack(alignment: .leading, spacing: DS.Space.s3) {
-                    SectionTitle("Time")
-                    PFToggleRow(title: "24-hour time", detail: use24HourTime ? "17:30" : "5:30 PM", isOn: $use24HourTime)
-                        .pfCard()
-                }
-
-                VStack(alignment: .leading, spacing: DS.Space.s3) {
-                    SectionTitle("Date format")
-                    VStack(spacing: 0) {
-                        dateRow("Automatic", detail: Date.now.formatted(date: .numeric, time: .omitted), tag: "auto")
-                        PFDivider()
-                        dateRow("Day, month, year", detail: sample(dayFirst: true), tag: "dayFirst")
-                        PFDivider()
-                        dateRow("Month, day, year", detail: sample(dayFirst: false), tag: "monthFirst")
-                    }
-                    .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
-                    .padding(.horizontal, DS.gutter)
-                    PFFootnote("Used to read dates off scanned licences.")
+                CardSection("Time") {
+                    CardToggleRow("24-hour time", subtitle: use24HourTime ? "17:30" : "5:30 PM",
+                                  systemImage: "clock.fill", tint: .orange, isOn: $use24HourTime)
                 }
             }
             .padding(.bottom, DS.Space.s8)
@@ -1128,7 +1112,7 @@ struct UnitsSettingsView: View {
                         .foregroundStyle(isActive ? Color.dsText : Color.dsText2)
                     Spacer(minLength: 4)
                     Image(systemName: isActive ? "checkmark.circle.fill" : "circle")
-                        .foregroundStyle(isActive ? AnyShapeStyle(.tint) : AnyShapeStyle(Color.dsText3))
+                        .foregroundStyle(isActive ? DS.ink(DS.accent) : Color.dsText3)
                         .accessibilityHidden(true)
                 }
                 Text(Units.length(cm: 38, imperial: imperial))
@@ -1154,37 +1138,6 @@ struct UnitsSettingsView: View {
         .buttonHaptic(.selection)
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(isActive ? .isSelected : [])
-    }
-
-    private func sample(dayFirst: Bool) -> String {
-        let c = Calendar.current.dateComponents([.day, .month, .year], from: .now)
-        let d = String(format: "%02d", c.day ?? 1), m = String(format: "%02d", c.month ?? 1)
-        return dayFirst ? "\(d)/\(m)/\(c.year ?? 2026)" : "\(m)/\(d)/\(c.year ?? 2026)"
-    }
-
-    private func dateRow(_ title: String, detail: String, tag: String) -> some View {
-        Button {
-            dateOrder = tag
-        } label: {
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(title).foregroundStyle(.dsText)
-                    Text(detail).font(.subheadline).foregroundStyle(.dsText2)
-                }
-                Spacer()
-                if dateOrder == tag {
-                    Image(systemName: "checkmark")
-                        .font(.body.weight(.semibold))
-                        .foregroundStyle(.tint)
-                }
-            }
-            .padding(.horizontal, DS.Space.s4)
-            .padding(.vertical, 12)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.dim)
-        .buttonHaptic(.selection)
-        .accessibilityAddTraits(dateOrder == tag ? .isSelected : [])
     }
 }
 
