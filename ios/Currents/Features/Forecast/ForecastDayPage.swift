@@ -117,26 +117,12 @@ struct ForecastDayPage: View {
 
     private func hero(_ day: ForecastDay) -> some View {
         let reason = day.result.reasons.first.map(ForecastFormat.clean) ?? ForecastFormat.guidance(day.peakScore)
-        return HStack(alignment: .center, spacing: 16) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(ForecastFormat.longDate(day.date))
-                    .font(.subheadline)
-                    .foregroundStyle(.dsText2)
-                Text(ForecastFormat.grade(day.peakScore))
-                    .font(.title.bold())
-                    .foregroundStyle(.dsText)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .contentTransition(.opacity)
-                Text(reason)
-                    .font(.callout)
-                    .foregroundStyle(.dsText2)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer(minLength: 0)
+        // Today's hero layout: the ring drops under the text at accessibility sizes.
+        return PageHero(label: ForecastFormat.longDate(day.date), value: ForecastFormat.grade(day.peakScore),
+                        callout: reason) {
             ScoreRing(score: day.peakScore, size: 96, caption: "of 100")
         }
-        .padding(.horizontal, DS.gutter)
-        .accessibilityElement(children: .combine)
+        .contentTransition(.opacity)
     }
 
     // MARK: - Actions
