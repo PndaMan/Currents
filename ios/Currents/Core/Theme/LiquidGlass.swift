@@ -74,18 +74,6 @@ enum CurrentsTheme {
     static let cornerRadius: CGFloat = 16
 }
 
-// MARK: - Reusable Liquid Glass Modifiers
-
-extension View {
-    /// Apply a glass card background — uses iOS 26 .glassEffect when available.
-    func glassCard() -> some View {
-        self
-            .padding(CurrentsTheme.paddingM)
-            .background(.ultraThinMaterial)
-            .clipShape(RoundedRectangle(cornerRadius: CurrentsTheme.cornerRadius))
-    }
-}
-
 // MARK: - Weather Condition Icon
 
 struct WeatherIcon: View {
