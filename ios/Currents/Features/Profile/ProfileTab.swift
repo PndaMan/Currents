@@ -602,6 +602,8 @@ struct StorageSettingsView: View {
     /// The snapshot confirmed in Backup history, restored once the sheet closes.
     @State private var pendingRestore: FileBackup.Snapshot?
     @State private var showingHistory = false
+    @State private var showingRestartAlert = false
+    @State private var lastAutoFailure: Date?
     @AppStorage("use24HourTime") private var use24 = true
 
     @State private var exportURL: URL?
@@ -656,12 +658,17 @@ struct StorageSettingsView: View {
         } message: {
             Text("Replaces everything on this phone with the iCloud backup. This cannot be undone.")
         }
+        .alert("Restart Currents to finish restoring", isPresented: $showingRestartAlert) {
+            Button("OK") {}
+        } message: {
+            Text("Close Currents from the app switcher, then open it again to see the restored logbook.")
+        }
     }
 
     // MARK: Backups
 
     private var backupSection: some View {
-        CardSection("Backups", note: backupMessage ?? "Catches, photos, spots, gear and licences.") {
+        CardSection("Backups", note: backupMessage ?? backupNote) {
             CardToggleRow("Automatic daily backup",
                           subtitle: iCloudAvailable ? "On this phone and to iCloud" : "On this phone",
                           systemImage: "clock.arrow.circlepath", tint: .blue, isOn: $autoBackupEnabled)
@@ -696,6 +703,14 @@ struct StorageSettingsView: View {
                 .buttonStyle(.dsCardRow)
             }
         }
+    }
+
+    /// What a backup holds, or the last automatic backup that failed.
+    private var backupNote: String {
+        if let failed = lastAutoFailure {
+            return "The automatic backup on \(ForecastFormat.longDate(failed)) failed. Try Back up now."
+        }
+        return "Catches, spots, gear and licence details. Photos are kept in your iPhone backup."
     }
 
     private var historySheet: some View {
@@ -751,6 +766,7 @@ struct StorageSettingsView: View {
         if let localLast = AutoBackup.lastRun {
             lastBackupDate = max(lastBackupDate ?? .distantPast, localLast)
         }
+        lastAutoFailure = AutoBackup.lastFailure
         dbSize = await FileBackup.shared.databaseSize
         snapshots = await FileBackup.shared.snapshots()
         await measure()
@@ -814,6 +830,8 @@ struct StorageSettingsView: View {
                     try await CloudBackup.shared.backup(db: appState.db)
                 }
                 UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: "lastAutoBackupAt")
+                AutoBackup.clearFailure()
+                lastAutoFailure = nil
                 lastBackupDate = .now
                 snapshots = await FileBackup.shared.snapshots()
                 ToastCenter.shared.show("Backup complete")
@@ -838,7 +856,7 @@ struct StorageSettingsView: View {
             do {
                 try await FileBackup.shared.importBackup(from: snapshot.url, to: appState.db)
                 backupMessage = "Restored. Restart Currents to see the changes."
-                ToastCenter.shared.show("Restored. Restart to see changes")
+                showingRestartAlert = true
             } catch {
                 backupMessage = "Restore failed: \(error.localizedDescription)"
                 ToastCenter.shared.show("Restore failed", style: .error)
@@ -855,7 +873,7 @@ struct StorageSettingsView: View {
             do {
                 try await CloudBackup.shared.restore(db: appState.db)
                 backupMessage = "Restored. Restart Currents to see the changes."
-                ToastCenter.shared.show("Restored. Restart to see changes")
+                showingRestartAlert = true
             } catch {
                 backupMessage = "Restore failed: \(error.localizedDescription)"
                 ToastCenter.shared.show("Restore failed", style: .error)
