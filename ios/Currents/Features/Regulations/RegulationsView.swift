@@ -7,7 +7,7 @@ struct RegulationsView: View {
     @State private var search = ""
     @State private var regulations: [FishingRegulation] = []
     @State private var region: String?
-    @State private var selected: FishingRegulation?
+    @State private var selectedId: String?
     @State private var didLoad = false
     @State private var titleShown = false
 
@@ -60,7 +60,7 @@ struct RegulationsView: View {
                 } else {
                     LazyVStack(spacing: 0) {
                         ForEach(filtered) { reg in
-                            Button { selected = reg } label: { RegulationRow(reg: reg) }
+                            Button { selectedId = reg.id } label: { RegulationRow(reg: reg) }
                                 .buttonStyle(.dim)
                         }
                     }
@@ -74,10 +74,10 @@ struct RegulationsView: View {
         .detailTint(nil)
         .pfTrackScroll($titleShown, threshold: 60)
         .pfScrollTitle("Size and bag limits", shown: titleShown)
-        .sheet(item: $selected) { reg in
-            NavigationStack { RegulationDetailView(reg: reg) }
-                .presentationDetents([.medium, .large])
-                .presentationDragIndicator(.visible)
+        .navigationDestination(item: $selectedId) { id in
+            if let reg = regulations.first(where: { $0.id == id }) {
+                RegulationDetailView(reg: reg)
+            }
         }
         .task {
             RegulationsService.shared.load()
@@ -87,12 +87,22 @@ struct RegulationsView: View {
     }
 }
 
+/// A size limit in the units setting: "30 cm", or "11.8 in" in imperial.
+/// Regulations are written in inches, so imperial never switches to feet.
+private func limitLength(_ cm: Double, imperial: Bool) -> String {
+    let (value, unit) = Units.lengthParts(cm: cm, imperial: imperial)
+    return "\(value) \(unit)"
+}
+
 extension FishingRegulation {
-    /// "Min 30 cm, 5 per day", for list rows.
-    var limitSummary: String {
+    /// "Min 30 cm, 5 per day", for list rows, in the stored units setting.
+    var limitSummary: String { limitSummary(imperial: Units.isImperial) }
+
+    /// "Min 30 cm, 5 per day", or "Min 11.8 in, 5 per day" in imperial.
+    func limitSummary(imperial: Bool) -> String {
         var parts: [String] = []
-        if let mn = minSizeCm { parts.append("Min \(Int(mn)) cm") }
-        if let mx = maxSizeCm { parts.append("max \(Int(mx)) cm") }
+        if let mn = minSizeCm { parts.append("Min " + limitLength(mn, imperial: imperial)) }
+        if let mx = maxSizeCm { parts.append("max " + limitLength(mx, imperial: imperial)) }
         if parts.isEmpty { parts.append("No size limit") }
         if let bag = bagLimit {
             parts.append(bag == 0 ? "no take, release every fish" : "\(bag) per day")
@@ -107,7 +117,11 @@ extension FishingRegulation {
 private struct RegulationRow: View {
     let reg: FishingRegulation
     @Environment(AppState.self) private var appState
+    @Environment(\.dynamicTypeSize) private var typeSize
+    @AppStorage("units") private var units = "metric"
     @State private var species: Species?
+
+    private var lines: Int { typeSize.isAccessibilitySize ? 3 : 1 }
 
     var body: some View {
         HStack(spacing: 14) {
@@ -119,16 +133,16 @@ private struct RegulationRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(reg.commonName)
                     .foregroundStyle(.dsText)
-                    .lineLimit(1)
-                Text(reg.limitSummary)
+                    .lineLimit(lines)
+                Text(reg.limitSummary(imperial: units == "imperial"))
                     .font(.subheadline)
                     .foregroundStyle(.dsText2)
-                    .lineLimit(1)
+                    .lineLimit(lines)
                 if let closed = reg.closedSeason {
                     Label("Closed season: \(closed)", systemImage: "calendar")
                         .font(.footnote)
                         .foregroundStyle(.dsScoreLow)
-                        .lineLimit(1)
+                        .lineLimit(lines)
                 }
             }
             Spacer(minLength: 4)
@@ -149,117 +163,128 @@ private struct RegulationRow: View {
 
 /// Limits for one species: every limit, closed season, notes, a quick length
 /// check and a link into the species guide when the fish is in the dataset.
+/// Pushed from the list, tinted with the species' art colour.
 struct RegulationDetailView: View {
     let reg: FishingRegulation
     @Environment(AppState.self) private var appState
-    @Environment(\.dismiss) private var dismiss
     @State private var species: Species?
-    @State private var lengthCm: Int = 40
+    /// The length being checked, in cm. Whole inches when imperial is on.
+    @State private var lengthCm: Double = 40
+    @AppStorage("units") private var units = "metric"
     @Environment(\.dynamicTypeSize) private var typeSize
 
+    private var imperial: Bool { units == "imperial" }
     private var hasSizeRule: Bool { reg.minSizeCm != nil || reg.maxSizeCm != nil }
+    /// One step of the length stepper: 1 cm, or 1 inch in imperial.
+    private var stepCm: Double { imperial ? 2.54 : 1 }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: DS.Space.s5) {
-                if let species {
-                    ThumbView(species: species, size: 120)
-                        .padding(.horizontal, DS.gutter)
-                }
-                DetailHeader(over: reg.region, title: reg.commonName, subtitle: reg.scientificName)
-
-                if reg.bagLimit == 0 {
-                    PFNotice(systemImage: "hand.raised.fill", tint: .dsScoreSlow,
-                             title: "No take", message: "Release every \(reg.commonName.lowercased()) you catch.")
-                }
-
-                VStack(alignment: .leading, spacing: 0) {
-                    SectionTitle("Limits")
-                    VStack(alignment: .leading, spacing: DS.Space.s2) {
-                        limitTiles
-                        if let closed = reg.closedSeason, !closed.isEmpty {
-                            HStack(spacing: 12) {
-                                ThumbView(systemImage: "calendar", tint: .dsScoreLow, size: 44)
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text("Closed season")
-                                        .foregroundStyle(.dsText)
-                                    Text(closed)
-                                        .font(.subheadline)
-                                        .foregroundStyle(.dsText2)
-                                        .fixedSize(horizontal: false, vertical: true)
-                                }
-                                Spacer(minLength: 0)
-                            }
-                            .padding(DS.Space.s3)
-                            .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
-                            .accessibilityElement(children: .combine)
-                        }
-                    }
+        TodayPage(reg.commonName, subtitle: reg.scientificName, tint: species?.artTint) {
+            if let species {
+                ThumbView(species: species, size: 120)
                     .padding(.horizontal, DS.gutter)
-                }
+            }
 
-                if let notes = reg.notes, !notes.isEmpty {
-                    VStack(alignment: .leading, spacing: 0) {
-                        SectionTitle("Notes")
-                        Text(notes)
-                            .foregroundStyle(.dsText)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(DS.Space.s4)
-                            .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
-                            .padding(.horizontal, DS.gutter)
+            if reg.bagLimit == 0 {
+                PFNotice(systemImage: "hand.raised.fill", tint: .dsScoreSlow,
+                         title: "No take", message: "Release every \(reg.commonName.lowercased()) you catch.")
+            }
+
+            VStack(alignment: .leading, spacing: 0) {
+                SectionTitle(reg.region.isEmpty ? "Limits" : "Limits in \(reg.region)")
+                VStack(alignment: .leading, spacing: DS.Space.s2) {
+                    limitTiles
+                    if let closed = reg.closedSeason, !closed.isEmpty {
+                        HStack(spacing: 12) {
+                            ThumbView(systemImage: "calendar", tint: .dsScoreLow, size: 44)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Closed season")
+                                    .foregroundStyle(.dsText)
+                                Text(closed)
+                                    .font(.subheadline)
+                                    .foregroundStyle(.dsText2)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                            Spacer(minLength: 0)
+                        }
+                        .padding(DS.Space.s3)
+                        .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
+                        .accessibilityElement(children: .combine)
                     }
                 }
+                .padding(.horizontal, DS.gutter)
+            }
 
-                if hasSizeRule && reg.bagLimit != 0 {
-                    VStack(alignment: .leading, spacing: 0) {
-                        SectionTitle("Check a fish")
-                        VStack(spacing: 0) {
-                            HStack {
-                                Text("Length").foregroundStyle(.dsText)
-                                Spacer()
-                                PFStepper(value: "\(lengthCm) cm", canDecrement: lengthCm > 1, label: "Length") { delta in
-                                    lengthCm = max(1, lengthCm + delta)
-                                }
-                            }
-                            .padding(.horizontal, DS.Space.s4)
-                            .padding(.vertical, 10)
-                            LegalRangeBar(lengthCm: Double(lengthCm), minCm: reg.minSizeCm, maxCm: reg.maxSizeCm)
-                                .padding(.horizontal, DS.Space.s4)
-                                .padding(.bottom, DS.Space.s3)
-                            Rectangle().fill(Color.dsSeparator).frame(height: 0.5).padding(.leading, DS.Space.s4)
-                            verdictRow
-                                .padding(.horizontal, DS.Space.s4)
-                                .padding(.vertical, 12)
-                        }
+            if let notes = reg.notes, !notes.isEmpty {
+                VStack(alignment: .leading, spacing: 0) {
+                    SectionTitle("Notes")
+                    Text(notes)
+                        .foregroundStyle(.dsText)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(DS.Space.s4)
                         .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
                         .padding(.horizontal, DS.gutter)
-                    }
                 }
+            }
 
-                if let species {
-                    NavigationLink(value: species) {
-                        Label("View in the species guide", systemImage: "book.fill")
+            if hasSizeRule && reg.bagLimit != 0 {
+                VStack(alignment: .leading, spacing: 0) {
+                    SectionTitle("Check a fish")
+                    VStack(spacing: 0) {
+                        HStack {
+                            Text("Length").foregroundStyle(.dsText)
+                            Spacer()
+                            PFStepper(value: limitLength(lengthCm, imperial: imperial),
+                                      canDecrement: (lengthCm / stepCm).rounded() > 1,
+                                      label: "Length") { delta in
+                                step(delta)
+                            }
+                        }
+                        .padding(.horizontal, DS.Space.s4)
+                        .padding(.vertical, 10)
+                        LegalRangeBar(lengthCm: lengthCm, minCm: reg.minSizeCm, maxCm: reg.maxSizeCm,
+                                      imperial: imperial)
+                            .padding(.horizontal, DS.Space.s4)
+                            .padding(.bottom, DS.Space.s3)
+                        Rectangle().fill(Color.dsSeparator).frame(height: 0.5).padding(.leading, DS.Space.s4)
+                        verdictRow
+                            .padding(.horizontal, DS.Space.s4)
+                            .padding(.vertical, 12)
                     }
-                    .buttonStyle(.dsTonal)
+                    .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
                     .padding(.horizontal, DS.gutter)
                 }
-
-                PFFootnote("Rules change. Confirm them with the local authority before you keep a fish.")
             }
-            .padding(.vertical, DS.Space.s4)
-            .pageWidth()
+
+            if let species {
+                NavigationLink {
+                    SpeciesDetailView(species: species)
+                } label: {
+                    Label("View in the species guide", systemImage: "book.fill")
+                }
+                .buttonStyle(.dsTonal)
+                .padding(.horizontal, DS.gutter)
+            }
+
+            PFFootnote("Rules change. Confirm them with the local authority before you keep a fish.")
         }
-        .dsScreenBackground()
-        .detailScrollEdge()
-        .navigationDestination(for: Species.self) { SpeciesDetailView(species: $0) }
-        .navigationTitle(reg.commonName)
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
         .task {
             species = (try? appState.speciesRepository.fetchByScientificName(reg.scientificName)) ?? nil
-            if let mn = reg.minSizeCm { lengthCm = Int(mn) }
-            else if let mx = reg.maxSizeCm { lengthCm = Int(mx) }
+            if let mn = reg.minSizeCm { lengthCm = snapped(mn, .up) }
+            else if let mx = reg.maxSizeCm { lengthCm = snapped(mx, .down) }
         }
+    }
+
+    /// A length rounded to the stepper's whole units: cm, or inches in
+    /// imperial. Rounding a minimum up and a maximum down keeps the
+    /// starting length legal.
+    private func snapped(_ cm: Double, _ rule: FloatingPointRoundingRule) -> Double {
+        max(1, (cm / stepCm).rounded(rule)) * stepCm
+    }
+
+    private func step(_ delta: Int) {
+        let whole = max(1, (lengthCm / stepCm).rounded() + Double(delta))
+        lengthCm = whole * stepCm
     }
 
     /// Minimum, maximum and daily bag as big numbers, side by side, stacked
@@ -268,14 +293,16 @@ struct RegulationDetailView: View {
         let layout = typeSize.isAccessibilitySize
             ? AnyLayout(VStackLayout(spacing: DS.Space.s2))
             : AnyLayout(HStackLayout(spacing: DS.Space.s2))
+        let minimum = reg.minSizeCm.map { Units.lengthParts(cm: $0, imperial: imperial) }
         layout {
             StatTile("Minimum", systemImage: "ruler", tint: .purple,
-                     value: reg.minSizeCm.map { "\(Int($0))" } ?? "None",
-                     unit: reg.minSizeCm == nil ? nil : "cm",
-                     footnote: reg.minSizeCm == nil ? nil : "Total length", width: nil)
+                     value: minimum?.0 ?? "None",
+                     unit: minimum?.1,
+                     footnote: minimum == nil ? nil : "Total length", width: nil)
             if let mx = reg.maxSizeCm {
+                let maximum = Units.lengthParts(cm: mx, imperial: imperial)
                 StatTile("Maximum", systemImage: "ruler", tint: .purple,
-                         value: "\(Int(mx))", unit: "cm", footnote: "Total length", width: nil)
+                         value: maximum.0, unit: maximum.1, footnote: "Total length", width: nil)
             }
             StatTile("Daily bag", systemImage: "basket.fill", tint: reg.bagLimit == 0 ? Color.dsScoreSlow : Color.purple,
                      value: reg.bagLimit.map { $0 == 0 ? "No take" : "\($0)" } ?? "None",
@@ -284,13 +311,15 @@ struct RegulationDetailView: View {
     }
 
     private var verdictRow: some View {
-        let length = Double(lengthCm)
+        let length = lengthCm
         let (text, icon, color): (String, String, Color) = {
             if let mn = reg.minSizeCm, length < mn {
-                return ("Undersized by \(Int(mn - length)) cm, release it", "exclamationmark.circle.fill", .dsScoreSlow)
+                return ("Undersized by \(limitLength(mn - length, imperial: imperial)), release it",
+                        "exclamationmark.circle.fill", .dsScoreSlow)
             }
             if let mx = reg.maxSizeCm, length > mx {
-                return ("Over the \(Int(mx)) cm limit by \(Int(length - mx)) cm, release it", "exclamationmark.circle.fill", .dsScoreSlow)
+                return ("Over the \(limitLength(mx, imperial: imperial)) limit by \(limitLength(length - mx, imperial: imperial)), release it",
+                        "exclamationmark.circle.fill", .dsScoreSlow)
             }
             return ("Legal size to keep", "checkmark.circle.fill", .dsScoreGood)
         }()
@@ -309,6 +338,7 @@ private struct LegalRangeBar: View {
     let lengthCm: Double
     let minCm: Double?
     let maxCm: Double?
+    var imperial = false
     @ScaledMetric(relativeTo: .caption2) private var labelHeight: CGFloat = 16
     private let barHeight: CGFloat = 10
 
@@ -336,7 +366,7 @@ private struct LegalRangeBar: View {
             context.fill(Path(roundedRect: marker, cornerRadius: 2), with: .color(Color.dsText))
 
             for cm in [minCm, maxCm].compactMap({ $0 }) {
-                let label = context.resolve(Text("\(Int(cm)) cm")
+                let label = context.resolve(Text(limitLength(cm, imperial: imperial))
                     .font(.caption2.weight(.medium))
                     .foregroundStyle(Color.dsText2))
                 let half = label.measure(in: size).width / 2
