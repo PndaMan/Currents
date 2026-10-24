@@ -88,26 +88,31 @@ struct LocationInspectorSheet: View {
         return ExploreFormat.coords(coordinate)
     }
 
-    /// The place sheet's header: name, then the bite now beside its ring.
+    /// The place sheet's header: name and grade beside the ring, then the
+    /// window in one footnote across the sheet.
     private var header: some View {
-        HStack(alignment: .center, spacing: DS.Space.s3) {
-            DetailHeader(over: subheading, title: heading, subtitle: biteLine)
-            if let bite {
-                ScoreRing(score: bite.now, size: 88, caption: "now")
-                    .padding(.trailing, DS.gutter)
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .center, spacing: DS.Space.s3) {
+                DetailHeader(over: subheading, title: heading,
+                             subtitle: bite.map { "\(ForecastFormat.grade($0.now)) now" })
+                if let bite {
+                    ScoreRing(score: bite.now, size: 88, caption: "now")
+                        .padding(.trailing, DS.gutter)
+                }
+            }
+            if let windowLine {
+                ExploreFootnote(windowLine)
             }
         }
         .padding(.top, DS.Space.s2)
     }
 
-    /// "Excellent now. Best 06:00 to 09:00, peaking at 81."
-    private var biteLine: String? {
+    /// "Best 06:00 to 09:00, peaking at 81."
+    private var windowLine: String? {
         guard let bite else { return nil }
-        let grade = "\(ForecastFormat.grade(bite.now)) now"
-        let detail = bite.bestLine(use24: use24HourTime)
+        let line = bite.bestLine(use24: use24HourTime)
             ?? bite.reasons.first.map(ExploreFormat.sentence)
             ?? "No strong window left today"
-        let line = "\(grade). \(detail)"
         return line.hasSuffix(".") ? line : line + "."
     }
 
@@ -320,8 +325,9 @@ struct LocationInspectorSheet: View {
     }
 
     /// Each recorded fish in the species guide, with its own bite now and the
-    /// reason for it, best bite first. Two sources naming the same species
-    /// count once.
+    /// reason for it, best bite first, then most records, then by name, so
+    /// the order holds from one opening to the next. Two sources naming the
+    /// same species count once.
     private func bitingFish(from fish: [ObservedSpeciesRepository.FishResult],
                             weather w: WeatherService.WeatherData?) -> [BitingFish] {
         var records: [Int64: (species: Species, count: Int)] = [:]
@@ -335,7 +341,12 @@ struct LocationInspectorSheet: View {
             return BitingFish(species: entry.species, records: entry.count,
                               score: result.score, why: Self.why(result, species: entry.species))
         }
-        return rows.sorted { ($0.score, $0.records) > ($1.score, $1.records) }
+        return rows.sorted { a, b in
+            if a.score != b.score { return a.score > b.score }
+            if a.records != b.records { return a.records > b.records }
+            let byName = a.species.commonName.localizedCaseInsensitiveCompare(b.species.commonName)
+            return byName == .orderedSame ? a.species.id < b.species.id : byName == .orderedAscending
+        }
     }
 
     private func forecast(for species: Species, weather w: WeatherService.WeatherData?) -> ForecastEngine.ForecastResult {
