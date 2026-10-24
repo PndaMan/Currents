@@ -1107,12 +1107,9 @@ struct MapTab: View {
         .accessibilityHint("Shows the bite, conditions and water near you")
     }
 
+    /// About this place only, beside its own score: the grade and the window.
     private var nearSubtitle: String {
         guard let nearBite else { return "Working out the bite" }
-        if let best = spots.filter({ spotScores[$0.id] != nil })
-            .max(by: { (spotScores[$0.id] ?? 0) < (spotScores[$1.id] ?? 0) }) {
-            return "Best spot now \(best.name)"
-        }
         let grade = "\(ForecastFormat.grade(nearBite.now)) now"
         if let window = nearBite.best {
             let when = window.isNow()
