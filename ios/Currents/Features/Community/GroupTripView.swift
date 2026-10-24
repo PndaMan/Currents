@@ -38,6 +38,7 @@ struct GroupTripSetupView: View {
 
     @Environment(AppState.self) private var appState
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @AppStorage("use24HourTime") private var use24 = true
     private var svc: CommunityService { .shared }
 
     @State private var trips: [Trip] = []
@@ -104,11 +105,10 @@ struct GroupTripSetupView: View {
             actions(proxy)
                 .padding(.top, DS.Space.s5)
             if !startableTrips.isEmpty {
-                CrewSection(title: "Your trips") {
+                CrewSection(title: "Your sessions") {
                     VStack(spacing: 0) {
                         ForEach(startableTrips) { t in yourTripRow(t) }
                     }
-                    SectionFootnote("Start one to take it live, or tap it to edit.")
                 }
             }
             CrewSection(title: "Join a friend's trip") { joinForm }
@@ -143,10 +143,6 @@ struct GroupTripSetupView: View {
 
     private var joinForm: some View {
         VStack(alignment: .leading, spacing: DS.Space.s4) {
-            Text("Enter the 6-character code from whoever started it.")
-                .font(.body)
-                .foregroundStyle(.dsText2)
-                .fixedSize(horizontal: false, vertical: true)
             CodeField(text: $joinCode, placeholder: "Trip code")
                 .focused($joinFocused)
             Button { Task { await joinTrip() } } label: {
@@ -165,9 +161,9 @@ struct GroupTripSetupView: View {
             Button {
                 if t.isPlanned { editingPlan = t } else { Task { await startTrip(from: t) } }
             } label: {
-                ArtRow(over: t.plannedDate.map { "\($0.formatted(.dateTime.day().month(.abbreviated))), \(ForecastFormat.time($0))" },
+                ArtRow(over: t.plannedDate.map { "\($0.formatted(.dateTime.day().month(.abbreviated))), \(ForecastFormat.time($0, use24: use24))" },
                        title: t.name,
-                       subtitle: t.isPlanned ? "Planned. Tap to edit." : "Active session") {
+                       subtitle: t.isPlanned ? "Planned" : "Active session") {
                     if t.plannedDate != nil {
                         ThumbView(systemImage: "calendar.badge.clock", tint: CrewTint.calendar, size: 56)
                     } else {
@@ -292,10 +288,10 @@ struct GroupTripSetupView: View {
         busy = true; defer { busy = false }
         let code = joinCode.uppercased().trimmingCharacters(in: .whitespaces)
         guard let trip = await svc.joinGroupTrip(code: code) else {
-            ToastCenter.shared.show("Couldn't join. Check the code; the trip may have ended or been deleted.", style: .error)
+            ToastCenter.shared.show("Couldn't join that group trip", style: .error)
             return
         }
-        ToastCenter.shared.show("Joined the trip", style: .success)
+        ToastCenter.shared.show("Joined the group trip", style: .success)
         // Give the joiner a local trip so their catches sync + they can track.
         if svc.tripId(forGroupCode: code) == nil {
             var t = Trip(name: trip.name, startDate: .now)
@@ -385,6 +381,8 @@ struct GroupTripView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dynamicTypeSize) private var typeSize
+    @AppStorage("use24HourTime") private var use24 = true
+    @AppStorage("units") private var units = "metric"
     @StateObject private var svc = CommunityService.shared
     @State private var trip: CommunityService.GroupTrip?
     @State private var members: [CommunityService.GroupMember] = []
@@ -438,6 +436,8 @@ struct GroupTripView: View {
 
     private var ended: Bool { trip?.isEnded ?? false }
 
+    private var imperial: Bool { units == "imperial" }
+
     private var isHost: Bool { trip?.isHost == true }
 
     private var inMyGroups: Bool { service.myGroups.contains { $0.code == code } }
@@ -476,15 +476,15 @@ struct GroupTripView: View {
 
     private var page: some View {
         scrollPage
-            .confirmationDialog("End the trip for everyone?", isPresented: $confirmingEndForAll,
+            .confirmationDialog("End the group trip for everyone?", isPresented: $confirmingEndForAll,
                                 titleVisibility: .visible) {
-                Button("End trip", role: .destructive, action: endForAll)
+                Button("End group trip", role: .destructive, action: endForAll)
             } message: {
                 Text("Every member's live feed closes. Catches already logged stay on the trip.")
             }
-            .confirmationDialog("Leave this trip?", isPresented: $confirmingLeave,
+            .confirmationDialog("Leave this group trip?", isPresented: $confirmingLeave,
                                 titleVisibility: .visible) {
-                Button("Leave trip", role: .destructive) {
+                Button("Leave group trip", role: .destructive) {
                     // leaveGroupAndCleanup plays the warning once it lands.
                     if let code { leave(code: code) }
                 }
@@ -684,14 +684,15 @@ struct GroupTripView: View {
                      value: "\(speciesCount)", width: 120)
             if let trip {
                 StatTile(trip.endedAt == nil ? "Fishing for" : "Fished for", systemImage: "timer",
-                         tint: CrewTint.region, value: elapsedLabel(from: trip.createdAt, to: trip.endedAt),
+                         tint: CrewTint.region,
+                         value: ForecastFormat.elapsed((trip.endedAt ?? .now).timeIntervalSince(trip.createdAt)),
                          width: 132)
             }
         }
     }
 
     private var endedLine: String {
-        "Ended \((trip?.endedAt ?? .now).formatted(date: .abbreviated, time: .omitted))"
+        "Ended \(ForecastFormat.longDate(trip?.endedAt ?? .now))"
     }
 
     // MARK: - Gone
@@ -705,7 +706,7 @@ struct GroupTripView: View {
             }
             .padding(.top, DS.Space.s4)
             InlineEmpty(systemImage: "flag.slash",
-                        text: "This trip was deleted, usually with its tournament. Your catches are still in your logbook.")
+                        text: "This group trip was deleted, usually with its tournament. Your catches are still in your Logbook.")
                 .padding(.top, DS.Space.s5)
             DangerButton(title: "Remove from my trips", systemImage: "trash") {
                 // A local GPS session still linked to the dead trip is ended
@@ -761,7 +762,7 @@ struct GroupTripView: View {
             }
             .padding(.top, DS.Space.s2)
             Button { Task { await startShared() } } label: {
-                if busy { ProgressView() } else { Text("Start a shared trip") }
+                if busy { ProgressView() } else { Text("Start group trip") }
             }
             .buttonStyle(.dsPrimary)
             .disabled(busy)
@@ -773,10 +774,6 @@ struct GroupTripView: View {
 
     private var setupJoinForm: some View {
         VStack(alignment: .leading, spacing: DS.Space.s4) {
-            Text("Enter the 6-character code from whoever started it.")
-                .font(.body)
-                .foregroundStyle(.dsText2)
-                .fixedSize(horizontal: false, vertical: true)
             CodeField(text: $joinCode, placeholder: "Trip code")
             Button { Task { await joinByCode() } } label: { Text("Join trip") }
                 .buttonStyle(.dsTonal)
@@ -788,11 +785,11 @@ struct GroupTripView: View {
     private func startShared() async {
         busy = true
         if let new = await service.createGroupTrip(name: tripName, tripId: tripId ?? UUID().uuidString) {
-            ToastCenter.shared.show("Group trip created", style: .success)
+            ToastCenter.shared.show("Group trip started", style: .success)
             code = new
             await refresh()
         } else {
-            ToastCenter.shared.show("Couldn't start the shared trip", style: .error)
+            ToastCenter.shared.show("Couldn't start the group trip", style: .error)
         }
         busy = false
     }
@@ -800,11 +797,11 @@ struct GroupTripView: View {
     private func joinByCode() async {
         busy = true
         if let t = await service.joinGroupTrip(code: joinCode, tripId: tripId) {
-            ToastCenter.shared.show("Joined the trip", style: .success)
+            ToastCenter.shared.show("Joined the group trip", style: .success)
             code = t.id
             await refresh()
         } else {
-            ToastCenter.shared.show("Couldn't join. Check the code; the trip may have ended or been deleted.", style: .error)
+            ToastCenter.shared.show("Couldn't join that group trip", style: .error)
         }
         busy = false
     }
@@ -854,11 +851,11 @@ struct GroupTripView: View {
     private func confirmJoinTapped(_ code: String) async {
         busy = true
         if await service.joinGroupTrip(code: code) != nil {
-            ToastCenter.shared.show("Joined the trip", style: .success)
+            ToastCenter.shared.show("Joined the group trip", style: .success)
             ensureLinkedTrip(code: code, name: trip?.name ?? "Group trip")
             confirming = false
         } else {
-            ToastCenter.shared.show("Couldn't join the trip. It may have ended or been deleted.", style: .error)
+            ToastCenter.shared.show("Couldn't join the group trip", style: .error)
         }
         busy = false
         await refresh()
@@ -886,7 +883,7 @@ struct GroupTripView: View {
         feedSection
         detailsSection
         if canLeave {
-            DangerButton(title: ended ? "Remove from my trips" : "Leave trip",
+            DangerButton(title: ended ? "Remove from my trips" : "Leave group trip",
                          systemImage: "person.fill.xmark") {
                 // Removing a finished trip from your list is harmless
                 // housekeeping, so no confirmation.
@@ -901,9 +898,9 @@ struct GroupTripView: View {
         if await service.joinGroupTrip(code: code) != nil {
             ensureLinkedTrip(code: code, name: trip?.name ?? tripName)
             Haptics.success()
-            ToastCenter.shared.show("You're in. Tight lines.", style: .success, haptic: false)
+            ToastCenter.shared.show("Joined the group trip", style: .success, haptic: false)
         } else {
-            ToastCenter.shared.show("Couldn't join the trip. It may have ended or been deleted.", style: .error)
+            ToastCenter.shared.show("Couldn't join the group trip", style: .error)
         }
         busy = false
         await refresh()
@@ -1006,14 +1003,14 @@ struct GroupTripView: View {
                 Button(role: .destructive) {
                     confirmingEndForAll = true
                 } label: {
-                    Label("End trip for everyone", systemImage: "flag.slash")
+                    Label("End group trip for everyone", systemImage: "flag.slash")
                 }
             }
             if canLeave {
                 Button(role: .destructive) {
                     if ended { leave(code: code) } else { confirmingLeave = true }
                 } label: {
-                    Label(ended ? "Remove from my trips" : "Leave trip", systemImage: "person.fill.xmark")
+                    Label(ended ? "Remove from my trips" : "Leave group trip", systemImage: "person.fill.xmark")
                 }
             }
         } label: {
@@ -1049,16 +1046,13 @@ struct GroupTripView: View {
             }
         }
         .animation(reduceMotion ? nil : DS.Motion.softSpring, value: stats.map(\.code))
-        if !feed.isEmpty {
-            SectionFootnote("\(Set(feed.map(\.species)).count) species on the trip so far.")
-        }
     }
 
     @ViewBuilder private func standingRow(_ s: MemberStat, rank: Int) -> some View {
         let isMe = s.code == service.friendCode
         let row = EventRankRow(rank: rank,
                                name: isMe ? "You" : s.name,
-                               subtitle: s.subtitle,
+                               subtitle: s.subtitle(imperial: imperial),
                                value: "\(s.count) fish",
                                images: [memberAvatars[s.code]],
                                isMe: isMe)
@@ -1094,7 +1088,7 @@ struct GroupTripView: View {
         let row = leaderRow(from: c)
         let who = c.friendCode == service.friendCode ? "You" : c.anglerName
         return NavigationLink { CommunityCatchDetailView(row: row) } label: {
-            ArtRow(over: "\(who), \(ForecastFormat.time(c.date))",
+            ArtRow(over: "\(who), \(ForecastFormat.time(c.date, use24: use24))",
                    title: feedTitle(c)) {
                 CommunityCatchThumb(row: row, size: 64)
                     .clipShape(RoundedRectangle(cornerRadius: DS.Radius.thumb, style: .continuous))
@@ -1109,8 +1103,8 @@ struct GroupTripView: View {
     }
 
     private func feedTitle(_ c: CommunityService.GroupCatch) -> String {
-        if let w = c.weightKg { return "\(c.species), \(Units.weight(kg: w))" }
-        if let l = c.lengthCm { return "\(c.species), \(Units.length(cm: l))" }
+        if let w = c.weightKg { return "\(c.species), \(Units.weight(kg: w, imperial: imperial))" }
+        if let l = c.lengthCm { return "\(c.species), \(Units.length(cm: l, imperial: imperial))" }
         return c.species
     }
 
@@ -1137,10 +1131,10 @@ struct GroupTripView: View {
         if let trip {
             rows.append(.init(title: "Host", value: trip.hostCode == service.friendCode ? "You" : trip.hostName,
                               systemImage: "person.fill", tint: CrewTint.people))
-            rows.append(.init(title: "Started", value: "\(trip.createdAt.formatted(.dateTime.day().month(.abbreviated))), \(ForecastFormat.time(trip.createdAt))",
+            rows.append(.init(title: "Started", value: "\(trip.createdAt.formatted(.dateTime.day().month(.abbreviated))), \(ForecastFormat.time(trip.createdAt, use24: use24))",
                               systemImage: "play.fill", tint: .dsScoreGood))
             if let endedAt = trip.endedAt {
-                rows.append(.init(title: "Ended", value: "\(endedAt.formatted(.dateTime.day().month(.abbreviated))), \(ForecastFormat.time(endedAt))",
+                rows.append(.init(title: "Ended", value: "\(endedAt.formatted(.dateTime.day().month(.abbreviated))), \(ForecastFormat.time(endedAt, use24: use24))",
                                   systemImage: "flag.checkered", tint: CrewTint.calendar))
             }
             if let crewCode = trip.crewCode, let crew = svc.crew(withCode: crewCode) {
@@ -1383,7 +1377,6 @@ struct GroupTripView: View {
             }
             .buttonStyle(.dsTonal)
             .padding(.horizontal, DS.gutter)
-            SectionFootnote("Optional. Records your track alongside the trip.")
         case .nothing:
             EmptyView()
         }
@@ -1446,12 +1439,6 @@ struct GroupTripView: View {
         }
     }
 
-    private func elapsedLabel(from start: Date, to end: Date?) -> String {
-        let seconds = (end ?? .now).timeIntervalSince(start)
-        let h = Int(seconds) / 3600, m = (Int(seconds) % 3600) / 60
-        return h > 0 ? "\(h)h \(m)m" : "\(m)m"
-    }
-
     private struct MemberStat {
         let code: String
         let name: String
@@ -1460,10 +1447,11 @@ struct GroupTripView: View {
         var bestCm: Double?
         var bestSpecies: String?
         var species: Set<String>
-        var subtitle: String {
+        /// Species keep the capitalisation of the species list.
+        func subtitle(imperial: Bool) -> String {
             guard let bestSpecies else { return "No fish yet" }
-            if let bestKg { return "Biggest \(bestSpecies.lowercased()), \(Units.weight(kg: bestKg))" }
-            if let bestCm { return "Biggest \(bestSpecies.lowercased()), \(Units.length(cm: bestCm))" }
+            if let bestKg { return "Biggest \(bestSpecies), \(Units.weight(kg: bestKg, imperial: imperial))" }
+            if let bestCm { return "Biggest \(bestSpecies), \(Units.length(cm: bestCm, imperial: imperial))" }
             return "\(species.count) species"
         }
     }
@@ -1559,7 +1547,7 @@ struct GroupTripView: View {
            let localId = tripId ?? service.tripId(forGroupCode: code),
            appState.tripTracker.activeTrip?.id == localId {
             _ = appState.tripTracker.end()
-            ToastCenter.shared.show("Session ended. The shared trip is over.", style: .info)
+            ToastCenter.shared.show("Session ended with the group trip", style: .info)
         }
         await loadMemberAvatars()
     }
