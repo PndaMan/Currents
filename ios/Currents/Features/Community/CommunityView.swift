@@ -2302,7 +2302,7 @@ struct CommunityCatchDetailView: View {
                       showsPhotos: hasPhoto,
                       isLoading: hasPhoto && !photoLoaded,
                       open: { showingFullscreen = true })
-            DetailHeader(over: row.date.formatted(date: .long, time: .omitted),
+            DetailHeader(over: LogbookFormat.fullDate(row.date),
                          title: row.species,
                          subtitle: "Caught by \(row.anglerName)")
                 .padding(.top, DS.Space.s4)
