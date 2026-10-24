@@ -384,7 +384,8 @@ struct RampListView: View {
                             appState.pendingDeepLink = MapLink.ramp(ramp)
                         } label: {
                             ArtRow(title: ramp.name,
-                                   subtitle: ExploreFormat.rampLine(ramp, distance: "\(Units.distance(m: distance)) away"),
+                                   subtitle: ExploreFormat.rampLine(ramp, distance: "\(Units.distance(m: distance)) away",
+                                                                    side: rampService.side(of: ramp)),
                                    chevron: true) {
                                 PlaceSnapshotThumb(place: ramp)
                             }

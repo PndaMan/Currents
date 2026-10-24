@@ -181,7 +181,8 @@ struct RampDetailSheet: View {
 
     private var subtitle: String {
         let d = ExploreFormat.distance(from: appState.locationManager.currentLocation?.coordinate, to: ramp.coordinate)
-        return ExploreFormat.rampLine(ramp, distance: d.map { "\($0) away" })
+        return ExploreFormat.rampLine(ramp, distance: d.map { "\($0) away" },
+                                      side: BoatRampService.shared.side(of: ramp))
     }
 
     private func remove() {

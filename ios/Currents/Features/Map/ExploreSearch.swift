@@ -483,7 +483,7 @@ struct ExploreSearchPane: View {
     private func rampButton(_ ramp: BoatRamp) -> some View {
         Button { pick(.ramp(ramp), recent: recent(for: ramp)) } label: {
             ExploreSearchRow(title: Self.highlight(ramp.name, query),
-                             subtitle: ramp.kind.label,
+                             subtitle: rampService.side(of: ramp) ?? ramp.kind.label,
                              trailing: distanceText(to: ramp.coordinate)) {
                 PlaceSnapshotThumb(place: ramp, size: 48)
             }
