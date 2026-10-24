@@ -4,54 +4,6 @@ import SwiftUI
 // verdict, one line, a visual on the right), filled cards of rows with a
 // coloured icon tile, and a horizontal strip of stat tiles.
 
-// MARK: - Hero
-
-/// Today's hero block: a subheadline label, a bold title, one short callout
-/// line and a visual on the right (a ring, an avatar, a big number).
-struct CommunityHero<Visual: View>: View {
-    let label: String
-    let title: String
-    var line: String? = nil
-    private let visual: Visual
-
-    init(label: String, title: String, line: String? = nil, @ViewBuilder visual: () -> Visual) {
-        self.label = label
-        self.title = title
-        self.line = line
-        self.visual = visual()
-    }
-
-    var body: some View {
-        HStack(alignment: .center, spacing: DS.Space.s4) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(label)
-                    .font(.subheadline)
-                    .foregroundStyle(.dsText2)
-                Text(title)
-                    .font(.title.bold())
-                    .foregroundStyle(.dsText)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityAddTraits(.isHeader)
-                if let line, !line.isEmpty {
-                    Text(line)
-                        .font(.callout)
-                        .foregroundStyle(.dsText2)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            Spacer(minLength: 0)
-            visual
-        }
-        .padding(.horizontal, DS.gutter)
-    }
-}
-
-extension CommunityHero where Visual == EmptyView {
-    init(label: String, title: String, line: String? = nil) {
-        self.init(label: label, title: title, line: line) { EmptyView() }
-    }
-}
-
 // MARK: - Grouped card
 
 /// Rows grouped on one filled card, in the gutter. Put `CardDivider`s
