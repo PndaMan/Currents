@@ -33,6 +33,7 @@ struct TournamentSetupView: View {
     @State private var perFish = TournamentPoints.standard.perFish
     @State private var perKg = TournamentPoints.standard.perKg
     @State private var speciesBonus = TournamentPoints.standard.newSpeciesBonus
+    @AppStorage("units") private var units = "metric"
     @FocusState private var nameFocused: Bool
 
     /// "Runs for" presets, in hours.
@@ -151,7 +152,7 @@ struct TournamentSetupView: View {
                     .buttonStyle(.dsCardRow)
                 }
             }
-            SectionFootnote("A 3 kg fish new to the team scores \(pointsText(perFish + 3 * perKg + speciesBonus)).")
+            SectionFootnote("A \(Units.weight(kg: 3, imperial: units == "imperial")) fish new to the team scores \(pointsText(perFish + 3 * perKg + speciesBonus)).")
         }
     }
 
@@ -272,6 +273,8 @@ struct TournamentView: View {
     /// The result pattern plays once per visit, not on every return to the page.
     @State private var celebratedResult = false
     @Environment(\.dynamicTypeSize) private var typeSize
+    @AppStorage("use24HourTime") private var use24 = true
+    @AppStorage("units") private var units = "metric"
     /// Highlight cards grow with the text size, like Today's day cards.
     @ScaledMetric(relativeTo: .headline) private var highlightWidth: CGFloat = 168
 
@@ -581,7 +584,7 @@ struct TournamentView: View {
     }
 
     private var endedLine: String {
-        "Ended \((tournament.endedAt ?? .now).formatted(date: .abbreviated, time: .omitted))"
+        "Ended \(ForecastFormat.longDate(tournament.endedAt ?? .now))"
     }
 
     private func liveLine(now: Date) -> String {
@@ -861,7 +864,7 @@ struct TournamentView: View {
 
     private func teamSubtitle(_ s: CommunityService.TeamStanding) -> String {
         var parts = ["\(s.fishCount) fish"]
-        if s.totalWeightKg > 0 { parts.append(Units.weight(kg: s.totalWeightKg)) }
+        if s.totalWeightKg > 0 { parts.append(Units.weight(kg: s.totalWeightKg, imperial: units == "imperial")) }
         if s.isEnded { parts.append("session ended") }
         return parts.joined(separator: ", ")
     }
@@ -1062,19 +1065,24 @@ struct TournamentView: View {
             .init(label: "New species", symbol: "leaf.fill", tint: CrewTint.species, value: "+\(r.newSpeciesBonus)"),
             .init(label: "Teams", symbol: "location.fill", tint: CrewTint.spot, value: "Live sessions"),
             .init(label: "Started", symbol: "play.fill", tint: CrewTint.people,
-                  value: "\(tournament.createdAt.formatted(.dateTime.day().month(.abbreviated))), \(ForecastFormat.time(tournament.createdAt))"),
+                  value: ruleTime(tournament.createdAt)),
         ]
         let endValue: String
         if let ended = tournament.endedAt {
-            endValue = "\(ended.formatted(.dateTime.day().month(.abbreviated))), \(ForecastFormat.time(ended))"
+            endValue = ruleTime(ended)
         } else if let ends = tournament.endsAt {
-            endValue = "\(ends.formatted(.dateTime.day().month(.abbreviated))), \(ForecastFormat.time(ends))"
+            endValue = ruleTime(ends)
         } else {
             endValue = "When an admin ends it"
         }
         rows.append(.init(label: tournament.isEnded ? "Ended" : "Ends", symbol: "flag.checkered",
                           tint: CrewTint.calendar, value: endValue))
         return rows
+    }
+
+    /// "23 Oct, 18:00", the time on the 24-hour setting.
+    private func ruleTime(_ date: Date) -> String {
+        "\(date.formatted(.dateTime.day().month(.abbreviated))), \(ForecastFormat.time(date, use24: use24))"
     }
 }
 
@@ -1329,6 +1337,10 @@ private struct NewTeamSheet: View {
 /// example. Grouped rows, like the start screen that set them.
 private struct TournamentScoringSheet: View {
     let rates: TournamentPoints.Rates
+    @AppStorage("units") private var units = "metric"
+
+    /// The worked example's fish weight, in the user's units.
+    private var exampleWeight: String { Units.weight(kg: 3, imperial: units == "imperial") }
 
     private var exampleTotal: Int { rates.perFish + 3 * rates.perKg + rates.newSpeciesBonus }
 
@@ -1336,7 +1348,7 @@ private struct TournamentScoringSheet: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
-                    PageHero(label: "A new species at 3 kg", value: pointsText(exampleTotal),
+                    PageHero(label: "A new species at \(exampleWeight)", value: pointsText(exampleTotal),
                              callout: rates != TournamentPoints.standard ? "Custom scoring set by the host"
                                                                          : "Standard scoring") {
                         ThumbView(systemImage: "trophy.fill", tint: CrewTint.trophy, size: 72)
@@ -1377,7 +1389,7 @@ private struct TournamentScoringSheet: View {
                 .padding(.top, DS.Space.s6)
             KeyValueList(rows: [
                 .init(label: "The fish", value: pointsText(rates.perFish)),
-                .init(label: "3 kg", value: "+\(3 * rates.perKg)"),
+                .init(label: exampleWeight, value: "+\(3 * rates.perKg)"),
                 .init(label: "New species", value: "+\(rates.newSpeciesBonus)"),
                 .init(label: "Total", value: pointsText(exampleTotal), emphasized: true),
             ])
@@ -1618,7 +1630,7 @@ struct TournamentHistoryView: View {
     }
 
     private func row(_ t: CommunityService.Tournament) -> some View {
-        ArtRow(over: t.createdAt.formatted(date: .abbreviated, time: .omitted),
+        ArtRow(over: ForecastFormat.longDate(t.createdAt),
                title: t.name,
                subtitle: t.winnerTeam.map { "\($0) won" } ?? (t.isEnded ? "Ended" : "Hosted by \(t.hostName)"),
                subtitleIcon: t.winnerTeam != nil ? "trophy.fill" : nil,
@@ -1653,6 +1665,10 @@ struct TeamTournamentDetailView: View {
     @State private var offline = false
     @State private var showingLog = false
     @State private var showingScoring = false
+    @AppStorage("use24HourTime") private var use24 = true
+    @AppStorage("units") private var units = "metric"
+
+    private var imperial: Bool { units == "imperial" }
 
     init(tournament: CommunityService.Tournament, crew: CommunityService.Crew,
          standing: CommunityService.TeamStanding, rank: Int,
@@ -1859,7 +1875,8 @@ struct TeamTournamentDetailView: View {
         let fishPts = standing.fishCount * rates.perFish
         let speciesPts = standing.speciesCount * rates.newSpeciesBonus
         let weightPts = standing.points - fishPts - speciesPts
-        let weighed = standing.totalWeightKg > 0 ? Units.weight(kg: standing.totalWeightKg) : "Not weighed"
+        let weighed = standing.totalWeightKg > 0
+            ? Units.weight(kg: standing.totalWeightKg, imperial: imperial) : "Not weighed"
         return StatStrip {
             StatTile("Fish", systemImage: "fish.fill", tint: CrewTint.fish,
                      value: "\(fishPts)", unit: "pts", footnote: "\(standing.fishCount) caught", width: 132)
@@ -1919,7 +1936,7 @@ struct TeamTournamentDetailView: View {
         let row = ArtRow(over: line.code == standing.hostCode ? "Started the session" : nil,
                          title: isMe ? "You" : line.name,
                          subtitle: line.fish == 0 ? "No catches yet"
-                             : "\(line.fish) fish, \(Units.weight(kg: line.kg))",
+                             : "\(line.fish) fish, \(Units.weight(kg: line.kg, imperial: imperial))",
                          chevron: !isMe) {
             AnglerAvatar(image: avatar(line.code), size: 48)
         }
@@ -1971,7 +1988,7 @@ struct TeamTournamentDetailView: View {
         return NavigationLink {
             CommunityCatchDetailView(row: row)
         } label: {
-            ArtRow(over: "\(who), \(c.date.formatted(.dateTime.day().month(.abbreviated))), \(ForecastFormat.time(c.date))",
+            ArtRow(over: "\(who), \(c.date.formatted(.dateTime.day().month(.abbreviated))), \(ForecastFormat.time(c.date, use24: use24))",
                    title: sizeTitle(c)) {
                 CommunityCatchThumb(row: row, size: 56)
             } trailing: {
@@ -1983,8 +2000,8 @@ struct TeamTournamentDetailView: View {
     }
 
     private func sizeTitle(_ c: CommunityService.GroupCatch) -> String {
-        if let w = c.weightKg { return "\(c.species), \(Units.weight(kg: w))" }
-        if let l = c.lengthCm { return "\(c.species), \(Units.length(cm: l))" }
+        if let w = c.weightKg { return "\(c.species), \(Units.weight(kg: w, imperial: imperial))" }
+        if let l = c.lengthCm { return "\(c.species), \(Units.length(cm: l, imperial: imperial))" }
         return c.species
     }
 
