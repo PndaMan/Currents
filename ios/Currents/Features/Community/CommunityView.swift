@@ -1022,10 +1022,23 @@ struct ProfileEditView: View {
     @State private var showingTitlePicker = false
     @State private var avatarItem: PhotosPickerItem?
     @State private var avatar: UIImage?
+    @State private var avatarChanged = false
     @State private var saving = false
+    /// Set once the saved profile has been copied into the fields.
+    @State private var loaded = false
+    /// 1 name, 2 bio, 3 home water, 4 region.
+    @FocusState private var focused: Int?
 
     @ObservedObject private var cloud = CrewCloud.shared
     private var flair: TitleFlair? { TitleFlair.resolve(title) }
+
+    /// True once anything differs from the saved profile, so a swipe can't
+    /// throw the edits away.
+    private var hasChanges: Bool {
+        guard loaded else { return false }
+        return avatarChanged || name != svc.myName || bio != svc.myBio
+            || homeWater != svc.myHomeWater || region != svc.myRegion || title != svc.myTitle
+    }
 
     var body: some View {
         NavigationStack {
@@ -1033,12 +1046,21 @@ struct ProfileEditView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: DS.Space.s5) {
                         avatarPicker
-                        CrewTextField(label: "Angler name", placeholder: "Your name", text: $name)
+                        CrewTextField(label: "Angler name", placeholder: "Your name", text: $name,
+                                      focus: $focused, focusID: 1)
                             .textContentType(.name)
+                            .submitLabel(.next)
+                            .onSubmit { focused = 2 }
                         CrewTextField(label: "Bio", placeholder: "What you fish for and where", text: $bio,
-                                      multiline: true)
-                        CrewTextField(label: "Home water", placeholder: "Theewaterskloof Dam", text: $homeWater)
-                        CrewTextField(label: "Region", placeholder: "Western Cape", text: $region)
+                                      multiline: true, focus: $focused, focusID: 2)
+                        CrewTextField(label: "Home water", placeholder: "Theewaterskloof Dam", text: $homeWater,
+                                      focus: $focused, focusID: 3)
+                            .submitLabel(.next)
+                            .onSubmit { focused = 4 }
+                        CrewTextField(label: "Region", placeholder: "Western Cape", text: $region,
+                                      focus: $focused, focusID: 4)
+                            .submitLabel(.done)
+                            .onSubmit { focused = nil }
                         titleRow
                     }
                     .padding(.horizontal, DS.gutter)
@@ -1055,14 +1077,19 @@ struct ProfileEditView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") { save() }.bold()
-                        .disabled(saving || !cloud.isAvailable || name.trimmingCharacters(in: .whitespaces).isEmpty)
+                    Button { save() } label: {
+                        if saving { ProgressView() } else { Text("Save") }
+                    }
+                    .bold()
+                    .accessibilityLabel("Save")
+                    .disabled(saving || !cloud.isAvailable || name.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
             }
             .task {
                 name = svc.myName; bio = svc.myBio; homeWater = svc.myHomeWater; region = svc.myRegion
                 title = svc.myTitle
                 avatar = svc.myAvatar
+                loaded = true
                 // Titles you can wear are achievements you've actually earned.
                 let all = (try? await appState.catchRepository.fetchAllInBackground(limit: 2000)) ?? []
                 let streak = BadgeDefinition.streakWeeks(from: all)
@@ -1084,12 +1111,15 @@ struct ProfileEditView: View {
             }
             .onChange(of: avatarItem) { _, item in
                 Task {
-                    if let data = try? await item?.loadTransferable(type: Data.self) { avatar = UIImage(data: data) }
+                    if let data = try? await item?.loadTransferable(type: Data.self) {
+                        avatar = UIImage(data: data)
+                        avatarChanged = true
+                    }
                 }
             }
         }
-        .presentationDetents([.large])
-        .presentationDragIndicator(.visible)
+        .interactiveDismissDisabled(hasChanges || saving)
+        .dsSheet([.large])
     }
 
     /// The photo, centred, with a camera badge; tap to pick a new one.
@@ -1161,15 +1191,25 @@ struct ProfileEditView: View {
         .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
     }
 
+    /// The profile is saved on this phone first. Only a published copy
+    /// counts as updated; otherwise the sheet stays open to try again.
     private func save() {
+        focused = nil
         saving = true
         Task {
-            await svc.updateProfile(name: name, bio: bio, homeWater: homeWater, region: region, avatar: avatar, stats: stats, title: title)
+            let ok = await svc.updateProfile(name: name, bio: bio, homeWater: homeWater, region: region,
+                                             avatar: avatar, stats: stats, title: title)
+            avatarChanged = false
             // Refresh shared spots to reflect any privacy changes.
             let spots = (try? appState.spotRepository.fetchAll()) ?? []
             await svc.republishSharedSpots(spots: spots)
-            ToastCenter.shared.show("Profile updated", style: .success)
-            dismiss()
+            saving = false
+            if ok {
+                ToastCenter.shared.show("Profile updated", style: .success)
+                dismiss()
+            } else {
+                ToastCenter.shared.show("Saved on this phone. Couldn't update your Crew profile", style: .error)
+            }
         }
     }
 }

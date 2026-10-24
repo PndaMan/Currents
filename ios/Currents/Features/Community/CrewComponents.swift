@@ -453,27 +453,39 @@ struct CrewEventRow<Leading: View>: View {
 // MARK: - Inputs and buttons
 
 /// A labelled field on a filled rounded rectangle. `multiline` grows it to
-/// four lines (bios, notes).
+/// four lines (bios, notes). Pass `focus` and `focusID` so a form can move
+/// to the next field on Return.
 struct CrewTextField: View {
     let label: String
     var placeholder = ""
     @Binding var text: String
     var multiline = false
+    var focus: FocusState<Int?>.Binding? = nil
+    var focusID = 0
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(label)
                 .font(.subheadline.weight(.medium))
                 .foregroundStyle(.dsText2)
-            TextField(placeholder.isEmpty ? label : placeholder, text: $text,
-                      axis: multiline ? .vertical : .horizontal)
-                .lineLimit(multiline ? 2...4 : 1...1)
-                .font(.body)
-                .padding(.horizontal, DS.Space.s4)
-                .padding(.vertical, multiline ? 14 : 0)
-                .frame(minHeight: 50)
-                .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.button, style: .continuous))
-                .accessibilityLabel(label)
+            input
+        }
+    }
+
+    @ViewBuilder private var input: some View {
+        let field = TextField(placeholder.isEmpty ? label : placeholder, text: $text,
+                              axis: multiline ? .vertical : .horizontal)
+            .lineLimit(multiline ? 2...4 : 1...1)
+            .font(.body)
+            .padding(.horizontal, DS.Space.s4)
+            .padding(.vertical, multiline ? 14 : 0)
+            .frame(minHeight: 50)
+            .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.button, style: .continuous))
+            .accessibilityLabel(label)
+        if let focus {
+            field.focused(focus, equals: focusID)
+        } else {
+            field
         }
     }
 }
