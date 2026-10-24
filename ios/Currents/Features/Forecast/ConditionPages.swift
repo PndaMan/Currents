@@ -118,8 +118,7 @@ struct ConditionGrid: View {
             case .moon:
                 Image(systemName: day.solunar.moonPhase.symbolName)
                     .font(.title)
-                    .symbolRenderingMode(.hierarchical)
-                    .foregroundStyle(.dsText)
+                    .moonColours()
                     .accessibilityHidden(true)
             case .sun:
                 SunArc(sunrise: day.solunar.sunrise, sunset: day.solunar.sunset,
@@ -586,9 +585,18 @@ private struct MoonGlyph: View {
     var body: some View {
         Image(systemName: phase.symbolName)
             .font(.system(size: size)) // ui-lint: allow, @ScaledMetric symbol
-            .symbolRenderingMode(.hierarchical)
-            .foregroundStyle(.dsText)
+            .moonColours()
             .accessibilityLabel(ForecastFormat.moonName(phase))
+    }
+}
+
+private extension View {
+    /// The moon's lit face in the moon colour with its outline in the darker
+    /// ink, the same in light and dark. Following the text colour drew the
+    /// face as a grey disc in a black ring in light mode.
+    func moonColours() -> some View {
+        symbolRenderingMode(.palette)
+            .foregroundStyle(ForecastCondition.moon.ink, ForecastCondition.moon.tint)
     }
 }
 
