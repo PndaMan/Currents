@@ -1631,8 +1631,10 @@ struct TournamentHistoryView: View {
                subtitle: t.winnerTeam.map { "\($0) won" } ?? (t.isEnded ? "Ended" : "Hosted by \(t.hostName)"),
                subtitleIcon: t.winnerTeam != nil ? "trophy.fill" : nil,
                chevron: true) {
+            // Ended ones keep the trophy colour; the flag and the Past
+            // section set them apart.
             ThumbView(systemImage: t.isEnded ? "flag.checkered" : "trophy.fill",
-                      tint: t.isEnded ? Color.gray : Color.dsScoreFair, size: 56)
+                      tint: .dsScoreFair, size: 56)
         } trailing: {
             if !t.isEnded { EventLiveTag().font(.subheadline) }
         }
