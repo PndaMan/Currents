@@ -669,11 +669,10 @@ struct CrewUnavailableState: View {
 /// A Crew page or sheet that needs iCloud. Without it the unavailable state
 /// shows instead, and the content (with every load it starts) is never built.
 struct CrewCloudGate<Content: View>: View {
-    /// Sheets get a Close button; pushed pages already have Back.
+    /// Sheets get a Done button; pushed pages already have Back.
     var closeButton = false
     private let content: () -> Content
     @ObservedObject private var cloud = CrewCloud.shared
-    @Environment(\.dismiss) private var dismiss
 
     init(closeButton: Bool = false, @ViewBuilder content: @escaping () -> Content) {
         self.closeButton = closeButton
@@ -690,11 +689,11 @@ struct CrewCloudGate<Content: View>: View {
             }
             .dsScreenBackground()
             .detailScrollEdge()
-            .navigationTitle("")
+            .navigationTitle("Crew")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 if closeButton {
-                    ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } }
+                    ToolbarItem(placement: .confirmationAction) { SheetDoneButton() }
                 }
             }
             .task { await cloud.refresh() }

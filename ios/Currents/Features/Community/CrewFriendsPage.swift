@@ -485,30 +485,31 @@ enum CrewAddChoice {
 /// What the plus on the Crew tab can start.
 struct CrewAddSheet: View {
     let onChoose: (CrewAddChoice) -> Void
-    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         NavigationStack {
-            VStack(alignment: .leading, spacing: 0) {
-                option(.newCrew, title: "New crew", subtitle: "A group with a shared feed, challenges and tournaments",
-                       systemImage: "person.3.fill", tint: DS.accent)
-                option(.groupTrip, title: "Group trip", subtitle: "Fish together now or plan a day",
-                       systemImage: "calendar.badge.plus", tint: .dsScoreLow)
-                option(.addFriend, title: "Add a friend", subtitle: "Send a request with their angler code",
-                       systemImage: "person.badge.plus", tint: .dsScoreGood)
-                Spacer(minLength: 0)
+            // Scrolls so the three choices still fit a medium sheet at large
+            // text sizes.
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    option(.newCrew, title: "New crew", subtitle: "A group with a shared feed, challenges and tournaments",
+                           systemImage: "person.3.fill", tint: DS.accent)
+                    option(.groupTrip, title: "Group trip", subtitle: "Fish together now or plan a day",
+                           systemImage: "calendar.badge.plus", tint: .dsScoreLow)
+                    option(.addFriend, title: "Add a friend", subtitle: "Send a request with their angler code",
+                           systemImage: "person.badge.plus", tint: .dsScoreGood)
+                }
+                .padding(.top, DS.Space.s2)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .padding(.top, DS.Space.s2)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .dsScreenBackground()
             .navigationTitle("Start something")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) { SheetDoneButton() }
             }
         }
-        .presentationDetents([.medium, .large])
-        .presentationDragIndicator(.visible)
+        .dsSheet([.medium, .large])
     }
 
     private func option(_ choice: CrewAddChoice, title: String, subtitle: String,
