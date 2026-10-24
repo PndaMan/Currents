@@ -4,18 +4,6 @@ import SwiftUI
 // verdict, one line, a visual on the right), filled cards of rows with a
 // coloured icon tile, and a horizontal strip of stat tiles.
 
-/// The hairline between rows on a card, inset past the icon tile.
-struct CardDivider: View {
-    var inset: CGFloat = DS.Space.s4 + IconRow<EmptyView>.iconSize + DS.Space.s3
-
-    var body: some View {
-        Rectangle()
-            .fill(Color.dsSeparator)
-            .frame(height: 0.5)
-            .padding(.leading, inset)
-    }
-}
-
 // MARK: - Icon row
 
 /// A row on a `GroupedCard`: a coloured symbol on a faint tile of the same
