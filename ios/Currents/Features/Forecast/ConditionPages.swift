@@ -799,7 +799,9 @@ struct ConditionPageModel {
         var figures: [ConditionFigure] = []
         figures.append(ConditionFigure(label: "Pressure", icon: "gauge.with.dots.needle.33percent",
                                        value: Units.pressure(hpa: w.pressureHpa, imperial: imperial)))
-        figures.append(ConditionFigure(label: "Last 6 hours", icon: trendIcon,
+        // Today's trend is the live reading's last six hours; later days
+        // carry their own midday to evening change.
+        figures.append(ConditionFigure(label: day.isToday ? "Last 6 hours" : "Midday to evening", icon: trendIcon,
                                        value: ForecastFormat.pressureTrend(change, imperial: imperial)))
         if let lo = values.min(), let hi = values.max() {
             let loText = Units.pressureParts(hpa: lo, imperial: imperial).0
