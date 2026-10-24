@@ -244,7 +244,7 @@ struct AnalyticsView: View {
             let byId = speciesById
             VStack(spacing: DS.Space.s3) {
                 ForEach(shown, id: \.speciesId) { item in
-                    ThumbBarRow(name: item.commonName, count: item.count, maxCount: maxCount, tint: .dsScoreGood) {
+                    ThumbBarRow(name: item.commonName, count: item.count, maxCount: maxCount) {
                         if let species = byId[item.speciesId] {
                             ThumbView(species: species, size: 44)
                         } else {
@@ -269,7 +269,7 @@ struct AnalyticsView: View {
                     .padding(.top, DS.Space.s8)
                 ForEach(lures, id: \.species) { row in
                     ArtRow(over: row.species, title: row.lure, subtitle: row.detail) {
-                        LureArtView(name: row.lure, size: 52)
+                        LureThumb(name: row.lure, size: 52)
                     }
                 }
             }
@@ -322,8 +322,8 @@ struct AnalyticsView: View {
             let maxCount = sorted.first?.value.count ?? 1
             VStack(spacing: DS.Space.s3) {
                 ForEach(sorted.prefix(8), id: \.key) { name, catches in
-                    ThumbBarRow(name: name, count: catches.count, maxCount: maxCount, tint: DS.accent) {
-                        LureArtView(name: lureName(catches.first?.gearLoadout), size: 44)
+                    ThumbBarRow(name: name, count: catches.count, maxCount: maxCount) {
+                        LureThumb(name: lureName(catches.first?.gearLoadout), size: 44)
                     }
                 }
             }
@@ -334,7 +334,7 @@ struct AnalyticsView: View {
             if !techniques.isEmpty {
                 SectionTitle("Techniques")
                     .padding(.top, DS.Space.s8)
-                LabeledBarList(items: techniques.prefix(6).map { ($0.key, $0.value.count) }, tint: DS.ink(.dsScoreFair))
+                LabeledBarList(items: techniques.prefix(6).map { ($0.key, $0.value.count) })
                     .padding(.horizontal, DS.gutter)
             }
         }
@@ -629,7 +629,7 @@ struct AnalyticsView: View {
 }
 
 /// A bar row with a square thumbnail: the name above a proportional bar,
-/// with the count trailing.
+/// with the count trailing. Every count on the page uses the one accent.
 private struct ThumbBarRow<Leading: View>: View {
     let name: String
     let count: Int
