@@ -14,24 +14,35 @@ struct SpeciesZoomSource {
     let namespace: Namespace.ID
 }
 
-/// Twelve tiny bars, one per month, the selected month highlighted. Used at
-/// the end of species guide rows.
+/// Twelve tiny bars, one per month, the selected month highlighted, over a
+/// caption naming the peak months ("Nov to Mar"). Used at the end of species
+/// guide rows.
 struct SeasonMiniBars: View {
     let scores: [Int]
     let highlight: Int   // 1 to 12
     var tint: Color = DS.accent
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
-        HStack(alignment: .bottom, spacing: 2) {
-            ForEach(Array(scores.enumerated()), id: \.offset) { index, score in
-                Capsule()
-                    .fill(index + 1 == highlight ? tint : Color.dsText3)
-                    .opacity(index + 1 == highlight ? 1 : 0.55)
-                    .frame(width: 3, height: max(4, 22 * CGFloat(score) / 100))
+        VStack(spacing: 2) {
+            HStack(alignment: .bottom, spacing: 2) {
+                ForEach(Array(scores.enumerated()), id: \.offset) { index, score in
+                    Capsule()
+                        .fill(index + 1 == highlight ? tint : Color.dsText3)
+                        .opacity(index + 1 == highlight ? 1 : 0.55)
+                        .frame(width: 3, height: max(4, 22 * CGFloat(score) / 100))
+                }
+            }
+            .frame(height: 22, alignment: .bottom)
+            if let caption = SpeciesSeason.shortPeakText(scores) {
+                Text(caption)
+                    .font(.caption2)
+                    .foregroundStyle(.dsText2)
+                    .lineLimit(typeSize.isAccessibilitySize ? 2 : 1)
             }
         }
-        .frame(height: 22, alignment: .bottom)
-        .accessibilityHidden(true)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(SpeciesSeason.peakText(scores) ?? "No clear peak season")
     }
 }
 
