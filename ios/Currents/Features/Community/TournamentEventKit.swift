@@ -86,13 +86,16 @@ private struct EventPageTitle: ViewModifier {
     }
 }
 
-/// A sheet's inline title with the crew sheets' text button on the leading
-/// side ("Cancel" on forms, "Done" elsewhere), and the same firm edge under
-/// the bar as the pushed pages.
+/// A sheet's inline title with the standard close button, and the same firm
+/// edge under the bar as the pushed pages. Viewers get Done on the trailing
+/// side, as the Explore sheets do; forms get Cancel on the leading side and
+/// add their own commit button at `.confirmationAction`.
 private struct EventSheetTitle: ViewModifier {
     let title: String
     let close: String
     @Environment(\.dismiss) private var dismiss
+
+    private var isDone: Bool { close == "Done" }
 
     func body(content: Content) -> some View {
         content
@@ -100,8 +103,15 @@ private struct EventSheetTitle: ViewModifier {
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button(close) { dismiss() }
+                if isDone {
+                    ToolbarItem(placement: .confirmationAction) {
+                        SheetDoneButton()
+                    }
+                }
+                if !isDone {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button(close) { dismiss() }
+                    }
                 }
             }
     }
@@ -115,7 +125,8 @@ extension View {
     }
 
     /// Title and close button for a sheet's root, inside its NavigationStack.
-    /// Forms pass `close: "Cancel"`.
+    /// Forms pass `close: "Cancel"` and add a named commit button at
+    /// `.confirmationAction`. The sheet's root still ends with `.dsSheet`.
     func eventSheetTitle(_ title: String, close: String = "Done") -> some View {
         modifier(EventSheetTitle(title: title, close: close))
     }
