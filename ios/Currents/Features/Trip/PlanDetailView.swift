@@ -15,6 +15,8 @@ struct PlanDetailView: View {
     @State private var checklist: [Trip.ChecklistItem] = []
     @State private var newItem = ""
     @AppStorage("use24HourTime") private var use24 = true
+    /// The map look picked in Explore, as the session maps use.
+    @AppStorage("mapStyleOption") private var mapStyleRaw = MapTab.MapStyleOption.standard.rawValue
     @State private var forecast: ForecastEngine.ForecastResult?
     @State private var selectedHour: Int?
     @State private var solunar: SolunarEngine.SolunarDay?
@@ -328,7 +330,7 @@ struct PlanDetailView: View {
             Marker(spot?.name ?? "Forecast pin", systemImage: "mappin", coordinate: coord)
                 .tint(DS.accent)
         }
-        .mapStyle(.hybrid)
+        .mapStyle(SessionMapLook.style(mapStyleRaw))
         .frame(height: 170)
         .clipShape(RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
         .allowsHitTesting(false)
