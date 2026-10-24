@@ -97,30 +97,17 @@ extension View {
     }
 
     /// Luma keeps the large title in the page and only shows the small title
-    /// in the bar once the header has scrolled away. Pair with
-    /// `pfTrackScroll(_:)` on the scroll view.
+    /// in the bar, with the hairline under it, once the header has scrolled
+    /// away. Pair with `pfTrackScroll(_:)` on the scroll view, and apply it
+    /// after `detailTint` or `detailScrollEdge`.
     func pfScrollTitle(_ title: String, shown: Bool) -> some View {
-        navigationTitle(title)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .principal) {
-                    Text(title)
-                        .font(.headline)
-                        .lineLimit(1)
-                        .opacity(shown ? 1 : 0)
-                        .animation(.easeOut(duration: DS.Motion.fast), value: shown)
-                        .accessibilityHidden(!shown)
-                }
-            }
+        pageInlineTitle(title, shown: shown)
     }
 
-    /// Sets `shown` once the page has scrolled past its header.
+    /// Sets `shown` once the page has scrolled `threshold` points, past its
+    /// header.
     func pfTrackScroll(_ shown: Binding<Bool>, threshold: CGFloat = 90) -> some View {
-        onScrollGeometryChange(for: Bool.self) { geo in
-            geo.contentOffset.y + geo.contentInsets.top > threshold
-        } action: { _, past in
-            shown.wrappedValue = past
-        }
+        pageTitleTracking(shown, threshold: threshold)
     }
 }
 
