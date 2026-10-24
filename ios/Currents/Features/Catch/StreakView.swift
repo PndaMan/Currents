@@ -12,7 +12,7 @@ struct StreakStats {
     let weeks: Set<Date>
 
     init(catches: [CatchDetail]) {
-        let cal = Calendar.current
+        let cal = BadgeDefinition.weekCalendar
         func weekStart(_ date: Date) -> Date {
             cal.dateInterval(of: .weekOfYear, for: date)?.start ?? cal.startOfDay(for: date)
         }
@@ -159,20 +159,35 @@ struct StreakView: View {
 
     private func subtitle(_ stats: StreakStats) -> String {
         if stats.fishedThisWeek { return "You fished this week. Keep it going next week." }
-        let cal = Calendar.current
-        let sunday = cal.dateInterval(of: .weekOfYear, for: .now).map { $0.end.addingTimeInterval(-1) } ?? .now
-        let day = LogbookFormat.longDay(sunday)
+        let day = LogbookFormat.longDay(Self.weekEnd)
         return stats.current > 0
             ? "Log a catch by \(day) to make it \(stats.current + 1)."
             : "Log a catch by \(day) to start a streak."
     }
 
-    private func weekStrip(_ stats: StreakStats) -> some View {
-        let cal = Calendar.current
-        let thisWeek = cal.dateInterval(of: .weekOfYear, for: .now)?.start ?? cal.startOfDay(for: .now)
-        let cells: [Date] = (0..<Self.shown).reversed().compactMap {
-            cal.date(byAdding: .day, value: -7 * $0, to: thisWeek)
+    /// The start of this week, Monday, in the streak calendar.
+    private static var thisWeek: Date {
+        BadgeDefinition.weekStart(of: .now, calendar: BadgeDefinition.weekCalendar)
+    }
+
+    /// The last moment of this week, Sunday night.
+    private static var weekEnd: Date {
+        BadgeDefinition.weekCalendar.dateInterval(of: .weekOfYear, for: .now)
+            .map { $0.end.addingTimeInterval(-1) } ?? .now
+    }
+
+    /// The starts of the weeks the strip shows, oldest first, ending with this week.
+    private static var recentWeeks: [Date] {
+        let cal = BadgeDefinition.weekCalendar
+        let start = Self.thisWeek
+        return (0..<shown).reversed().compactMap {
+            cal.date(byAdding: .day, value: -7 * $0, to: start)
         }
+    }
+
+    private func weekStrip(_ stats: StreakStats) -> some View {
+        let thisWeek = Self.thisWeek
+        let cells = Self.recentWeeks
         return VStack(spacing: 6) {
             HStack(spacing: 4) {
                 ForEach(Array(cells.enumerated()), id: \.offset) { i, week in

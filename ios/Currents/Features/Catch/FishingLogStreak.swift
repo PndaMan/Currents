@@ -489,13 +489,23 @@ struct BadgeDefinition: Identifiable {
         ]
     }
 
-    /// Consecutive-week fishing streak: the number of back-to-back calendar
-    /// weeks (starting on the locale's first weekday) in which at least one
-    /// catch was logged, counting back from this week. It stays alive while
-    /// the latest catch week is this week or last week. Daily streaks were
-    /// effectively unreachable, so the streak is weekly.
+    /// The calendar for every streak and week count. Weeks run Monday to
+    /// Sunday, as the streak copy says, whatever the locale's first weekday
+    /// (Sunday for en_US and en_ZA). Built on each read, so a time zone
+    /// change applies straight away.
+    static var weekCalendar: Calendar {
+        var calendar = Calendar.current
+        calendar.firstWeekday = 2
+        return calendar
+    }
+
+    /// Consecutive-week fishing streak: the number of back-to-back weeks
+    /// (Monday to Sunday, see `weekCalendar`) in which at least one catch was
+    /// logged, counting back from this week. It stays alive while the latest
+    /// catch week is this week or last week. Daily streaks were effectively
+    /// unreachable, so the streak is weekly.
     static func streakWeeks(from catches: [CatchDetail]) -> Int {
-        let calendar = Calendar.current
+        let calendar = weekCalendar
         let weeks = Set(catches.map { weekStart(of: $0.catchRecord.caughtAt, calendar: calendar) })
         let thisWeek = weekStart(of: .now, calendar: calendar)
         var week: Date? = weeks.contains(thisWeek) ? thisWeek : adjacentWeek(-1, to: thisWeek, calendar: calendar)
@@ -534,7 +544,7 @@ struct BadgeMetrics {
     private let tally: Tally
 
     init(catches: [CatchDetail], streakWeeks: Int) {
-        let calendar = Calendar.current
+        let calendar = BadgeDefinition.weekCalendar
         var tally = Tally()
         var reached: [String: Date] = [:]
         var locked = BadgeDefinition.specs.filter { !$0.metric.isHidden }

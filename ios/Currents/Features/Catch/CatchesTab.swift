@@ -936,7 +936,8 @@ struct LogbookSummary {
     init(catches: [CatchDetail], speciesTotal: Int) {
         let cal = Calendar.current
         streak = BadgeDefinition.streakWeeks(from: catches)
-        if let week = cal.dateInterval(of: .weekOfYear, for: .now) {
+        // Monday to Sunday, the same weeks as the streak.
+        if let week = BadgeDefinition.weekCalendar.dateInterval(of: .weekOfYear, for: .now) {
             fishedThisWeek = catches.contains { week.contains($0.catchRecord.caughtAt) }
         }
         speciesFound = Set(catches.compactMap { $0.catchRecord.speciesId }).count
