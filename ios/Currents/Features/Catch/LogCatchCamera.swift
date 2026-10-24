@@ -149,6 +149,9 @@ struct LogCatchCameraView: View {
             }
             .buttonStyle(.dim)
             .accessibilityLabel(adding ? "Back to the catch" : "Close")
+            .accessibilityShowsLargeContentViewer {
+                Label(adding ? "Back to the catch" : "Close", systemImage: adding ? "chevron.down" : "xmark")
+            }
             Spacer()
             Text(adding ? "Photo \(photoCount + 1) of 10" : "Photo")
                 .font(.headline)
@@ -156,6 +159,8 @@ struct LogCatchCameraView: View {
             Color.clear.frame(width: 40, height: 40)
         }
         .foregroundStyle(.white)
+        // Camera chrome stays put at large text, as the system Camera's does.
+        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
         .padding(.horizontal, DS.Space.s4)
         .padding(.bottom, DS.Space.s3)
     }
@@ -195,6 +200,7 @@ struct LogCatchCameraView: View {
                     .padding(.horizontal, DS.Space.s3)
                     .padding(.vertical, 6)
                     .background(Color.black.opacity(0.55), in: Capsule())
+                    .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
                     .padding(.bottom, DS.Space.s4)
             }
         }
@@ -229,6 +235,9 @@ struct LogCatchCameraView: View {
                                     in: RoundedRectangle(cornerRadius: DS.Radius.thumb, style: .continuous))
                 }
                 .accessibilityLabel("Choose photos")
+                .accessibilityShowsLargeContentViewer {
+                    Label("Choose photos", systemImage: "photo.on.rectangle")
+                }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
                 Button(action: shoot) {
@@ -246,18 +255,28 @@ struct LogCatchCameraView: View {
                 .opacity(shutterOpacity)
                 .accessibilityHidden(!canShoot)
                 .accessibilityLabel("Take photo")
+                .accessibilityShowsLargeContentViewer {
+                    Label("Take photo", systemImage: "camera")
+                }
 
                 Button(action: onSkip) {
+                    // Its full width on one line: the label never truncates.
                     Text(adding ? "Done" : "Skip photo")
                         .font(.subheadline.weight(.semibold))
+                        .fixedSize()
                         .padding(.horizontal, DS.Space.s4)
-                        .frame(height: 40)
+                        .frame(minHeight: 40)
                         .background(Color.white.opacity(0.16), in: Capsule())
                 }
                 .buttonStyle(.dim)
+                .accessibilityShowsLargeContentViewer {
+                    Text(adding ? "Done" : "Skip photo")
+                }
                 .frame(maxWidth: .infinity, alignment: .trailing)
             }
             .padding(.horizontal, 30)
+            // Camera chrome stays put at large text, as the system Camera's does.
+            .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
 
             // "No signal needed" is only true once the model is on the phone.
             Label(adding || !FishModelStatus.shared.isInstalled
