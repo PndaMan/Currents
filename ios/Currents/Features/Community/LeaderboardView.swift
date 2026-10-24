@@ -210,9 +210,12 @@ struct CrewLeaderboardView: View {
 
     /// Where you stand, pinned above the tab bar: your place in the list when
     /// you're on it, otherwise the standing the service worked out for you.
+    /// In the top three you're already at the top of the board (the podium
+    /// or the first catch cells), so nothing is pinned.
     private var pinnedStanding: (rank: Int, row: CommunityService.LeaderRow, onBoard: Bool)? {
         guard !rows.isEmpty else { return nil }
         if let i = rows.firstIndex(where: { $0.friendCode == svc.friendCode }) {
+            guard i >= 3 else { return nil }
             return (i + 1, rows[i], true)
         }
         if let mine = myStanding { return (mine.rank, mine.row, false) }
