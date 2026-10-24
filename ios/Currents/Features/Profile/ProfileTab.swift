@@ -1151,8 +1151,14 @@ struct PrivacySettingsView: View {
     @AppStorage("shareSpotsWithFriends") private var shareSpots = false
     @AppStorage("shareSpotExactLocations") private var shareSpotExact = false
     @AppStorage("cloudSyncEnabled") private var cloudSyncEnabled = false
+    /// Set the first time catch locations are shared, so the 2 km blur
+    /// default applies once and never overrides a later choice of Exact.
+    @AppStorage("privacyBlurDefaulted") private var blurDefaulted = false
+    @ObservedObject private var community = CommunityService.shared
 
     private var svc: CommunityService { .shared }
+    /// Sharing only reaches anyone once this phone is on Crew.
+    private var canShare: Bool { CrewCloud.buildHasCloudKit && community.joined }
 
     var body: some View {
         TodayPage("Privacy", subtitle: "Everything stays on this phone until you share it.") {
@@ -1169,7 +1175,35 @@ struct PrivacySettingsView: View {
     }
 
     private var sharingSection: some View {
-        CardSection("Crew and friends", note: "Your best catches always show on the friends leaderboard.") {
+        VStack(alignment: .leading, spacing: 0) {
+            SectionTitle("Crew and friends")
+            if !CrewCloud.buildHasCloudKit {
+                InlineEmpty(systemImage: "icloud.slash", text: "Sharing needs Crew, which this build can't use.")
+                    .padding(.bottom, DS.Space.s3)
+            } else if !community.joined {
+                InlineEmpty(systemImage: "person.2", text: "Join Crew to share catches and spots",
+                            actionTitle: "Open Crew") {
+                    appState.pendingDeepLink = URL(string: "currents://community")
+                }
+                .padding(.bottom, DS.Space.s3)
+            }
+            sharingToggles
+                .disabled(!canShare)
+                .opacity(canShare ? 1 : 0.5)
+            SectionFootnote("Measured catches still rank on your crew leaderboards and in Game Center.")
+        }
+        .onChange(of: shareCatches) { _, _ in reapplySharing() }
+        .onChange(of: shareSpots) { _, _ in reapplySharing() }
+        .onChange(of: shareSpotExact) { _, _ in reapplySharing() }
+        .onChange(of: shareCatchLocations) { _, on in
+            guard on, !blurDefaulted else { return }
+            blurDefaulted = true
+            if privacyRadius == 0 { privacyRadius = 2 }
+        }
+    }
+
+    private var sharingToggles: some View {
+        CardGroup {
             CardToggleRow("Share my catches", subtitle: "Species, size and photo",
                           systemImage: "fish.fill", tint: .blue, isOn: $shareCatches)
             CardToggleRow("Share my spots", subtitle: "Private until you turn this on",
@@ -1181,9 +1215,6 @@ struct PrivacySettingsView: View {
             CardToggleRow("Share catch locations", subtitle: "Off keeps where you caught it private",
                           systemImage: "location.fill", tint: .green, isOn: $shareCatchLocations)
         }
-        .onChange(of: shareCatches) { _, _ in reapplySharing() }
-        .onChange(of: shareSpots) { _, _ in reapplySharing() }
-        .onChange(of: shareSpotExact) { _, _ in reapplySharing() }
     }
 
     private var blurSection: some View {
@@ -1226,7 +1257,8 @@ struct PrivacySettingsView: View {
             }
             .onChange(of: cloudSyncEnabled) { _, on in
                 CloudSyncEngine.shared.setEnabled(on)
-                ToastCenter.shared.show(on ? "Syncing with your iCloud" : "Sync off. This phone only", style: .info)
+                ToastCenter.shared.show(on ? "Syncing with your iCloud" : "Sync is off. Your data stays on this phone.",
+                                        style: .info)
             }
         } else {
             CardSection("Sync") {
