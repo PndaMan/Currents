@@ -57,8 +57,11 @@ struct CatchDetailView: View {
         .confirmationDialog("Delete this catch?", isPresented: $showingDeleteConfirm, titleVisibility: .visible) {
             Button("Delete catch", role: .destructive) {
                 Haptics.warning()
-                CatchActions.delete(detail, appState: appState)
-                dismiss()
+                // CatchActions shows the toast either way; the page only
+                // closes when the catch is gone.
+                if CatchActions.delete(detail, appState: appState) {
+                    dismiss()
+                }
             }
             Button("Cancel", role: .cancel) {}
         } message: {
@@ -66,8 +69,13 @@ struct CatchDetailView: View {
         }
         .fullScreenCover(isPresented: $showingEdit) {
             LogCatchView(editing: detail) { updated in
-                let saved = CatchActions.saveEdit(updated, appState: appState)
-                reload(with: saved)
+                if let saved = CatchActions.saveEditChecked(updated, appState: appState) {
+                    reload(with: saved)
+                } else {
+                    // The composer confirms the edit straight after this
+                    // returns, so the failure is shown once it has.
+                    Task { @MainActor in ToastCenter.shared.show("Couldn't save the changes", style: .error) }
+                }
             }
         }
         .sheet(item: $shareItem) { item in

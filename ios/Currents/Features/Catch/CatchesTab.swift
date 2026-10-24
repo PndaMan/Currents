@@ -166,10 +166,11 @@ struct CatchesTab: View {
                             presenting: catchToDelete) { detail in
             Button("Delete catch", role: .destructive) {
                 Haptics.warning()
-                withAnimation(DS.Motion.softSpring) {
-                    CatchActions.delete(detail, appState: appState)
-                    catchToDelete = nil
-                    reload()
+                catchToDelete = nil
+                // CatchActions shows the toast either way; the row only goes
+                // when the database row did.
+                if CatchActions.delete(detail, appState: appState) {
+                    withAnimation(DS.Motion.softSpring) { reload() }
                 }
             }
             Button("Cancel", role: .cancel) { catchToDelete = nil }
@@ -183,11 +184,8 @@ struct CatchesTab: View {
                             presenting: tripToDelete) { trip in
             Button(trip.isPlanned ? "Delete plan" : "Delete session", role: .destructive) {
                 Haptics.warning()
-                try? appState.tripRepository.delete(trip)
                 tripToDelete = nil
-                withAnimation(DS.Motion.softSpring) { reload() }
-                ToastCenter.shared.show(trip.isPlanned ? "Plan deleted" : "Session deleted",
-                                        style: .info, haptic: false, icon: "trash")
+                deleteTrip(trip)
             }
             Button("Cancel", role: .cancel) { tripToDelete = nil }
         } message: { trip in
@@ -210,7 +208,11 @@ struct CatchesTab: View {
         }
         .fullScreenCover(item: $catchToEdit, onDismiss: reload) { detail in
             LogCatchView(editing: detail) { updated in
-                CatchActions.saveEdit(updated, appState: appState)
+                if CatchActions.saveEditChecked(updated, appState: appState) == nil {
+                    // The composer confirms the edit straight after this
+                    // returns, so the failure is shown once it has.
+                    Task { @MainActor in ToastCenter.shared.show("Couldn't save the changes", style: .error) }
+                }
             }
         }
         .sheet(item: $shareItem) { item in
@@ -853,9 +855,27 @@ struct CatchesTab: View {
         return result
     }
 
+    /// Deletes a session or plan. A plan's reminder goes with it; a failed
+    /// delete keeps the row and says so.
+    private func deleteTrip(_ trip: Trip) {
+        let isPlan = trip.isPlanned
+        do {
+            try appState.tripRepository.delete(trip)
+        } catch {
+            ToastCenter.shared.show(isPlan ? "Couldn't delete the plan" : "Couldn't delete the session",
+                                    style: .error)
+            return
+        }
+        if isPlan { NotificationManager.shared.cancelPlannedSessionAlert(tripId: trip.id) }
+        withAnimation(DS.Motion.softSpring) { reload() }
+        ToastCenter.shared.show(isPlan ? "Plan deleted" : "Session deleted",
+                                style: .info, haptic: false, icon: "trash")
+    }
+
     private func toggleFavourite(_ detail: CatchDetail) {
         let record = CatchActions.toggleFavourite(detail, appState: appState)
-        Haptics.toggle()
+        // A failed save comes back unchanged with its own error toast.
+        if record.isFavorite != detail.catchRecord.isFavorite { Haptics.toggle() }
         withAnimation(DS.Motion.softSpring) {
             if let i = catches.firstIndex(where: { $0.catchRecord.id == record.id }) {
                 catches[i].catchRecord = record
