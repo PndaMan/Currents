@@ -335,24 +335,10 @@ struct CrewRequestsPage: View {
         }
     }
 
-    /// Nothing waiting: a green check tile on a card, not a system screen.
+    /// Nothing waiting: the shared empty state.
     private var caughtUp: some View {
-        HStack(spacing: DS.Space.s3) {
-            ThumbView(systemImage: "checkmark", tint: .dsScoreGood, size: 48)
-            VStack(alignment: .leading, spacing: 2) {
-                Text("You're all caught up")
-                    .font(.body.weight(.semibold))
-                    .foregroundStyle(.dsText)
-                Text("Friend requests and trip invites show up here.")
-                    .font(.footnote)
-                    .foregroundStyle(.dsText2)
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(DS.Space.s4)
-        .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
-        .padding(.horizontal, DS.gutter)
-        .accessibilityElement(children: .combine)
+        InlineEmpty(systemImage: "checkmark.circle",
+                    text: "You're all caught up. Friend requests and trip invites show up here.")
     }
 
     private var subtitle: String? {
