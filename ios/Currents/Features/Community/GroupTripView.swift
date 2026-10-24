@@ -632,7 +632,7 @@ struct GroupTripView: View {
                 tripStatus
                     .font(.subheadline)
                     .foregroundStyle(.dsText2)
-                    .lineLimit(1)
+                    .lineLimit(typeSize.isAccessibilitySize ? 3 : 1)
                 Text(trip?.name ?? tripName)
                     .font(.title.bold())
                     .foregroundStyle(.dsText)
