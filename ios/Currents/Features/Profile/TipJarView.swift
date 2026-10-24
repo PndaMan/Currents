@@ -7,8 +7,8 @@ enum AboutRoute: Hashable {
     case acknowledgements
 }
 
-/// Leave a tip: one row per tip on sale, with the App Store's own name and
-/// price, then the Patron badge any tip earns.
+/// Leave a tip: one row per tip on sale, with its name, one line and the
+/// App Store price, then the Patron badge any tip earns.
 struct TipJarView: View {
     @Environment(\.purchase) private var purchase
 
@@ -21,7 +21,8 @@ struct TipJarView: View {
             } else {
                 CardSection(note: note) {
                     ForEach(Array(jar.products.enumerated()), id: \.element.id) { index, product in
-                        TipRow(product: product, systemImage: Self.icon(index),
+                        let copy = TipCopy.of(product, index: index)
+                        TipRow(product: product, name: copy.name, line: copy.line, systemImage: copy.icon,
                                isBuying: jar.purchasing == product.id,
                                isEnabled: jar.purchasing == nil && jar.canPay) {
                             Task { await jar.buy(product, with: purchase) }
@@ -33,6 +34,7 @@ struct TipJarView: View {
                 VStack(alignment: .leading, spacing: 0) {
                     SectionTitle(isPatron ? "Your badge" : "A small thank you")
                     TitleBadge(flair: patron, subtitle: "Thank you so much")
+                        .padding(.horizontal, DS.gutter)
                     SectionFootnote(badgeNote)
                 }
             }
@@ -62,15 +64,39 @@ struct TipJarView: View {
         default: return "Thank you for your \(jar.tipCount) tips. They mean a lot."
         }
     }
+}
 
-    private static func icon(_ index: Int) -> String {
-        ["cup.and.saucer.fill", "fork.knife", "gift.fill"][min(index, 2)]
+/// The words for each tip, kept here rather than taken from App Store
+/// Connect, so they read like the rest of the app. Matched on the product
+/// ids in `TipJar.productIds`, cheapest first.
+@MainActor
+private struct TipCopy {
+    let name: String
+    let line: String
+    let icon: String
+
+    private static let all = [
+        TipCopy(name: "Small tip", line: "Buys the developer a coffee", icon: "cup.and.saucer.fill"),
+        TipCopy(name: "Medium tip", line: "Buys the developer lunch", icon: "fork.knife"),
+        TipCopy(name: "Large tip", line: "A generous thank you", icon: "gift.fill"),
+    ]
+
+    /// The copy for a tip, or the store's own name for an id not listed
+    /// here, with the icon for its place in the list.
+    static func of(_ product: Product, index: Int) -> TipCopy {
+        if let i = TipJar.productIds.firstIndex(of: product.id), all.indices.contains(i) {
+            return all[i]
+        }
+        let icon = all[min(max(0, index), all.count - 1)].icon
+        return TipCopy(name: product.displayName, line: "", icon: icon)
     }
 }
 
-/// One tip: its name from the App Store and a price button.
+/// One tip: its name, one line and a price button.
 private struct TipRow: View {
     let product: Product
+    let name: String
+    let line: String
     let systemImage: String
     let isBuying: Bool
     let isEnabled: Bool
@@ -81,10 +107,10 @@ private struct TipRow: View {
             HStack(spacing: 14) {
                 TintIcon(systemImage: systemImage, tint: .pink)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(product.displayName)
+                    Text(name)
                         .foregroundStyle(.dsText)
-                    if !product.description.isEmpty {
-                        Text(product.description)
+                    if !line.isEmpty {
+                        Text(line)
                             .font(.subheadline)
                             .foregroundStyle(.dsText2)
                     }
@@ -113,7 +139,7 @@ private struct TipRow: View {
         .buttonStyle(.dim)
         .disabled(!isEnabled)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(product.displayName), \(spokenPrice)")
+        .accessibilityLabel("\(name), \(spokenPrice)")
         .accessibilityHint(isBuying ? "Buying" : "Opens the App Store purchase sheet")
         .accessibilityAddTraits(.isButton)
     }
