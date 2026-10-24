@@ -684,7 +684,7 @@ struct CommunityView: View {
 
 /// Your own angler page, in the Profile tab's header layout: photo, name and
 /// code, title, bio, counts and facts, your best fish, the three actions,
-/// then your badges and the switch that turns Crew off.
+/// then your catches, your badges and the switch that turns Crew off.
 struct MyProfileView: View {
     let stats: CommunityService.MyStats
     let catches: [CatchDetail]
@@ -696,6 +696,8 @@ struct MyProfileView: View {
 
     @State private var showingEdit = false
     @State private var confirmLeave = false
+    /// `catches` as Crew catch rows, built once per change of the log.
+    @State private var catchRows: [CommunityService.LeaderRow] = []
 
     var body: some View {
         ScrollView {
@@ -716,6 +718,14 @@ struct MyProfileView: View {
                 }
                 actions
                     .padding(.top, DS.Space.s5)
+                // The same list a friend's page shows, from your own log.
+                CrewSection(title: "Catches", detail: catches.isEmpty ? nil : "\(catches.count)") {
+                    if catches.isEmpty {
+                        InlineEmpty(systemImage: "fish", text: "No catches yet. Log one and it shows here.")
+                    } else {
+                        AnglerCatchRows(rows: catchRows)
+                    }
+                }
                 CrewSection(title: "Badges") {
                     AchievementsCard(catches: catches)
                         .padding(.horizontal, DS.gutter)
@@ -731,6 +741,7 @@ struct MyProfileView: View {
         // Anglers have no colour of their own, so the page stays plain.
         .detailTint(nil)
         .eventPageTitle(svc.myName)
+        .task(id: catches.count) { catchRows = AnglerCatchRows.ownRows(catches) }
         .sheet(isPresented: $showingEdit) { ProfileEditView(stats: stats) }
         .confirmationDialog("Turn off Crew?", isPresented: $confirmLeave, titleVisibility: .visible) {
             Button("Turn off Crew", role: .destructive) {
