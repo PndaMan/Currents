@@ -811,7 +811,13 @@ enum ScreenshotSupport {
                 filler.append(CommunityService.LeaderRowDTO(row))
             }
         }
-        CommunityDiskCache.save(rows + filler, key: "leadercatches")
+        let all = rows + filler
+        CommunityDiskCache.save(all, key: "leadercatches")
+        // A crew board caches under its own key: "leadercatches-" and the
+        // sorted member codes, mine included, joined by "-", exactly as
+        // CommunityService.fetchAllLeaderCatches builds it.
+        let boardCodes = Set(demoCrewMembers(code: crewCode).map(\.id)).union([me.code]).sorted()
+        CommunityDiskCache.save(all, key: "leadercatches-\(boardCodes.joined(separator: "-"))")
     }
 
     private static var demoTournament: CommunityService.Tournament {
