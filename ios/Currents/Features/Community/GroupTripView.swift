@@ -47,6 +47,8 @@ struct GroupTripSetupView: View {
     @State private var showingPlanner = false
     @State private var editingPlan: Trip?
     @State private var showingStartNow = false
+    /// The group trip the start sheet just created, opened once it closes.
+    @State private var startedCode: String?
     @FocusState private var joinFocused: Bool
 
     private static let joinAnchor = "join"
@@ -74,16 +76,16 @@ struct GroupTripSetupView: View {
             // Planning only schedules the trip locally. You start it (going
             // live + sharing to the crew) from the list when it's time.
             PlanSessionSheet(onSaved: { _ in reloadTrips() })
-                .presentationDetents([.large])
-                .presentationDragIndicator(.visible)
+                .dsSheet([.large])
         }
-        .sheet(isPresented: $showingStartNow) {
-            StartLiveTripSheet { name in Task { await beginLiveNew(name: name) } }
+        .sheet(isPresented: $showingStartNow, onDismiss: {
+            if let c = startedCode { openedCode = c; startedCode = nil }
+        }) {
+            StartLiveTripSheet { name in await beginLiveNew(name: name) }
         }
         .sheet(item: $editingPlan, onDismiss: reloadTrips) { t in
             PlanSessionSheet(editingTrip: t)
-                .presentationDetents([.large])
-                .presentationDragIndicator(.visible)
+                .dsSheet([.large])
         }
         .navigationDestination(item: openedBinding) { c in
             GroupTripView(tripId: svc.tripId(forGroupCode: c.id), tripName: currentName(c.id), initialCode: c.id)
@@ -218,40 +220,71 @@ struct GroupTripSetupView: View {
             return
         }
         if let code = await svc.createGroupTrip(name: trip.name, tripId: trip.id, crewCode: crewCode) {
-            ToastCenter.shared.show(crewCode != nil ? "Live trip started" : "Group trip created", style: .success)
+            ToastCenter.shared.show("Group trip started", style: .success)
             openedCode = code
+        } else {
+            ToastCenter.shared.show("Couldn't start the group trip", style: .error)
         }
     }
 
-    /// Start a brand-new live session now and share it with the crew.
-    private func beginLiveNew(name: String) async {
-        guard !busy else { return }
+    /// Start a brand-new group trip now. The group trip is created first and
+    /// the GPS session starts only once it exists, so a failed create never
+    /// leaves a session recording. True when the trip started; the start
+    /// sheet stays open on false.
+    private func beginLiveNew(name: String) async -> Bool {
+        guard !busy else { return false }
         busy = true; defer { busy = false }
+        let tracker = appState.tripTracker
+        // One session at a time: a session already running is shared instead.
+        if let running = tracker.activeTrip {
+            if let existing = svc.groupCode(forTripId: running.id) {
+                startedCode = existing
+                return true
+            }
+            guard let code = await svc.createGroupTrip(name: running.name, tripId: running.id,
+                                                       crewCode: crewCode) else {
+                ToastCenter.shared.show("Couldn't start the group trip", style: .error)
+                return false
+            }
+            ToastCenter.shared.show("Group trip started", style: .success)
+            startedCode = code
+            return true
+        }
         let n = name.trimmingCharacters(in: .whitespaces).isEmpty ? SessionFormat.defaultName() : name
-        let trip = appState.tripTracker.start(name: n, spotId: nil)
-        await shareStartedTrip(trip)
+        var trip = Trip(name: n, startDate: .now, currentDayStart: .now)
+        guard let code = await svc.createGroupTrip(name: n, tripId: trip.id, crewCode: crewCode) else {
+            ToastCenter.shared.show("Couldn't start the group trip", style: .error)
+            return false
+        }
+        if tracker.startPlanned(trip).id != trip.id {
+            // A session started elsewhere while the group trip was created:
+            // keep a local trip behind the link so catches still sync.
+            try? appState.tripRepository.save(&trip)
+        }
+        ToastCenter.shared.show("Group trip started", style: .success)
+        startedCode = code
+        return true
     }
 
-    /// Take a planned trip live now (begin its GPS session) and share it.
+    /// Take a planned trip live now: create its group trip, then begin its
+    /// GPS session. Another session already running is left alone, and the
+    /// trip page offers GPS once it ends.
     private func beginLive(planned: Trip) async {
         guard !busy else { return }
         busy = true; defer { busy = false }
-        let trip = appState.tripTracker.activeTrip?.id == planned.id
-            ? planned
-            : appState.tripTracker.startPlanned(planned)
-        await shareStartedTrip(trip)
-    }
-
-    /// Create (or reopen) the shared crew group for a now-live local trip.
-    private func shareStartedTrip(_ trip: Trip) async {
-        if let existing = svc.groupCode(forTripId: trip.id) {
+        if let existing = svc.groupCode(forTripId: planned.id) {
             openedCode = existing
             return
         }
-        if let code = await svc.createGroupTrip(name: trip.name, tripId: trip.id, crewCode: crewCode) {
-            ToastCenter.shared.show(crewCode != nil ? "Live trip started" : "Group trip created", style: .success)
-            openedCode = code
+        guard let code = await svc.createGroupTrip(name: planned.name, tripId: planned.id,
+                                                   crewCode: crewCode) else {
+            ToastCenter.shared.show("Couldn't start the group trip", style: .error)
+            return
         }
+        let tracker = appState.tripTracker
+        if tracker.activeTrip == nil { tracker.startPlanned(planned) }
+        ToastCenter.shared.show("Group trip started", style: .success)
+        openedCode = code
     }
 
     private func joinTrip() async {
@@ -275,36 +308,51 @@ struct GroupTripSetupView: View {
 
 // MARK: - Start live trip
 
-/// Name a new live trip, then start it. The same form as the crew sheets.
+/// Name a new group trip, then start it: Cancel and Start in the bar, as on
+/// every form sheet. The sheet stays open, with a spinner on Start, until the
+/// group trip exists.
 private struct StartLiveTripSheet: View {
-    let start: (String) -> Void
+    let start: @MainActor (String) async -> Bool
 
     @Environment(\.dismiss) private var dismiss
     @State private var name = SessionFormat.defaultName()
+    @State private var initialName = ""
+    @State private var busy = false
+
+    private var hasChanges: Bool { name != initialName }
 
     var body: some View {
         NavigationStack {
             ScrollView { form }
                 .scrollDismissesKeyboard(.interactively)
                 .dsScreenBackground()
-                .eventSheetTitle("Start live trip", close: "Cancel")
+                .eventSheetTitle("Start group trip", close: "Cancel")
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        if busy {
+                            ProgressView()
+                        } else {
+                            Button("Start", action: go)
+                                .bold()
+                        }
+                    }
+                }
+                .onAppear { if initialName.isEmpty { initialName = name } }
         }
-        .presentationDetents([.medium, .large])
-        .presentationDragIndicator(.visible)
+        .interactiveDismissDisabled(busy || hasChanges)
+        .dsSheet([.large])
     }
 
     private var form: some View {
         VStack(alignment: .leading, spacing: DS.Space.s5) {
-            CommunityHero(label: "Live now", title: "Start a trip",
-                          line: "GPS starts where you are and the crew follows along.") {
+            PageHero(label: "Live now", value: "Start a group trip",
+                     callout: "GPS starts where you are") {
                 ThumbView(systemImage: "dot.radiowaves.left.and.right", tint: .dsScoreGood, size: 72)
             }
             .padding(.horizontal, -DS.gutter)
-            CrewTextField(label: "Trip name", placeholder: "Morning session", text: $name)
+            CrewTextField(label: "Name", placeholder: "Morning session", text: $name)
                 .submitLabel(.go)
                 .onSubmit(go)
-            Button(action: go) { Text("Start live trip") }
-                .buttonStyle(.dsPrimary)
         }
         .padding(.horizontal, DS.gutter)
         .padding(.top, DS.Space.s3)
@@ -313,8 +361,13 @@ private struct StartLiveTripSheet: View {
     }
 
     private func go() {
-        dismiss()
-        start(name)
+        guard !busy else { return }
+        busy = true
+        Task {
+            let started = await start(name)
+            busy = false
+            if started { dismiss() }
+        }
     }
 }
 
