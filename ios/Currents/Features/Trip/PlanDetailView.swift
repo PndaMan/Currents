@@ -24,7 +24,6 @@ struct PlanDetailView: View {
     @State private var showingEdit = false
     @State private var confirmingStart = false
     @State private var confirmingDelete = false
-    @State private var titleShown = false
     @FocusState private var addingItem: Bool
     @Environment(\.dynamicTypeSize) private var typeSize
     /// Hairlines start under the item names, past the check circle.
@@ -46,8 +45,7 @@ struct PlanDetailView: View {
         }
         .dsScreenBackground()
         .detailScrollEdge()
-        .pfTrackScroll($titleShown, threshold: 60)
-        .pfScrollTitle(trip?.name ?? "Plan", shown: titleShown)
+        .pageTitleFade(trip?.name ?? "Plan")
         .sheet(isPresented: $showingEdit, onDismiss: load) {
             if let trip { PlanSessionSheet(editingTrip: trip) }
         }

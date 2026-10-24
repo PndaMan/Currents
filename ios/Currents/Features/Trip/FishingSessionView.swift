@@ -27,7 +27,6 @@ struct SessionsView: View {
     @State private var editingTrip: Trip?
     @State private var editingPlanned: Trip?
     @State private var tripToDelete: Trip?
-    @State private var titleShown = false
 
     private var tracker: TripTracker { appState.tripTracker }
     private var pastSessions: [Trip] { sessions.filter { $0.isCompleted } }
@@ -112,8 +111,7 @@ struct SessionsView: View {
         }
         .dsScreenBackground()
         .detailScrollEdge()
-        .pfTrackScroll($titleShown, threshold: 60)
-        .pfScrollTitle("Sessions", shown: titleShown)
+        .pageTitleFade("Sessions")
         .sheet(isPresented: $showingNew, onDismiss: reload) { NewSessionSheet() }
         .sheet(isPresented: $showingPlanner, onDismiss: reload) { PlanSessionSheet() }
         .sheet(item: $editingPlanned, onDismiss: reload) { PlanSessionSheet(editingTrip: $0) }
@@ -503,7 +501,6 @@ struct ActiveSessionView: View {
     @State private var showingNew = false
     @State private var showingEndConfirm = false
     @State private var showingEndDayConfirm = false
-    @State private var titleShown = false
 
     private var tracker: TripTracker { appState.tripTracker }
 
@@ -572,8 +569,7 @@ struct ActiveSessionView: View {
         }
         .dsScreenBackground()
         .detailScrollEdge()
-        .pfTrackScroll($titleShown, threshold: 60)
-        .pfScrollTitle(tracker.activeTrip?.name ?? "Session", shown: titleShown)
+        .pageTitleFade(tracker.activeTrip?.name ?? "Session")
         .toolbar {
             if let trip = tracker.activeTrip {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -849,7 +845,6 @@ struct SessionDetailView: View {
     @State private var showingShare = false
     @State private var generatingRecap = false
     @State private var replayToken = 0
-    @State private var titleShown = false
     @AppStorage("use24HourTime") private var use24 = true
 
     struct CoordItem: Identifiable {
@@ -995,8 +990,7 @@ struct SessionDetailView: View {
         }
         .dsScreenBackground()
         .detailScrollEdge()
-        .pfTrackScroll($titleShown, threshold: 60)
-        .pfScrollTitle(trip.name, shown: titleShown)
+        .pageTitleFade(trip.name)
         .sheet(isPresented: $showingEdit, onDismiss: {
             trip = (try? appState.tripRepository.fetch(trip.id)) ?? trip
         }) {

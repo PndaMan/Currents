@@ -162,7 +162,6 @@ struct SpotPickerList: View {
     @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss
     @State private var query = ""
-    @State private var titleShown = false
 
     private var filtered: [Spot] {
         let q = query.trimmingCharacters(in: .whitespaces)
@@ -199,8 +198,7 @@ struct SpotPickerList: View {
         .scrollDismissesKeyboard(.interactively)
         .detailScrollEdge()
         .dsScreenBackground()
-        .pfTrackScroll($titleShown, threshold: 60)
-        .pfScrollTitle("All spots", shown: titleShown)
+        .pageTitleFade("All spots")
     }
 }
 
