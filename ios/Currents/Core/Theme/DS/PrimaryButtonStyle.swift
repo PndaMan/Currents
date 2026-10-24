@@ -14,7 +14,9 @@ struct PrimaryButtonStyle: ButtonStyle {
 }
 
 /// Shared body for the primary and tonal styles. A view (not inline in the
-/// style) so it can read `isEnabled`.
+/// style) so it can read `isEnabled`. Disabled, both draw the tonal fill
+/// with a `dsText3` label at full opacity rather than fading the whole
+/// button, which left a grey slab with a near-white label in light mode.
 struct DSFilledButton: View {
     let configuration: ButtonStyleConfiguration
     let fullWidth: Bool
@@ -27,7 +29,7 @@ struct DSFilledButton: View {
         configuration.label
             .font(.headline)
             .labelStyle(.titleAndIcon)
-            .foregroundStyle(foreground)
+            .foregroundStyle(isEnabled ? foreground : Color.dsText3)
             // Wrap rather than truncate at accessibility sizes.
             .lineLimit(typeSize.isAccessibilitySize ? 3 : 1)
             .multilineTextAlignment(.center)
@@ -35,9 +37,10 @@ struct DSFilledButton: View {
             .padding(.vertical, DS.Space.s2)
             .frame(maxWidth: fullWidth ? .infinity : nil)
             .frame(minHeight: fullWidth ? 52 : 40)
-            .background(fill, in: RoundedRectangle(cornerRadius: DS.Radius.button, style: .continuous))
+            .background(isEnabled ? fill : Color.dsTonal,
+                        in: RoundedRectangle(cornerRadius: DS.Radius.button, style: .continuous))
             .contentShape(RoundedRectangle(cornerRadius: DS.Radius.button, style: .continuous))
-            .opacity(isEnabled ? (configuration.isPressed ? 0.6 : 1) : 0.4)
+            .opacity(isEnabled && configuration.isPressed ? 0.6 : 1)
             .animation(DS.Motion.press, value: configuration.isPressed)
     }
 }
