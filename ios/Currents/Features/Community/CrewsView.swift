@@ -1177,6 +1177,7 @@ struct CrewSettingsView: View {
     let onChange: () -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dynamicTypeSize) private var typeSize
     @StateObject private var svc = CommunityService.shared
 
     @State private var currentCrew: CommunityService.Crew
@@ -1556,7 +1557,7 @@ struct CrewSettingsView: View {
                 Text(isSelf ? "You" : m.name)
                     .font(.body.weight(.medium))
                     .foregroundStyle(.dsText)
-                    .lineLimit(1)
+                    .lineLimit(typeSize.isAccessibilitySize ? 3 : 1)
                 Text(role.label)
                     .font(.subheadline)
                     .foregroundStyle(DS.ink(CrewDetailView.roleColor(role)))
