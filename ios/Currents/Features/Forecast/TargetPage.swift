@@ -275,7 +275,8 @@ struct TargetPage: View {
 
             HStack(alignment: .center, spacing: 16) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Bite for \(species.commonName)")
+                    // The page title already names the fish.
+                    Text("Bite this hour")
                         .font(.subheadline)
                         .foregroundStyle(.dsText2)
                         .fixedSize(horizontal: false, vertical: true)
@@ -853,6 +854,38 @@ enum TargetData {
         return spots.values
             .map { TargetSpotPlace(spot: $0, count: counts[$0.id] ?? 0, km: km(from: coordinate, $0.latitude, $0.longitude)) }
             .sorted { $0.km < $1.km }
+    }
+
+    /// How far "near" reaches for the species picker's nearby list.
+    static let nearKm: Double = 50
+
+    /// Species likely around `c`, from what the phone already holds, most
+    /// likely first: your catches within `nearKm` count most, then the
+    /// waters of your saved spots, then other waters within `nearKm` whose
+    /// fish are known. No network.
+    static func nearbySpeciesIds(near c: CLLocationCoordinate2D, appState: AppState) -> [Int64] {
+        var weight: [Int64: Int] = [:]
+        let catches = (try? appState.catchRepository.fetchAll(limit: 500)) ?? []
+        for detail in catches {
+            let record = detail.catchRecord
+            guard let id = record.speciesId, km(from: c, record.latitude, record.longitude) <= nearKm else { continue }
+            weight[id, default: 0] += 3
+        }
+        let savedWaters = Set(((try? appState.spotRepository.fetchAll()) ?? []).compactMap(\.waterbodyId))
+        let latDelta = nearKm / 111
+        let lonDelta = nearKm / (111 * max(0.2, cos(c.latitude * .pi / 180)))
+        let waters = (try? appState.waterbodyRepository.fetchForRegion(
+            minLat: c.latitude - latDelta, maxLat: c.latitude + latDelta,
+            minLon: c.longitude - lonDelta, maxLon: c.longitude + lonDelta,
+            limit: 500)) ?? []
+        for water in waters where water.fishSpeciesIds != nil {
+            guard km(from: c, water.latitude, water.longitude) <= nearKm else { continue }
+            let saved = water.id.map { savedWaters.contains($0) } ?? false
+            for id in Set(water.decodedFishSpeciesIds) {
+                weight[id, default: 0] += saved ? 2 : 1
+            }
+        }
+        return weight.sorted { $0.value != $1.value ? $0.value > $1.value : $0.key < $1.key }.map { $0.key }
     }
 
     /// Waters within `radiusKm` whose species list includes the target.

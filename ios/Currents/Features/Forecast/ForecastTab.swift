@@ -27,7 +27,8 @@ struct ForecastDestination: View {
 /// Choose the species the forecast and lures are tuned for, or none for a
 /// general forecast. Pushed from the target page. Saves the shared
 /// `targetSpeciesId` the species page's Target button also writes, with
-/// recent targets at the top.
+/// recent targets at the top, then the fish found around the forecast's
+/// place, then every species.
 struct TargetSpeciesPage: View {
     let store: ForecastStore
 
@@ -35,8 +36,9 @@ struct TargetSpeciesPage: View {
     @Environment(\.dismiss) private var dismiss
     @AppStorage("targetSpeciesId") private var targetSpeciesId: Int = 0
     @AppStorage(RecentTargets.key) private var recentTargets = ""
-    @AppStorage("units") private var units = "metric"
     @State private var all: [Species] = []
+    /// Fish around the forecast's place, likeliest first.
+    @State private var nearbyIds: [Int64] = []
     @State private var loaded = false
     @State private var search = ""
     @State private var habitat: SpeciesHabitatFilter = .all
@@ -64,9 +66,25 @@ struct TargetSpeciesPage: View {
         return RecentTargets.ids(recentTargets).compactMap { byId[$0] }
     }
 
+    /// Fish caught or known in the water around the forecast's place, shown
+    /// under the recent targets until a search or filter starts. A recent
+    /// target is not listed twice.
+    private func nearby(excluding recent: [Species]) -> [Species] {
+        guard search.isEmpty, habitat == .all else { return [] }
+        let byId = Dictionary(all.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        let shown = Set(recent.map(\.id))
+        return Array(nearbyIds.filter { !shown.contains($0) }.compactMap { byId[$0] }.prefix(8))
+    }
+
+    /// "Near you" at the phone's location, otherwise the place's name.
+    private var nearbyTitle: String {
+        store.placeName == "Current location" ? "Near you" : "Near \(store.placeName)"
+    }
+
     var body: some View {
         let rows = filtered
         let recent = recents
+        let near = nearby(excluding: recent)
         List {
             Section {
                 FilterChips(SpeciesHabitatFilter.options, selection: $habitat, title: { $0.title })
@@ -88,6 +106,17 @@ struct TargetSpeciesPage: View {
                         .padding(.top, DS.Space.s4)
                         .dsListRow()
                     ForEach(recent) { sp in
+                        speciesRow(sp)
+                    }
+                }
+            }
+
+            if !near.isEmpty {
+                Section {
+                    SectionTitle(nearbyTitle)
+                        .padding(.top, DS.Space.s4)
+                        .dsListRow()
+                    ForEach(near) { sp in
                         speciesRow(sp)
                     }
                 }
@@ -121,7 +150,7 @@ struct TargetSpeciesPage: View {
         .detailScrollEdge()
         .overlay {
             if !loaded {
-                ProgressView()
+                FishLoader(message: "Loading species")
             } else if rows.isEmpty && !search.isEmpty {
                 ContentUnavailableView.search(text: search)
             }
@@ -132,13 +161,14 @@ struct TargetSpeciesPage: View {
         .task {
             guard !loaded else { return }
             all = (try? appState.speciesRepository.fetchAll()) ?? []
+            nearbyIds = TargetData.nearbySpeciesIds(near: store.coordinate, appState: appState)
             loaded = true
         }
     }
 
     private func speciesRow(_ sp: Species) -> some View {
         Button { pick(sp) } label: {
-            ArtRow(title: sp.commonName, subtitle: subtitle(for: sp)) {
+            ArtRow(title: sp.commonName, subtitle: sp.scientificName) {
                 ThumbView(species: sp, size: 48)
             } trailing: {
                 SpeciesCheckmark(isOn: store.species?.id == sp.id)
@@ -146,13 +176,6 @@ struct TargetSpeciesPage: View {
         }
         .buttonStyle(.dsRow)
         .dsListRow()
-    }
-
-    private func subtitle(for sp: Species) -> String {
-        if let t = sp.optimalTempC {
-            return "\(sp.scientificName), best at \(Units.temperature(t, imperial: units == "imperial"))"
-        }
-        return sp.scientificName
     }
 
     private func pick(_ sp: Species?) {
