@@ -450,7 +450,8 @@ extension TitleBadge where Trailing == EmptyView {
 }
 
 /// Rows of a small symbol at low opacity, offset and tilted, behind an epic
-/// or better title.
+/// or better title. It is texture, so it stays at the default text size
+/// rather than growing into large shapes at accessibility sizes.
 private struct TitlePattern: View {
     let symbol: String
     let color: Color
@@ -468,6 +469,7 @@ private struct TitlePattern: View {
             }
         }
         .foregroundStyle(color.opacity(opacity))
+        .dynamicTypeSize(.large)
         .rotationEffect(.degrees(-14))
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .allowsHitTesting(false)
