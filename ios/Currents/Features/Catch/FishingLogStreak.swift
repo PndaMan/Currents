@@ -882,7 +882,7 @@ struct BadgeDetailView: View {
                 status
                     .padding(.top, DS.Space.s5)
                 if let flair {
-                    Text("Unlocks the profile title \(flair.name).")
+                    Text("Unlocks the profile title \(flair.displayName).")
                         .font(.footnote)
                         .foregroundStyle(.dsText2)
                         .padding(.top, DS.Space.s4)

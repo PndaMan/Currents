@@ -48,7 +48,7 @@ struct SettingsView: View {
     }
 
     private var subtitle: String {
-        let flair = TitleFlair.resolve(storedTitle)?.name
+        let flair = TitleFlair.resolve(storedTitle)?.displayName
         let water = homeWater.trimmingCharacters(in: .whitespaces)
         switch (flair, water.isEmpty) {
         case let (flair?, false): return "\(flair), fishing \(water)"
@@ -433,7 +433,7 @@ private struct LocalProfileEditSheet: View {
             CardGroup {
                 Button { showingTitlePicker = true } label: {
                     CardRow("Title", subtitle: flair?.unlockLine, systemImage: "rosette", tint: titleTint,
-                            value: flair?.name ?? "None", chevron: true)
+                            value: flair?.displayName ?? "None", chevron: true)
                 }
                 .buttonStyle(.dsCardRow)
                 .accessibilityHint("Choose the title shown under your name")
