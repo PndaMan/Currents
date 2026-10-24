@@ -389,6 +389,8 @@ struct GroupTripView: View {
     @State private var loaded = false
     /// The last refresh couldn't reach iCloud, so the page shows what it had.
     @State private var offline = false
+    /// A refresh has reached iCloud at least once, so zero counts are real.
+    @State private var loadedOnline = false
     @State private var lastUpdated: Date?
     @State private var joinCode = ""
     @State private var inviteCode = ""
@@ -678,22 +680,27 @@ struct GroupTripView: View {
         }
     }
 
-    /// Anglers, fish, species and time on the water as Today's stat tiles.
-    private var tripStats: some View {
-        let speciesCount = Set(feed.map(\.species)).count
-        return StatStrip {
-            StatTile("Anglers", systemImage: "person.2.fill", tint: CrewTint.people,
-                     value: "\(members.count)", width: 120)
-            StatTile("Fish", systemImage: "fish.fill", tint: CrewTint.fish,
-                     value: "\(feed.count)", width: 120)
-            StatTile("Species", systemImage: "leaf.fill", tint: CrewTint.species,
-                     value: "\(speciesCount)", width: 120)
-            if let trip {
-                StatTile(trip.endedAt == nil ? "Fishing for" : "Fished for", systemImage: "timer",
-                         tint: CrewTint.region,
-                         value: ForecastFormat.elapsed((trip.endedAt ?? .now).timeIntervalSince(trip.createdAt)),
-                         width: 132)
+    /// Anglers, fish, species and time on the water as stat tiles filling
+    /// the row. Shown once a refresh has reached iCloud or saved members are
+    /// on screen, so offline zeros never read as facts.
+    @ViewBuilder private var tripStats: some View {
+        if loadedOnline || !members.isEmpty {
+            let speciesCount = Set(feed.map(\.species)).count
+            StatTileGrid(count: trip == nil ? 3 : 4) {
+                StatTile("Anglers", systemImage: "person.2.fill", tint: CrewTint.people,
+                         value: "\(members.count)", width: nil)
+                StatTile("Fish", systemImage: "fish.fill", tint: CrewTint.fish,
+                         value: "\(feed.count)", width: nil)
+                StatTile("Species", systemImage: "leaf.fill", tint: CrewTint.species,
+                         value: "\(speciesCount)", width: nil)
+                if let trip {
+                    StatTile(trip.endedAt == nil ? "Fishing for" : "Fished for", systemImage: "timer",
+                             tint: CrewTint.region,
+                             value: ForecastFormat.elapsed((trip.endedAt ?? .now).timeIntervalSince(trip.createdAt)),
+                             width: nil)
+                }
             }
+            .padding(.top, DS.Space.s5)
         }
     }
 
@@ -881,7 +888,6 @@ struct GroupTripView: View {
             .padding(.top, DS.Space.s4)
         }
         tripStats
-            .padding(.top, DS.Space.s5)
         standingsSection
         // The gear checklist lives in the planned-trip editor only. A live
         // session isn't the place to be packing.
@@ -1543,7 +1549,10 @@ struct GroupTripView: View {
             offline = probe == .unreachable
         }
         tripMissing = probe == .missing
-        if !offline { lastUpdated = .now }
+        if !offline {
+            lastUpdated = .now
+            loadedOnline = true
+        }
         loaded = true
         coverSpecies = eventCoverSpecies(feed, appState: appState)
         // The shared trip ended remotely (tournament closed, host ended it):
