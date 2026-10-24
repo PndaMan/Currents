@@ -8,6 +8,7 @@ import SwiftUI
 struct SpeciesDetailView: View {
     @Environment(AppState.self) private var appState
     @Environment(\.openURL) private var openURL
+    @Environment(\.dynamicTypeSize) private var typeSize
     let species: Species
     /// Set when pushed from a thumbnail that registered a zoom source.
     var zoom: SpeciesZoomSource? = nil
@@ -245,9 +246,10 @@ struct SpeciesDetailView: View {
         .buttonStyle(.dsRow)
     }
 
-    /// Count, heaviest, longest and released as tiles, as on a place page,
-    /// then when the first and the latest were caught. No tile has a
-    /// footnote, so the row stays one height.
+    /// Count, heaviest, longest and released as tiles two to a row (one at
+    /// accessibility sizes), as on the target page, then when the first and
+    /// the latest were caught. No tile has a footnote, so a row stays one
+    /// height.
     private var statsSection: some View {
         let records = catches.map(\.catchRecord)
         let released = records.filter(\.released).count
@@ -257,24 +259,22 @@ struct SpeciesDetailView: View {
         let first = records.last?.caughtAt
         let latest = records.count > 1 ? records.first?.caughtAt : nil
         return section("Your stats") {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 10) {
-                    StatTile("Caught", systemImage: "fish.fill", value: "\(records.count)")
-                    if let heaviest {
-                        let parts = Units.weightParts(kg: heaviest, imperial: imperial)
-                        StatTile("Heaviest", systemImage: "trophy.fill", tint: .dsScoreFair,
-                                 value: parts.0, unit: parts.1)
-                    }
-                    if let longest {
-                        let parts = Units.lengthParts(cm: longest, imperial: imperial)
-                        StatTile("Longest", systemImage: "ruler", tint: .indigo,
-                                 value: parts.0, unit: parts.1)
-                    }
-                    StatTile("Released", systemImage: "arrow.uturn.backward", tint: .dsScoreGood,
-                             value: "\(released)", unit: "of \(records.count)")
+            LazyVGrid(columns: tileColumns, alignment: .leading, spacing: 10) {
+                StatTile("Caught", systemImage: "fish.fill", value: "\(records.count)", width: nil)
+                if let heaviest {
+                    let parts = Units.weightParts(kg: heaviest, imperial: imperial)
+                    StatTile("Heaviest", systemImage: "trophy.fill", tint: .dsScoreFair,
+                             value: parts.0, unit: parts.1, width: nil)
                 }
-                .padding(.horizontal, DS.gutter)
+                if let longest {
+                    let parts = Units.lengthParts(cm: longest, imperial: imperial)
+                    StatTile("Longest", systemImage: "ruler", tint: .indigo,
+                             value: parts.0, unit: parts.1, width: nil)
+                }
+                StatTile("Released", systemImage: "arrow.uturn.backward", tint: .dsScoreGood,
+                         value: "\(released)", unit: "of \(records.count)", width: nil)
             }
+            .padding(.horizontal, DS.gutter)
             if first != nil || latest != nil {
                 CardGroup {
                     if let first {
@@ -289,6 +289,13 @@ struct SpeciesDetailView: View {
                 .padding(.top, DS.Space.s3)
             }
         }
+    }
+
+    /// Two tiles to a row, one at accessibility sizes.
+    private var tileColumns: [GridItem] {
+        typeSize.isAccessibilitySize
+            ? [GridItem(.flexible(), alignment: .top)]
+            : [GridItem(.flexible(), spacing: 10, alignment: .top), GridItem(.flexible(), alignment: .top)]
     }
 
     private var historySection: some View {
@@ -360,7 +367,7 @@ struct SpeciesDetailView: View {
             let monthWater = water.temp(month)
             let feeds = ConditionText.comfort(for: species)
             section("Water temperature") {
-                LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible())], spacing: 10) {
+                LazyVGrid(columns: tileColumns, spacing: 10) {
                     ConditionTile("Water in \(SpeciesSeason.fullMonths[month - 1])",
                                   systemImage: "thermometer.medium", iconTint: .dsScoreLow,
                                   value: degreesValue(monthWater), unit: imperial ? "°F" : "°C",
