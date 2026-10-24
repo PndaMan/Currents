@@ -193,7 +193,8 @@ struct SpeciesBrowserView: View {
         NavigationLink(value: SpeciesRoute(species: sp)) {
             ArtRow(over: caughtIds.contains(sp.id) ? "In your Fishdex" : nil,
                    title: sp.commonName,
-                   subtitle: rowSubtitle(sp)) {
+                   subtitle: rowSubtitle(sp),
+                   chevron: true) {
                 ThumbView(species: sp, size: 52)
                     .matchedTransitionSource(id: sp.id, in: zoomNamespace)
             } trailing: {
