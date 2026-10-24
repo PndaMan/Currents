@@ -567,12 +567,12 @@ struct TournamentView: View {
         }
     }
 
-    /// "Ends in 3d 04:12:09", ticking, or when it started if it has no end.
+    /// When it ends ("Ends Sat 18:00"), or when it started if it has no
+    /// end. The ring beside it is the page's one countdown.
     private var liveStatus: some View {
-        TimelineView(.periodic(from: .now, by: 1)) { ctx in
+        TimelineView(.periodic(from: .now, by: 30)) { ctx in
             Text(liveLine(now: ctx.date))
                 .monospacedDigit()
-                .contentTransition(.numericText(countsDown: true))
         }
     }
 
@@ -589,7 +589,7 @@ struct TournamentView: View {
         guard let ends = tournament.endsAt else {
             return "Started \(eventTimeText(tournament.createdAt, now: now))"
         }
-        return ends > now ? "Ends in \(CrewText.clock(to: ends, now: now))" : "In overtime"
+        return ends > now ? "Ends \(eventTimeText(ends, now: now))" : "Overtime"
     }
 
     private var offlineNotice: some View {
