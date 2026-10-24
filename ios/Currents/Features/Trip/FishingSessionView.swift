@@ -239,19 +239,22 @@ struct PlannedRow: View {
         return "Best \(best.peakScore) from \(ForecastFormat.hour(best.startHour, use24: use24))"
     }
 
-    private var relative: String {
+    /// "Tomorrow, 05:30": the day, then the time, in Today's order.
+    private var over: String {
         let cal = Calendar.current
         let days = cal.dateComponents([.day], from: cal.startOfDay(for: .now), to: cal.startOfDay(for: date)).day ?? 0
+        let day: String
         switch days {
-        case ..<0: return "overdue"
-        case 0: return "today"
-        case 1: return "tomorrow"
-        default: return "in \(days) days"
+        case ..<0: day = "Overdue"
+        case 0: day = "Today"
+        case 1: day = "Tomorrow"
+        default: day = "In \(days) days"
         }
+        return "\(day), \(ForecastFormat.time(date, use24: use24))"
     }
 
     var body: some View {
-        ArtRow(over: "\(ForecastFormat.time(date, use24: use24)), \(relative)",
+        ArtRow(over: over,
                title: trip.name,
                subtitle: subtitle,
                chevron: outlook == nil) {
