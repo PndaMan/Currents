@@ -79,9 +79,16 @@ struct SettingsView: View {
                     header
                     profileActions
                 }
-                GameCenterSection()
+                // A Game Center card with nothing to tap goes below Settings,
+                // so it does not take the place of Kit and Settings.
+                if !gameCenterIsInert {
+                    GameCenterSection()
+                }
                 kitSection
                 settingsSection
+                if gameCenterIsInert {
+                    GameCenterSection()
+                }
                 CardSection {
                     row(SettingsRoute.about, "About Currents", "info.circle.fill", .teal,
                         value: AboutView.shortVersion)
@@ -311,6 +318,17 @@ struct SettingsView: View {
         default:
             let anyOn = alertsEnabled || primeWindowAlerts || coldStreakNudges || lowStockAlerts
             return anyOn ? "On" : "Off"
+        }
+    }
+
+    /// Signed out with no sign-in sheet, or limited by Screen Time: the
+    /// Game Center card has nothing to tap.
+    private var gameCenterIsInert: Bool {
+        let gameCenter = GameCenter.shared
+        switch gameCenter.status {
+        case .signedOut: return !gameCenter.canSignIn
+        case .restricted: return true
+        case .checking, .signedIn: return false
         }
     }
 
