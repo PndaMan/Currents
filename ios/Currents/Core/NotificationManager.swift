@@ -256,6 +256,12 @@ final class NotificationManager: @unchecked Sendable {
         try? await center.add(UNNotificationRequest(identifier: "session-plan-\(trip.id)", content: content, trigger: trigger))
     }
 
+    /// Drop a planned session's reminder, for a plan that was deleted,
+    /// started or moved into the past.
+    func cancelPlannedSessionAlert(tripId: String) {
+        center.removePendingNotificationRequests(withIdentifiers: ["session-plan-\(tripId)"])
+    }
+
     // MARK: - Cold-streak nudge (during a session)
 
     /// Nudge the angler if no catch is logged for a while during an active
