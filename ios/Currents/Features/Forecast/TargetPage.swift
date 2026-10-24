@@ -433,15 +433,15 @@ struct TargetPage: View {
                                 text: "No places for it yet. Spots where you catch \(species.commonName), and waters within \(Units.distance(km: TargetData.radiusKm, imperial: imperial)) known to hold it, show here.")
                 }
             } else {
+                // One fact over the name, the distance under it.
                 ForEach(mine.prefix(5)) { item in
                     Button {
                         appState.pendingDeepLink = URL(string: "currents://map/spot/\(item.spot.id)")
                     } label: {
-                        ArtRow(title: item.spot.name,
-                               subtitle: item.count > 0
-                                   ? "\(item.count) caught here, \(Units.distance(km: item.km, imperial: imperial)) away"
-                                   : "Your spot, known to hold it, \(Units.distance(km: item.km, imperial: imperial)) away",
-                               chevron: true) {
+                        ArtRow(over: item.count > 0 ? "\(item.count) caught here" : "Your spot",
+                               title: item.spot.name,
+                               subtitle: "\(Units.distance(km: item.km, imperial: imperial)) away",
+                               subtitleIcon: "location", chevron: true) {
                             PlaceSnapshotThumb(spot: item.spot, size: 48)
                         }
                     }
@@ -454,15 +454,17 @@ struct TargetPage: View {
                             appState.pendingDeepLink = URL(string: "currents://map/water/\(id)")
                         }
                     } label: {
-                        ArtRow(title: item.water.name,
-                               subtitle: "\(TargetText.waterLabel(item.water.type)), \(Units.distance(km: item.km, imperial: imperial)) away, known to hold it",
-                               chevron: true) {
+                        ArtRow(over: TargetText.waterLabel(item.water.type),
+                               title: item.water.name,
+                               subtitle: "\(Units.distance(km: item.km, imperial: imperial)) away",
+                               subtitleIcon: "location", chevron: true) {
                             ThumbView(systemImage: "water.waves", tint: ForecastCondition.tide.tint, size: 48)
                         }
                     }
                     .buttonStyle(.dsRow)
                     .accessibilityHint("Shows it on the Explore map")
                 }
+                SectionFootnote("Every place here is known to hold \(species.commonName).")
             }
         }
     }
