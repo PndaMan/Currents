@@ -841,7 +841,8 @@ private struct AnglerProfileHeader: View {
 
 /// An angler's facts as filled chips that wrap onto a new line rather than
 /// running off the edge, each icon in its own colour: water cyan, region
-/// orange, fish blue, calendar in the accent.
+/// orange, fish blue, calendar in the accent. Icons are inked so cyan and
+/// orange read on the pale chip in light mode.
 private struct AnglerFactsLine: View {
     let facts: [(String, String)]
 
@@ -872,7 +873,7 @@ private struct AnglerFactsLine: View {
         HStack(spacing: 6) {
             Image(systemName: symbol)
                 .font(.footnote.weight(.semibold))
-                .foregroundStyle(tint(symbol))
+                .foregroundStyle(DS.ink(tint(symbol)))
             Text(text)
                 .font(.subheadline.weight(.medium))
                 .foregroundStyle(.dsText)
