@@ -338,8 +338,7 @@ struct MapTab: View {
             }
             // Pull the sheet down to minimise it (the session keeps
             // recording in the background); ending is a separate action.
-            .presentationDetents([.large, .medium])
-            .presentationDragIndicator(.visible)
+            .dsSheet([.large, .medium])
         }
         .task(id: layerRadar) {
             // Fetch the latest radar frame when the layer is turned on;
