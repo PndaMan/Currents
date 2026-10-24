@@ -131,6 +131,13 @@ struct CatchesTab: View {
                     HeaderIconButton("Search catches", systemImage: "magnifyingglass") {
                         showingSearch = true
                     }
+                    // The Stats card is the last of the scrolling top cards,
+                    // off screen on a phone, so Stats has a way in here too.
+                    NavigationLink(value: LogbookRoute.stats) {
+                        HeaderIconLabel(systemImage: "chart.bar")
+                    }
+                    .buttonStyle(.dim)
+                    .accessibilityLabel("Stats")
                     HeaderIconButton("Log catch", systemImage: "plus") {
                         showingLogCatch = true
                     }
