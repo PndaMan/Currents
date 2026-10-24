@@ -523,7 +523,8 @@ struct ExplorePlacePage: View {
     }
 
     private func fishRow(_ fish: ObservedSpeciesRepository.FishResult) -> some View {
-        let records = "\(fish.observationCount) \(fish.observationCount == 1 ? "record" : "records") on \(fish.source == "iNaturalist" ? "iNaturalist" : "GBIF")"
+        // The footnote under the list names the sources.
+        let records = "\(fish.observationCount) \(fish.observationCount == 1 ? "record" : "records")"
         return ArtRow(title: fish.commonName, subtitle: records, chevron: fish.localSpecies != nil) {
             if let local = fish.localSpecies {
                 ThumbView(species: local, size: 56)
