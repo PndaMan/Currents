@@ -122,6 +122,9 @@ final class NotificationManager: @unchecked Sendable {
             let spot = item.spot
             let coordinate = CLLocationCoordinate2D(latitude: spot.latitude, longitude: spot.longitude)
             let reading = weather[spot.id]
+            // An offline estimate only has a real barometer, which is not
+            // enough to promise a bite window. Plan again once there is signal.
+            if reading?.current?.isEstimated == true { continue }
             let windows = BiteWindows.upcoming(coordinate: coordinate, current: reading?.current,
                                                outlook: reading?.outlook ?? [], species: species, days: 3)
             for window in windows where window.peakScore >= item.threshold {

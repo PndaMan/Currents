@@ -22,6 +22,9 @@ struct SpotAlertsView: View {
     @State private var stored: SpotAlert?
     @State private var windows: [BiteWindows.Upcoming] = []
     @State private var loadingWindows = true
+    /// No weather was ever fetched here and the phone is offline, so no
+    /// alerts are planned until there is signal.
+    @State private var noWeather = false
 
     private static let thresholds = Array(stride(from: 50, through: 95, by: 5))
 
@@ -89,6 +92,8 @@ struct SpotAlertsView: View {
                 ProgressView()
                     .frame(maxWidth: .infinity)
                     .frame(height: 120)
+            } else if noWeather {
+                InlineEmpty(systemImage: "wifi.slash", text: "No weather offline. Alerts are planned once there is signal.")
             } else if alerting.isEmpty {
                 InlineEmpty(systemImage: "moon.zzz", text: "No window reaches \(threshold) in the next three days.")
             } else {
@@ -150,8 +155,10 @@ struct SpotAlertsView: View {
         let species = targetSpeciesId > 0
             ? try? appState.speciesRepository.fetch(id: Int64(targetSpeciesId))
             : nil
-        windows = BiteWindows.upcoming(coordinate: coordinate, current: current, outlook: outlook,
-                                       species: species, days: 3)
+        // Bite alerts skip an offline estimate, so the windows here do too.
+        noWeather = current?.isEstimated == true
+        windows = noWeather ? [] : BiteWindows.upcoming(coordinate: coordinate, current: current, outlook: outlook,
+                                                        species: species, days: 3)
         loadingWindows = false
     }
 
