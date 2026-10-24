@@ -48,6 +48,8 @@ struct CommunityView: View {
     @State private var lastLoad: Date?
     /// Coalesces a burst of revision bumps into one reload.
     @State private var reloadGen = 0
+    /// The Add cell in the friends strip, as wide as a CrewPersonCell.
+    @ScaledMetric(relativeTo: .footnote) private var addCellWidth: CGFloat = 72
 
     private var region: String { svc.myRegion }
     /// Joined and iCloud reachable: the only time anything here may load.
@@ -454,7 +456,7 @@ struct CommunityView: View {
                             .font(.footnote.weight(.medium))
                             .foregroundStyle(.dsText)
                     }
-                    .frame(width: 72)
+                    .frame(width: addCellWidth)
                 }
                 .buttonStyle(.dim)
                 .accessibilityLabel("Add a friend")

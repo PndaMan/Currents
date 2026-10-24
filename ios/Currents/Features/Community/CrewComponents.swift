@@ -108,7 +108,8 @@ enum CrewReactionStyle {
 // MARK: - Crew thumbnail
 
 /// A crew's square thumbnail: its icon photo when one is set (disk-cached,
-/// refreshed lazily), otherwise its emoji on the accent tint.
+/// refreshed lazily), otherwise a symbol on the accent tint. Older crews
+/// store an emoji icon; it maps to a symbol rather than being drawn.
 struct CrewThumb: View {
     let code: String
     /// The crew's stored icon emoji; nil while the crew is still loading.
@@ -122,9 +123,7 @@ struct CrewThumb: View {
             if let icon {
                 ThumbView(image: icon, tint: DS.accent, size: size)
             } else if let emoji, !emoji.isEmpty {
-                ThumbView(tint: DS.accent, size: size) {
-                    Text(emoji).font(.system(size: size * 0.46))  // ui-lint: allow, crew icon emoji is stored crew data and scales with the thumb
-                }
+                ThumbView(systemImage: CrewArt.symbol(forLegacyEmoji: emoji), tint: DS.accent, size: size)
             } else {
                 ThumbView(systemImage: "person.3.fill", tint: DS.accent, size: size)
             }
@@ -196,6 +195,9 @@ struct CrewPersonCell: View {
     let name: String
     var detail: String? = nil
     var size: CGFloat = 56
+    @Environment(\.dynamicTypeSize) private var typeSize
+    /// The name column grows with the text size, so names don't truncate.
+    @ScaledMetric(relativeTo: .footnote) private var nameWidth: CGFloat = 72
 
     var body: some View {
         VStack(spacing: 4) {
@@ -203,15 +205,17 @@ struct CrewPersonCell: View {
             Text(name)
                 .font(.footnote.weight(.medium))
                 .foregroundStyle(.dsText)
-                .lineLimit(1)
+                .lineLimit(typeSize.isAccessibilitySize ? 2 : 1)
+                .multilineTextAlignment(.center)
             if let detail {
                 Text(detail)
                     .font(.caption)
                     .foregroundStyle(.dsText2)
-                    .lineLimit(1)
+                    .lineLimit(typeSize.isAccessibilitySize ? 2 : 1)
+                    .multilineTextAlignment(.center)
             }
         }
-        .frame(width: size + 16)
+        .frame(width: max(size + 16, nameWidth))
         .accessibilityElement(children: .combine)
     }
 }
@@ -325,6 +329,17 @@ struct CrewFeedRow: View {
         return post.caption.isEmpty ? (post.tripName.isEmpty ? nil : post.tripName) : post.caption
     }
 
+    /// The most used reaction's stored key; a tie goes to the first given.
+    private var topReaction: String {
+        var counts: [String: Int] = [:]
+        var order: [String] = []
+        for r in post.reactions {
+            if counts[r.emoji] == nil { order.append(r.emoji) }
+            counts[r.emoji, default: 0] += 1
+        }
+        return order.max { (counts[$0] ?? 0) < (counts[$1] ?? 0) } ?? ""
+    }
+
     var body: some View {
         ArtRow(over: "\(who), \(post.caughtAt.formatted(.relative(presentation: .named)))",
                title: CrewText.catchTitle(species: post.species, lengthCm: post.lengthCm, weightKg: post.weightKg),
@@ -333,10 +348,11 @@ struct CrewFeedRow: View {
         } trailing: {
             let total = post.reactions.count
             if total > 0 {
+                let top = topReaction
                 HStack(spacing: 4) {
-                    Image(systemName: "flame.fill")
+                    Image(systemName: CrewReactionStyle.symbol(top))
                         .font(.subheadline)
-                        .foregroundStyle(CrewReactionStyle.tint("🔥")) // ui-lint: allow, reaction key stored as emoji
+                        .foregroundStyle(CrewReactionStyle.tint(top))
                     Text("\(total)")
                         .font(.subheadline.weight(.medium))
                         .foregroundStyle(.dsText2)
@@ -402,6 +418,7 @@ struct CrewEventRow<Leading: View>: View {
     var endsAt: Date? = nil
     var pill: String? = nil
     @ViewBuilder var leading: () -> Leading
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
         HStack(spacing: 14) {
@@ -417,14 +434,14 @@ struct CrewEventRow<Leading: View>: View {
                             Text(over)
                                 .font(.footnote)
                                 .foregroundStyle(.dsText2)
-                                .lineLimit(1)
+                                .lineLimit(typeSize.isAccessibilitySize ? 3 : 1)
                         }
                     }
                 }
                 Text(title)
                     .font(.body.weight(.medium))
                     .foregroundStyle(.dsText)
-                    .lineLimit(2)
+                    .lineLimit(typeSize.isAccessibilitySize ? 4 : 2)
                 if let endsAt {
                     TimelineView(.periodic(from: .now, by: 1)) { ctx in
                         Text(endsAt > ctx.date ? "Ends in \(CrewText.clock(to: endsAt, now: ctx.date))" : "In overtime")
@@ -437,7 +454,7 @@ struct CrewEventRow<Leading: View>: View {
                     Text(subtitle)
                         .font(.subheadline)
                         .foregroundStyle(.dsText2)
-                        .lineLimit(1)
+                        .lineLimit(typeSize.isAccessibilitySize ? 3 : 1)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -834,6 +851,12 @@ enum CrewArt {
     static let speciesIDs: [Int64] = [122, 1, 130, 120, 17, 34, 75, 11, 6, 26]
     /// Written to new crews for builds that predate crew art.
     static let legacyEmoji = "🎣"  // ui-lint: allow, stored crew icon value read by older builds
+
+    /// The symbol drawn for a crew whose stored icon is an emoji: the
+    /// fishing figure for the default icon, a group for any other.
+    static func symbol(forLegacyEmoji emoji: String) -> String {
+        emoji == legacyEmoji ? "figure.fishing" : "person.3.fill"
+    }
 
     /// The thumbnail as a square image, drawn on the dark tile so it reads the
     /// same on every phone.
