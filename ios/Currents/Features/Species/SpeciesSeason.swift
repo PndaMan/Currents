@@ -159,16 +159,29 @@ enum SpeciesSeason {
         }
     }
 
-    /// "18°C to 24°C" around the optimum (where it feeds best), or the
-    /// tolerance band when there is no optimum.
+    /// The stand-in bands (min, optimum, max in Celsius) the seed gives
+    /// species with no recorded temperatures: about 600 hold 8, 20, 28 and
+    /// about 140 hold 8, 18, 28.
+    private static let placeholderBands: [(Double, Double, Double)] = [(8, 20, 28), (8, 18, 28)]
+
+    /// True when the record holds one of the seed's stand-in bands rather
+    /// than temperatures recorded for the species, so no range is shown.
+    static func hasPlaceholderTemps(_ sp: Species) -> Bool {
+        guard let lo = sp.minTempC, let opt = sp.optimalTempC, let hi = sp.maxTempC else { return false }
+        return placeholderBands.contains { $0.0 == lo && $0.1 == opt && $0.2 == hi }
+    }
+
+    /// "18°C to 24°C", the band the species feeds best in, worked out as
+    /// Today works it out (`ConditionText.comfort`). Nil when the record has
+    /// no temperatures of its own.
+    @MainActor
     static func comfortText(_ sp: Species, imperial: Bool) -> String? {
-        if let opt = sp.optimalTempC {
-            return rangeText(opt - 3, opt + 3, imperial: imperial)
+        guard !hasPlaceholderTemps(sp) else { return nil }
+        if sp.optimalTempC == nil {
+            guard let lo = sp.minTempC, let hi = sp.maxTempC, hi > lo else { return nil }
         }
-        if let lo = sp.minTempC, let hi = sp.maxTempC {
-            return rangeText(lo, hi, imperial: imperial)
-        }
-        return nil
+        let band = ConditionText.comfort(for: sp)
+        return rangeText(band.lowerBound, band.upperBound, imperial: imperial)
     }
 
     static func rangeText(_ lo: Double, _ hi: Double, imperial: Bool) -> String {
