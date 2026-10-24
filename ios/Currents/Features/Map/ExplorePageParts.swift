@@ -24,7 +24,7 @@ struct ExploreConditions: View {
                 if let water = m?.waterTempC {
                     ConditionTile("Water", systemImage: "drop.fill", iconTint: ForecastCondition.water.tint,
                                   value: Units.temperature(water)) {
-                        visual { RangeBar(domain: 5...32, band: 16...25, value: water, tint: ForecastCondition.water.tint) }
+                        visual { RangeBar(domain: 5...32, band: 16...25, value: water, tint: ForecastCondition.water.ink) }
                     }
                 } else {
                     ConditionTile("Sky", systemImage: WeatherIcon(condition: m?.condition ?? "").systemName,
@@ -33,7 +33,7 @@ struct ExploreConditions: View {
                                   unit: m == nil ? nil : "% cloud") {
                         visual {
                             if let m {
-                                RangeBar(domain: 0...100, value: Double(m.cloudCoverPct), tint: ForecastCondition.sky.tint)
+                                RangeBar(domain: 0...100, value: Double(m.cloudCoverPct), tint: ForecastCondition.sky.ink)
                             }
                         }
                     }
@@ -42,7 +42,7 @@ struct ExploreConditions: View {
                               value: m.map { Units.temperature($0.temperatureC) } ?? ConditionText.missing) {
                     visual {
                         if let m {
-                            RangeBar(domain: 0...40, value: m.temperatureC, tint: ForecastCondition.air.tint)
+                            RangeBar(domain: 0...40, value: m.temperatureC, tint: ForecastCondition.air.ink)
                         }
                     }
                 }
