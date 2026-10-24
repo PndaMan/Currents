@@ -2349,8 +2349,6 @@ struct JoinCrewConfirmView: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var svc = CommunityService.shared
 
-    @ObservedObject private var connection = CrewConnection.shared
-
     @State private var crew: CommunityService.Crew?
     @State private var members = 0
     @State private var loading = true
@@ -2425,16 +2423,20 @@ struct JoinCrewConfirmView: View {
         }
     }
 
-    /// `fetchCrew` folds a failed fetch into nil, so the connection is what
-    /// tells a crew that can't be reached from a code no crew holds.
+    /// The crew behind the code. A fetch that didn't get through shows as
+    /// can't reach, apart from a code no crew holds.
     private func loadPreview() async {
         loading = true
         lookupFailed = false
-        if let fetched = await svc.fetchCrew(code: shownCode) {
+        let result = await svc.lookupCrew(code: shownCode)
+        switch result {
+        case .found(let fetched):
             crew = fetched
             members = await svc.crewMembers(code: shownCode).count
-        } else {
-            lookupFailed = connection.isOffline
+        case .notFound, .ownCode:
+            crew = nil
+        case .failed:
+            lookupFailed = true
         }
         loading = false
     }

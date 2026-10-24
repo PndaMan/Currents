@@ -1615,6 +1615,15 @@ final class CommunityService: ObservableObject {
         return .found(crew)
     }
 
+    /// A crew by code without joining it, telling a code no crew holds from
+    /// a failed fetch. For previews such as an invite link, which show before
+    /// the angler has joined Crew.
+    func lookupCrew(code raw: String) async -> LookupResult<Crew> {
+        let code = raw.uppercased().trimmingCharacters(in: .whitespaces)
+        guard code.count == 6 else { return .notFound }
+        return await fetchCrewResult(code: code)
+    }
+
     /// True when my membership record was saved.
     @discardableResult
     private func addCrewMembership(code: String) async -> Bool {
