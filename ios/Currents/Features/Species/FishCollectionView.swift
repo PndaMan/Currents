@@ -224,8 +224,8 @@ struct FishCollectionView: View {
                             .foregroundStyle(.dsText)
                             .lineLimit(2)
                             .minimumScaleFactor(0.7)
-                        LogbookProgressBar(fraction: appeared ? Double(tier.found) / Double(tier.total) : 0,
-                                           tint: tier.rarity.color, height: 6)
+                        RarityBar(fraction: appeared ? Double(tier.found) / Double(tier.total) : 0,
+                                  tint: tier.rarity.color)
                             .animation(reduceMotion ? nil : DS.Motion.easeOut, value: appeared)
                     }
                     .padding(12)
@@ -335,6 +335,32 @@ struct FishCollectionView: View {
         countById = counts
         loaded = true
         appeared = true
+    }
+}
+
+// MARK: - Rarity bar
+
+/// A rarity tier's found share. The track carries the tier's own hue, so the
+/// bar reads as a bar on the tile's fill even while little is found; the
+/// found part is the full colour, at least a dot wide once anything is.
+private struct RarityBar: View {
+    let fraction: Double
+    let tint: Color
+    var height: CGFloat = 8
+
+    var body: some View {
+        Capsule()
+            .fill(tint.opacity(0.2))
+            .frame(height: height)
+            .overlay(alignment: .leading) {
+                GeometryReader { geo in
+                    let share = CGFloat(min(1, max(0, fraction)))
+                    Capsule()
+                        .fill(tint)
+                        .frame(width: share > 0 ? max(height, geo.size.width * share) : 0)
+                }
+            }
+            .accessibilityHidden(true)
     }
 }
 
