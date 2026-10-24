@@ -372,7 +372,10 @@ struct LogCatchWaterSheet: View {
                     .font(.system(size: numeralSize, weight: .bold, design: .rounded)) // ui-lint: allow, big numeral scaled with @ScaledMetric
                     .monospacedDigit()
                     .lineLimit(1)
-                    .fixedSize(horizontal: true, vertical: false)
+                    // As wide as its digits, as in the composer's size tiles,
+                    // so the unit sits right after the number.
+                    .frame(minWidth: 0, maxWidth: CGFloat(max(depthText.count, 1)) * numeralSize * 0.64 + 6,
+                           alignment: .leading)
                 Text(imperial ? "ft" : "m")
                     .font(.subheadline.weight(.medium))
                     .foregroundStyle(Color.dsText2)
