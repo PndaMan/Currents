@@ -66,7 +66,7 @@ struct AppearanceSettingsView: View {
                 }
 
                 VStack(alignment: .leading, spacing: DS.Space.s3) {
-                    SectionTitle("Haptics")
+                    SectionTitle("Feel")
                     CardGroup {
                         CardToggleRow("Haptics", subtitle: "Taps, confirmations and celebrations",
                                       systemImage: "iphone.radiowaves.left.and.right", tint: .purple,

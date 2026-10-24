@@ -172,7 +172,7 @@ private struct CelebrationCard: View {
             if celebration.title != nil {
                 Text(celebration.headline)
                     .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.tint)
+                    .foregroundStyle(DS.ink(DS.accent))
             }
             Text(celebration.title ?? celebration.headline)
                 .font(.title2.bold())

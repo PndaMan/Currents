@@ -149,6 +149,7 @@ struct AlertSettingsView: View {
             } else if let url = URL(string: UIApplication.openSettingsURLString) {
                 Link("Change", destination: url)
                     .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(DS.ink(DS.accent))
             }
         }
     }
