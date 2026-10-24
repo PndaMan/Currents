@@ -1324,6 +1324,7 @@ struct TripScrubberCard: View {
                 }
             }
             .mapStyle(SessionMapLook.style(mapStyleRaw))
+            .dynamicTypeSize(...DynamicTypeSize.xxLarge)
             .frame(height: 220)
             .clipShape(RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
             .allowsHitTesting(false)
@@ -1682,6 +1683,9 @@ struct SessionTrackMap: View {
             if showsUser { UserAnnotation() }
         }
         .mapStyle(SessionMapLook.style(mapStyleRaw))
+        // Pin labels stop growing at xxLarge, so a catch's name is not cut
+        // off at the map's edge.
+        .dynamicTypeSize(...DynamicTypeSize.xxLarge)
     }
 
     /// Frame the whole route by default (no manual zoom-out needed); pan/zoom
