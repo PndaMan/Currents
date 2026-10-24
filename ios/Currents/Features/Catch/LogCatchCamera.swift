@@ -214,6 +214,13 @@ struct LogCatchCameraView: View {
         } description: {
             Text(detail)
         } actions: {
+            // The way forward without a camera, not only the corner icon.
+            PhotosPicker(selection: $libraryItems,
+                         maxSelectionCount: max(1, librarySlots),
+                         matching: .images) {
+                Text("Choose photos")
+            }
+            .buttonStyle(PrimaryButtonStyle(fullWidth: false))
             if showsSettings, let url = URL(string: UIApplication.openSettingsURLString) {
                 Button("Open Settings") { UIApplication.shared.open(url) }
                     .buttonStyle(TonalButtonStyle(fullWidth: false))
