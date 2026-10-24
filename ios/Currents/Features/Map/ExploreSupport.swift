@@ -1,6 +1,7 @@
 import SwiftUI
 import MapKit
 import GRDB
+import Network
 
 // MARK: - Routes
 
@@ -349,36 +350,6 @@ struct ScoreDisc: View {
     }
 }
 
-/// The tinted bite card in pin and location sheets: score disc, verdict and
-/// one line about the day.
-struct BiteBlock: View {
-    let score: Int
-    let title: String
-    let detail: String
-    @Environment(\.colorScheme) private var scheme
-
-    var body: some View {
-        HStack(spacing: 14) {
-            ScoreDisc(score: score)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.headline)
-                    .foregroundStyle(.dsText)
-                Text(detail)
-                    .font(.subheadline)
-                    .foregroundStyle(.dsText2)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(14)
-        .background(DS.scoreColor(score).opacity(scheme == .dark ? 0.16 : 0.10),
-                    in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
-        .padding(.horizontal, DS.gutter)
-        .accessibilityElement(children: .combine)
-    }
-}
-
 /// A loading placeholder shaped like a sheet's content (the mockup's skeleton).
 struct SheetSkeleton: View {
     @State private var pulse = false
@@ -526,6 +497,64 @@ struct ExploreActionRow: View {
         }
         .padding(.horizontal, DS.gutter)
         .contentShape(Rectangle())
+    }
+}
+
+// MARK: - Inline title
+
+extension View {
+    /// The inline title of a scrolling Explore page or sheet, faded in once
+    /// the header has scrolled away, as on TodayPage. Apply to the ScrollView.
+    func exploreInlineTitle(_ title: String) -> some View {
+        modifier(ExploreInlineTitle(title: title))
+    }
+}
+
+private struct ExploreInlineTitle: ViewModifier {
+    let title: String
+    @State private var shown = false
+
+    func body(content: Content) -> some View {
+        content
+            .onScrollGeometryChange(for: Bool.self) { geo in
+                geo.contentOffset.y + geo.contentInsets.top > 60
+            } action: { _, past in
+                shown = past
+            }
+            .navigationTitle(title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Text(title)
+                        .font(.headline)
+                        .lineLimit(1)
+                        .opacity(shown ? 1 : 0)
+                        .animation(.easeOut(duration: DS.Motion.fast), value: shown)
+                        .accessibilityHidden(!shown)
+                }
+            }
+    }
+}
+
+// MARK: - Connection
+
+/// Whether the phone has a connection, so the map badge only says
+/// "Offline" when it is. It starts assuming online, so nothing flashes
+/// "Offline" before the first answer arrives.
+@MainActor
+final class ExploreConnection: ObservableObject {
+    static let shared = ExploreConnection()
+    @Published private(set) var isOffline = false
+    private let monitor = NWPathMonitor()
+
+    private init() {
+        monitor.pathUpdateHandler = { path in
+            let offline = path.status != .satisfied
+            Task { @MainActor in
+                if ExploreConnection.shared.isOffline != offline { ExploreConnection.shared.isOffline = offline }
+            }
+        }
+        monitor.start(queue: DispatchQueue(label: "ExploreConnection"))
     }
 }
 

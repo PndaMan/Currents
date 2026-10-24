@@ -33,7 +33,11 @@ struct LocationInspectorSheet: View {
     @State private var isLoading = true
     @State private var isLoadingFish = true
     @State private var isLoadingWater = true
-    @State private var showingSaveAsSpot = false
+    @State private var showingSaveForm = false
+    /// The spot saved here, from this sheet or before it opened. Once set,
+    /// Save spot shows "Saved" and cannot save a second time.
+    @State private var savedSpot: Spot?
+    @State private var detent: PresentationDetent = .medium
 
     var body: some View {
         NavigationStack {
@@ -52,18 +56,23 @@ struct LocationInspectorSheet: View {
             }
             .detailScrollEdge()
             .background(Color.dsBackground.ignoresSafeArea())
+            .exploreInlineTitle(heading)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Done") { dismiss() }
+                ToolbarItem(placement: .confirmationAction) {
+                    SheetDoneButton()
                 }
             }
             .task { await load() }
-            .sheet(isPresented: $showingSaveAsSpot) {
-                AddSpotSheet(prefillCoordinate: coordinate)
-                    .presentationDetents([.large])
+            // The form is pushed inside this sheet rather than stacked on it.
+            .navigationDestination(isPresented: $showingSaveForm) {
+                AddSpotForm(prefillCoordinate: coordinate, isPushed: true) { spot in
+                    savedSpot = spot
+                    nearbySpots = savedSpotsNearby()
+                }
             }
         }
-        .presentationDetents([.medium, .large])
+        // dsSheet has no detent selection; the form opens at full height.
+        .presentationDetents([.medium, .large], selection: $detent)
         .presentationDragIndicator(.visible)
         .presentationBackground(Color.dsBackground)
     }
@@ -81,43 +90,45 @@ struct LocationInspectorSheet: View {
         return ExploreFormat.coords(coordinate)
     }
 
+    /// The place sheet's header: name, then the bite now beside its ring.
     private var header: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(heading)
-                .font(.title2.bold())
-                .foregroundStyle(.dsText)
-                .lineLimit(2)
-                .accessibilityAddTraits(.isHeader)
-            Text(subheading)
-                .font(.subheadline.monospacedDigit())
-                .foregroundStyle(.dsText2)
+        HStack(alignment: .center, spacing: DS.Space.s3) {
+            DetailHeader(over: subheading, title: heading, subtitle: biteLine)
+            if let bite {
+                ScoreRing(score: bite.now, size: 88, caption: "now")
+                    .padding(.trailing, DS.gutter)
+            }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, DS.gutter)
         .padding(.top, DS.Space.s2)
+    }
+
+    /// "Excellent now. Best 06:00 to 09:00, peaking at 81."
+    private var biteLine: String? {
+        guard let bite else { return nil }
+        let grade = "\(ForecastFormat.grade(bite.now)) now"
+        let detail = bite.bestLine(use24: use24HourTime)
+            ?? bite.reasons.first.map(ExploreFormat.sentence)
+            ?? "No strong window left today"
+        let line = "\(grade). \(detail)"
+        return line.hasSuffix(".") ? line : line + "."
     }
 
     // MARK: - Content
 
     @ViewBuilder
     private var content: some View {
-        if let bite {
-            BiteBlock(
-                score: bite.now,
-                title: "\(ForecastFormat.grade(bite.now)) now",
-                detail: bite.bestLine(use24: use24HourTime).map { $0 + "." }
-                    ?? bite.reasons.first.map(ExploreFormat.sentence) ?? "No strong window left today."
-            )
-            .padding(.top, DS.Space.s4)
-        }
-
         ActionTriple {
             Button {
-                showingSaveAsSpot = true
+                guard savedSpot == nil, !showingSaveForm else { return }
+                detent = .large
+                showingSaveForm = true
             } label: {
-                Label("Save spot", systemImage: "mappin.and.ellipse")
+                Label(savedSpot == nil ? "Save spot" : "Saved",
+                      systemImage: savedSpot == nil ? "bookmark" : "bookmark.fill")
             }
-            .buttonStyle(ActionTileStyle(.primary))
+            .buttonStyle(ActionTileStyle(savedSpot == nil ? .primary : .tonal))
+            .disabled(savedSpot != nil)
+            .accessibilityHint(savedSpot == nil ? "Adds this place to your spots" : "This place is in your spots")
             DirectionsMenu(coordinate: coordinate, name: heading) {
                 ActionTileLabel("Directions", systemImage: "location.north.line")
             }
@@ -205,8 +216,9 @@ struct LocationInspectorSheet: View {
 
     private func fishRow(_ fish: BitingFish) -> some View {
         Button { onShowSpecies(fish.species) } label: {
-            ArtRow(title: fish.species.commonName,
-                   subtitle: "\(fish.records) \(fish.records == 1 ? "record" : "records") nearby") {
+            ArtRow(over: "\(fish.records) \(fish.records == 1 ? "record" : "records") nearby",
+                   title: fish.species.commonName,
+                   subtitle: fish.why) {
                 ThumbView(species: fish.species, size: 56)
             } trailing: {
                 Text("\(fish.score)")
@@ -240,12 +252,11 @@ struct LocationInspectorSheet: View {
             .padding(.top, DS.Space.s8)
     }
 
+    /// Section loading, as the place page shows it.
     private func loadingRow(_ text: String) -> some View {
-        HStack(spacing: DS.Space.s2) {
-            ProgressView()
-            Text(text).foregroundStyle(.dsText2)
-        }
-        .padding(.horizontal, DS.gutter)
+        FishLoader(message: text)
+            .frame(minHeight: 90)
+            .frame(maxWidth: .infinity)
     }
 
     private var mapsURL: URL {
@@ -273,6 +284,9 @@ struct LocationInspectorSheet: View {
         // Saved spots and mapped water come from the phone first, so the
         // list never waits on the network.
         nearbySpots = savedSpotsNearby()
+        if savedSpot == nil, let here = nearbySpots.first(where: { $0.distanceMeters < 25 }) {
+            savedSpot = here.spot
+        }
         if !ScreenshotSupport.isActive {
             await BundledMapData.importWaterIfNeeded(into: appState.db)
         }
