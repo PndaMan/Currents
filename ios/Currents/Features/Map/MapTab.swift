@@ -36,6 +36,8 @@ struct MapTab: View {
     @Environment(AppState.self) private var appState
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.dynamicTypeSize) private var typeSize
+    @ObservedObject private var connection = ExploreConnection.shared
     @Namespace private var mapScope
     @State private var position: MapCameraPosition = ScreenshotSupport.isActive
         ? .camera(MapCamera(centerCoordinate: ScreenshotSupport.demoCoordinate, distance: 42000))
@@ -160,10 +162,11 @@ struct MapTab: View {
     private var overlaysOn: Bool { layerNautical || layerRadar || layerWind || layerCurrent }
 
     /// Catches without an assigned spot, minus any that sit on top of a saved
-    /// spot so they don't render over the spot pin.
+    /// spot so they don't render over the spot pin. A catch saved without a
+    /// location (0,0) gets no pin.
     private var unassignedCatches: [CatchDetail] {
         catches.filter { detail in
-            guard detail.catchRecord.spotId == nil else { return false }
+            guard detail.catchRecord.spotId == nil, detail.catchRecord.hasMapLocation else { return false }
             if let speciesFilter, !speciesFilter.catchIds.contains(detail.catchRecord.id) { return false }
             let loc = CLLocation(
                 latitude: detail.catchRecord.latitude,
@@ -281,7 +284,8 @@ struct MapTab: View {
         }) { stack in
             CatchStackSheet(catches: stack.catches) { pendingCatch = $0 }
         }
-        .sheet(item: $selectedRamp) { ramp in
+        // A spot saved from the ramp sheet gets its pin once the sheet goes.
+        .sheet(item: $selectedRamp, onDismiss: reloadSpots) { ramp in
             RampDetailSheet(ramp: ramp)
         }
         .sheet(item: $inspector, onDismiss: { Task { await loadData() } }) { target in
@@ -634,6 +638,7 @@ struct MapTab: View {
             // Only a drag ticks; showPlace resetting the detent stays quiet.
             .presentationDetents([.medium, .large], selection: $placeDetent.haptic())
             .presentationDragIndicator(.visible)
+            .presentationBackground(Color.dsBackground)
             .presentationBackgroundInteraction(.enabled(upThrough: .medium))
             .presentationContentInteraction(.resizes)
         }
@@ -959,16 +964,23 @@ struct MapTab: View {
         .simultaneousGesture(TapGesture().onEnded { isPlaceOpen = false })
     }
 
-    /// Which offline region the map covers, or when scores were last worked
-    /// out if the weather is old. Opens Offline maps.
+    /// Which offline region the map covers, or how old the scores are if the
+    /// weather is old. It says "Offline" only when there is no connection.
+    /// Opens Offline maps.
     private var offlineBadge: some View {
         let regions = appState.mapManager.downloadedRegions
-        let stale = weather.map { Date.now.timeIntervalSince($0.fetchedAt) > 3 * 3600 } ?? false
+        let age = weather.map { Date.now.timeIntervalSince($0.fetchedAt) } ?? 0
+        let stale = age > 3 * 3600
         let text: String
         let icon: String
         if stale, let w = weather {
-            text = "Offline. Scores from \(ForecastFormat.time(w.fetchedAt))"
-            icon = "icloud.slash"
+            if connection.isOffline {
+                text = "Offline. Scores from \(ForecastFormat.time(w.fetchedAt, use24: use24))"
+                icon = "icloud.slash"
+            } else {
+                text = "Updated \(ForecastFormat.elapsed(age)) ago"
+                icon = "clock.arrow.circlepath"
+            }
         } else if regions.count == 1, let region = regions.first {
             text = "\(region.name) offline"
             icon = "arrow.down.circle"
@@ -982,10 +994,11 @@ struct MapTab: View {
         return NavigationLink(value: ExploreRoute.offlineMaps) {
             Label(text, systemImage: icon)
                 .font(.footnote.weight(.semibold))
-                .foregroundStyle(stale ? Color.dsScoreFair : Color.dsText)
-                .lineLimit(1)
+                .foregroundStyle(stale ? DS.ink(Color.dsScoreFair) : Color.dsText)
+                .lineLimit(typeSize.isAccessibilitySize ? 3 : 1)
                 .padding(.horizontal, 12)
-                .frame(height: 32)
+                .padding(.vertical, 6)
+                .frame(minHeight: 32)
                 .glassEffect(.regular.interactive(), in: Capsule())
         }
         .buttonStyle(.dim)
@@ -1031,7 +1044,7 @@ struct MapTab: View {
                                 dot: appState.tripTracker.isTracking ? Color.dsScoreSlow : nil)
                 }
                 .buttonStyle(.dim)
-                .accessibilityLabel(appState.tripTracker.isTracking ? "Open live session" : "Start a session")
+                .accessibilityLabel(appState.tripTracker.isTracking ? "Open live session" : "Start session")
             }
         }
     }
@@ -1080,7 +1093,7 @@ struct MapTab: View {
                     Text(nearSubtitle)
                         .font(.subheadline)
                         .foregroundStyle(.dsText2)
-                        .lineLimit(1)
+                        .lineLimit(typeSize.isAccessibilitySize ? 3 : 1)
                 }
                 Spacer(minLength: 0)
                 Image(systemName: "chevron.up")
@@ -1494,4 +1507,9 @@ struct MapTab: View {
             waterbodyScores[wb.id ?? 0] = result.score
         }
     }
+}
+
+private extension Catch {
+    /// A catch saved without a location keeps 0,0 as its marker.
+    var hasMapLocation: Bool { abs(latitude) >= 0.0001 || abs(longitude) >= 0.0001 }
 }
