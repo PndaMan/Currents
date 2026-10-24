@@ -19,7 +19,8 @@ struct FilePreview: View {
     var cornerRadius: CGFloat = DS.Radius.thumb / 2
     var placeholderAspect: CGFloat = 1
     /// With no document, draws the placeholder as a tinted tile, the way
-    /// `ThumbView` does. Nil keeps the neutral fill.
+    /// `ThumbView` does, its glyph inked for light mode. Pass the raw hue.
+    /// Nil keeps the neutral fill.
     var tint: Color? = nil
 
     @State private var image: UIImage?
@@ -79,7 +80,7 @@ struct FilePreview: View {
                 if empty {
                     Image(systemName: systemImage)
                         .font(renderSize > 120 ? .largeTitle : .title3)
-                        .foregroundStyle(tint ?? Color.dsText2)
+                        .foregroundStyle(tint.map { DS.ink($0) } ?? Color.dsText2)
                 }
             }
         if contentMode == .fit {
