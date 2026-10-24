@@ -169,7 +169,7 @@ struct OfflineMapsView: View {
 
     private var cacheSection: some View {
         CardSection("Cache and downloads") {
-            CardToggleRow("Cache maps as I browse",
+            CardToggleRow("Cache maps as you browse",
                           subtitle: "Keeps tiles around you for no signal",
                           systemImage: "square.stack.3d.down.right.fill", tint: .cyan,
                           isOn: Binding(get: { manager.autoCacheEnabled },
@@ -199,9 +199,9 @@ struct OfflineMapsView: View {
         if manager.packs.isEmpty {
             VStack(alignment: .leading, spacing: 0) {
                 SectionTitle("Your maps")
+                // No action: "Pick an area on the map" is the row just above.
                 InlineEmpty(systemImage: "map",
-                            text: "No offline maps yet. Download your waters before you lose signal.",
-                            actionTitle: "Pick an area on the map", action: pickArea)
+                            text: "No offline maps yet. Download your waters before you lose signal.")
             }
         } else {
             VStack(alignment: .leading, spacing: 0) {
@@ -282,7 +282,7 @@ struct OfflineMapsView: View {
                 .replacingOccurrences(of: "Downloading", with: "Downloading \(active.name)")
                 .replacingOccurrences(of: "Updating", with: "Updating \(active.name)")
         }
-        return "Satellite maps that work with no signal."
+        return "Satellite maps that work with no signal"
     }
 
     /// Suggestions change when maps are added or removed.
@@ -385,7 +385,7 @@ private struct SuggestionRow: View {
                 Text(suggestion.title)
                     .font(.body)
                     .foregroundStyle(.dsText)
-                    .lineLimit(typeSize.isAccessibilitySize ? 3 : 1)
+                    .lineLimit(typeSize.isAccessibilitySize ? 3 : 2)
                 Text(suggestion.subtitle)
                     .font(.subheadline)
                     .foregroundStyle(.dsText2)
