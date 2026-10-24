@@ -138,15 +138,10 @@ struct CatchesTab: View {
                     .padding(.top, DS.Space.s2)
 
                 if FeatureFlags.liveTrips {
-                    Picker("Show", selection: $segment.haptic()) {
-                        ForEach(Segment.allCases, id: \.self) { s in
-                            Text(s.rawValue).tag(s)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                    .padding(.horizontal, DS.gutter)
-                    .padding(.top, DS.Space.s6)
-                    .padding(.bottom, DS.Space.s2)
+                    // FilterChips pads to the gutter itself.
+                    FilterChips(Segment.allCases, selection: $segment.haptic()) { $0.rawValue }
+                        .padding(.top, DS.Space.s6)
+                        .padding(.bottom, DS.Space.s2)
                 }
 
                 switch segment {
@@ -382,13 +377,6 @@ struct CatchesTab: View {
                             }
                         }
                     }
-                    Text("\(visible.count) of \(catches.count) catches. Long-press a catch for more.")
-                        .font(.footnote)
-                        .foregroundStyle(.dsText3)
-                        .frame(maxWidth: .infinity)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, DS.gutter)
-                        .padding(.top, DS.Space.s6)
                 }
             }
         }
