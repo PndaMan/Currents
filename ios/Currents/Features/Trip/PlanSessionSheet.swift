@@ -210,7 +210,7 @@ struct PlanSessionSheet: View {
                 }
                 .padding(.horizontal, DS.gutter)
                 .padding(.top, DS.Space.s5)
-                SectionFoot("Tap a day to plan it, or a bar to set the start time.")
+                SectionFootnote("Tap a day to plan it, or a bar to set the start time.")
             }
         }
     }
@@ -251,41 +251,49 @@ struct PlanSessionSheet: View {
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
-    // MARK: - Bring
+    // MARK: - Gear checklist
 
     private var bringSection: some View {
         VStack(alignment: .leading, spacing: 0) {
-            SectionTitle("Bring",
+            SectionTitle("Gear checklist",
                          detail: checklist.isEmpty ? nil : "\(checklist.filter(\.checked).count) of \(checklist.count)")
                 .padding(.top, DS.Space.s8)
             ForEach($checklist) { $item in
-                Button {
-                    withAnimation(DS.Motion.press) { item.checked.toggle() }
-                } label: {
-                    HStack(spacing: 12) {
-                        Image(systemName: item.checked ? "checkmark.circle.fill" : "circle")
-                            .font(.title3)
-                            .foregroundStyle(item.checked ? DS.accent : Color.dsText3)
-                            .contentTransition(.symbolEffect(.replace))
-                        Text(item.name)
-                            .font(.body)
-                            .strikethrough(item.checked, color: .dsText3)
-                            .foregroundStyle(item.checked ? Color.dsText2 : Color.dsText)
-                        Spacer(minLength: 0)
-                    }
-                    .padding(.vertical, 11)
-                    .padding(.horizontal, DS.gutter)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.dsRow)
-                .buttonHaptic(.toggle)
-                .accessibilityAddTraits(item.checked ? .isSelected : [])
-                .contextMenu {
-                    Button(role: .destructive) {
-                        withAnimation(DS.Motion.press) { checklist.removeAll { $0.id == item.id } }
+                HStack(spacing: 0) {
+                    Button {
+                        withAnimation(DS.Motion.press) { item.checked.toggle() }
                     } label: {
-                        Label("Remove item", systemImage: "trash")
+                        HStack(spacing: 12) {
+                            Image(systemName: item.checked ? "checkmark.circle.fill" : "circle")
+                                .font(.title3)
+                                .foregroundStyle(item.checked ? DS.accent : Color.dsText3)
+                                .contentTransition(.symbolEffect(.replace))
+                            Text(item.name)
+                                .font(.body)
+                                .strikethrough(item.checked, color: .dsText3)
+                                .foregroundStyle(item.checked ? Color.dsText2 : Color.dsText)
+                            Spacer(minLength: 0)
+                        }
+                        .padding(.vertical, 11)
+                        .padding(.leading, DS.gutter)
+                        .contentShape(Rectangle())
                     }
+                    .buttonStyle(.dsRow)
+                    .buttonHaptic(.toggle)
+                    .accessibilityAddTraits(item.checked ? .isSelected : [])
+
+                    Button {
+                        let id = item.id
+                        withAnimation(DS.Motion.press) { checklist.removeAll { $0.id == id } }
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.footnote.weight(.semibold))
+                            .foregroundStyle(.dsText3)
+                            .frame(width: 44, height: 44)
+                    }
+                    .buttonStyle(.dim)
+                    .accessibilityLabel("Remove \(item.name)")
+                    .padding(.trailing, DS.gutter - 12)
                 }
             }
             HStack(spacing: 12) {
@@ -298,19 +306,18 @@ struct PlanSessionSheet: View {
                     .onSubmit(addChecklistItem)
                 if !newItem.trimmingCharacters(in: .whitespaces).isEmpty {
                     Button("Add item", action: addChecklistItem)
-                        .font(.subheadline.weight(.semibold))
+                        .buttonStyle(TonalButtonStyle(fullWidth: false))
                 }
             }
             .padding(.vertical, 11)
             .padding(.horizontal, DS.gutter)
-            SectionFoot("Long-press an item to remove it.")
         }
     }
 
     // MARK: - Save bar
 
     private var saveBar: some View {
-        SheetActionBar(editingTrip == nil ? "Save plan" : "Save changes",
+        SheetActionBar("Save",
                        systemImage: "calendar.badge.checkmark",
                        disabled: trimmedName.isEmpty || isSaving) {
             savePlan()

@@ -51,7 +51,7 @@ struct PlanDetailView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             if let trip {
-                Text("It is planned for \(LogbookFormat.longDay(plannedDate(trip))), \(LogbookFormat.time(plannedDate(trip))).")
+                Text("It is planned for \(LogbookFormat.longDay(plannedDate(trip))), \(ForecastFormat.time(plannedDate(trip), use24: use24)).")
             }
         }
         .confirmationDialog("Delete this plan?", isPresented: $confirmingDelete, titleVisibility: .visible) {
@@ -74,7 +74,7 @@ struct PlanDetailView: View {
                 HStack(alignment: .top, spacing: 0) {
                     DetailHeader(over: LogbookFormat.longDay(date),
                                  title: trip.name,
-                                 subtitle: "Planned for \(LogbookFormat.time(date))")
+                                 subtitle: "Planned for \(ForecastFormat.time(date, use24: use24))")
                     if let forecast, let peak = forecast.hourlyScores.map(\.score).max() {
                         ScoreRing(score: peak, size: 64, caption: "best")
                             .padding(.trailing, DS.gutter)
@@ -106,7 +106,7 @@ struct PlanDetailView: View {
                 .padding(.top, DS.Space.s5)
 
                 if tracker.isTracking {
-                    SectionFoot("End the session that is running before you start this one.")
+                    SectionFootnote("End the session that is running before you start this one.")
                 }
 
                 biteSection(date)
@@ -172,8 +172,8 @@ struct PlanDetailView: View {
                               footnote: "\(ForecastFormat.hour(window.lowerBound, use24: use24)) to \(ForecastFormat.hour(window.upperBound + 1, use24: use24))")
                 if let solunar {
                     ConditionTile("Sunrise", systemImage: "sunrise.fill", iconTint: .dsScoreLow,
-                                  value: LogbookFormat.time(solunar.sunrise),
-                                  footnote: "Sunset \(LogbookFormat.time(solunar.sunset))")
+                                  value: ForecastFormat.time(solunar.sunrise, use24: use24),
+                                  footnote: "Sunset \(ForecastFormat.time(solunar.sunset, use24: use24))")
                     ConditionTile("Moon", systemImage: "moon.fill", iconTint: .dsScoreFair,
                                   value: "\(Int((solunar.moonIllumination * 100).rounded()))", unit: "%",
                                   footnote: CatchDetailView.sentenceCase(solunar.moonPhase.displayName)) {
@@ -223,35 +223,43 @@ struct PlanDetailView: View {
             .padding(.top, DS.Space.s8)
         VStack(spacing: 0) {
             ForEach($checklist) { $item in
-                Button {
-                    withAnimation(DS.Motion.press) { item.checked.toggle() }
-                    saveChecklist()
-                } label: {
-                    HStack(spacing: 12) {
-                        Image(systemName: item.checked ? "checkmark.circle.fill" : "circle")
-                            .font(.title3)
-                            .foregroundStyle(item.checked ? DS.accent : Color.dsText3)
-                            .contentTransition(.symbolEffect(.replace))
-                        Text(item.name)
-                            .font(.body)
-                            .strikethrough(item.checked, color: .dsText3)
-                            .foregroundStyle(item.checked ? Color.dsText2 : Color.dsText)
-                        Spacer(minLength: 0)
-                    }
-                    .padding(.vertical, 11)
-                    .padding(.horizontal, DS.gutter)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.dsRow)
-                .buttonHaptic(.toggle)
-                .accessibilityAddTraits(item.checked ? .isSelected : [])
-                .contextMenu {
-                    Button(role: .destructive) {
-                        checklist.removeAll { $0.id == item.id }
+                HStack(spacing: 0) {
+                    Button {
+                        withAnimation(DS.Motion.press) { item.checked.toggle() }
                         saveChecklist()
                     } label: {
-                        Label("Remove item", systemImage: "trash")
+                        HStack(spacing: 12) {
+                            Image(systemName: item.checked ? "checkmark.circle.fill" : "circle")
+                                .font(.title3)
+                                .foregroundStyle(item.checked ? DS.accent : Color.dsText3)
+                                .contentTransition(.symbolEffect(.replace))
+                            Text(item.name)
+                                .font(.body)
+                                .strikethrough(item.checked, color: .dsText3)
+                                .foregroundStyle(item.checked ? Color.dsText2 : Color.dsText)
+                            Spacer(minLength: 0)
+                        }
+                        .padding(.vertical, 11)
+                        .padding(.leading, DS.gutter)
+                        .contentShape(Rectangle())
                     }
+                    .buttonStyle(.dsRow)
+                    .buttonHaptic(.toggle)
+                    .accessibilityAddTraits(item.checked ? .isSelected : [])
+
+                    Button {
+                        let id = item.id
+                        withAnimation(DS.Motion.press) { checklist.removeAll { $0.id == id } }
+                        saveChecklist()
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.footnote.weight(.semibold))
+                            .foregroundStyle(.dsText3)
+                            .frame(width: 44, height: 44)
+                    }
+                    .buttonStyle(.dim)
+                    .accessibilityLabel("Remove \(item.name)")
+                    .padding(.trailing, DS.gutter - 12)
                 }
             }
             HStack(spacing: 12) {
@@ -264,13 +272,12 @@ struct PlanDetailView: View {
                     .onSubmit(addItem)
                 if !newItem.trimmingCharacters(in: .whitespaces).isEmpty {
                     Button("Add item", action: addItem)
-                        .font(.subheadline.weight(.semibold))
+                        .buttonStyle(TonalButtonStyle(fullWidth: false))
                 }
             }
             .padding(.vertical, 11)
             .padding(.horizontal, DS.gutter)
         }
-        SectionFoot("Long-press an item to remove it.")
     }
 
     // MARK: - Where
@@ -300,7 +307,7 @@ struct PlanDetailView: View {
                     .padding(.horizontal, DS.gutter)
                     .padding(.top, DS.Space.s3)
                 if spot == nil {
-                    SectionFoot("The session tracks wherever you are when you start it.")
+                    SectionFootnote("The session tracks wherever you are when you start it.")
                 }
             }
         }
