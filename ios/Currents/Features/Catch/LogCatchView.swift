@@ -2376,7 +2376,7 @@ struct LocationPickerSheet: View {
                 .glassEffect(.regular, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
             }
 
-            if searchFailed {
+            if searchFailed || (searchModel.failed && !searchText.isEmpty) {
                 InlineEmpty(systemImage: "wifi.slash", text: "Search needs a connection")
                     // InlineEmpty brings its own gutter; this panel has one.
                     .padding(.horizontal, -DS.gutter)

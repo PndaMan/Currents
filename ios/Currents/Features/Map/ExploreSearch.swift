@@ -798,6 +798,9 @@ final class MapSearchCompleter: NSObject, MKLocalSearchCompleterDelegate {
     var completions: [MKLocalSearchCompletion] = []
     /// True while a query is out and nothing has come back yet.
     var isWorking = false
+    /// The last query failed, most often for want of signal. Cleared by the
+    /// next results.
+    var failed = false
     @ObservationIgnored private let completer = MKLocalSearchCompleter()
 
     override init() {
@@ -826,17 +829,21 @@ final class MapSearchCompleter: NSObject, MKLocalSearchCompleterDelegate {
     func clear() {
         completions = []
         isWorking = false
+        failed = false
         completer.cancel()
     }
 
     func completerDidUpdateResults(_ completer: MKLocalSearchCompleter) {
         completions = completer.results
         isWorking = false
+        failed = false
     }
 
     func completer(_ completer: MKLocalSearchCompleter, didFailWithError error: Error) {
         completions = []
         isWorking = false
+        // Nothing matching is an empty result, not a failure.
+        failed = (error as? MKError)?.code != .placemarkNotFound
     }
 }
 
