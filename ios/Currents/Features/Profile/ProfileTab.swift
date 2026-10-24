@@ -1539,7 +1539,7 @@ struct WidgetsSiriView: View {
 
     private var lockWidget: some View {
         VStack(spacing: DS.Space.s2) {
-            Text(Date.now, format: .dateTime.hour().minute())
+            Text(ForecastFormat.time(.now, use24: use24))
                 .font(.title.weight(.semibold))
                 .monospacedDigit()
                 .foregroundStyle(.dsText)
