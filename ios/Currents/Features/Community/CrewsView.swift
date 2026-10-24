@@ -89,6 +89,8 @@ struct CrewSetupView: View {
     @State private var joinCode = ""
     @State private var busy = false
     @State private var joinError: String?
+    /// The join couldn't reach the server, which says nothing about the code.
+    @State private var joinFailed = false
 
     init(joining: Bool = false) {
         self.joining = joining
@@ -189,31 +191,56 @@ struct CrewSetupView: View {
                 .font(.body)
                 .foregroundStyle(.dsText2)
             CodeField(text: $joinCode, placeholder: "Crew code")
-                .onChange(of: joinCode) { _, _ in joinError = nil }
+                .onChange(of: joinCode) { _, _ in
+                    joinError = nil
+                    joinFailed = false
+                }
             if let joinError {
                 Label(joinError, systemImage: "exclamationmark.circle")
                     .font(.subheadline)
                     .foregroundStyle(.dsScoreSlow)
             }
+            if joinFailed {
+                Label("Can't reach Crew right now", systemImage: "wifi.slash")
+                    .font(.subheadline)
+                    .foregroundStyle(.dsText2)
+                Button("Try again") { join() }
+                    .buttonStyle(.dsTonal)
+                    .disabled(busy)
+            }
             Button {
-                Task {
-                    busy = true
-                    let crew = await svc.joinCrew(code: joinCode)
-                    busy = false
-                    if crew != nil {
-                        Haptics.success()
-                        ToastCenter.shared.show("Joined the crew", style: .success, haptic: false)
-                        dismiss()
-                    } else {
-                        Haptics.error()
-                        joinError = "No crew matches that code. Check it with whoever sent it."
-                    }
-                }
+                join()
             } label: {
                 if busy { ProgressView() } else { Text("Join crew") }
             }
             .buttonStyle(.dsPrimary)
             .disabled(busy || joinCode.trimmingCharacters(in: .whitespaces).count != 6)
+        }
+    }
+
+    /// Joins by code. A code no crew holds and a server that can't be
+    /// reached get different messages, so a right code is never retyped.
+    private func join() {
+        guard !busy else { return }
+        let code = joinCode.trimmingCharacters(in: .whitespaces).uppercased()
+        busy = true
+        joinError = nil
+        joinFailed = false
+        Task {
+            let result = await svc.lookupAndJoinCrew(code: code)
+            busy = false
+            switch result {
+            case .found:
+                Haptics.success()
+                ToastCenter.shared.show("Joined the crew", style: .success, haptic: false)
+                dismiss()
+            case .notFound:
+                Haptics.error()
+                joinError = "No crew has code \(code)"
+            case .failed, .ownCode:
+                Haptics.error()
+                joinFailed = true
+            }
         }
     }
 }
@@ -2292,27 +2319,27 @@ struct JoinCrewConfirmView: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var svc = CommunityService.shared
 
+    @ObservedObject private var connection = CrewConnection.shared
+
     @State private var crew: CommunityService.Crew?
     @State private var members = 0
     @State private var loading = true
+    /// The crew couldn't be fetched, which is not the same as no crew
+    /// holding the code.
+    @State private var lookupFailed = false
     @State private var joining = false
     @State private var joined = false
 
-    private var alreadyIn: Bool { svc.myCrews.contains { $0.code == code.uppercased() } }
+    private var shownCode: String { code.uppercased() }
+    private var alreadyIn: Bool { svc.myCrews.contains { $0.code == shownCode } }
+    private var isIn: Bool { joined || alreadyIn }
 
     var body: some View {
         CrewCloudGate(closeButton: true) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     if svc.joined {
-                        CommunityHero(label: "Crew invite",
-                                      title: crew?.name ?? (loading ? "Loading crew" : "Crew"),
-                                      line: subtitle) {
-                            CrewThumb(code: code.uppercased(), emoji: crew?.emoji, size: 92)
-                        }
-                        .padding(.top, DS.Space.s4)
-                        if let crew { inviteFacts(crew) }
-                        confirmBody
+                        invite
                     } else {
                         joinGate
                     }
@@ -2328,19 +2355,79 @@ struct JoinCrewConfirmView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button(joined || alreadyIn ? "Done" : "Cancel") { dismiss() } }
             }
-            .task {
-                crew = await svc.fetchCrew(code: code)
-                members = await svc.crewMembers(code: code).count
-                loading = false
-            }
+            .task { await loadPreview() }
         }
         .presentationDragIndicator(.visible)
     }
 
-    private var subtitle: String? {
-        guard !loading else { return nil }
-        guard crew != nil else { return "No crew matches code \(code.uppercased())." }
-        return nil
+    /// On Crew already: the crew with a Join button, or why there's nothing
+    /// to join. Each state has its own hero, so nothing dead sits on screen.
+    @ViewBuilder private var invite: some View {
+        if let crew {
+            PageHero(label: "Crew invite", value: crew.name) {
+                CrewThumb(code: shownCode, emoji: crew.emoji, size: 92)
+            }
+            .padding(.top, DS.Space.s4)
+            inviteFacts(crew)
+            confirmBody
+        } else if loading {
+            PageHero(label: "Crew invite", value: "Loading crew") {
+                CrewThumb(code: shownCode, emoji: nil, size: 92)
+            }
+            .padding(.top, DS.Space.s4)
+        } else if lookupFailed {
+            PageHero(label: "Code \(shownCode)", value: "Can't reach Crew right now") {
+                ThumbView(systemImage: "wifi.slash", tint: .orange, size: 92)
+            }
+            .padding(.top, DS.Space.s4)
+            Button("Try again") { Task { await loadPreview() } }
+                .buttonStyle(.dsTonal)
+                .padding(.horizontal, DS.gutter)
+                .padding(.top, DS.Space.s5)
+        } else {
+            PageHero(label: "Code \(shownCode)", value: "No crew found") {
+                ThumbView(systemImage: "person.3.fill", tint: CrewTint.people, size: 92)
+            }
+            .padding(.top, DS.Space.s4)
+        }
+    }
+
+    /// `fetchCrew` folds a failed fetch into nil, so the connection is what
+    /// tells a crew that can't be reached from a code no crew holds.
+    private func loadPreview() async {
+        loading = true
+        lookupFailed = false
+        if let fetched = await svc.fetchCrew(code: shownCode) {
+            crew = fetched
+            members = await svc.crewMembers(code: shownCode).count
+        } else {
+            lookupFailed = connection.isOffline
+        }
+        loading = false
+    }
+
+    /// Joins and re-checks the code in one step, so a crew deleted since the
+    /// invite opened shows as gone and a lost connection says so.
+    private func join() {
+        guard !joining else { return }
+        joining = true
+        Task {
+            let result = await svc.lookupAndJoinCrew(code: shownCode)
+            joining = false
+            switch result {
+            case .found(let joinedCrew):
+                crew = joinedCrew
+                joined = true
+                Haptics.success()
+                ToastCenter.shared.show("Joined the crew", style: .success, haptic: false)
+            case .notFound:
+                Haptics.error()
+                crew = nil
+                lookupFailed = false
+            case .failed, .ownCode:
+                ToastCenter.shared.show("Can't reach Crew right now", style: .error)
+            }
+        }
     }
 
     private func inviteFacts(_ crew: CommunityService.Crew) -> some View {
@@ -2394,23 +2481,12 @@ struct JoinCrewConfirmView: View {
                     .frame(maxWidth: .infinity, minHeight: 52)
             } else {
                 Button {
-                    joining = true
-                    Task {
-                        let ok = await svc.joinCrew(code: code) != nil
-                        joining = false
-                        if ok {
-                            joined = true
-                            Haptics.success()
-                            ToastCenter.shared.show("Joined the crew", style: .success, haptic: false)
-                        } else {
-                            ToastCenter.shared.show("Couldn't join that crew", style: .error)
-                        }
-                    }
+                    join()
                 } label: {
                     if joining { ProgressView() } else { Text("Join crew") }
                 }
                 .buttonStyle(.dsPrimary)
-                .disabled(joining || crew == nil)
+                .disabled(joining)
             }
             if joined || alreadyIn {
                 Text("It's on your Crew tab.")
