@@ -143,11 +143,15 @@ struct CardRow<Trailing: View>: View {
     var value: String? = nil
     var valueTint: Color = .dsText2
     var showsChevron = false
+    /// False keeps a button or menu in `trailing` reachable by VoiceOver;
+    /// true reads the row as one element.
+    var combinesChildren = true
     private let trailing: Trailing
     @Environment(\.dynamicTypeSize) private var typeSize
 
     init(_ title: String, subtitle: String? = nil, systemImage: String? = nil, tint: Color = DS.accent,
          value: String? = nil, valueTint: Color = .dsText2, chevron: Bool = false,
+         combinesChildren: Bool = true,
          @ViewBuilder trailing: () -> Trailing) {
         self.title = title
         self.subtitle = subtitle
@@ -156,6 +160,7 @@ struct CardRow<Trailing: View>: View {
         self.value = value
         self.valueTint = valueTint
         self.showsChevron = chevron
+        self.combinesChildren = combinesChildren
         self.trailing = trailing()
     }
 
@@ -195,15 +200,17 @@ struct CardRow<Trailing: View>: View {
         .padding(.vertical, 10)
         .frame(minHeight: 54)
         .contentShape(Rectangle())
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: combinesChildren ? .combine : .contain)
     }
 }
 
 extension CardRow where Trailing == EmptyView {
     init(_ title: String, subtitle: String? = nil, systemImage: String? = nil, tint: Color = DS.accent,
-         value: String? = nil, valueTint: Color = .dsText2, chevron: Bool = false) {
+         value: String? = nil, valueTint: Color = .dsText2, chevron: Bool = false,
+         combinesChildren: Bool = true) {
         self.init(title, subtitle: subtitle, systemImage: systemImage, tint: tint,
-                  value: value, valueTint: valueTint, chevron: chevron) { EmptyView() }
+                  value: value, valueTint: valueTint, chevron: chevron,
+                  combinesChildren: combinesChildren) { EmptyView() }
     }
 }
 
