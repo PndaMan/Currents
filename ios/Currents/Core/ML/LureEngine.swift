@@ -45,6 +45,8 @@ enum LureEngine {
         let lure: String
         let color: String
         let technique: String
+        /// How to fish it in a few words, for a row with room for one line.
+        let brief: String
         let depth: String
         /// Plain-English chips explaining why this made the list.
         let reasons: [String]
@@ -75,6 +77,7 @@ enum LureEngine {
         let depth: ClosedRange<Double>?
         var depthWord: String? = nil
         let technique: String
+        let brief: String
     }
 
     private static let archetypes: [Archetype] = [
@@ -82,91 +85,106 @@ enum LureEngine {
                   minTempC: 10, maxTempC: 26,
                   clarity: [.clear: 0.35, .stained: 1.0, .muddy: 0.85],
                   lowLightBonus: 0.15, windBonus: 0.20, fallingBonus: 0.15, postFrontBonus: -0.10,
-                  depth: 0.5...2, technique: "Slow-roll it just fast enough to feel the blade thump."),
+                  depth: 0.5...2, technique: "Slow-roll it just fast enough to feel the blade thump.",
+                  brief: "Slow-roll it so the blade thumps."),
 
         Archetype(name: "Chatterbait", keywords: ["chatter", "bladed jig", "vibrating jig"],
                   minTempC: 10, maxTempC: 26,
                   clarity: [.clear: 0.4, .stained: 1.0, .muddy: 0.9],
                   lowLightBonus: 0.10, windBonus: 0.15, fallingBonus: 0.15, postFrontBonus: -0.10,
-                  depth: 0.5...2.5, technique: "Steady retrieve, ripping it free whenever it ticks cover."),
+                  depth: 0.5...2.5, technique: "Steady retrieve, ripping it free whenever it ticks cover.",
+                  brief: "Steady retrieve, rip it off cover."),
 
         Archetype(name: "Lipless crankbait", keywords: ["lipless", "rattle trap", "rat-l-trap", "vib"],
                   minTempC: 6, maxTempC: 20,
                   clarity: [.clear: 0.5, .stained: 0.95, .muddy: 0.85],
                   lowLightBonus: 0.05, windBonus: 0.15, fallingBonus: 0.20, postFrontBonus: -0.05,
-                  depth: 1...3, technique: "Yo-yo it over grass. Most bites come as it falls."),
+                  depth: 1...3, technique: "Yo-yo it over grass. Most bites come as it falls.",
+                  brief: "Yo-yo it over grass."),
 
         Archetype(name: "Squarebill crankbait", keywords: ["crank", "squarebill", "crankbait", "plug"],
                   minTempC: 10, maxTempC: 28,
                   clarity: [.clear: 0.6, .stained: 0.95, .muddy: 0.6],
                   lowLightBonus: 0.10, windBonus: 0.20, fallingBonus: 0.15, postFrontBonus: -0.15,
-                  depth: 0.5...2, technique: "Grind it into cover and pause the moment it deflects."),
+                  depth: 0.5...2, technique: "Grind it into cover and pause the moment it deflects.",
+                  brief: "Bump cover and pause."),
 
         Archetype(name: "Jerkbait", keywords: ["jerkbait", "minnow", "stickbait", "suspend"],
                   minTempC: 3, maxTempC: 15,
                   clarity: [.clear: 1.0, .stained: 0.55, .muddy: 0.2],
                   lowLightBonus: 0.05, windBonus: 0.05, fallingBonus: 0.10, postFrontBonus: 0.20,
-                  depth: 1...2.5, technique: "Two twitches then a long pause. The colder it is, the longer the pause."),
+                  depth: 1...2.5, technique: "Two twitches then a long pause. The colder it is, the longer the pause.",
+                  brief: "Two twitches, then a long pause."),
 
         Archetype(name: "Skirted jig", keywords: ["jig", "flipping jig", "football"],
                   minTempC: 3, maxTempC: 22,
                   clarity: [.clear: 0.6, .stained: 0.85, .muddy: 1.0],
                   lowLightBonus: 0.05, windBonus: 0.0, fallingBonus: 0.05, postFrontBonus: 0.20,
-                  depth: 1...6, technique: "Drag it slowly along the bottom, pausing hard against structure."),
+                  depth: 1...6, technique: "Drag it slowly along the bottom, pausing hard against structure.",
+                  brief: "Drag it slowly along the bottom."),
 
         Archetype(name: "Ned rig", keywords: ["ned", "finesse", "shroom", "trd"],
                   minTempC: 5, maxTempC: 24,
                   clarity: [.clear: 1.0, .stained: 0.6, .muddy: 0.25],
                   lowLightBonus: -0.05, windBonus: -0.10, fallingBonus: -0.05, postFrontBonus: 0.30,
-                  depth: 1...5, technique: "Barely move it and let the bottom do the work."),
+                  depth: 1...5, technique: "Barely move it and let the bottom do the work.",
+                  brief: "Barely move it."),
 
         Archetype(name: "Drop shot", keywords: ["drop shot", "dropshot", "finesse worm"],
                   minTempC: 6, maxTempC: 27,
                   clarity: [.clear: 1.0, .stained: 0.55, .muddy: 0.2],
                   lowLightBonus: -0.05, windBonus: -0.10, fallingBonus: -0.05, postFrontBonus: 0.30,
-                  depth: 2...10, technique: "Hold it in place and shake it, keeping the weight pinned to the bottom."),
+                  depth: 2...10, technique: "Hold it in place and shake it, keeping the weight pinned to the bottom.",
+                  brief: "Shake it in place."),
 
         Archetype(name: "Texas-rigged worm", keywords: ["worm", "texas", "soft plastic", "creature", "senko"],
                   minTempC: 14, maxTempC: 32,
                   clarity: [.clear: 0.9, .stained: 0.85, .muddy: 0.7],
                   lowLightBonus: 0.0, windBonus: -0.05, fallingBonus: 0.0, postFrontBonus: 0.20,
-                  depth: 1...5, technique: "Pitch to cover, let it sink on slack line, lift and drop."),
+                  depth: 1...5, technique: "Pitch to cover, let it sink on slack line, lift and drop.",
+                  brief: "Pitch to cover, lift and drop."),
 
         Archetype(name: "Swimbait", keywords: ["swimbait", "paddle tail", "shad", "glide"],
                   minTempC: 8, maxTempC: 26,
                   clarity: [.clear: 1.0, .stained: 0.7, .muddy: 0.35],
                   lowLightBonus: 0.10, windBonus: 0.05, fallingBonus: 0.10, postFrontBonus: 0.05,
-                  depth: 1...4, technique: "Slow, steady wind at the depth the bait is holding."),
+                  depth: 1...4, technique: "Slow, steady wind at the depth the bait is holding.",
+                  brief: "Slow, steady wind."),
 
         Archetype(name: "Topwater walker", keywords: ["topwater", "walk", "spook", "popper", "surface"],
                   minTempC: 16, maxTempC: 32,
                   clarity: [.clear: 0.9, .stained: 0.8, .muddy: 0.4],
                   lowLightBonus: 0.30, windBonus: -0.10, fallingBonus: 0.10, postFrontBonus: -0.15,
-                  depth: nil, depthWord: "Surface", technique: "Walk it with a steady rhythm and don't set the hook until you feel weight."),
+                  depth: nil, depthWord: "Surface", technique: "Walk it with a steady rhythm and don't set the hook until you feel weight.",
+                  brief: "Walk it and wait for weight."),
 
         Archetype(name: "Hollow-body frog", keywords: ["frog", "hollow", "toad"],
                   minTempC: 18, maxTempC: 33,
                   clarity: [.clear: 0.6, .stained: 0.9, .muddy: 0.8],
                   lowLightBonus: 0.25, windBonus: -0.10, fallingBonus: 0.10, postFrontBonus: -0.10,
-                  depth: nil, depthWord: "Surface and over mats", technique: "Walk it across pads and pause in every opening."),
+                  depth: nil, depthWord: "Surface and over mats", technique: "Walk it across pads and pause in every opening.",
+                  brief: "Walk it and pause in openings."),
 
         Archetype(name: "Jigging spoon", keywords: ["spoon", "jigging spoon", "blade bait"],
                   minTempC: 2, maxTempC: 14,
                   clarity: [.clear: 0.95, .stained: 0.6, .muddy: 0.3],
                   lowLightBonus: 0.0, windBonus: 0.0, fallingBonus: 0.05, postFrontBonus: 0.25,
-                  depth: 4...15, technique: "Fish it straight down. Lift the rod high and let it flutter back on a tight line."),
+                  depth: 4...15, technique: "Fish it straight down. Lift the rod high and let it flutter back on a tight line.",
+                  brief: "Lift it and let it flutter."),
 
         Archetype(name: "Inline spinner", keywords: ["inline", "mepps", "rooster", "spinner"],
                   minTempC: 8, maxTempC: 22,
                   clarity: [.clear: 0.8, .stained: 0.9, .muddy: 0.5],
                   lowLightBonus: 0.10, windBonus: 0.05, fallingBonus: 0.10, postFrontBonus: 0.0,
-                  depth: 0.3...1.5, technique: "Cast across the current and retrieve just fast enough to turn the blade."),
+                  depth: 0.3...1.5, technique: "Cast across the current and retrieve just fast enough to turn the blade.",
+                  brief: "Steady, just turning the blade."),
 
         Archetype(name: "Live or natural bait", keywords: ["live", "worm", "bait", "minnow", "prawn", "shrimp", "cut"],
                   minTempC: -2, maxTempC: 35,
                   clarity: [.clear: 0.7, .stained: 0.8, .muddy: 0.85],
                   lowLightBonus: 0.05, windBonus: 0.0, fallingBonus: 0.0, postFrontBonus: 0.35,
-                  depth: nil, depthWord: "Bottom or suspended", technique: "Use the smallest weight you can get away with, and give them time to eat."),
+                  depth: nil, depthWord: "Bottom or suspended", technique: "Use the smallest weight you can get away with, and give them time to eat.",
+                  brief: "Go light and give them time."),
     ]
 
     /// Weedless, bass-style and stream families that have no place in the
@@ -176,6 +194,12 @@ enum LureEngine {
         "Spinnerbait", "Chatterbait", "Squarebill crankbait", "Skirted jig",
         "Ned rig", "Texas-rigged worm", "Hollow-body frog", "Inline spinner",
     ]
+
+    /// The reason given when the species' own bait list backs a family, so a
+    /// page can say it once when every pick shares it.
+    static func speciesReason(_ name: String) -> String {
+        "Known producer for \(name)"
+    }
 
     // MARK: - Colour selection
 
@@ -309,7 +333,7 @@ enum LureEngine {
             if !speciesBaits.isEmpty,
                speciesBaits.contains(where: { b in a.keywords.contains(where: { b.contains($0) }) }) {
                 score += 0.16
-                if let name = species?.commonName { reasons.append("Known producer for \(name)") }
+                if let name = species?.commonName { reasons.append(speciesReason(name)) }
             }
 
             // Light, wind, pressure.
@@ -371,6 +395,7 @@ enum LureEngine {
                 lure: a.name,
                 color: color,
                 technique: a.technique,
+                brief: a.brief,
                 depth: a.depth.map(depthText) ?? a.depthWord ?? "",
                 reasons: Array(reasons.prefix(3)),
                 score: min(1, max(0, score)),
