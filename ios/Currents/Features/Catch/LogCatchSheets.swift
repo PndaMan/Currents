@@ -762,7 +762,7 @@ struct LogCatchSessionSheet: View {
     }
 
     private func range(_ trip: Trip) -> String {
-        let day = trip.startDate.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated))
+        let day = LogbookFormat.relativeDay(trip.startDate)
         let start = ForecastFormat.time(trip.startDate, use24: use24)
         guard let end = trip.endDate else { return "\(day), \(start)" }
         return "\(day), \(start) to \(ForecastFormat.time(end, use24: use24))"

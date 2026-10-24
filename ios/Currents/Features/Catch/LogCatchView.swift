@@ -573,7 +573,7 @@ struct LogCatchView: View {
     private func loggedLine(_ date: Date) -> String {
         if Calendar.current.isDateInToday(date) { return "Logged today" }
         if Calendar.current.isDateInYesterday(date) { return "Logged yesterday" }
-        return "Logged on \(date.formatted(.dateTime.day().month(.wide)))"
+        return "Logged on \(LogbookFormat.relativeDay(date))"
     }
 
     /// The angler's target, offered first while no species is chosen.
@@ -1095,7 +1095,7 @@ struct LogCatchView: View {
         let time = ForecastFormat.time(caughtAt, use24: use24)
         if Calendar.current.isDateInToday(caughtAt) { return "Today, \(time)" }
         if Calendar.current.isDateInYesterday(caughtAt) { return "Yesterday, \(time)" }
-        return "\(caughtAt.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated))), \(time)"
+        return "\(LogbookFormat.relativeDay(caughtAt)), \(time)"
     }
 
     private var gearValue: String {

@@ -233,7 +233,7 @@ struct GearItemDetailView: View {
         if let brand = item.brand, !brand.isEmpty { rows.append(("Brand", brand)) }
         if let specs = item.specs, !specs.isEmpty { rows.append(("Specs", specs)) }
         if let barcode = item.barcode { rows.append(("Barcode", barcode)) }
-        rows.append(("Added", item.createdAt.formatted(date: .abbreviated, time: .omitted)))
+        rows.append(("Added", LogbookFormat.fullDate(item.createdAt)))
         return rows
     }
 
@@ -248,7 +248,7 @@ struct GearItemDetailView: View {
             rows.append(("Top species", top))
         }
         if let last = mine.map(\.catchRecord.caughtAt).max() {
-            rows.append(("Last catch", last.formatted(date: .abbreviated, time: .omitted)))
+            rows.append(("Last catch", LogbookFormat.fullDate(last)))
         }
         return rows
     }
