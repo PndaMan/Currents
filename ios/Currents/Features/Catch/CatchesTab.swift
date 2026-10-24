@@ -293,44 +293,64 @@ struct CatchesTab: View {
 
     // MARK: - Top cards
 
+    /// A sideways row of tiles. At accessibility sizes a narrow tile breaks
+    /// every word, so the tiles stack full width instead.
+    @ViewBuilder
     private var topCards: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 10) {
-                NavigationLink(value: LogbookRoute.streak) {
-                    StatTile("Streak", systemImage: "flame.fill", tint: DS.ink(.dsScoreLow),
-                             value: "\(summary.streak)",
-                             unit: summary.streak == 1 ? "week" : "weeks",
-                             footnote: summary.fishedThisWeek ? "Fished this week" : "Fish by Sunday")
-                }
-                .buttonStyle(.dim)
-
-                NavigationLink(value: AppRoute.fishdex) {
-                    StatTile("Fishdex", systemImage: "book.fill", tint: .dsScoreGood,
-                             value: "\(summary.speciesFound)",
-                             unit: summary.speciesTotal > 0 ? "of \(summary.speciesTotal.formatted())" : nil,
-                             footnote: summary.speciesFound == 0 ? "Catch one to start" : "Species found")
-                }
-                .buttonStyle(.dim)
-
-                NavigationLink(value: LogbookRoute.achievements) {
-                    StatTile("Badges", systemImage: "medal.fill", tint: DS.ink(.dsScoreFair),
-                             value: "\(summary.badgesEarned)",
-                             unit: "of \(summary.badgesVisible)",
-                             footnote: summary.nextBadge.map { "\($0) next" })
-                }
-                .buttonStyle(.dim)
-
-                NavigationLink(value: LogbookRoute.stats) {
-                    StatTile("Stats", systemImage: "chart.bar.fill", tint: DS.accent,
-                             value: "\(summary.thisYear)",
-                             unit: "this year",
-                             footnote: "Patterns and bests")
-                }
-                .buttonStyle(.dim)
+        if typeSize.isAccessibilitySize {
+            VStack(spacing: 10) {
+                topCardLinks(width: nil)
             }
             .padding(.horizontal, DS.gutter)
+        } else {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 10) {
+                    topCardLinks(width: 148)
+                }
+                .padding(.horizontal, DS.gutter)
+            }
+            .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
         }
-        .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
+    }
+
+    /// The four top tiles; a nil width fills the column.
+    @ViewBuilder
+    private func topCardLinks(width: CGFloat?) -> some View {
+        NavigationLink(value: LogbookRoute.streak) {
+            StatTile("Streak", systemImage: "flame.fill", tint: DS.ink(.dsScoreLow),
+                     value: "\(summary.streak)",
+                     unit: summary.streak == 1 ? "week" : "weeks",
+                     footnote: summary.fishedThisWeek ? "Fished this week" : "Fish by Sunday",
+                     width: width)
+        }
+        .buttonStyle(.dim)
+
+        NavigationLink(value: AppRoute.fishdex) {
+            StatTile("Fishdex", systemImage: "book.fill", tint: .dsScoreGood,
+                     value: "\(summary.speciesFound)",
+                     unit: summary.speciesTotal > 0 ? "of \(summary.speciesTotal.formatted())" : nil,
+                     footnote: summary.speciesFound == 0 ? "Catch one to start" : "Species found",
+                     width: width)
+        }
+        .buttonStyle(.dim)
+
+        NavigationLink(value: LogbookRoute.achievements) {
+            StatTile("Badges", systemImage: "medal.fill", tint: DS.ink(.dsScoreFair),
+                     value: "\(summary.badgesEarned)",
+                     unit: "of \(summary.badgesVisible)",
+                     footnote: summary.nextBadge.map { "\($0) next" },
+                     width: width)
+        }
+        .buttonStyle(.dim)
+
+        NavigationLink(value: LogbookRoute.stats) {
+            StatTile("Stats", systemImage: "chart.bar.fill", tint: DS.accent,
+                     value: "\(summary.thisYear)",
+                     unit: "this year",
+                     footnote: "Patterns and bests",
+                     width: width)
+        }
+        .buttonStyle(.dim)
     }
 
     // MARK: - Catches pane
