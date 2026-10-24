@@ -155,14 +155,22 @@ struct CrewFriendsPage: View {
         }
     }
 
-    /// Today's hero: your code over the title, the count, and your friends'
-    /// faces stacked on the right.
+    private static let faceSize: CGFloat = 48
+
+    /// Today's hero: your code over the title, the count, and up to three of
+    /// your friends' faces, evenly overlapped, on the right.
     private var hero: some View {
         PageHero(label: "Angler code \(svc.friendCode)", value: "Friends", callout: heroLine) {
             if friends.isEmpty {
                 ThumbView(systemImage: "person.2.fill", tint: CrewTint.people, size: 92)
             } else {
-                EventAvatarStack(images: friends.prefix(3).map(\.avatar), size: 56)
+                HStack(spacing: -Self.faceSize * 0.3) {
+                    ForEach(Array(friends.prefix(3))) { friend in
+                        CrewAvatar(image: friend.avatar, name: friend.name, size: Self.faceSize)
+                            .overlay(Circle().stroke(Color.dsBackground, lineWidth: 3))
+                    }
+                }
+                .accessibilityHidden(true)
             }
         }
         .accessibilityAddTraits(.isHeader)
