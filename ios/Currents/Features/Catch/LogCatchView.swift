@@ -26,6 +26,7 @@ struct LogCatchView: View {
     @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var typeSize
     @AppStorage("units") private var units = "metric"
     /// Shared with Today's target species (0 means any species).
     @AppStorage("targetSpeciesId") private var targetSpeciesId: Int = 0
@@ -66,6 +67,8 @@ struct LogCatchView: View {
 
     private var isEditing: Bool { editing != nil }
 
+    private var measured: Bool { measuredLength != nil && measuredLength == lengthCm }
+
     // Photos (up to 10)
     @State private var photos: [LogCatchPhoto] = []
     @State private var unloadablePaths: [String] = []
@@ -75,7 +78,9 @@ struct LogCatchView: View {
     @State private var frozenFrame: UIImage?
     @State private var photoDate: Date?
     @State private var showingARMeasure = false
-    @State private var measured = false
+    /// The length text AR measure wrote. Editing the length by hand, or with
+    /// the steppers, makes it differ, so the tile stops saying "Measured".
+    @State private var measuredLength: String?
     @Namespace private var coverSpace
 
     // ML — BioCLIP only; no guessing fallbacks.
@@ -235,8 +240,9 @@ struct LogCatchView: View {
         }
         .fullScreenCover(isPresented: $showingARMeasure) {
             ARMeasureView { cm in
-                lengthCm = formatNumber(imperial ? cm / 2.54 : cm)
-                measured = true
+                let text = Self.fieldText(imperial ? cm / 2.54 : cm, maxDecimals: 1)
+                lengthCm = text
+                measuredLength = text
                 ToastCenter.shared.show("Length set to \(Units.length(cm: cm, imperial: imperial))", icon: "ruler")
             }
         }
@@ -684,6 +690,15 @@ struct LogCatchView: View {
         lengthCm.measurementValue.map { imperial ? $0 * 2.54 : $0 }
     }
 
+    private var weightInKg: Double? {
+        weightKg.measurementValue.map { imperial ? $0 / 2.2046226 : $0 }
+    }
+
+    /// Stored in metres whatever the display units.
+    private var depthInM: Double? {
+        depthText.measurementValue.map { imperial ? $0 * 0.3048 : $0 }
+    }
+
     /// Length-based weight estimate in the display unit, offered when there is
     /// a length but no weight yet (uses the selected species' body shape).
     private var estimateDisplay: Double? {
@@ -695,12 +710,17 @@ struct LogCatchView: View {
     private var sizeSection: some View {
         VStack(alignment: .leading, spacing: 0) {
             SectionTitle("Size")
-            HStack(spacing: 10) {
+            // Side by side, or stacked at accessibility sizes so the numbers
+            // and labels keep their room.
+            let tiles = typeSize.isAccessibilitySize
+                ? AnyLayout(VStackLayout(spacing: 10))
+                : AnyLayout(HStackLayout(spacing: 10))
+            tiles {
                 sizeTile(label: "Length", text: $lengthCm, placeholder: "0", unit: imperial ? "in" : "cm",
                          field: .length, minusLabel: "Shorter", plusLabel: "Longer") { stepLength($0) }
                 sizeTile(label: weightKg.isEmpty && estimateDisplay != nil ? "Weight, estimated" : "Weight",
                          text: $weightKg,
-                         placeholder: estimateDisplay.map { String(format: "%.1f", $0) } ?? "0.0",
+                         placeholder: estimateDisplay.map { Self.fieldText($0, maxDecimals: 1) } ?? "0",
                          unit: imperial ? "lb" : "kg",
                          field: .weight, minusLabel: "Lighter", plusLabel: "Heavier") { stepWeight($0) }
             }
@@ -716,13 +736,17 @@ struct LogCatchView: View {
                             .font(.footnote)
                             .foregroundStyle(Color.dsText2)
                         Spacer(minLength: DS.Space.s2)
-                        Button("Use \(String(format: "%.1f", est)) \(imperial ? "lb" : "kg")") {
-                            withAnimation(DS.Motion.easeOut) { weightKg = String(format: "%.2f", est) }
+                        Button("Use \(Self.fieldText(est, maxDecimals: 1)) \(imperial ? "lb" : "kg")") {
+                            withAnimation(DS.Motion.easeOut) { weightKg = Self.fieldText(est, maxDecimals: 1) }
                         }
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(DS.accent)
                         .buttonStyle(.dim)
                     }
+                }
+                ForEach([lengthProblem, weightProblem].compactMap { $0 }, id: \.self) { problem in
+                    LogCatchFootnote(text: problem, systemImage: "exclamationmark.triangle",
+                                     tint: DS.ink(.dsScoreLow))
                 }
                 if let note = regulationNote {
                     LogCatchFootnote(text: note.text, systemImage: note.icon, tint: note.warn ? .dsScoreSlow : .dsText2)
@@ -740,7 +764,7 @@ struct LogCatchView: View {
             Text(label)
                 .font(.footnote)
                 .foregroundStyle(Color.dsText2)
-                .lineLimit(1)
+                .lineLimit(2)
             // The field is as wide as its digits so the unit sits right after
             // the number, but never wider than the tile: a long entry scrolls
             // inside the field instead of pushing the page sideways.
@@ -789,13 +813,13 @@ struct LogCatchView: View {
     private func stepLength(_ direction: Double) {
         let step = imperial ? 0.5 : 1.0
         let start = lengthCm.measurementValue ?? (imperial ? 12 : 30) - direction * step
-        lengthCm = formatNumber(max(step, start + direction * step))
+        lengthCm = Self.fieldText(max(step, start + direction * step), maxDecimals: 1)
     }
 
     private func stepWeight(_ direction: Double) {
         let start = weightKg.measurementValue ?? estimateDisplay ?? 1.0
         let next = max(0.1, ((start + direction * 0.1) * 10).rounded() / 10)
-        weightKg = String(format: "%.1f", next)
+        weightKg = Self.fieldText(next, maxDecimals: 1)
     }
 
     /// Width that fits the typed digits (or the placeholder) at the numeral size.
@@ -804,8 +828,57 @@ struct LogCatchView: View {
         return chars * numeralSize * 0.64 + 6
     }
 
-    private func formatNumber(_ v: Double) -> String {
-        v == v.rounded() ? String(format: "%.0f", v) : String(format: "%.1f", v)
+    /// A number for an editable field, in the user's locale and without
+    /// trailing zeros or grouping: 52.0 gives "52", 2.90 gives "2.9" (or
+    /// "2,9"). `measurementValue` reads either separator back.
+    static func fieldText(_ v: Double, maxDecimals: Int) -> String {
+        v.formatted(.number.precision(.fractionLength(0...maxDecimals)).grouping(.never))
+    }
+
+    // MARK: - Size checks
+
+    /// Hard limits in the stored metric units. Nothing caught on a rod comes
+    /// close, so a value above one is a typo. The Species table has no
+    /// per-species maximum, so these are the only checks.
+    private enum SizeLimit {
+        static let lengthCm = 400.0
+        static let weightKg = 500.0
+        static let depthM = 300.0
+    }
+
+    /// Why a typed size can't be saved, or nil when it can (an empty field
+    /// is fine). `metric` is the parsed value in the stored unit.
+    private func sizeProblem(text: String, metric: Double?, name: String, cap: Double,
+                             capLabel: String) -> String? {
+        guard !text.trimmingCharacters(in: .whitespaces).isEmpty else { return nil }
+        guard let metric else { return "Enter the \(name) as a number." }
+        guard metric > 0 else { return "The \(name) has to be more than 0." }
+        guard metric <= cap else { return "Over \(capLabel). Check the \(name)." }
+        return nil
+    }
+
+    private var lengthProblem: String? {
+        sizeProblem(text: lengthCm, metric: lengthInCm, name: "length", cap: SizeLimit.lengthCm,
+                    capLabel: Units.length(cm: SizeLimit.lengthCm, imperial: imperial))
+    }
+
+    private var weightProblem: String? {
+        sizeProblem(text: weightKg, metric: weightInKg, name: "weight", cap: SizeLimit.weightKg,
+                    capLabel: imperial ? "\(Int((SizeLimit.weightKg * 2.2046226).rounded())) lb"
+                                       : Units.weight(kg: SizeLimit.weightKg, imperial: false))
+    }
+
+    private var depthProblem: String? {
+        sizeProblem(text: depthText, metric: depthInM, name: "depth", cap: SizeLimit.depthM,
+                    capLabel: Units.depth(m: SizeLimit.depthM, imperial: imperial))
+    }
+
+    /// What stops Save, in the order the angler would fix it.
+    private var saveBlocker: String? {
+        if selectedSpeciesId == nil { return isClassifying ? "Waiting for the species" : "Choose the species to save" }
+        if lengthProblem != nil || weightProblem != nil { return "Check the size to save" }
+        if depthProblem != nil { return "Check the depth under Water to save" }
+        return nil
     }
 
     private var regulationNote: (text: String, icon: String, warn: Bool)? {
@@ -948,7 +1021,7 @@ struct LogCatchView: View {
 
     private var waterValue: String {
         let clarity = waterClarity?.label
-        let depth = depthText.measurementValue.map { "\(formatNumber($0)) \(imperial ? "ft" : "m")" }
+        let depth = depthInM.flatMap { $0 > 0 ? Units.depth(m: $0, imperial: imperial) : nil }
         switch (clarity, depth) {
         case let (c?, d?): return "\(c), \(d)"
         case let (c?, nil): return c
@@ -1044,7 +1117,7 @@ struct LogCatchView: View {
     private func windValue(_ c: Conditions?) -> String {
         guard let kmh = c?.windKmh else { return "–" }
         let speed: Double = imperial ? kmh * 0.62137119 : kmh
-        return formatNumber(speed.rounded())
+        return Self.fieldText(speed.rounded(), maxDecimals: 0)
     }
 
     private func windLabel(_ c: Conditions?) -> String {
@@ -1205,11 +1278,12 @@ struct LogCatchView: View {
                 }
             }
             .buttonStyle(.dsPrimary)
-            .disabled(selectedSpeciesId == nil || isSaving)
-            if selectedSpeciesId == nil {
-                Text(isClassifying ? "Waiting for the species" : "Choose the species to save")
+            .disabled(saveBlocker != nil || isSaving)
+            if let saveBlocker {
+                Text(saveBlocker)
                     .font(.footnote)
                     .foregroundStyle(Color.dsText2)
+                    .multilineTextAlignment(.center)
             }
         }
         .padding(.horizontal, DS.gutter)
@@ -1344,14 +1418,14 @@ struct LogCatchView: View {
         }
         photos = loaded
         unloadablePaths = missing
-        weightKg = c.weightKg.map { String(format: "%.2f", imperial ? $0 * 2.2046226 : $0) } ?? ""
-        lengthCm = c.lengthCm.map { String(format: "%.1f", imperial ? $0 / 2.54 : $0) } ?? ""
+        weightKg = c.weightKg.map { Self.fieldText(imperial ? $0 * 2.2046226 : $0, maxDecimals: 2) } ?? ""
+        lengthCm = c.lengthCm.map { Self.fieldText(imperial ? $0 / 2.54 : $0, maxDecimals: 1) } ?? ""
         notes = c.notes ?? ""
         released = c.released
         isFavorite = c.isFavorite
         caughtAt = c.caughtAt
         waterClarity = c.clarity
-        depthText = c.depthM.map { formatNumber(((imperial ? $0 * 3.2808399 : $0) * 10).rounded() / 10) } ?? ""
+        depthText = c.depthM.map { Self.fieldText(imperial ? $0 * 3.2808399 : $0, maxDecimals: 1) } ?? ""
         selectedSpeciesId = c.speciesId
         selectedSpeciesName = detail.species?.commonName ?? ""
         selectedSpotId = c.spotId
