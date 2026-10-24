@@ -420,7 +420,6 @@ struct EventPodiumColumn: View {
         .lineLimit(1)
         .minimumScaleFactor(0.5)
     }
-
 }
 
 /// The numbered block under a podium place, in the medal colour and
