@@ -321,6 +321,9 @@ struct ExplorePin: View {
 
     var body: some View {
         content
+            // Pin text stops growing past xxLarge, so pins keep to their
+            // own patch of map instead of covering their neighbours.
+            .dynamicTypeSize(...DynamicTypeSize.xxLarge)
             // Pins grow in from their point as they land. They never start
             // hidden, so a pin whose appear event is skipped still shows.
             .scaleEffect(shown || reduceMotion ? 1 : 0.6, anchor: .bottom)
@@ -351,6 +354,9 @@ struct ExplorePin: View {
                                 .font(.caption2.weight(.heavy))
                                 .monospacedDigit()
                                 .foregroundStyle(.black)
+                                // The overlay offers only the pin's width;
+                                // the score is never cut to an ellipsis.
+                                .fixedSize()
                                 .padding(.horizontal, 5)
                                 .padding(.vertical, 2)
                                 .background(DS.scoreColor(score), in: Capsule())
@@ -456,13 +462,18 @@ struct ClusterPin: View {
     }
 
     var body: some View {
-        if let catches = cluster.catches {
-            CatchPhotoStack(catches: CatchPinPhotos.stackTop(catches), count: catches.count)
-                .accessibilityHint(PinClustering.inseparableCatches(cluster) == nil ? "Zooms in" : "Lists these catches")
-                .accessibilityAddTraits(.isButton)
-        } else {
-            placesCluster
+        Group {
+            if let catches = cluster.catches {
+                CatchPhotoStack(catches: CatchPinPhotos.stackTop(catches), count: catches.count)
+                    .accessibilityHint(PinClustering.inseparableCatches(cluster) == nil ? "Zooms in" : "Lists these catches")
+                    .accessibilityAddTraits(.isButton)
+            } else {
+                placesCluster
+            }
         }
+        // Capped like a single pin, so the contents capsule stays clear of
+        // the pins around it.
+        .dynamicTypeSize(...DynamicTypeSize.xxLarge)
     }
 
     private var placesCluster: some View {
