@@ -289,6 +289,13 @@ enum ConditionText {
     /// Shown where a reading is missing.
     static let missing = "–"
 
+    /// True when a page charts the day hour by hour. Today keeps its hourly
+    /// chart while the hours load rather than opening on the week and
+    /// swapping; offline with no hours, the week stands in.
+    static func showsHours(_ day: ForecastDay, store: ForecastStore) -> Bool {
+        day.hours.count > 1 || (day.isToday && store.isLoading)
+    }
+
     /// A rounded whole number, or the missing mark.
     static func whole(_ value: Double?, suffix: String = "") -> String {
         guard let value else { return missing }
@@ -648,7 +655,7 @@ struct ConditionPageModel {
         case .water: return water(day, store: store, reading: reading, clarity: clarity, imperial: imperial)
         case .air: return air(day, store: store, reading: reading, use24: use24, imperial: imperial)
         case .wind: return wind(day, store: store, reading: reading, use24: use24, imperial: imperial)
-        case .pressure: return pressure(day, reading: reading, imperial: imperial)
+        case .pressure: return pressure(day, store: store, reading: reading, imperial: imperial)
         case .tide: return tide(day, reading: reading, use24: use24)
         case .moon: return moon(day, reading: reading, use24: use24)
         case .sun: return sun(day, reading: reading, use24: use24)
@@ -656,8 +663,8 @@ struct ConditionPageModel {
         }
     }
 
-    private static func hourlyTitle(_ day: ForecastDay) -> String {
-        day.hours.count > 1 ? "Through the day" : "Next 7 days"
+    private static func hourlyTitle(_ day: ForecastDay, store: ForecastStore) -> String {
+        ConditionText.showsHours(day, store: store) ? "Through the day" : "Next 7 days"
     }
 
     private static func speed(_ kmh: Double, imperial: Bool) -> String {
@@ -754,7 +761,7 @@ struct ConditionPageModel {
 
         return ConditionPageModel(
             value: ConditionText.temperature(w?.temperatureC, imperial: imperial), unit: nil, subtitle: reading.meaning,
-            chartTitle: hourlyTitle(day), figures: figures,
+            chartTitle: hourlyTitle(day, store: store), figures: figures,
             footnote: w == nil ? nil : "Air moves the water temperature slowly, so a warm spell warms the sunny bank first."
         )
     }
@@ -789,17 +796,17 @@ struct ConditionPageModel {
         return ConditionPageModel(
             value: reading.value, unit: ConditionText.speedParts(nil, imperial: imperial).unit,
             subtitle: "From the \(from). \(reading.meaning)",
-            chartTitle: hourlyTitle(day), figures: figures,
+            chartTitle: hourlyTitle(day, store: store), figures: figures,
             footnote: "A \(from) wind pushes food onto the \(toward) bank, so fish the bank it blows into."
         )
     }
 
     // Pressure
 
-    private static func pressure(_ day: ForecastDay, reading: ConditionReading,
+    private static func pressure(_ day: ForecastDay, store: ForecastStore, reading: ConditionReading,
                                  imperial: Bool) -> ConditionPageModel {
         // The barometer reading is real even offline, so this page keeps it.
-        guard let w = day.weather else { return emptyPressure(reading, day: day) }
+        guard let w = day.weather else { return emptyPressure(reading, day: day, store: store) }
         let change: Double = w.pressureChange6h
         let inside: Bool = ConditionText.pressureSweetSpot.contains(w.pressureHpa)
         let high = Units.pressure(hpa: ConditionText.pressureSweetSpot.upperBound, imperial: imperial)
@@ -845,7 +852,7 @@ struct ConditionPageModel {
             : "All day the pressure sits outside the range the score likes, \(likes)."
         return ConditionPageModel(
             value: reading.value, unit: reading.unit, subtitle: reading.meaning,
-            chartTitle: hourlyTitle(day), chartCaption: caption,
+            chartTitle: hourlyTitle(day, store: store), chartCaption: caption,
             figures: figures, footnote: footnote
         )
     }
@@ -988,7 +995,7 @@ struct ConditionPageModel {
             footnote = "Broken cloud gives good light, so fish the shade lines when the sun is out."
         }
 
-        let hourly = day.hours.count > 1
+        let hourly = ConditionText.showsHours(day, store: store)
         let chartTitle: String = hourly ? "Cloud through the day" : "Cloud, next 7 days"
         // The legend only when the chart has a wet bar to point at; the same
         // test as the chart's.
@@ -1011,17 +1018,18 @@ struct ConditionPageModel {
         let offline = day.offset == 0 && store.weatherIsEstimate
         return ConditionPageModel(
             value: ConditionText.missing, unit: reading.unit, subtitle: reading.meaning,
-            chartTitle: hourlyTitle(day), figures: [],
+            chartTitle: hourlyTitle(day, store: store), figures: [],
             footnote: offline
                 ? "The bite score uses pressure, tide, moon and season until there is signal."
                 : "The bite score uses the tide, moon and season until the weather loads."
         )
     }
 
-    private static func emptyPressure(_ reading: ConditionReading, day: ForecastDay) -> ConditionPageModel {
+    private static func emptyPressure(_ reading: ConditionReading, day: ForecastDay,
+                                      store: ForecastStore) -> ConditionPageModel {
         ConditionPageModel(
             value: ConditionText.missing, unit: reading.unit, subtitle: reading.meaning,
-            chartTitle: hourlyTitle(day), figures: [],
+            chartTitle: hourlyTitle(day, store: store), figures: [],
             footnote: "The bite score uses the tide, moon and season until the weather loads."
         )
     }
@@ -1214,6 +1222,12 @@ struct ConditionPageChart: View {
         shown(range.lowerBound)...shown(range.upperBound)
     }
 
+    /// Today's hours are still loading, so the chart waits for them rather
+    /// than showing the week first.
+    private var awaitsHours: Bool {
+        day.hours.count <= 1 && ConditionText.showsHours(day, store: store)
+    }
+
     /// Today's offline estimate is left out of the week, except for the
     /// barometer, which is a real reading.
     private func skipsToday(_ d: Int) -> Bool {
@@ -1265,7 +1279,7 @@ struct ConditionPageChart: View {
         var points: [ChartPoint] = []
         if useHours {
             points = day.hours.map { ChartPoint(x: $0.date, y: hourly($0)) }
-        } else {
+        } else if !awaitsHours {
             points = weekPoints { w -> Double? in daily(w) }
         }
         let current: ChartPoint?
@@ -1277,7 +1291,7 @@ struct ConditionPageChart: View {
         // The range follows the data; a band outside it is cut off rather
         // than squashing the line.
         let values = points.map(\.y) + (current.map { [$0.y] } ?? [])
-        return chartOrEmpty(points.count > 1) {
+        return chartOrEmpty(points.count > 1, loading: awaitsHours) {
             ConditionChart(points: points, tint: tint, fillTint: fillTint,
                            yDomain: padded(values, including: nil, fromZero: fromZero),
                            band: band, current: current, daily: !useHours)
@@ -1358,7 +1372,7 @@ struct ConditionPageChart: View {
                 points.append(ChartPoint(x: h.date, y: Double(h.cloudCoverPct)))
                 if h.precipMm >= 0.2 { rainy.insert(h.date) }
             }
-        } else {
+        } else if !awaitsHours {
             for d in 0..<7 {
                 guard !skipsToday(d), let w = store.weather(for: d) else { continue }
                 points.append(ChartPoint(x: noon(d), y: Double(w.cloudCoverPct)))
@@ -1374,7 +1388,7 @@ struct ConditionPageChart: View {
         // In the page colour; with rain about, dry bars go pale and wet ones
         // stay solid, as the caption says.
         let dry: Color = rainy.isEmpty ? tint : tint.opacity(0.35)
-        return chartOrEmpty(points.count > 1) {
+        return chartOrEmpty(points.count > 1, loading: awaitsHours) {
             ConditionChart(points: points, bars: true, tint: dry, yDomain: 0...100,
                            current: current, highlighted: rainy, highlightTint: tint,
                            daily: !useHours)
@@ -1382,9 +1396,14 @@ struct ConditionPageChart: View {
     }
 
     @ViewBuilder
-    private func chartOrEmpty<C: View>(_ hasData: Bool, @ViewBuilder chart: () -> C) -> some View {
+    private func chartOrEmpty<C: View>(_ hasData: Bool, loading: Bool = false,
+                                       @ViewBuilder chart: () -> C) -> some View {
         if hasData {
             chart()
+        } else if loading {
+            ProgressView()
+                .frame(maxWidth: .infinity, minHeight: 180)
+                .accessibilityLabel("Loading the hours")
         } else {
             Label("No weather saved for this day yet. Pull down to refresh when you have signal.",
                   systemImage: "wifi.slash")
@@ -1524,10 +1543,14 @@ struct ConditionChart: View {
         }
     }
 
+    /// The least a bar shows, about 2 pt, so a zero reads as a value
+    /// rather than a missing day.
+    private var barStub: Double { (yDomain.upperBound - yDomain.lowerBound) * 0.012 }
+
     @ChartContentBuilder
     private var barLayer: some ChartContent {
         ForEach(points) { p in
-            BarMark(x: .value("Time", p.x, unit: xUnit), y: .value("Value", p.y))
+            BarMark(x: .value("Time", p.x, unit: xUnit), y: .value("Value", max(p.y, yDomain.lowerBound + barStub)))
                 .foregroundStyle(highlighted.contains(p.x) ? highlightTint : tint)
                 .cornerRadius(3) // ui-lint: allow, chart bar, not a card
         }
