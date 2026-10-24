@@ -1335,11 +1335,17 @@ struct FriendProfileView: View {
     @State private var catches: [CommunityService.LeaderRow] = []
     @State private var catchAccess = false
     @State private var catchesLoading = true
+    /// The last refresh couldn't reach iCloud while online, so the catches
+    /// on screen may be old.
+    @State private var catchesRefreshFailed = false
     @State private var profileLoading = true
+    /// The code has no published profile (not the same as a failed fetch).
+    @State private var profileMissing = false
     @State private var selectedSpot: CommunityService.SharedSpot?
     @State private var showingSettings = false
     @State private var confirmRemove = false
     @State private var requestSent = false
+    @State private var sendingRequest = false
     @State private var showAllCatches = false
     /// Own catches with full local detail, for the real achievements card when
     /// the profile being viewed is yours.
@@ -1365,6 +1371,7 @@ struct FriendProfileView: View {
                 statsBlock
                 actions
                 offlineNotice
+                refreshNotice
                 catchesSection
                 if !sharedSpots.isEmpty { spotsSection }
                 achievementsSection
@@ -1421,14 +1428,30 @@ struct FriendProfileView: View {
         catchAccess = svc.cachedCatchAccess(code)
         if catchAccess, catches.isEmpty { catches = svc.cachedAnglerCatches(code: code) }
         // Refresh everything in parallel, not one round trip after another.
-        async let freshProfile = svc.fetchProfile(code: code)
+        async let freshProfile = svc.lookupProfile(code: code)
         async let freshSpots = svc.sharedSpots(fromFriend: code)
         async let freshAccess = svc.hasCatchAccess(to: code)
-        if let fresh = await freshProfile { profile = fresh }
+        // The grant and catch calls fall back to saved answers without
+        // saying so; a failed profile lookup in the same pass is the sign
+        // that iCloud couldn't be reached.
+        var refreshFailed = false
+        let lookup = await freshProfile
+        switch lookup {
+        case .found(let fresh):
+            profile = fresh
+            profileMissing = false
+        case .notFound:
+            profileMissing = true
+        case .failed:
+            refreshFailed = true
+        case .ownCode:
+            break
+        }
         profileLoading = false
         sharedSpots = await freshSpots
         catchAccess = await freshAccess
         if catchAccess { catches = await svc.anglerCatches(code: code) }
+        catchesRefreshFailed = refreshFailed
         catchesLoading = false
     }
 
@@ -1501,6 +1524,10 @@ struct FriendProfileView: View {
                 .frame(height: 90)
                 .frame(maxWidth: .infinity)
                 .padding(.top, DS.Space.s5)
+        } else if profileMissing && !connection.isOffline {
+            InlineEmpty(systemImage: "person.slash",
+                        text: "No Crew profile uses this angler code.")
+                .padding(.top, DS.Space.s5)
         } else {
             InlineEmpty(systemImage: "wifi.slash",
                         text: connection.isOffline
@@ -1516,6 +1543,19 @@ struct FriendProfileView: View {
         if connection.isOffline && profile != nil && !isSelf {
             EventNotice("Offline. Showing what was saved last time.", systemImage: "wifi.slash") {
                 EmptyView()
+            }
+            .padding(.top, DS.Space.s5)
+        }
+    }
+
+    /// Online but the refresh failed: the catches below are the saved ones.
+    @ViewBuilder private var refreshNotice: some View {
+        if catchesRefreshFailed && !connection.isOffline && !isSelf {
+            EventNotice("Couldn't refresh catches", systemImage: "exclamationmark.icloud") {
+                Button("Try again") {
+                    catchesRefreshFailed = false
+                    Task { await load() }
+                }
             }
             .padding(.top, DS.Space.s5)
         }
@@ -1547,17 +1587,38 @@ struct FriendProfileView: View {
 
     private var addFriendButton: some View {
         Button {
+            sendingRequest = true
             Task {
-                requestSent = await svc.sendFriendRequest(to: code)
-                ToastCenter.shared.show(requestSent ? "Friend request sent" : "Couldn't send the request",
-                                        style: requestSent ? .success : .error)
+                let result = await svc.sendFriendRequestResult(to: code)
+                sendingRequest = false
+                switch result {
+                case .found:
+                    requestSent = true
+                    ToastCenter.shared.show("Friend request sent", style: .success)
+                case .notFound:
+                    ToastCenter.shared.show("No angler matches that code", style: .error)
+                case .ownCode:
+                    ToastCenter.shared.show("That's your own angler code", style: .error)
+                case .failed:
+                    ToastCenter.shared.show(connection.isOffline ? "You're offline. Send it when you're back online"
+                                                                 : "Can't reach Crew right now. Try again",
+                                            style: .error)
+                }
             }
         } label: {
-            Label(requestSent ? "Request sent" : "Add friend",
-                  systemImage: requestSent ? "checkmark" : "person.badge.plus")
+            if sendingRequest {
+                Label {
+                    Text("Sending")
+                } icon: {
+                    ProgressView()
+                }
+            } else {
+                Label(requestSent ? "Request sent" : "Add friend",
+                      systemImage: requestSent ? "checkmark" : "person.badge.plus")
+            }
         }
         .buttonStyle(ActionTileStyle(.primary))
-        .disabled(requestSent)
+        .disabled(requestSent || sendingRequest)
     }
 
     private var moreMenu: some View {
@@ -1642,8 +1703,9 @@ struct FriendProfileView: View {
         CrewSection(title: "Spots they share with you") {
             ForEach(sharedSpots) { s in
                 Button { selectedSpot = s } label: {
+                    let kind = (Spot.SpotType(rawValue: s.type) ?? .general).label
                     ArtRow(title: s.name,
-                           subtitle: s.isApproximate ? "\(s.type), approximate area" : s.type,
+                           subtitle: s.isApproximate ? "\(kind), approximate area" : kind,
                            chevron: true) {
                         ThumbView(systemImage: s.isApproximate ? "mappin.circle" : "mappin.circle.fill",
                                   tint: .dsScoreGood)
