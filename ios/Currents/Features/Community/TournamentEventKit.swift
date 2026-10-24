@@ -447,6 +447,7 @@ struct EventRankRow: View {
     let value: String
     var images: [UIImage?] = []
     var isMe = false
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
         HStack(spacing: DS.Space.s3) {
@@ -460,12 +461,12 @@ struct EventRankRow: View {
                 Text(name)
                     .font(.body.weight(.medium))
                     .foregroundStyle(Color.dsText)
-                    .lineLimit(1)
+                    .lineLimit(typeSize.isAccessibilitySize ? 3 : 1)
                 if let subtitle, !subtitle.isEmpty {
                     Text(subtitle)
                         .font(.subheadline)
                         .foregroundStyle(Color.dsText2)
-                        .lineLimit(1)
+                        .lineLimit(typeSize.isAccessibilitySize ? 3 : 1)
                 }
             }
             Spacer(minLength: DS.Space.s2)
