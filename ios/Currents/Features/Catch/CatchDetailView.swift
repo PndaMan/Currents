@@ -584,7 +584,7 @@ struct CatchDetailView: View {
         let gap = all.map { min(abs($0.start.timeIntervalSince(at)), abs($0.end.timeIntervalSince(at))) }.min()
         let footnote = gap.map { g -> String in
             let minutes = Int((g / 60).rounded())
-            return minutes < 90 ? "\(minutes) min from one" : "\(Int((g / 3600).rounded())) h from one"
+            return minutes < 90 ? "\(minutes) min off a bite period" : "\(Int((g / 3600).rounded())) h off a bite period"
         }
         return ConditionItem(label: "Bite period", systemImage: "fish", iconTint: .dsText2,
                              value: "Between", footnote: footnote)

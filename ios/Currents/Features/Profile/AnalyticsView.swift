@@ -377,7 +377,7 @@ struct AnalyticsView: View {
     @ViewBuilder
     private var biteScoreSection: some View {
         if let avg = avgForecast {
-            SectionTitle("Bite score when you caught")
+            SectionTitle("Bite score at catch time")
                 .padding(.top, DS.Space.s8)
             HStack(spacing: 16) {
                 ScoreRing(score: Int(avg.rounded()), size: 64, caption: "average")
@@ -513,12 +513,9 @@ struct AnalyticsView: View {
         loaded = true
     }
 
+    /// "06:00", or "6 am" in 12-hour time, as on Today.
     private func formatHour(_ hour: Int) -> String {
-        if use24HourTime {
-            return String(format: "%02d:00", hour)
-        }
-        let h = hour % 12 == 0 ? 12 : hour % 12
-        return "\(h)\(hour < 12 ? "am" : "pm")"
+        ForecastFormat.hour(hour, use24: use24HourTime)
     }
 
     private func hourColor(_ hour: Int) -> Color {
