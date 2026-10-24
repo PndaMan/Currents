@@ -682,7 +682,6 @@ private struct SpeciesCatchesList: View {
     @State private var catches: [CatchDetail] = []
     @State private var loaded = false
     @State private var openCatchId: String?
-    @State private var titleShown = false
 
     private var imperial: Bool { units == "imperial" }
 
@@ -714,8 +713,7 @@ private struct SpeciesCatchesList: View {
             .pageWidth()
         }
         .detailTint(nil)
-        .pfTrackScroll($titleShown, threshold: 60)
-        .pfScrollTitle("Your catches", shown: titleShown)
+        .pageTitleFade("Your catches")
         .navigationDestination(item: $openCatchId) { id in
             if let detail = catches.first(where: { $0.id == id }) {
                 CatchDetailView(detail: detail)
