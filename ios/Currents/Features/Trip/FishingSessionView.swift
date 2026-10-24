@@ -439,8 +439,10 @@ struct ActiveSessionView: View {
     @State private var biteHour: Int?
     @AppStorage("use24HourTime") private var use24 = true
     @State private var showingLog = false
+    @State private var showingNew = false
     @State private var showingEndConfirm = false
     @State private var showingEndDayConfirm = false
+    @State private var titleShown = false
 
     private var tracker: TripTracker { appState.tripTracker }
 
@@ -450,9 +452,9 @@ struct ActiveSessionView: View {
                 if let trip = tracker.activeTrip {
                     DetailHeader(over: trip.isMultiDay
                                     ? (tracker.isDayActive ? "Day \(trip.decodedDays.count + 1)" : "\(trip.decodedDays.count) days, paused")
-                                    : "Recording",
+                                    : "Session running",
                                  title: trip.name,
-                                 subtitle: "Started \(LogbookFormat.time(trip.startDate))")
+                                 subtitle: "Started \(ForecastFormat.time(trip.startDate, use24: use24))")
 
                     if tracker.manualPaused {
                         pauseNote("Paused. Your position is not being recorded.")
@@ -495,12 +497,13 @@ struct ActiveSessionView: View {
                     }
 
                     sessionControls(trip)
-                        .padding(.horizontal, DS.gutter)
                         .padding(.top, DS.Space.s8)
                 } else {
-                    ContentUnavailableView("No session running", systemImage: "figure.fishing",
-                        description: Text("Start one from the map or the Logbook."))
-                        .padding(.top, DS.Space.s8)
+                    DetailHeader(title: "No session running")
+                    InlineEmpty(systemImage: "figure.fishing",
+                                text: "Start a session to record your track, catches and bag limits.",
+                                actionTitle: "Start session") { showingNew = true }
+                        .padding(.top, DS.Space.s4)
                 }
             }
             .padding(.bottom, DS.Space.s8)
@@ -508,8 +511,8 @@ struct ActiveSessionView: View {
         }
         .dsScreenBackground()
         .detailScrollEdge()
-        .navigationTitle(tracker.activeTrip?.name ?? "Session")
-        .navigationBarTitleDisplayMode(.inline)
+        .pfTrackScroll($titleShown, threshold: 60)
+        .pfScrollTitle(tracker.activeTrip?.name ?? "Session", shown: titleShown)
         .toolbar {
             if let trip = tracker.activeTrip {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -525,19 +528,48 @@ struct ActiveSessionView: View {
         .fullScreenCover(isPresented: $showingLog, onDismiss: reload) {
             LogCatchView()
         }
-        .confirmationDialog("End this day?", isPresented: $showingEndDayConfirm, titleVisibility: .visible) {
-            Button("End day", role: .destructive) { Haptics.warning(); tracker.endDay() }
-            Button("Keep going", role: .cancel) {}
-        } message: {
-            Text("Saves today and pauses tracking. Start the next day when you are back out.")
+        .sheet(isPresented: $showingNew) {
+            NewSessionSheet()
         }
-        .confirmationDialog("End the whole trip?", isPresented: $showingEndConfirm, titleVisibility: .visible) {
-            Button("End trip", role: .destructive) { Haptics.warning(); _ = tracker.end(); dismiss() }
-            Button("Keep going", role: .cancel) {}
+        .confirmationDialog(endDayTitle, isPresented: $showingEndDayConfirm, titleVisibility: .visible) {
+            Button(endDayAction, role: .destructive) { Haptics.warning(); tracker.endDay() }
+            Button("Keep fishing", role: .cancel) {}
         } message: {
-            Text("Saves the track and catches and stops recording.")
+            Text("Today is saved and tracking pauses. Start the next day when you are back out.")
+        }
+        .confirmationDialog("End this session?", isPresented: $showingEndConfirm, titleVisibility: .visible) {
+            Button("End session", role: .destructive) { endSession() }
+            Button("Keep fishing", role: .cancel) {}
+        } message: {
+            Text("It will be saved to your Logbook.")
         }
         .task { reload(); await refreshBite() }
+        .onChange(of: tracker.activeTrip?.id) { _, id in
+            // A session started from the empty state.
+            guard id != nil else { return }
+            reload()
+            Task { await refreshBite() }
+        }
+    }
+
+    /// A multi-day session ends its day; a single session can carry on
+    /// another day.
+    private var endDayTitle: String {
+        guard let trip = tracker.activeTrip, trip.isMultiDay else { return "Pause until tomorrow?" }
+        return "End day \(trip.dayCount)?"
+    }
+
+    private var endDayAction: String {
+        guard let trip = tracker.activeTrip, trip.isMultiDay else { return "Pause until tomorrow" }
+        return "End day \(trip.dayCount)"
+    }
+
+    /// The same ending as Today: one dialog, one toast.
+    private func endSession() {
+        guard tracker.end() != nil else { return }
+        Haptics.warning()
+        ToastCenter.shared.show("Session saved to Logbook", haptic: false, icon: "checkmark")
+        dismiss()
     }
 
     /// The bite now and across today, so the next window is in view while
@@ -553,7 +585,7 @@ struct ActiveSessionView: View {
                     Text(biteHour == nil ? "Bite now" : ForecastFormat.hour(shown, use24: use24))
                         .font(.headline)
                         .foregroundStyle(.dsText)
-                    Text(ForecastFormat.verdict(biteHour == nil ? score : shownScore))
+                    Text(biteHour == nil ? ForecastFormat.verdict(score) : ForecastFormat.grade(shownScore))
                         .font(.subheadline)
                         .foregroundStyle(.dsText2)
                 }
@@ -579,12 +611,18 @@ struct ActiveSessionView: View {
             .padding(.top, DS.Space.s3)
     }
 
-    /// One clear primary above (Log catch); here Pause or Resume, and a
-    /// single Finish menu that offers End day or End trip. Between days a
-    /// Start day button takes over.
-    @ViewBuilder private func sessionControls(_ trip: Trip) -> some View {
+    /// One clear primary above (Log catch); here Pause or Resume and End
+    /// session, with End day for a multi-day session. A single session can
+    /// pause until tomorrow instead. Between days Start day takes over.
+    private func sessionControls(_ trip: Trip) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            controls(trip)
+        }
+    }
+
+    @ViewBuilder private func controls(_ trip: Trip) -> some View {
         if tracker.isDayActive {
-            HStack(spacing: DS.Space.s2) {
+            ActionTriple {
                 Button {
                     if tracker.manualPaused { tracker.resumeTracking() } else { tracker.pauseTracking() }
                 } label: {
@@ -594,35 +632,41 @@ struct ActiveSessionView: View {
                 .buttonStyle(ActionTileStyle(.tonal))
                 .buttonHaptic(.toggle)
 
-                Menu {
-                    if trip.isMultiDay || tracker.isDayActive {
-                        Button { showingEndDayConfirm = true } label: {
-                            Label("End day \(trip.dayCount)", systemImage: "moon.zzz.fill")
-                        }
+                if trip.isMultiDay {
+                    Button { showingEndDayConfirm = true } label: {
+                        Label("End day \(trip.dayCount)", systemImage: "moon.zzz.fill")
                     }
-                    Button(role: .destructive) { showingEndConfirm = true } label: {
-                        Label("End trip", systemImage: "stop.circle")
-                    }
-                } label: {
-                    ActionTileLabel("Finish", systemImage: "flag.checkered", kind: .destructive)
+                    .buttonStyle(ActionTileStyle(.tonal))
                 }
+
+                Button { showingEndConfirm = true } label: {
+                    Label("End session", systemImage: "stop.fill")
+                }
+                .buttonStyle(ActionTileStyle(.destructive))
+            }
+            if !trip.isMultiDay {
+                CardGroup {
+                    Button { showingEndDayConfirm = true } label: {
+                        CardRow("Pause until tomorrow", subtitle: "Keep this session open and fish another day",
+                                systemImage: "moon.zzz.fill", tint: DS.accent, chevron: true)
+                    }
+                    .buttonStyle(.dsCardRow)
+                }
+                .padding(.top, DS.Space.s3)
             }
         } else {
-            VStack(alignment: .leading, spacing: DS.Space.s3) {
-                Label("Trip paused between days", systemImage: "pause.circle")
-                    .font(.footnote)
-                    .foregroundStyle(.dsText2)
-                HStack(spacing: DS.Space.s2) {
-                    Button { Haptics.success(); tracker.startNextDay(); Task { await refreshBite() } } label: {
-                        Label("Start day \(trip.decodedDays.count + 1)", systemImage: "sun.max.fill")
-                    }
-                    .buttonStyle(ActionTileStyle(.primary))
-                    Button { showingEndConfirm = true } label: {
-                        Label("End trip", systemImage: "stop.circle")
-                    }
-                    .buttonStyle(ActionTileStyle(.destructive))
+            pauseNote("Session paused between days")
+            ActionTriple {
+                Button { Haptics.success(); tracker.startNextDay(); Task { await refreshBite() } } label: {
+                    Label("Start day \(trip.decodedDays.count + 1)", systemImage: "sun.max.fill")
                 }
+                .buttonStyle(ActionTileStyle(.primary))
+                Button { showingEndConfirm = true } label: {
+                    Label("End session", systemImage: "stop.fill")
+                }
+                .buttonStyle(ActionTileStyle(.destructive))
             }
+            .padding(.top, DS.Space.s3)
         }
     }
 
@@ -632,11 +676,11 @@ struct ActiveSessionView: View {
         return TimelineView(.periodic(from: .now, by: 1)) { _ in
             let curDur = tracker.isDayActive ? Date.now.timeIntervalSince(trip.currentDayStart ?? trip.startDate) : 0
             HStack(spacing: 10) {
-                StatTile(trip.isMultiDay ? "Total time" : "Time", systemImage: "clock", tint: .dsText2,
+                StatTile(trip.isMultiDay ? "Total time" : "Time", systemImage: "clock", tint: DS.accent,
                          value: SessionFormat.duration(priorDur + curDur), width: nil)
-                StatTile("Distance", systemImage: "point.topleft.down.to.point.bottomright.curvepath", tint: .dsText2,
+                StatTile("Distance", systemImage: "point.topleft.down.to.point.bottomright.curvepath", tint: .dsScoreFair,
                          value: SessionFormat.distance(priorDist + trackDistance()), width: nil)
-                StatTile("Catches", systemImage: "fish.fill", tint: .dsText2,
+                StatTile("Catches", systemImage: "fish.fill", tint: .dsScoreGood,
                          value: "\(catches.count)", width: nil)
             }
         }
