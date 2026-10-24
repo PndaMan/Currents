@@ -17,26 +17,43 @@ struct ExploreConditions: View {
     var body: some View {
         if let w = weather {
             // Today's tiles: a value and a small picture of where it sits,
-            // no sentence under each one.
+            // no sentence under each one. An offline estimate only has a
+            // real barometer, so sky, air and wind show the missing mark.
+            let m = w.measured
             LazyVGrid(columns: columns, spacing: DS.Space.s3) {
-                if let water = w.waterTempC {
+                if let water = m?.waterTempC {
                     ConditionTile("Water", systemImage: "drop.fill", iconTint: ForecastCondition.water.tint,
                                   value: Units.temperature(water)) {
                         visual { RangeBar(domain: 5...32, band: 16...25, value: water, tint: ForecastCondition.water.tint) }
                     }
                 } else {
-                    ConditionTile("Sky", systemImage: WeatherIcon(condition: w.condition).systemName,
-                                  iconTint: ForecastCondition.sky.tint, value: "\(w.cloudCoverPct)", unit: "% cloud") {
-                        visual { RangeBar(domain: 0...100, value: Double(w.cloudCoverPct), tint: ForecastCondition.sky.tint) }
+                    ConditionTile("Sky", systemImage: WeatherIcon(condition: m?.condition ?? "").systemName,
+                                  iconTint: ForecastCondition.sky.tint,
+                                  value: m.map { "\($0.cloudCoverPct)" } ?? ConditionText.missing,
+                                  unit: m == nil ? nil : "% cloud") {
+                        visual {
+                            if let m {
+                                RangeBar(domain: 0...100, value: Double(m.cloudCoverPct), tint: ForecastCondition.sky.tint)
+                            }
+                        }
                     }
                 }
                 ConditionTile("Air", systemImage: "thermometer.medium", iconTint: ForecastCondition.air.tint,
-                              value: Units.temperature(w.temperatureC)) {
-                    visual { RangeBar(domain: 0...40, value: w.temperatureC, tint: ForecastCondition.air.tint) }
+                              value: m.map { Units.temperature($0.temperatureC) } ?? ConditionText.missing) {
+                    visual {
+                        if let m {
+                            RangeBar(domain: 0...40, value: m.temperatureC, tint: ForecastCondition.air.tint)
+                        }
+                    }
                 }
                 ConditionTile("Wind", systemImage: "wind", iconTint: ForecastCondition.wind.tint,
-                              value: Units.speed(kmh: w.windSpeedKmh), unit: ExploreFormat.compass(w.windDirectionDeg)) {
-                    visual { CompassDial(degrees: w.windDirectionDeg, size: 36) }
+                              value: m.map { Units.speed(kmh: $0.windSpeedKmh) } ?? ConditionText.missing,
+                              unit: m.map { ExploreFormat.compass($0.windDirectionDeg) }) {
+                    visual {
+                        if let m {
+                            CompassDial(degrees: m.windDirectionDeg, size: 36)
+                        }
+                    }
                 }
                 let pressure = Units.pressureParts(hpa: w.pressureHpa)
                 ConditionTile("Pressure", systemImage: "gauge.with.dots.needle.33percent",
@@ -122,7 +139,11 @@ struct ExploreThrowSection: View {
     /// on the fish you track again.
     @State private var chosenId: Int64?
 
-    private var clarity: WaterClarity { WaterClarity.inferred(precipMm: weather?.precipMm) }
+    /// The reading when it is real. An offline estimate only has a real
+    /// barometer, so the picks go without the rest, as on Today.
+    private var measured: WeatherService.WeatherData? { weather?.measured }
+
+    private var clarity: WaterClarity { WaterClarity.inferred(precipMm: measured?.precipMm) }
 
     private var choice: ThrowSpeciesChoice {
         ThrowSpeciesChoice(tracked: tracked, caught: caught, inWater: inWater, freshwater: freshwater)
@@ -130,10 +151,10 @@ struct ExploreThrowSection: View {
 
     private func picks(for species: Species?) -> [LureEngine.Suggestion] {
         let conditions = LureEngine.Conditions(
-            waterTempC: weather?.waterTempC,
+            waterTempC: measured?.waterTempC,
             clarity: clarity,
-            cloudCoverPct: weather?.cloudCoverPct,
-            windSpeedKmh: weather?.windSpeedKmh,
+            cloudCoverPct: measured?.cloudCoverPct,
+            windSpeedKmh: measured?.windSpeedKmh,
             pressureChange6h: weather?.pressureChange6h
         )
         return LureEngine.recommend(conditions: conditions, species: species,
@@ -191,7 +212,7 @@ struct ExploreThrowSection: View {
     }
 
     private var footnote: String {
-        let temp = weather?.waterTempC.map { "\(Units.temperature($0)) " } ?? ""
+        let temp = measured?.waterTempC.map { "\(Units.temperature($0)) " } ?? ""
         var line = "Picked for \(temp)\(clarity.label.lowercased()) water"
         if let w = weather {
             line += w.pressureChange6h <= -1 ? " and falling pressure" : w.pressureChange6h >= 1 ? " and rising pressure" : " and steady pressure"
