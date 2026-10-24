@@ -464,6 +464,8 @@ enum ScreenshotSupport {
     @MainActor
     static func seedDemoDataIfNeeded(_ appState: AppState) {
         guard isActive else { return }
+        // Every launch, before the early return below: see the function.
+        seedJoinedGroupTrip()
         // Idempotent: the per-shot relaunches reuse the first launch's data.
         let existing = (try? appState.catchRepository.fetchAll(limit: 1)) ?? []
         guard existing.isEmpty else { return }
@@ -742,6 +744,26 @@ enum ScreenshotSupport {
         seedLeaderboard(picker: picker)
         seedTournament()
         seedGroupTrip(picker: picker)
+    }
+
+    /// The live trip in your own list of group trips, as joining it on the
+    /// phone records it. The trip page reads the members (you are one) and
+    /// the crew rows read this list, so both say you're in. Rewritten on
+    /// every launch so the saved name keeps step with the trip's part-of-day
+    /// name through a long capture run; any other saved trip is kept.
+    private static func seedJoinedGroupTrip() {
+        guard let trip = demoLiveTrips(crewCode: crewCode).first else { return }
+        let joinedAt = demoGroupMembers(code: trip.id).first { $0.id == me.code }?.joinedAt ?? trip.createdAt
+        let ref = CommunityService.GroupRef(code: trip.id, name: trip.name, hostName: trip.hostName,
+                                            isHost: false, joinedAt: joinedAt, crewCode: crewCode)
+        let d = UserDefaults.standard
+        var groups = d.data(forKey: "myGroupTrips")
+            .flatMap { try? JSONDecoder().decode([CommunityService.GroupRef].self, from: $0) } ?? []
+        groups.removeAll { $0.code == ref.code }
+        groups.append(ref)
+        if let data = try? JSONEncoder().encode(groups) {
+            d.set(data, forKey: "myGroupTrips")
+        }
     }
 
     /// Photos for the live trip's catches, and a link from the trip to a
