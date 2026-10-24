@@ -549,7 +549,7 @@ struct ConditionPage: View {
             .pageWidth()
         }
         .forecastTracksTitle($titleShown)
-        .detailTint(condition.ink)
+        .detailTint(condition.tint)
         .forecastInlineTitle(condition.title, shown: titleShown)
         .refreshable {
             let live = await store.load(force: true)
@@ -1150,6 +1150,10 @@ struct ConditionPageChart: View {
     /// read on white.
     private var tint: Color { condition.ink }
 
+    /// The plain hue for washes under the line (area, bands, shading): ink
+    /// at low opacity turns orange brown and yellow olive in light mode.
+    private var fillTint: Color { condition.tint }
+
     /// A stored metric value in the user's units.
     private func shown(_ value: Double) -> Double {
         guard imperial else { return value }
@@ -1203,7 +1207,7 @@ struct ConditionPageChart: View {
         let band = shownRange(ConditionText.comfort(for: store.species))
         let current = points.first { Calendar.current.isDate($0.x, inSameDayAs: day.date) }
         return chartOrEmpty(points.count > 1) {
-            ConditionChart(points: points, tint: tint,
+            ConditionChart(points: points, tint: tint, fillTint: fillTint,
                            yDomain: padded(points.map(\.y), including: band, fromZero: false),
                            band: band, current: current, daily: true)
         }
@@ -1229,7 +1233,7 @@ struct ConditionPageChart: View {
         // than squashing the line.
         let values = points.map(\.y) + (current.map { [$0.y] } ?? [])
         return chartOrEmpty(points.count > 1) {
-            ConditionChart(points: points, tint: tint,
+            ConditionChart(points: points, tint: tint, fillTint: fillTint,
                            yDomain: padded(values, including: nil, fromZero: fromZero),
                            band: band, current: current, daily: !useHours)
         }
@@ -1250,7 +1254,7 @@ struct ConditionPageChart: View {
         let events = (day.tide.highTides + day.tide.lowTides).map { ChartPoint(x: $0.time, y: $0.height) }
         let current = ConditionText.tideHeightNow(day).map { ChartPoint(x: .now, y: $0) }
         return chartOrEmpty(points.count > 1) {
-            ConditionChart(points: points, tint: tint, yDomain: -1.3...1.3,
+            ConditionChart(points: points, tint: tint, fillTint: fillTint, yDomain: -1.3...1.3,
                            marks: events, current: current, showsYAxis: false)
         }
     }
@@ -1263,7 +1267,8 @@ struct ConditionPageChart: View {
         let majors = day.solunar.majorPeriods.map { ChartShade(start: $0.start, end: $0.end, strong: true) }
         let minors = day.solunar.minorPeriods.map { ChartShade(start: $0.start, end: $0.end, strong: false) }
         let current = day.isToday ? points.min { abs($0.x.timeIntervalSinceNow) < abs($1.x.timeIntervalSinceNow) } : nil
-        return ConditionChart(points: points, tint: tint, yDomain: 0...100, shades: majors + minors,
+        return ConditionChart(points: points, tint: tint, fillTint: fillTint, yDomain: 0...100,
+                              shades: majors + minors,
                               current: current, showsYAxis: false)
     }
 
@@ -1285,7 +1290,8 @@ struct ConditionPageChart: View {
             ? ChartPoint(x: .now, y: sunHeight(.now, sunrise: s.sunrise, sunset: s.sunset,
                                                dayLength: dayLength, nightLength: nightLength))
             : nil
-        return ConditionChart(points: points, tint: tint, yDomain: -1.1...1.2, shades: shades,
+        return ConditionChart(points: points, tint: tint, fillTint: fillTint, yDomain: -1.1...1.2,
+                              shades: shades,
                               current: current, baseline: 0, showsYAxis: false)
     }
 
@@ -1349,7 +1355,10 @@ struct ConditionPageChart: View {
 struct ConditionChart: View {
     let points: [ChartPoint]
     var bars: Bool = false
+    /// The line, bars, marks and current point.
     var tint: Color
+    /// The area under the line, the band and the shading. Defaults to `tint`.
+    var fillTint: Color? = nil
     var yDomain: ClosedRange<Double>
     var band: ClosedRange<Double>? = nil
     var shades: [ChartShade] = []
@@ -1373,6 +1382,8 @@ struct ConditionChart: View {
     }
 
     private var xUnit: Calendar.Component { daily ? .day : .hour }
+
+    private var fill: Color { fillTint ?? tint }
 
     /// One tick under each day, or every six hours.
     private var ticks: [Date] {
@@ -1438,7 +1449,7 @@ struct ConditionChart: View {
             RectangleMark(xStart: .value("Start", xDomain.lowerBound), xEnd: .value("End", xDomain.upperBound),
                           yStart: .value("Low", max(band.lowerBound, yDomain.lowerBound)),
                           yEnd: .value("High", min(band.upperBound, yDomain.upperBound)))
-                .foregroundStyle(tint.opacity(0.16))
+                .foregroundStyle(fill.opacity(0.16))
         }
     }
 
@@ -1447,7 +1458,7 @@ struct ConditionChart: View {
         ForEach(shades) { s in
             RectangleMark(xStart: .value("Start", s.start), xEnd: .value("End", s.end),
                           yStart: .value("Low", yDomain.lowerBound), yEnd: .value("High", yDomain.upperBound))
-                .foregroundStyle(tint.opacity(s.strong ? 0.24 : 0.12))
+                .foregroundStyle(fill.opacity(s.strong ? 0.24 : 0.12))
         }
     }
 
@@ -1458,7 +1469,7 @@ struct ConditionChart: View {
                      yStart: .value("Base", baseline ?? yDomain.lowerBound),
                      yEnd: .value("Value", p.y))
                 .interpolationMethod(.catmullRom)
-                .foregroundStyle(tint.opacity(0.18))
+                .foregroundStyle(fill.opacity(0.18))
             LineMark(x: .value("Time", p.x), y: .value("Value", p.y))
                 .interpolationMethod(.catmullRom)
                 .foregroundStyle(tint)
