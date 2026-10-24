@@ -198,8 +198,10 @@ jobs:
           # Kogel Bay, South Africa, matching the seeded demo spots.
           xcrun simctl location "$UDID" set -34.235,18.848 || true
 
-          # Pre-grant location so no permission dialog covers a screenshot.
+          # Pre-grant location, camera and photos so no permission dialog covers a screenshot.
           xcrun simctl privacy "$UDID" grant location "$BUNDLE_ID" || true
+          xcrun simctl privacy "$UDID" grant camera "$BUNDLE_ID" || true
+          xcrun simctl privacy "$UDID" grant photos "$BUNDLE_ID" || true
 
           APP_PATH=$(find DerivedData -name "Currents.app" -path "*/Debug-iphonesimulator/*" -type d -print -quit)
           if [ -z "$APP_PATH" ]; then echo "Currents.app not found"; exit 1; fi
