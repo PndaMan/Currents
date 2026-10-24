@@ -1198,6 +1198,8 @@ struct UnitsSettingsView: View {
     private func systemCard(_ title: String, tag: String) -> some View {
         let isActive = units == tag
         let imperial = tag == "imperial"
+        // In inches for imperial, as catch sizes read everywhere else.
+        let length = Units.lengthParts(cm: 38, imperial: imperial)
         return Button {
             units = tag
         } label: {
@@ -1211,7 +1213,7 @@ struct UnitsSettingsView: View {
                         .foregroundStyle(isActive ? DS.ink(DS.accent) : Color.dsText3)
                         .accessibilityHidden(true)
                 }
-                Text(Units.length(cm: 38, imperial: imperial))
+                Text("\(length.0) \(length.1)")
                     .font(.title2.bold())
                     .monospacedDigit()
                     .foregroundStyle(.dsText)
