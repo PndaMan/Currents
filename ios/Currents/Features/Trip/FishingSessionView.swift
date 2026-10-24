@@ -19,6 +19,9 @@ struct SessionsView: View {
     @State private var bestScores: [String: Int] = [:]
     @State private var outlooks: [String: PlanRowOutlook] = [:]
     @State private var loaded = false
+    /// The sessions could not be read; the page offers a retry rather than
+    /// "No sessions yet".
+    @State private var loadFailed = false
     @State private var showingNew = false
     @State private var showingPlanner = false
     @State private var editingTrip: Trip?
@@ -93,9 +96,14 @@ struct SessionsView: View {
                     }
                 }
 
-                if loaded && pastSessions.isEmpty && planned.isEmpty && tracker.activeTrip == nil {
-                    ContentUnavailableView("No sessions yet", systemImage: "figure.fishing",
-                                           description: Text("Start one at the water. Your track and catches are saved here."))
+                if loadFailed {
+                    InlineEmpty(systemImage: "exclamationmark.triangle",
+                                text: "Your sessions could not be read. Nothing is lost.",
+                                actionTitle: "Try again") { reload() }
+                        .padding(.top, DS.Space.s6)
+                } else if loaded && pastSessions.isEmpty && planned.isEmpty && tracker.activeTrip == nil {
+                    InlineEmpty(systemImage: "point.topleft.down.to.point.bottomright.curvepath",
+                                text: "No sessions yet. Start one at the water and your track and catches are saved here.")
                         .padding(.top, DS.Space.s6)
                 }
             }
@@ -170,8 +178,16 @@ struct SessionsView: View {
     }
 
     private func reload() {
-        sessions = (try? appState.tripRepository.fetchAll()) ?? []
-        planned = (try? appState.tripRepository.fetchPlanned()) ?? []
+        do {
+            sessions = try appState.tripRepository.fetchAll()
+            planned = try appState.tripRepository.fetchPlanned()
+            loadFailed = false
+        } catch {
+            sessions = []
+            planned = []
+            loadFailed = true
+        }
+        // Counts, photos and scores only decorate the rows.
         for trip in sessions {
             let tripCatches = (try? appState.tripRepository.catches(tripId: trip.id)) ?? []
             catchCounts[trip.id] = tripCatches.count
