@@ -341,19 +341,32 @@ struct CrewFeedRow: View {
     private var svc: CommunityService { .shared }
     @State private var photo: UIImage?
     @Environment(\.displayScale) private var displayScale
+    @AppStorage("units") private var units = "metric"
 
     private var who: String {
         post.authorCode == svc.friendCode ? "You" : (post.authorName.split(separator: " ").first.map(String.init) ?? post.authorName)
     }
 
+    /// The size under the species, then the crew, caption or trip if there is one.
     private var subtitle: String? {
-        if let crewName { return crewName }
-        return post.caption.isEmpty ? (post.tripName.isEmpty ? nil : post.tripName) : post.caption
+        var parts: [String] = []
+        if let size = CrewText.catchSize(lengthCm: post.lengthCm, weightKg: post.weightKg,
+                                         imperial: units == "imperial") {
+            parts.append(size)
+        }
+        if let crewName {
+            parts.append(crewName)
+        } else if !post.caption.isEmpty {
+            parts.append(post.caption)
+        } else if !post.tripName.isEmpty {
+            parts.append(post.tripName)
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: ", ")
     }
 
     var body: some View {
         ArtRow(over: "\(who), \(post.caughtAt.formatted(.relative(presentation: .named)))",
-               title: CrewText.catchTitle(species: post.species, lengthCm: post.lengthCm, weightKg: post.weightKg),
+               title: post.species,
                subtitle: subtitle) {
             thumb
         } trailing: {
