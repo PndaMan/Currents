@@ -371,13 +371,10 @@ struct CrewFeedRow: View {
             let total = post.reactions.count
             if total > 0 {
                 HStack(spacing: 4) {
-                    Image(systemName: "face.smiling")
+                    // The filled face, named, so dark and light draw the same disc.
+                    Image(systemName: "face.smiling.fill")
                         .font(.subheadline)
                         .foregroundStyle(.dsText2)
-                        // The outlined face in both modes. Only the environment
-                        // value ignores an inherited fill; `.symbolVariant(.none)`
-                        // has no effect.
-                        .environment(\.symbolVariants, .none)
                     Text("\(total)")
                         .font(.subheadline.weight(.medium))
                         .foregroundStyle(.dsText2)
