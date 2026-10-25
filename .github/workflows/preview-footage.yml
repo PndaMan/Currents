@@ -272,20 +272,25 @@ jobs:
             launch "$2" "${3:-}"
           }
 
-          # SIGINT makes recordVideo finish the file. Give it 15 seconds, then
-          # make sure it is gone so a stuck recorder can't hang the job.
+          # halt <pid> <name>: SIGINT makes recordVideo finish the file. Give
+          # it 15 seconds, then TERM, then KILL, and never wait unbounded, so
+          # a stuck recorder can't hang the job.
+          halt() {
+            local sig
+            for sig in INT TERM KILL; do
+              kill -"$sig" "$1" 2>/dev/null || true
+              for _ in $(seq 1 30); do
+                kill -0 "$1" 2>/dev/null || break 2
+                sleep 0.5
+              done
+              echo "::warning::$2: recorder ignored SIG$sig"
+            done
+            wait "$1" 2>/dev/null || true
+          }
+
           stop() {
             mark "stop"
-            kill -INT "$REC" 2>/dev/null || true
-            for _ in $(seq 1 30); do
-              kill -0 "$REC" 2>/dev/null || break
-              sleep 0.5
-            done
-            if kill -0 "$REC" 2>/dev/null; then
-              echo "::warning::$CLIP: recorder ignored SIGINT; stopping it"
-              kill -TERM "$REC" 2>/dev/null || true
-            fi
-            wait "$REC" 2>/dev/null || true
+            halt "$REC" "$CLIP"
             if [ -s "$OUT/$CLIP.mp4" ]; then
               echo "Recorded $CLIP ($(du -h "$OUT/$CLIP.mp4" | cut -f1))"
             else
@@ -339,9 +344,9 @@ jobs:
           # throwaway one before the takes.
           xcrun simctl io "$UDID" recordVideo --codec=h264 --force "$RUNNER_TEMP/primer.mp4" >/dev/null 2>&1 &
           PRIMER=$!
-          sleep 3
-          kill -INT "$PRIMER" 2>/dev/null || true
-          wait "$PRIMER" 2>/dev/null || true
+          sleep 5
+          halt "$PRIMER" primer
+          echo "Primer: $(du -h "$RUNNER_TEMP/primer.mp4" 2>/dev/null | cut -f1 || echo none)"
 
           # Points on the 440x956 screen, measured on the captures. AXe is
           # slow here: each command takes about 3 seconds (8 with --label or
