@@ -83,13 +83,15 @@ draws two of them over a full-bleed photo. Those photos, and the scenes for
 the Header and Search Results art, are larger downloads of photos listed
 above, from the same pages under the same licences. EXIF is stripped and the
 long side is at most 3000 px. bass-06.jpg has its top fifth cropped away, so
-it shows the fish, hands and water only.
+it shows the fish, hands and water only. trout-01.jpg is a portrait slice of
+the landscape original, around the fish's head and body.
 
 | File | Same photo as |
 |---|---|
 | bass-04.jpg | demo-photos/bass-04.jpg |
 | bass-05.jpg | demo-photos/bass-05.jpg |
 | bass-06.jpg | demo-photos/bass-06.jpg |
+| trout-01.jpg | demo-photos/trout-01.jpg |
 | river-dawn.jpg | demo-photos/scene-river-dawn.jpg |
 | lake-dawn.jpg | demo-photos/scene-lake-dawn.jpg |
 | coast-01.jpg | demo-photos/scene-coast-01.jpg |

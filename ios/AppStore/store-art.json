@@ -63,8 +63,8 @@
     },
     {
       "name": "identify",
-      "photo": "bass-06.jpg",
-      "focus": [0.5, 0.55],
+      "photo": "trout-01.jpg",
+      "focus": [0.5, 0.5],
       "layers": [
         {"type": "shade", "edge": "top", "size": 1100, "opacity": 0.6},
         {"type": "text", "lines": ["Snap a fish.", "Know the species."], "size": 140, "align": "center", "at": [660, 200], "color": "white", "leading": 1.04},
