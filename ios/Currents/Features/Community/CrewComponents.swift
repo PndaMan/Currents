@@ -56,13 +56,6 @@ enum CrewText {
             : "Ends \(eventTimeText(end, now: now, use24: use24))"
     }
 
-    /// "Species, 44 cm" or "Species, 2.1 kg" or just the species.
-    static func catchTitle(species: String, lengthCm: Double?, weightKg: Double?) -> String {
-        if let l = lengthCm { return "\(species), \(Units.length(cm: l))" }
-        if let w = weightKg { return "\(species), \(Units.weight(kg: w))" }
-        return species
-    }
-
     /// "43 cm, 1.3 kg" from whatever was measured, or nil: the line under a
     /// catch's species, as the Logbook writes it. Sizes go through the same
     /// parts as the Heaviest and Longest tiles, so a page never rounds one
