@@ -61,23 +61,6 @@ private struct RowCheckmark: View {
     }
 }
 
-/// The trailing value of a menu row, with the menu's up-down chevron.
-private struct MenuValue: View {
-    let text: String
-
-    var body: some View {
-        HStack(spacing: 6) {
-            Text(text)
-                .font(.body)
-                .foregroundStyle(Color.dsText2)
-                .lineLimit(1)
-            Image(systemName: "chevron.up.chevron.down")
-                .font(.footnote.weight(.semibold))
-                .foregroundStyle(Color.dsText3)
-        }
-    }
-}
-
 /// A text field laid out like a `CardRow`: icon tile, then the field.
 private struct CardFieldRow: View {
     let placeholder: String

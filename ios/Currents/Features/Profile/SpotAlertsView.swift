@@ -1,11 +1,13 @@
 import SwiftUI
 import CoreLocation
+import UserNotifications
 
-/// Notification choices for one saved spot, like a location's page in the
-/// Weather app's notification settings: which alerts it sends, the score a
-/// window must reach, and the windows that will alert over the next days.
-/// Pushed from the spot rows on the Notifications page and from a saved
-/// spot's place page.
+/// Notification choices for one saved spot, like an app's page in the
+/// Settings app's notifications: the spot's own switch, then what it
+/// notifies about and the score a window must reach, then the windows that
+/// will alert over the next days. New spots start switched off, and while a
+/// spot is off only its switch shows. Pushed from the spot rows on the
+/// Notifications page and from a saved spot's place page.
 struct SpotAlertsView: View {
     let spot: Spot
     @Environment(AppState.self) private var appState
@@ -19,7 +21,9 @@ struct SpotAlertsView: View {
 
     @State private var choice: SpotAlert
     /// What is stored, so loading it is not mistaken for a change to save.
+    /// Nil until loaded, and the page shows no choices until then.
     @State private var stored: SpotAlert?
+    @State private var permission: UNAuthorizationStatus = .notDetermined
     @State private var windows: [BiteWindows.Upcoming] = []
     @State private var loadingWindows = true
     /// No weather was ever fetched here and the phone is offline, so no
@@ -30,10 +34,26 @@ struct SpotAlertsView: View {
 
     init(spot: Spot) {
         self.spot = spot
-        _choice = State(initialValue: .defaults(for: spot.id))
+        _choice = State(initialValue: .off(for: spot.id))
+    }
+
+    /// The two things a spot notifies about. Each is also switched on or off
+    /// for every spot on the Notifications page.
+    private enum Kind {
+        case windowOpens, headsUp
     }
 
     private var threshold: Int { choice.threshold ?? Int(defaultThreshold) }
+
+    private func onForAllSpots(_ kind: Kind) -> Bool {
+        kind == .windowOpens ? alertsEnabled : primeWindowAlerts
+    }
+
+    /// True when this spot will send something, as
+    /// `NotificationManager.rescheduleBiteAlerts` plans it.
+    private var sends: Bool {
+        choice.enabled && ((alertsEnabled && choice.biteAlerts) || (primeWindowAlerts && choice.headsUp))
+    }
 
     private var alerting: [BiteWindows.Upcoming] {
         windows.filter { $0.peakScore >= threshold && $0.end > .now }
@@ -41,26 +61,19 @@ struct SpotAlertsView: View {
 
     var body: some View {
         TodayPage(spot.name, subtitle: "Spot notifications") {
-            CardSection("Alerts", note: offNote) {
-                CardToggleRow("Bite window opens", subtitle: "A window reaches the score",
-                              systemImage: "fish.fill", tint: .blue, isOn: $choice.biteAlerts)
-                CardToggleRow("Heads-up", subtitle: "45 minutes before the window",
-                              systemImage: "alarm.fill", tint: .orange, isOn: $choice.headsUp)
-            }
-            CardSection("Score") {
-                CardRow("Alert at", systemImage: "gauge.with.dots.needle.67percent",
-                        tint: DS.scoreColor(threshold), combinesChildren: false) {
-                    Picker("Alert at", selection: $choice.threshold.haptic()) {
-                        Text("Default (\(Int(defaultThreshold)))").tag(Int?.none)
-                        ForEach(Self.thresholds, id: \.self) { value in
-                            Text("\(value) or more").tag(Int?.some(value))
-                        }
+            if stored != nil {
+                CardSection(note: choice.enabled ? nil : "Get a notification when a bite window opens here.") {
+                    CardToggleRow("Alerts for this spot", subtitle: switchSummary,
+                                  systemImage: "bell.fill", tint: .red, isOn: enabledBinding)
+                }
+                if choice.enabled {
+                    permissionNotice
+                    notifyWhenSection
+                    if sends {
+                        upcomingSection
                     }
-                    .labelsHidden()
-                    .pickerStyle(.menu)
                 }
             }
-            upcomingSection
         }
         .task { await load() }
         .onChange(of: choice) { _, newValue in
@@ -69,18 +82,131 @@ struct SpotAlertsView: View {
         }
     }
 
-    /// Why nothing will arrive even though this spot is on.
-    private var offNote: String? {
-        if !alertsEnabled && !primeWindowAlerts {
-            return "Bite alerts are off on the Notifications page."
+    /// The switch row's second line: what this spot sends.
+    private var switchSummary: String {
+        if !choice.enabled { return "Off" }
+        if !sends { return "Nothing turned on below" }
+        return "At \(threshold) or more"
+    }
+
+    /// The spot's switch. Turning it on asks for permission the first time,
+    /// as the switches on the Notifications page do.
+    private var enabledBinding: Binding<Bool> {
+        Binding {
+            choice.enabled
+        } set: { on in
+            withAnimation(DS.Motion.softSpring) { choice.enabled = on }
+            if on, permission == .notDetermined {
+                Task {
+                    await askPermission()
+                    await reschedule()
+                }
+            }
         }
-        if choice.biteAlerts && !alertsEnabled {
-            return "Window alerts are off on the Notifications page."
+    }
+
+    // MARK: - Permission
+
+    /// Why nothing will arrive on this phone, with the way to fix it.
+    @ViewBuilder
+    private var permissionNotice: some View {
+        switch permission {
+        case .authorized, .provisional, .ephemeral:
+            EmptyView()
+        case .denied:
+            PFNotice(systemImage: "bell.slash.fill", tint: .dsScoreLow,
+                     title: "Turned off for Currents",
+                     message: "Turn notifications on in the Settings app to get alerts") {
+                if let url = URL(string: UIApplication.openSettingsURLString) {
+                    Link("Change", destination: url)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(DS.ink(DS.accent))
+                }
+            }
+        default:
+            PFNotice(systemImage: "bell.badge.fill", tint: .dsScoreLow,
+                     title: "Not set up yet", message: "Allow notifications to get bite alerts") {
+                Button("Allow") {
+                    Task {
+                        await askPermission()
+                        await reschedule()
+                    }
+                }
+                .buttonStyle(TonalButtonStyle(fullWidth: false))
+            }
         }
-        if choice.headsUp && !primeWindowAlerts {
-            return "Heads-ups are off on the Notifications page."
+    }
+
+    // MARK: - Notify when
+
+    private var notifyWhenSection: some View {
+        CardSection("Notify when",
+                    note: choice.biteAlerts || choice.headsUp ? nil : "Turn one on to get alerts here.") {
+            kindRow(.windowOpens)
+            kindRow(.headsUp)
+            scoreRow
         }
-        return nil
+    }
+
+    /// A switch for this spot, or, while that kind is off for every spot, a
+    /// button that turns it on, so the row never shows a switch that does
+    /// nothing.
+    @ViewBuilder
+    private func kindRow(_ kind: Kind) -> some View {
+        let title = kind == .windowOpens ? "A bite window opens" : "45 minutes before"
+        let systemImage = kind == .windowOpens ? "fish.fill" : "alarm.fill"
+        let tint: Color = kind == .windowOpens ? .blue : .orange
+        if onForAllSpots(kind) {
+            CardToggleRow(title,
+                          subtitle: kind == .windowOpens ? "Right as it starts" : "Time to get to the water",
+                          systemImage: systemImage, tint: tint,
+                          isOn: kind == .windowOpens ? $choice.biteAlerts : $choice.headsUp)
+        } else {
+            CardRow(title, subtitle: "Off for all spots", systemImage: systemImage, tint: tint,
+                    combinesChildren: false) {
+                Button("Turn on") { turnOnForAllSpots(kind) }
+                    .buttonStyle(TonalButtonStyle(fullWidth: false))
+            }
+        }
+    }
+
+    /// The score a window must reach here, from a menu like the log form's
+    /// rows. Default follows the score on the Notifications page.
+    private var scoreRow: some View {
+        Menu {
+            Picker("Score to reach", selection: $choice.threshold.haptic()) {
+                Text("Default (\(Int(defaultThreshold)))").tag(Int?.none)
+                ForEach(Self.thresholds, id: \.self) { value in
+                    Text("\(value) or more").tag(Int?.some(value))
+                }
+            }
+        } label: {
+            CardRow("Score to reach", subtitle: choice.threshold == nil ? "Your default" : nil,
+                    systemImage: "gauge.with.dots.needle.67percent", tint: DS.scoreColor(threshold)) {
+                MenuValue(text: "\(threshold) or more")
+            }
+        }
+        .buttonStyle(.dsCardRow)
+    }
+
+    /// Turns a kind on for every spot, as its switch on the Notifications
+    /// page does, and on for this spot. Asks for permission the first time.
+    private func turnOnForAllSpots(_ kind: Kind) {
+        Haptics.tap()
+        withAnimation(DS.Motion.softSpring) {
+            switch kind {
+            case .windowOpens:
+                alertsEnabled = true
+                choice.biteAlerts = true
+            case .headsUp:
+                primeWindowAlerts = true
+                choice.headsUp = true
+            }
+        }
+        Task {
+            if permission == .notDetermined { await askPermission() }
+            await reschedule()
+        }
     }
 
     // MARK: - Upcoming
@@ -146,6 +272,8 @@ struct SpotAlertsView: View {
     // MARK: - Data
 
     private func load() async {
+        // Permission first, so an allowed phone never flashes the notice.
+        permission = await NotificationManager.shared.checkPermissionStatus()
         let saved = (try? appState.spotRepository.alert(for: spot.id)) ?? .defaults(for: spot.id)
         stored = saved
         choice = saved
@@ -163,8 +291,23 @@ struct SpotAlertsView: View {
     }
 
     private func save(_ newValue: SpotAlert) {
-        stored = newValue
-        try? appState.spotRepository.saveAlert(newValue)
-        Task { await BackgroundRefresh.rescheduleAlerts(appState: appState) }
+        do {
+            try appState.spotRepository.saveAlert(newValue)
+            stored = newValue
+        } catch {
+            ToastCenter.shared.show("Couldn't save the change", style: .error)
+            if let stored { choice = stored }
+            return
+        }
+        Task { await reschedule() }
+    }
+
+    private func askPermission() async {
+        let granted = await NotificationManager.shared.requestPermission()
+        permission = granted ? .authorized : .denied
+    }
+
+    private func reschedule() async {
+        await BackgroundRefresh.rescheduleAlerts(appState: appState)
     }
 }

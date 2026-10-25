@@ -307,6 +307,24 @@ extension CardRow where Trailing == EmptyView {
     }
 }
 
+/// The trailing value of a `CardRow` used as a `Menu` label, with the
+/// menu's up-down chevron.
+struct MenuValue: View {
+    let text: String
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Text(text)
+                .font(.body)
+                .foregroundStyle(Color.dsText2)
+                .lineLimit(1)
+            Image(systemName: "chevron.up.chevron.down")
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(Color.dsText3)
+        }
+    }
+}
+
 /// A switch row on a `CardGroup`, with the same icon tile and one subtitle.
 /// At accessibility sizes the icon sits by the title.
 struct CardToggleRow: View {
