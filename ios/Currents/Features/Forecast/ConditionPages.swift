@@ -613,14 +613,20 @@ private struct MoonGlyph: View {
 }
 
 private extension View {
-    /// The moon's lit face in the moon colour with a thin outline in the
-    /// same colour at half strength, so it looks the same in light and dark.
-    /// Following the text colour drew a grey disc in a black ring in light
-    /// mode, and the darker ink drew a heavy ring round the face.
-    /// Callers set an ultra light weight, which thins the outline.
+    /// The moon's lit face in the moon colour. The outline layer is the same
+    /// colour at full strength in dark mode, where it also fills a full
+    /// moon's face, and at half strength in light mode, where full strength
+    /// drew a heavy ring. Following the text colour drew a grey disc in a
+    /// black ring in light mode. Callers set an ultra light weight, which
+    /// thins the outline.
     func moonColours() -> some View {
-        symbolRenderingMode(.palette)
-            .foregroundStyle(ForecastCondition.moon.tint.opacity(0.5), ForecastCondition.moon.tint)
+        let moon = UIColor(ForecastCondition.moon.tint)
+        let outline = Color(uiColor: UIColor { traits in
+            let resolved = moon.resolvedColor(with: traits)
+            return traits.userInterfaceStyle == .dark ? resolved : resolved.withAlphaComponent(0.5)
+        })
+        return symbolRenderingMode(.palette)
+            .foregroundStyle(outline, ForecastCondition.moon.tint)
     }
 }
 
