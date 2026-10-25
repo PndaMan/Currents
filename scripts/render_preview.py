@@ -6,10 +6,10 @@
 
 Reads ios/AppStore/preview.json and the clips that preview-footage.yml
 records (1320x2868 MP4s named after the take). The edit alternates two kinds
-of scene: a title card in the brand colour, where the headline rises in line
-by line and one of the app's own fish or lure drawings acts it out, and a
-stretch of real footage, full bleed, with slow pushes onto what matters and
-a ring where a finger taps.
+of scene: a title card over one of the store art's lake scenes, drifting,
+where the headline rises in line by line and one of the app's own fish or
+lure drawings acts it out on the water, and a stretch of real footage, full
+bleed, with slow pushes onto what matters and a ring where a finger taps.
 
     uv run scripts/render_preview.py --footage preview-footage --out build/preview.mp4
 
@@ -22,6 +22,7 @@ checking the motion. Needs ffmpeg on the PATH.
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import math
 import subprocess
@@ -31,6 +32,7 @@ from pathlib import Path
 from PIL import Image, ImageDraw
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import scenes  # noqa: E402
 from store_art import ROOT, artwork, color, draw_text, font, logo, place, rounded_mask, text_width  # noqa: E402
 
 W, H = 886, 1920
@@ -335,14 +337,31 @@ ILLUSTRATIONS = {"bite": bite, "snap": snap, "plan": plan, "explore": explore, "
 # MARK: - Scenes
 
 
+def backdrop(spec: dict, theme: dict, named: dict) -> scenes.Scene:
+    """One of the store art's lake scenes (store-art.json "scenes"), drawn
+    at the recording's size. "drop" lowers everything but the foreground so
+    a three-line headline stays in the sky, "sun" moves the sun or moon
+    clear of it, and "set" replaces any of the scene's own keys (a deeper
+    sky behind white type, say)."""
+    scene = copy.deepcopy(named[spec["name"]]) | spec.get("set", {})
+    for layer in scene["layers"]:
+        if layer.get("y", 1) < 0.9:
+            layer["y"] += spec.get("drop", 0)
+    if "sun" in spec and "sun" in scene:
+        scene["sun"]["at"] = spec["sun"]
+    return scenes.Scene(scene, theme, (SRC_W, SRC_H), spec.get("loop", 30))
+
+
 class Title:
-    """The brand colour, the logo and name at the top, the headline rising
-    in line by line, and an illustration acting it out."""
+    """A lake scene (or the brand colour), the logo and name at the top,
+    the headline rising in line by line, and an illustration acting it
+    out."""
 
     LEFT = 64
 
-    def __init__(self, spec: dict, theme: dict):
+    def __init__(self, spec: dict, theme: dict, named: dict):
         self.spec, self.theme = spec, theme
+        self.scene = backdrop(spec["scene"], theme, named) if "scene" in spec else None
         self.duration = spec["duration"]
         self.frames_count = round(self.duration * FPS)
         self.field = color(theme, spec.get("field", "field"))
@@ -361,7 +380,10 @@ class Title:
         self.illustration = ILLUSTRATIONS[spec["art"]] if spec.get("art") else None
 
     def frame(self, t: float) -> Image.Image:
-        canvas = Image.new("RGBA", (W, H), self.field + (255,))
+        if self.scene:
+            canvas = self.scene.frame(t).resize((W, H), Image.LANCZOS)
+        else:
+            canvas = Image.new("RGBA", (W, H), self.field + (255,))
         canvas.alpha_composite(header(self.ink), (self.LEFT, 118))
         for i, img in enumerate(self.lines):
             x = progress(t, 0.06 + i * 0.09, 0.42)
@@ -383,7 +405,8 @@ class Title:
 
 class Footage:
     """Parts of one recorded clip, played at their own speeds, framed by
-    the zoom keyframes, with a ring drawn for each tap."""
+    the zoom keyframes, with a ring drawn for each tap and any "cover"
+    painted out."""
 
     def __init__(self, spec: dict, folder: Path):
         self.spec = spec
@@ -401,10 +424,17 @@ class Footage:
         self.duration = self.frames_count / FPS
         self.zoom = spec.get("zoom") or [{"t": 0, "center": [220, 478], "scale": 1}]
         self.taps = spec.get("taps", [])
+        self.covers = spec.get("cover", [])
 
     def decode(self, start: float, length: float, speed: float, n: int):
-        cmd = ["ffmpeg", "-v", "error", "-ss", f"{start:.3f}", "-t", f"{length + 0.5:.3f}", "-i", str(self.path),
-               "-vf", f"setpts=(PTS-STARTPTS)/{speed},fps={FPS},scale={SRC_W}:{SRC_H}:flags=lanczos",
+        # The recorder writes a frame only when the screen changes, so what
+        # is on screen at a time is the last frame written before it. A seek
+        # lands on the next one instead, which can be seconds later; so the
+        # clip is read from the top, its gaps filled at a steady rate, and
+        # then cut.
+        vf = (f"fps={FPS}:round=down,trim=start={start:.3f}:duration={length + 0.5:.3f},"
+              f"setpts=(PTS-STARTPTS)/{speed},fps={FPS},scale={SRC_W}:{SRC_H}:flags=lanczos")
+        cmd = ["ffmpeg", "-v", "error", "-i", str(self.path), "-vf", vf,
                "-frames:v", str(n), "-f", "rawvideo", "-pix_fmt", "rgb24", "-"]
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE)
         size, last, count = SRC_W * SRC_H * 3, None, 0
@@ -471,6 +501,19 @@ class Footage:
             overlay.alpha_composite(layer, (round(x - 110), round(y - 110)))
             frame.paste(Image.alpha_composite(frame.convert("RGBA"), overlay).convert("RGB"))
 
+    def cover(self, img: Image.Image, t: float) -> None:
+        """Paints out each "box" (in points) from scene time "from", row by
+        row in the colour just right of it, so a soft fall in the
+        background carries on through."""
+        draw = None
+        for c in self.covers:
+            if t < c["from"]:
+                continue
+            draw = draw or ImageDraw.Draw(img)
+            x, y, w, h = (v * POINT for v in c["box"])
+            for row in range(round(y), round(y + h)):
+                draw.line([(x, row), (x + w, row)], fill=img.getpixel((round(x + w + 6), row)))
+
     def frames(self):
         i = 0
         for part, n in self.parts:
@@ -483,6 +526,8 @@ class Footage:
                 source = self.decode(part["from"], part["to"] - part["from"], speed, n)
             for img in source:
                 t = i / FPS
+                if self.covers:
+                    self.cover(img, t)
                 box = self.view(t)
                 frame = img.resize((W, H), Image.LANCZOS, box=box)
                 if self.taps:
@@ -539,14 +584,15 @@ def main() -> None:
     args = ap.parse_args()
 
     config = json.loads(args.config.read_text())
-    theme = json.loads((ROOT / "ios/AppStore/store-art.json").read_text())["theme"] | config.get("theme", {})
+    art = json.loads((ROOT / "ios/AppStore/store-art.json").read_text())
+    theme = art["theme"] | config.get("theme", {})
     specs = config["scenes"]
     if args.scenes:
         keep = {int(s) for s in args.scenes.split(",")}
         specs = [s for i, s in enumerate(specs, 1) if i in keep]
-    scenes = [Title(s, theme) if s["type"] == "title" else Footage(s, args.footage) for s in specs]
-    total = sum(s.frames_count for s in scenes)
-    print(f"{len(scenes)} scenes, {total / FPS:.2f}s")
+    parts = [Title(s, theme, art.get("scenes", {})) if s["type"] == "title" else Footage(s, args.footage) for s in specs]
+    total = sum(s.frames_count for s in parts)
+    print(f"{len(parts)} scenes, {total / FPS:.2f}s")
     if not args.scenes and not 15 <= total / FPS <= 30:
         raise SystemExit("App Store previews run 15 to 30 seconds")
 
@@ -565,7 +611,7 @@ def main() -> None:
     sheet: list[tuple[float, Image.Image]] = []
     previous = None
     n = 0
-    for number, (spec, scene) in enumerate(zip(specs, scenes), 1):
+    for number, (spec, scene) in enumerate(zip(specs, parts), 1):
         print(f"scene {number}: {spec.get('clip') or ' / '.join(spec['lines'])} ({scene.duration:.2f}s)")
         transition = spec.get("in", "cut")
         for i, frame in enumerate(scene.frames()):
