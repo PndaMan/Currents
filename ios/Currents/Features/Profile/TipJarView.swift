@@ -15,7 +15,7 @@ struct TipJarView: View {
     private var jar: TipJar { TipJar.shared }
 
     var body: some View {
-        TodayPage("Leave a tip", subtitle: "Tips help keep Currents free.") {
+        TodayPage("Leave a tip", subtitle: "Tips help keep Currents free") {
             if jar.products.isEmpty {
                 InlineEmpty(systemImage: "heart", text: "Tips are not available right now. Try again later.")
             } else {
