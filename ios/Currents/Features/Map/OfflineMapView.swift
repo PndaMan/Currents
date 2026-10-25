@@ -337,6 +337,12 @@ struct OfflineMapView: UIViewRepresentable {
             guard gesture.state == .began, let map = gesture.view as? MKMapView,
                   let onLongPress = parent.onLongPress else { return }
             let point = gesture.location(in: map)
+            // A press held on a pin opens the pin, not a new spot under it.
+            var hit = map.hitTest(point, with: nil)
+            while let v = hit {
+                if v is MKAnnotationView { return }
+                hit = v.superview
+            }
             onLongPress(map.convert(point, toCoordinateFrom: map))
         }
 

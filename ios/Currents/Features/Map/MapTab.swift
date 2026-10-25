@@ -97,6 +97,8 @@ struct MapTab: View {
     @State private var pendingDownload = false
     @State private var addSpotAt: AddSpotTarget?
     @State private var isDropping = false
+    /// When a pin last took a tap, so a press held on it doesn't also drop a spot.
+    @State private var lastPinTap = Date.distantPast
     @State private var pendingRoute: ExploreRoute?
 
     // The place sheet. `shownPlace` is kept after closing so the sheet does
@@ -549,8 +551,13 @@ struct MapTab: View {
                         .onEnded { value in
                             guard case .second(true, let drag?) = value,
                                   let coord = proxy.convert(drag.location, from: .local) else { return }
-                            Haptics.press()
-                            dropSpot(at: coord)
+                            // The pin's own tap lands in the same touch; let it win.
+                            Task { @MainActor in
+                                try? await Task.sleep(for: .milliseconds(80))
+                                guard Date.now.timeIntervalSince(lastPinTap) > 0.3 else { return }
+                                Haptics.press()
+                                dropSpot(at: coord)
+                            }
                         }
                 )
             }
@@ -580,6 +587,7 @@ struct MapTab: View {
     }
 
     private func tapPin(_ cluster: PinCluster) {
+        lastPinTap = .now
         guard cluster.members.count > 1 else {
             select(cluster.lead)
             return
