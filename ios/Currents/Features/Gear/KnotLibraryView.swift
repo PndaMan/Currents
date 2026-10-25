@@ -522,7 +522,13 @@ enum KnotImageStore {
         // A tall plate, mostly line: the fly on its hook at the foot, from
         // just below the letter A at the knot. The line, rules and letters
         // above shrink the fly to a speck.
-        "pennell_jam.jpeg": ThumbCrop(rect: CGRect(x: 0.050, y: 0.665, width: 0.910, height: 0.335), weight: 1)
+        "pennell_jam.jpeg": ThumbCrop(rect: CGRect(x: 0.050, y: 0.665, width: 0.910, height: 0.335), weight: 1),
+        // Two drawings, the knot above with letters round it: the fly tied
+        // on below, from its wing to the line, short of the letter C.
+        "gazette.jpeg": ThumbCrop(rect: CGRect(x: 0.140, y: 0.740, width: 0.800, height: 0.235), weight: 1),
+        // Three drawings: the whipped hook and fly at the top, the finished
+        // tie, without the two lettered steps below it.
+        "whipping.jpeg": ThumbCrop(rect: CGRect(x: 0.300, y: 0.019, width: 0.469, height: 0.224), weight: 1)
     ]
 
     /// The line art trimmed to its ink, for thumbnails. The blank paper round
