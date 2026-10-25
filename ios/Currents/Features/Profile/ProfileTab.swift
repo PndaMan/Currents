@@ -1338,8 +1338,9 @@ struct PrivacySettingsView: View {
     }
 
     /// While catch locations are not shared, the preview and the label dim
-    /// and the slider takes the system's disabled look alone: dimmed again
-    /// on top of that, it all but vanished on the light card.
+    /// and the slider is left out, as iOS Settings hides a control that
+    /// depends on a switch that is off: a disabled slider is drawn for a
+    /// white cell and all but vanished on the light card.
     private var blurSection: some View {
         CardSection("Honey-hole blur",
                     note: sharesCatchLocations ? "Friends see an area this wide, never the exact rock."
@@ -1359,13 +1360,14 @@ struct PrivacySettingsView: View {
                             .foregroundStyle(.dsText)
                     }
                     .opacity(sharesCatchLocations ? 1 : 0.5)
-                    Slider(value: $privacyRadius, in: 0...20, step: 1)
-                        .accessibilityLabel("Honey-hole blur")
-                        .accessibilityValue(privacyRadius == 0 ? "Exact" : "\(Int(privacyRadius)) kilometres")
+                    if sharesCatchLocations {
+                        Slider(value: $privacyRadius, in: 0...20, step: 1)
+                            .accessibilityLabel("Honey-hole blur")
+                            .accessibilityValue(privacyRadius == 0 ? "Exact" : "\(Int(privacyRadius)) kilometres")
+                    }
                 }
             }
             .padding(DS.Space.s4)
-            .disabled(!sharesCatchLocations)
             .haptic(.selection, trigger: privacyRadius)
         }
     }
