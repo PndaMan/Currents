@@ -1090,19 +1090,15 @@ struct GroupTripView: View {
         return NavigationLink { CommunityCatchDetailView(row: row) } label: {
             // The over-line gives the clock time; the row opens the catch.
             ArtRow(over: "\(who), \(ForecastFormat.time(c.date, use24: use24))",
-                   title: feedTitle(c), chevron: true) {
+                   title: c.species,
+                   subtitle: CrewText.catchSize(lengthCm: c.lengthCm, weightKg: c.weightKg, imperial: imperial),
+                   chevron: true) {
                 CommunityCatchThumb(row: row, size: 64)
                     .clipShape(RoundedRectangle(cornerRadius: DS.Radius.thumb, style: .continuous))
             }
         }
         .buttonStyle(.dim)
         .transition(.move(edge: .top).combined(with: .opacity))
-    }
-
-    private func feedTitle(_ c: CommunityService.GroupCatch) -> String {
-        if let w = c.weightKg { return "\(c.species), \(Units.weight(kg: w, imperial: imperial))" }
-        if let l = c.lengthCm { return "\(c.species), \(Units.length(cm: l, imperial: imperial))" }
-        return c.species
     }
 
     // MARK: - Invite and details

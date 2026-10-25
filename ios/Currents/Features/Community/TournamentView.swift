@@ -2001,7 +2001,8 @@ struct TeamTournamentDetailView: View {
             CommunityCatchDetailView(row: row)
         } label: {
             ArtRow(over: "\(who), \(eventTimeText(c.date, use24: use24))",
-                   title: sizeTitle(c)) {
+                   title: c.species,
+                   subtitle: CrewText.catchSize(lengthCm: c.lengthCm, weightKg: c.weightKg, imperial: imperial)) {
                 CommunityCatchThumb(row: row, size: 56)
             } trailing: {
                 Text("+\(points)")
@@ -2009,12 +2010,6 @@ struct TeamTournamentDetailView: View {
             }
         }
         .buttonStyle(.dim)
-    }
-
-    private func sizeTitle(_ c: CommunityService.GroupCatch) -> String {
-        if let w = c.weightKg { return "\(c.species), \(Units.weight(kg: w, imperial: imperial))" }
-        if let l = c.lengthCm { return "\(c.species), \(Units.length(cm: l, imperial: imperial))" }
-        return c.species
     }
 
     /// Full catch detail wants a LeaderRow, same conversion the group trip
