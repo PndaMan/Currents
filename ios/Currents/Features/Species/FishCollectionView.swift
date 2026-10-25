@@ -474,7 +474,7 @@ private struct FishdexArt: View {
                 .resizable()
                 .scaledToFit()
                 .padding(16)
-                .foregroundStyle(found ? species.artTint : Color.dsText.opacity(0.16))
+                .foregroundStyle(found ? DS.ink(species.artTint) : Color.dsText.opacity(0.16))
         }
     }
 }
