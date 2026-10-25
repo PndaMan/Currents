@@ -374,6 +374,10 @@ struct CrewFeedRow: View {
                     Image(systemName: "face.smiling")
                         .font(.subheadline)
                         .foregroundStyle(.dsText2)
+                        // The outlined face in both modes. Only the environment
+                        // value ignores an inherited fill; `.symbolVariant(.none)`
+                        // has no effect.
+                        .environment(\.symbolVariants, .none)
                     Text("\(total)")
                         .font(.subheadline.weight(.medium))
                         .foregroundStyle(.dsText2)
