@@ -127,7 +127,7 @@ struct ConditionGrid: View {
                           dotAt: day.isToday ? ConditionText.dayFraction(.now) : nil)
             case .moon:
                 Image(systemName: day.solunar.moonPhase.symbolName)
-                    .font(.title)
+                    .font(.title.weight(.ultraLight))
                     .moonColours()
                     .accessibilityHidden(true)
             case .sun:
@@ -606,19 +606,21 @@ private struct MoonGlyph: View {
 
     var body: some View {
         Image(systemName: phase.symbolName)
-            .font(.system(size: size)) // ui-lint: allow, @ScaledMetric symbol
+            .font(.system(size: size, weight: .ultraLight)) // ui-lint: allow, @ScaledMetric symbol
             .moonColours()
             .accessibilityLabel(ForecastFormat.moonName(phase))
     }
 }
 
 private extension View {
-    /// The moon's lit face in the moon colour with its outline in the darker
-    /// ink, the same in light and dark. Following the text colour drew the
-    /// face as a grey disc in a black ring in light mode.
+    /// The moon's lit face in the moon colour with a thin outline in the
+    /// same colour at half strength, so it looks the same in light and dark.
+    /// Following the text colour drew a grey disc in a black ring in light
+    /// mode, and the darker ink drew a heavy ring round the face.
+    /// Callers set an ultra light weight, which thins the outline.
     func moonColours() -> some View {
         symbolRenderingMode(.palette)
-            .foregroundStyle(ForecastCondition.moon.ink, ForecastCondition.moon.tint)
+            .foregroundStyle(ForecastCondition.moon.tint.opacity(0.5), ForecastCondition.moon.tint)
     }
 }
 
