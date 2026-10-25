@@ -136,7 +136,8 @@ struct ExplorePlacePage: View {
 
                 section {
                     SectionTitle("Conditions")
-                    ExploreConditions(weather: weather, isLoading: bite == nil)
+                    ExploreConditions(weather: weather, isLoading: bite == nil,
+                                      coordinate: coord, freshwater: freshwater)
                     if let reason = bite?.reasons.first {
                         ExploreFootnote(ExploreFormat.sentence(reason))
                     }
