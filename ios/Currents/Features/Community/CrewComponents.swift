@@ -340,21 +340,24 @@ struct CrewFeedRow: View {
         post.authorCode == svc.friendCode ? "You" : (post.authorName.split(separator: " ").first.map(String.init) ?? post.authorName)
     }
 
-    /// The size under the species, then the crew, caption or trip if there is one.
+    /// The size under the species, as on the profile rows; the crew, caption
+    /// or trip goes on a line of its own below it. `ArtRow` has no footnote
+    /// slot, so the line break sits inside its two-line subtitle, which cuts
+    /// a long caption to one line and lets it wrap at accessibility sizes.
     private var subtitle: String? {
-        var parts: [String] = []
+        var lines: [String] = []
         if let size = CrewText.catchSize(lengthCm: post.lengthCm, weightKg: post.weightKg,
                                          imperial: units == "imperial") {
-            parts.append(size)
+            lines.append(size)
         }
-        if let crewName {
-            parts.append(crewName)
+        if let crewName, !crewName.isEmpty {
+            lines.append(crewName)
         } else if !post.caption.isEmpty {
-            parts.append(post.caption)
+            lines.append(post.caption)
         } else if !post.tripName.isEmpty {
-            parts.append(post.tripName)
+            lines.append(post.tripName)
         }
-        return parts.isEmpty ? nil : parts.joined(separator: ", ")
+        return lines.isEmpty ? nil : lines.joined(separator: "\n")
     }
 
     var body: some View {
