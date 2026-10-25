@@ -1702,6 +1702,15 @@ struct AboutView: View {
         return build.isEmpty ? "Version \(Self.shortVersion)" : "Version \(Self.shortVersion) (\(build))"
     }
 
+    /// Marks a row that leaves the app, as the species page marks its
+    /// Wikipedia link. A chevron is for rows that push a page.
+    private var externalMark: some View {
+        Image(systemName: "arrow.up.right")
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(.dsText3)
+            .accessibilityHidden(true)
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: DS.Space.s6) {
@@ -1718,7 +1727,7 @@ struct AboutView: View {
                     // The App Store's write-review page, as Apple recommends for
                     // a permanent Rate button.
                     Link(destination: ReviewPrompt.writeReviewURL) {
-                        CardRow("Rate Currents", systemImage: "star.fill", tint: .yellow, chevron: true)
+                        CardRow("Rate Currents", systemImage: "star.fill", tint: .yellow) { externalMark }
                     }
                     .buttonStyle(.dsCardRow)
                     .accessibilityHint("Opens the App Store")
@@ -1726,12 +1735,12 @@ struct AboutView: View {
                 CardSection("Help") {
                     Link(destination: Self.supportURL) {
                         CardRow("Contact support", subtitle: "Questions, bugs and ideas",
-                                systemImage: "envelope.fill", tint: .blue, chevron: true)
+                                systemImage: "envelope.fill", tint: .blue) { externalMark }
                     }
                     .buttonStyle(.dsCardRow)
                     .accessibilityHint("Opens the support page")
                     Link(destination: Self.privacyURL) {
-                        CardRow("Privacy policy", systemImage: "hand.raised.fill", tint: .green, chevron: true)
+                        CardRow("Privacy policy", systemImage: "hand.raised.fill", tint: .green) { externalMark }
                     }
                     .buttonStyle(.dsCardRow)
                     .accessibilityHint("Opens the privacy policy")
