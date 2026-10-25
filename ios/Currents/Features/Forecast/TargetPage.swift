@@ -344,8 +344,8 @@ struct TargetPage: View {
                     let window = upcoming ?? best
                     let title = upcoming == nil || !today.bestWindowPassed ? "Best window today" : "Next window today"
                     let footnote = upcoming == nil
-                        ? "Passed, score \(window.peakScore)"
-                        : "To \(ForecastFormat.hour(window.endHour + 1, use24: use24)), score \(window.peakScore)"
+                        ? "Passed after peaking at \(window.peakScore)"
+                        : "Until \(ForecastFormat.hour(window.endHour + 1, use24: use24)), peaks at \(window.peakScore)"
                     NavigationLink(value: ForecastRoute.day(offset: 0, hour: window.startHour)) {
                         StatTile(title, systemImage: ForecastFormat.windowIcon(window.startHour),
                                  tint: DS.scoreColor(window.peakScore),
