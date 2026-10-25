@@ -226,6 +226,23 @@ struct MapTab: View {
         return PinClustering.cluster(features, latSpan: currentLatSpan)
     }
 
+    /// The water in view whose outline is drawn: water with a pin standing at
+    /// its centre, as a pin of its own or as the lead of a cluster, or whose
+    /// saved spot has one. Water folded into a cluster led by something else
+    /// has no pin at its centre, so its circle would float with nothing to open.
+    private func outlinedWater(_ pins: [PinCluster]) -> [Waterbody] {
+        let leads = Set(pins.map { $0.lead.id })
+        var spotPins: [Int64: String] = [:]
+        for spot in shownSpots {
+            if let waterId = spot.waterbodyId { spotPins[waterId] = ExploreFeature.spot(spot).id }
+        }
+        return waterInView.filter { wb in
+            if leads.contains(ExploreFeature.water(wb).id) { return true }
+            guard let waterId = wb.id, let spotPin = spotPins[waterId] else { return false }
+            return leads.contains(spotPin)
+        }
+    }
+
     var body: some View {
         ZStack {
             mapLayer
@@ -454,17 +471,18 @@ struct MapTab: View {
 
     @ViewBuilder
     private var mapLayer: some View {
+        let pins = clusters
         if mapStyle == .offline {
             // Cached satellite tiles as the main map, which works offline
             // for everywhere the auto-cache has covered.
             OfflineMapView(
                 overlay: appState.mapManager.offlineOverlay,
-                pins: clusters,
+                pins: pins,
                 pinFace: { cluster in
                     AnyView(pinFace(cluster).environment(appState).tint(accent).environment(\.colorScheme, colorScheme))
                 },
                 onSelectPin: { tapPin($0) },
-                waterOutlines: currentLatSpan < 1.0 ? waterInView : [],
+                waterOutlines: currentLatSpan < 1.0 ? outlinedWater(pins) : [],
                 userMarker: AnyView(UserLocationMarker(heading: appState.locationManager.heading, accent: accent)),
                 region: position.region,
                 showNautical: layerNautical,
@@ -489,9 +507,10 @@ struct MapTab: View {
                         )
                     }
 
-                    // Water body outlines, only when zoomed in enough to see them.
+                    // Water body outlines, only when zoomed in enough to see them
+                    // and only for water that has a pin.
                     if currentLatSpan < 1.0 {
-                        ForEach(waterInView) { wb in
+                        ForEach(outlinedWater(pins)) { wb in
                             MapCircle(
                                 center: CLLocationCoordinate2D(latitude: wb.latitude, longitude: wb.longitude),
                                 radius: CLLocationDistance(min(wb.approximateRadiusM, 50000))
@@ -501,7 +520,7 @@ struct MapTab: View {
                         }
                     }
 
-                    ForEach(clusters) { cluster in
+                    ForEach(pins) { cluster in
                         Annotation("", coordinate: cluster.coordinate) {
                             pinView(cluster)
                         }
