@@ -122,6 +122,10 @@ struct LogCatchCameraView: View {
 
     @StateObject private var camera = LogCatchCaptureModel()
     @State private var flash = false
+    /// Screenshot recordings only: the demo photo stands in for the live
+    /// picture and the shutter presses itself (ScreenshotSupport.capturePhoto).
+    /// Nil on a real install.
+    @State private var demoPhoto = ScreenshotSupport.capturePhoto
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -135,8 +139,13 @@ struct LogCatchCameraView: View {
         }
         .environment(\.colorScheme, .dark)
         .statusBarHidden()
-        .onAppear { camera.start() }
+        .onAppear { if demoPhoto == nil { camera.start() } }
         .onDisappear { camera.stop() }
+        .task {
+            guard demoPhoto != nil, !adding else { return }
+            try? await Task.sleep(for: .seconds(3))
+            shoot()
+        }
     }
 
     private var topBar: some View {
@@ -167,33 +176,47 @@ struct LogCatchCameraView: View {
 
     private var viewfinder: some View {
         ZStack {
-            switch camera.status {
-            case .running, .starting:
-                LogCatchPreview(session: camera.session)
-                // The framing guide only over a live picture, not over the
-                // black preview while the camera starts.
-                if camera.status == .running {
-                    RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous)
-                        .strokeBorder(Color.white.opacity(0.7), lineWidth: 2)
-                        .padding(.horizontal, 36)
-                        .padding(.vertical, 70)
-                        .accessibilityHidden(true)
+            if let demoPhoto {
+                Image(uiImage: demoPhoto)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .clipped()
+                    .accessibilityHidden(true)
+                RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous)
+                    .strokeBorder(Color.white.opacity(0.7), lineWidth: 2)
+                    .padding(.horizontal, 36)
+                    .padding(.vertical, 70)
+                    .accessibilityHidden(true)
+            } else {
+                switch camera.status {
+                case .running, .starting:
+                    LogCatchPreview(session: camera.session)
+                    // The framing guide only over a live picture, not over the
+                    // black preview while the camera starts.
+                    if camera.status == .running {
+                        RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous)
+                            .strokeBorder(Color.white.opacity(0.7), lineWidth: 2)
+                            .padding(.horizontal, 36)
+                            .padding(.vertical, 70)
+                            .accessibilityHidden(true)
+                    }
+                case .denied:
+                    cameraMessage("Camera is off for Currents",
+                                  detail: "Turn it on in Settings, or choose photos from your library.",
+                                  showsSettings: true)
+                case .unavailable:
+                    cameraMessage("No camera here",
+                                  detail: "Choose photos from your library instead.",
+                                  showsSettings: false)
                 }
-            case .denied:
-                cameraMessage("Camera is off for Currents",
-                              detail: "Turn it on in Settings, or choose photos from your library.",
-                              showsSettings: true)
-            case .unavailable:
-                cameraMessage("No camera here",
-                              detail: "Choose photos from your library instead.",
-                              showsSettings: false)
             }
             if flash {
                 Color.white.allowsHitTesting(false)
             }
         }
         .overlay(alignment: .bottom) {
-            if camera.status == .running {
+            if isLive {
                 Text(adding ? "Add the spot, the lure or the release" : "Fill the frame with the fish")
                     .font(.footnote.weight(.semibold))
                     .foregroundStyle(.white)
@@ -256,7 +279,7 @@ struct LogCatchCameraView: View {
                 .buttonStyle(.dim)
                 // On press-down, so the tap is over before the photo is taken.
                 .buttonHaptic(.press)
-                .disabled(camera.status != .running)
+                .disabled(!isLive)
                 // Dimmed for the moment the camera starts; gone when there is
                 // no camera to shoot with, so no dead shutter is left.
                 .opacity(shutterOpacity)
@@ -300,10 +323,16 @@ struct LogCatchCameraView: View {
 
     /// The camera is running or about to.
     private var canShoot: Bool {
-        camera.status == .running || camera.status == .starting
+        demoPhoto != nil || camera.status == .running || camera.status == .starting
+    }
+
+    /// A picture is in the viewfinder.
+    private var isLive: Bool {
+        demoPhoto != nil || camera.status == .running
     }
 
     private var shutterOpacity: Double {
+        if demoPhoto != nil { return 1 }
         switch camera.status {
         case .running: 1
         case .starting: 0.4
@@ -312,8 +341,12 @@ struct LogCatchCameraView: View {
     }
 
     private func shoot() {
-        camera.capture { image in
-            onCapture(image)
+        if let demoPhoto {
+            onCapture(demoPhoto)
+        } else {
+            camera.capture { image in
+                onCapture(image)
+            }
         }
         if reduceMotion { return }
         flash = true

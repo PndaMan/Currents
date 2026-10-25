@@ -267,7 +267,6 @@ struct LogCatchView: View {
             }
         }
         .task { await load() }
-        .task { await takeScreenshotPhoto() }
         .task(id: conditionsKey) { await refreshConditions() }
         .onChange(of: libraryItems) { _, items in loadPhotos(items) }
         .onChange(of: selectedSpeciesId) { _, _ in loadPriors() }
@@ -352,15 +351,6 @@ struct LogCatchView: View {
             }
         }
         classifyImage(image)
-    }
-
-    /// Screenshot recordings only: presses the shutter on the demo photo named
-    /// by `SCREENSHOT_PHOTO`, so the real capture animation and species ID
-    /// play. Nil outside screenshot mode, so a real install never gets here.
-    private func takeScreenshotPhoto() async {
-        guard !isEditing, photos.isEmpty, let image = ScreenshotSupport.capturePhoto else { return }
-        try? await Task.sleep(for: .seconds(1.5))
-        handleCapture(image)
     }
 
     // MARK: - Cover

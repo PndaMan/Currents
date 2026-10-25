@@ -340,7 +340,8 @@ enum ScreenshotSupport {
             .appendingPathComponent("ScreenshotPhotos", isDirectory: true)
     }
 
-    /// The demo photo Log catch takes by itself when the app is launched with
+    /// The demo photo Log catch's camera shows as its live picture, and then
+    /// takes by itself, when the app is launched with
     /// `SCREENSHOT_PHOTO=<file name>`, so a screen recording shows the real
     /// capture and species ID (`.github/workflows/preview-footage.yml`).
     static var capturePhoto: UIImage? {
