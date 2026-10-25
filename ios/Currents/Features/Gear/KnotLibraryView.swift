@@ -138,7 +138,8 @@ enum KnotFavourites {
 /// or its category symbol. The whole drawing fits inside the tile, as on the
 /// knot's page: filling the square cut tall plates to meaningless slices.
 /// The blank paper and the page shading round the drawing are trimmed and
-/// the padding is slight, so the drawing gets most of the tile.
+/// the padding is slight, so the drawing gets most of the tile. A plate too
+/// wide or too faint to read at that size shows its finished tie alone.
 struct KnotThumb: View {
     let knot: KnotEntry
     var size: CGFloat = 64
@@ -502,19 +503,68 @@ enum KnotImageStore {
         return art
     }
 
+    /// Plates that read as a thin line or faint scratches once the whole
+    /// plate is shrunk to a tile: the tie itself, as a share of the plate
+    /// from its top left, and how many pixels its lines are thickened by so
+    /// they carry the weight Clinch's do at that size.
+    private struct ThumbCrop {
+        let rect: CGRect
+        let weight: Int
+    }
+
+    private static let thumbCrops: [String: ThumbCrop] = [
+        // Two drawings side by side on a plate six times wider than tall:
+        // the tied knot on its hook, on the right.
+        "improved_jam.jpeg": ThumbCrop(rect: CGRect(x: 0.644, y: 0, width: 0.264, height: 1), weight: 1),
+        // Three steps in pale pencil: the finished knot, the third.
+        "turle.jpeg": ThumbCrop(rect: CGRect(x: 0.730, y: 0.276, width: 0.210, height: 0.540), weight: 1)
+    ]
+
     /// The line art trimmed to its ink, for thumbnails. The blank paper round
     /// the drawing and the faint page shading at a plate's edges go; every
-    /// inked line stays. Falls back to the whole plate.
+    /// inked line stays. A plate listed in `thumbCrops` shows only its tie,
+    /// with thicker lines. Falls back to the whole plate.
     static func thumbArt(_ name: String?) -> UIImage? {
         guard let name, let art = lineArt(name) else { return nil }
         let key = "\(name)|thumb"
         if let cached = artCache[key] { return cached }
-        guard let cg = art.cgImage, let box = inkBounds(of: cg),
-              let cropped = cg.cropping(to: box) else { return art }
-        let trimmed = UIImage(cgImage: cropped, scale: art.scale, orientation: art.imageOrientation)
+        guard let cg = art.cgImage else { return art }
+        let drawn: CGImage
+        if let crop = thumbCrops[name] {
+            let width = CGFloat(cg.width)
+            let height = CGFloat(cg.height)
+            let rect = CGRect(x: crop.rect.minX * width, y: crop.rect.minY * height,
+                              width: crop.rect.width * width, height: crop.rect.height * height)
+                .integral
+                .intersection(CGRect(x: 0, y: 0, width: width, height: height))
+            guard let tie = cg.cropping(to: rect) else { return art }
+            drawn = crop.weight > 0 ? (thickened(tie, by: crop.weight) ?? tie) : tie
+        } else {
+            guard let box = inkBounds(of: cg), let cropped = cg.cropping(to: box) else { return art }
+            drawn = cropped
+        }
+        let trimmed = UIImage(cgImage: drawn, scale: art.scale, orientation: art.imageOrientation)
             .withRenderingMode(.alwaysTemplate)
         artCache[key] = trimmed
         return trimmed
+    }
+
+    /// The drawing with every inked line `radius` pixels thicker, by laying
+    /// it over itself shifted in each direction. Nil when no context.
+    private static func thickened(_ cg: CGImage, by radius: Int) -> CGImage? {
+        let width = cg.width + radius * 2
+        let height = cg.height + radius * 2
+        guard let context = CGContext(data: nil, width: width, height: height,
+                                      bitsPerComponent: 8, bytesPerRow: width * 4,
+                                      space: CGColorSpaceCreateDeviceRGB(),
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        else { return nil }
+        for dy in -radius...radius {
+            for dx in -radius...radius where dx * dx + dy * dy <= radius * radius {
+                context.draw(cg, in: CGRect(x: radius + dx, y: radius + dy, width: cg.width, height: cg.height))
+            }
+        }
+        return context.makeImage()
     }
 
     /// The box, in pixels from the top left, round every pixel inked at
