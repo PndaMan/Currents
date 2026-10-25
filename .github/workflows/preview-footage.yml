@@ -288,7 +288,10 @@ jobs:
             wait "$1" 2>/dev/null || true
           }
 
+          # The recorder runs seconds behind the screen here and drops what it
+          # hasn't written when stopped, so give each take a tail.
           stop() {
+            sleep 6
             mark "stop"
             halt "$REC" "$CLIP"
             if [ -s "$OUT/$CLIP.mp4" ]; then
@@ -350,19 +353,22 @@ jobs:
 
           # Points on the 440x956 screen, measured on the captures. AXe is
           # slow here: each command takes about 3 seconds (8 with --label or
-          # --id), a tap is held long enough to count as a long press, and a
-          # drag rests before it moves, so the map, which drops a spot on a
-          # long press, gets taps on pins only and never drags. The tab
-          # bar's Add item is at 220,904.
+          # --id), and a drag can rest before it moves, which the map takes
+          # for a long press and drops a spot. So the map gets taps on pins
+          # only, never drags. The tab bar's Add item is at 220,904.
 
-          # The opening animation at its real pace, then four times slower,
-          # so the recording catches every stage even when the simulator
-          # drops frames at launch.
+          # The opening animation at its real pace. The slow take plays it four
+          # times slower, to see every stage of the drawing.
           if want launch-light; then
             PLAY_LAUNCH=1
             start launch-light today
             sleep 10
             stop
+            PLAY_LAUNCH=""
+          fi
+
+          if want launch-slow-light; then
+            PLAY_LAUNCH=1
             LAUNCH_PACE=4
             start launch-slow-light today
             sleep 15
