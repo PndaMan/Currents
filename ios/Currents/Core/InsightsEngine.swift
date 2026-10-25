@@ -9,6 +9,8 @@ struct Insight: Identifiable {
     let title: String
     let value: String
     var detail: String? = nil
+    /// The lure's name, for the row to lead with the lure's own art.
+    var lure: String? = nil
     var id: Kind { kind }
 }
 
@@ -17,6 +19,15 @@ struct Insight: Identifiable {
 /// best month, top species, top spot, average bite score and release rate
 /// each have their own section there.
 enum InsightsEngine {
+    /// Dawn and dusk, counted the same in the Best time row and in the Best
+    /// hours chart on the Stats page.
+    static let dawnHours: Range<Int> = 4..<8
+    static let duskHours: Range<Int> = 16..<20
+
+    static func isDawnOrDusk(_ hour: Int) -> Bool {
+        dawnHours.contains(hour) || duskHours.contains(hour)
+    }
+
     /// Returns empty until there's enough history to say anything meaningful.
     static func compute(from catches: [CatchDetail], use24: Bool = ForecastFormat.use24) -> [Insight] {
         guard catches.count >= 3 else { return [] }
@@ -29,10 +40,12 @@ enum InsightsEngine {
             "\(ForecastFormat.hour(from, use24: use24)) to \(ForecastFormat.hour(to, use24: use24))"
         }
         let windows: [(name: String, from: Int, to: Int, icon: String, test: (Int) -> Bool)] = [
-            ("Dawn", 4, 8, "sunrise.fill", { (4..<8).contains($0) }),
+            ("Dawn", InsightsEngine.dawnHours.lowerBound, InsightsEngine.dawnHours.upperBound, "sunrise.fill",
+             { InsightsEngine.dawnHours.contains($0) }),
             ("Morning", 8, 12, "sun.max.fill", { (8..<12).contains($0) }),
             ("Midday", 12, 16, "sun.max.fill", { (12..<16).contains($0) }),
-            ("Evening", 16, 20, "sunset.fill", { (16..<20).contains($0) }),
+            ("Evening", InsightsEngine.duskHours.lowerBound, InsightsEngine.duskHours.upperBound, "sunset.fill",
+             { InsightsEngine.duskHours.contains($0) }),
             ("After dark", 20, 4, "moon.stars.fill", { $0 >= 20 || $0 < 4 }),
         ]
         let hours = catches.map { cal.component(.hour, from: $0.catchRecord.caughtAt) }
@@ -52,8 +65,8 @@ enum InsightsEngine {
             .filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
         let lureGroups = Dictionary(grouping: lures, by: { $0 })
         if let top = lureGroups.max(by: { $0.value.count < $1.value.count }), top.value.count >= 3 {
-            out.append(Insight(kind: .bestLure, icon: "scribble.variable", title: "Best lure",
-                               value: "\(top.value.count) catches", detail: top.key))
+            out.append(Insight(kind: .bestLure, icon: OwnedGear.Category.lure.icon, title: "Best lure",
+                               value: "\(top.value.count) catches", detail: top.key, lure: top.key))
         }
 
         return out

@@ -167,18 +167,29 @@ struct AnalyticsView: View {
         if !insights.isEmpty {
             CardSection("Your patterns") {
                 ForEach(insights) { insight in
-                    CardRow(insight.title, subtitle: insight.detail, systemImage: insight.icon,
-                            tint: patternTint(insight.kind), value: insight.value)
+                    if let lure = insight.lure {
+                        // The lure's own art, as the gear card draws it.
+                        GearItemRow(title: insight.title, subtitle: lure, value: insight.value) {
+                            LureThumb(name: lure, size: 34)
+                        }
+                    } else {
+                        CardRow(insight.title, subtitle: insight.detail, systemImage: insight.icon,
+                                tint: patternTint(insight.kind), value: insight.value)
+                    }
                 }
             }
             .padding(.top, DS.Space.s8)
         }
     }
 
+    /// Dawn and dusk are one colour wherever Stats shows them: the Best time
+    /// row and the Best hours bars.
+    private static let dawnDuskTint: Color = .dsScoreFair
+
     private func patternTint(_ kind: Insight.Kind) -> Color {
         switch kind {
-        case .bestTime: return .dsScoreLow
-        case .bestLure: return .dsScoreGood
+        case .bestTime: return Self.dawnDuskTint
+        case .bestLure: return OwnedGear.Category.lure.tint
         }
     }
 
@@ -361,7 +372,9 @@ struct AnalyticsView: View {
             .chartYAxis(.hidden)
             .chartXAxis {
                 AxisMarks(values: [0.0, 6.0, 12.0, 18.0]) { value in
-                    AxisValueLabel {
+                    // The anchor puts the middle of each label under its bar; a
+                    // numeric axis would start the label there instead.
+                    AxisValueLabel(anchor: UnitPoint.top) {
                         if let h = value.as(Double.self) { Text(formatHour(Int(h))) }
                     }
                 }
@@ -371,7 +384,7 @@ struct AnalyticsView: View {
             .accessibilityLabel("Catches by hour of day")
             .accessibilityValue(hourCounts.map { "\(formatHour($0.hour)) \($0.count)" }.joined(separator: ", "))
             HStack(spacing: 14) {
-                legendItem(color: DS.ink(.dsScoreFair), label: "Dawn and dusk")
+                legendItem(color: DS.ink(Self.dawnDuskTint), label: "Dawn and dusk")
                 legendItem(color: DS.accent, label: "Day")
                 legendItem(color: DS.accent.opacity(0.35), label: "Night")
             }
@@ -619,13 +632,15 @@ struct AnalyticsView: View {
         ForecastFormat.hour(hour, use24: use24HourTime)
     }
 
+    /// Dawn and dusk are the hours the Best time row counts as dawn and
+    /// evening; day runs between them.
     private func hourColor(_ hour: Int) -> Color {
-        switch hour {
-        case 5...8, 16...19: return DS.ink(.dsScoreFair)
-        case 9...15: return DS.accent
-        // Faint accent rather than a fill grey, so night bars show on white.
-        default: return DS.accent.opacity(0.35)
+        if InsightsEngine.isDawnOrDusk(hour) { return DS.ink(Self.dawnDuskTint) }
+        if (InsightsEngine.dawnHours.upperBound..<InsightsEngine.duskHours.lowerBound).contains(hour) {
+            return DS.accent
         }
+        // Faint accent rather than a fill grey, so night bars show on white.
+        return DS.accent.opacity(0.35)
     }
 
     private func legendItem(color: Color, label: String) -> some View {
