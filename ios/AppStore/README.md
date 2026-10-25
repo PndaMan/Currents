@@ -6,6 +6,10 @@ Everything App Store Connect asks for lives here, versioned with the code.
 ios/AppStore/
 ├── README.md                     this file: research, what each field is for, where to paste it
 ├── captions.json                 headline above each framed screenshot (scripts/frame_screenshots.py)
+├── store-art.json                the listing screenshots and the header and search results art (scripts/store_art.py)
+├── preview.json                  the app preview's scenes and timings (scripts/render_preview.py)
+├── fonts/                        Inter Display for the store art (OFL)
+├── store-photos/                 licensed photos behind the store art; see docs/CONTENT_RIGHTS.md
 ├── demo-photos/                  licensed photos seeded into the simulator for captures; never shipped
 ├── metadata/
 │   ├── en-US/                    primary localisation: name, subtitle, keywords, promotional text,
@@ -19,7 +23,9 @@ ios/AppStore/
 
 The text files use the `fastlane deliver` layout and are uploaded by the make targets in [Publish](#publish). `make appstore-check` fails on any over-limit field.
 
-The screenshots workflow (`.github/workflows/screenshots.yml`) captures eight phone screens and the watch, frames them with the captions, renders the in-app event media, and publishes all of it to the `app-store-screenshots` branch: `raw/`, `framed/`, `watch.png` and `events/`.
+The screenshots workflow (`.github/workflows/screenshots.yml`) captures eight phone screens and the watch, frames them with the captions, renders the in-app event media, and publishes all of it to the `app-store-screenshots` branch: `raw/`, `framed/`, `watch.png` and `events/`. The custom product pages use `framed/`. It also captures the light screens `store-art.json` needs into `stills/`, with Log catch driven through the Add menu, and composes the listing set into `store/`: `6.9/` and `6.3/` screenshots and `creative/` header, search results and universal art. `make appstore-screenshots` uploads `store/6.9` when the branch has it.
+
+The preview video is cut from real footage. `.github/workflows/preview-footage.yml` records each take in the simulator (manual, or a `footage-*` tag), then `uv run scripts/render_preview.py --footage <downloaded folder> --out ios/build/appstore-media/preview.mp4` renders the scenes in `preview.json` at 886x1920, 30 fps, with a silent stereo track, as Apple requires.
 
 ## The listing
 

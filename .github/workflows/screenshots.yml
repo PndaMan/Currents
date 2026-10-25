@@ -6,9 +6,16 @@ name: App Store Screenshots
 # SCREENSHOT_SCREEN, so every capture is deterministic. The demo photos in
 # ios/AppStore/demo-photos are copied into the simulator's app container only;
 # they never ship in the app. Each capture is then framed with a headline by
-# scripts/frame_screenshots.py. Download "app-store-screenshots" from the run:
-# 6.9/ holds the raw captures, 6.9-framed/ the framed ones, watch/ the watch,
-# events/ the in-app event card and details images from ios/AppStore/events.
+# scripts/frame_screenshots.py; the custom product pages use that set. The
+# listing's own screenshots and the product page header and search results
+# art are composed by scripts/store_art.py from ios/AppStore/store-art.json,
+# out of a second set of light captures named after their screen (stills/).
+# Log catch is driven with AXe through the Add menu, and takes the demo photo
+# by itself, so the camera and the species ID in those captures are the
+# app's own. Download "app-store-screenshots" from the run: 6.9/ holds the
+# raw captures, 6.9-framed/ the framed ones, stills/ the store art captures,
+# store/ the composed listing set (6.9/, 6.3/ and creative/), watch/ the
+# watch, events/ the in-app event card and details images.
 #
 # iPhone 16 Pro Max = 6.9" display (1320x2868), which Apple accepts for the
 # required iPhone screenshot slot. The app is iPhone-only, so no iPad set.
@@ -45,8 +52,14 @@ jobs:
           sudo xcode-select -s "$XCODE_PATH"
           xcodebuild -version
 
-      - name: Install XcodeGen
-        run: brew install xcodegen
+      - name: Install XcodeGen and AXe
+        run: |
+          brew install xcodegen
+          if brew install cameroncooke/axe/axe && axe --version; then
+            echo "AXe installed"
+          else
+            echo "::warning::AXe did not install; the log catch captures are skipped"
+          fi
 
       - name: Generate Xcode Project
         run: xcodegen generate
@@ -115,8 +128,11 @@ jobs:
           # Kogel Bay, South Africa, matching the seeded demo spots.
           xcrun simctl location "$UDID" set -34.235,18.848 || true
 
-          # Pre-grant location so no permission dialog covers a screenshot.
+          # Pre-grant location, camera and photos so no permission dialog
+          # covers a screenshot.
           xcrun simctl privacy "$UDID" grant location "$BUNDLE_ID" || true
+          xcrun simctl privacy "$UDID" grant camera "$BUNDLE_ID" || true
+          xcrun simctl privacy "$UDID" grant photos "$BUNDLE_ID" || true
 
           APP_PATH=$(find DerivedData -name "Currents.app" -path "*/Debug-iphonesimulator/*" -type d -print -quit)
           if [ -z "$APP_PATH" ]; then echo "Currents.app not found"; exit 1; fi
@@ -129,9 +145,27 @@ jobs:
       - name: Copy demo photos into the simulator
         run: |
           DATA=$(xcrun simctl get_app_container "$UDID" "$BUNDLE_ID" data)
+          echo "DATA=$DATA" >> "$GITHUB_ENV"
           mkdir -p "$DATA/Documents/ScreenshotPhotos"
           cp AppStore/demo-photos/*.jpg "$DATA/Documents/ScreenshotPhotos/"
           echo "Copied $(ls "$DATA/Documents/ScreenshotPhotos" | wc -l | tr -d ' ') photos"
+
+      # Species ID runs on the BioCLIP model the app downloads on first use.
+      # Compile it here and put it where FishModelDownloader keeps it, so the
+      # log catch capture is identified without a 160 MB download.
+      - name: Install the species model
+        continue-on-error: true
+        run: |
+          curl -sSfL -o "$RUNNER_TEMP/FishID.zip" \
+            https://github.com/PndaMan/Currents/releases/download/fish-model/FishID.mlpackage.zip
+          mkdir -p "$RUNNER_TEMP/fishid/out"
+          unzip -q "$RUNNER_TEMP/FishID.zip" -d "$RUNNER_TEMP/fishid"
+          PKG=$(find "$RUNNER_TEMP/fishid" -maxdepth 2 -name '*.mlpackage' -not -name '._*' -not -path '*__MACOSX*' -print -quit)
+          xcrun coremlcompiler compile "$PKG" "$RUNNER_TEMP/fishid/out"
+          COMPILED=$(find "$RUNNER_TEMP/fishid/out" -maxdepth 1 -name '*.mlmodelc' -print -quit)
+          mkdir -p "$DATA/Library/Caches/MLModels"
+          cp -R "$COMPILED" "$DATA/Library/Caches/MLModels/FishID.mlmodelc"
+          ls "$DATA/Library/Caches/MLModels"
 
       - name: Capture each screen
         run: |
@@ -170,6 +204,57 @@ jobs:
             echo "Captured $OUT/$NAME.png"
           done
 
+          ls -la "$OUT"
+
+      # The captures store-art.json composes, in the light look, named after
+      # their screen. Points are on the 440x956 screen; the tab bar's Add
+      # item is at 220,903.
+      - name: Capture the store art screens
+        run: |
+          OUT=screenshots/stills
+          mkdir -p "$OUT"
+          HAVE_AXE=0
+          if command -v axe >/dev/null; then HAVE_AXE=1; fi
+          APPEARANCE=light
+          xcrun simctl ui "$UDID" appearance light
+
+          launch() { # launch <screen> [photo]
+            xcrun simctl terminate "$UDID" "$BUNDLE_ID" 2>/dev/null || true
+            sleep 1
+            SIMCTL_CHILD_TZ=Africa/Johannesburg \
+            SIMCTL_CHILD_SCREENSHOT_MODE=1 \
+            SIMCTL_CHILD_SCREENSHOT_SCREEN="$1" \
+            SIMCTL_CHILD_SCREENSHOT_PHOTO="${2:-}" \
+              xcrun simctl launch "$UDID" "$BUNDLE_ID" -appearanceMode "$APPEARANCE" >/dev/null
+          }
+          still() { xcrun simctl io "$UDID" screenshot "$OUT/$1.png" >/dev/null; echo "Captured $1"; }
+          shot() { launch "$1"; sleep "${3:-7}"; still "${2:-$1}"; }
+
+          # screen[:name[:seconds to settle]]
+          for SHOT in today explore:explore:10 forecast-day forecast-week catch lures streak leaderboard profile; do
+            IFS=':' read -r SCREEN NAME SETTLE <<< "$SHOT"
+            shot "$SCREEN" "${NAME:-$SCREEN}" "${SETTLE:-7}"
+          done
+
+          # Log catch from the Add menu: the camera shows the demo bass,
+          # takes it by itself, and the species is identified on the phone.
+          if [ "$HAVE_AXE" = 1 ]; then
+            launch today bass-06.jpg
+            sleep 5
+            axe tap --label "Add" --wait-timeout 4 --udid "$UDID" >/dev/null 2>&1 \
+              || axe tap -x 220 -y 903 --udid "$UDID" >/dev/null
+            sleep 2.5
+            axe tap --id add-menu-log-catch --wait-timeout 4 --udid "$UDID" >/dev/null 2>&1 \
+              || axe tap -x 115 -y 640 --udid "$UDID" >/dev/null
+            sleep 2.5
+            still log-catch-camera
+            sleep 8.5
+            still log-catch-id
+          fi
+
+          APPEARANCE=dark
+          xcrun simctl ui "$UDID" appearance dark
+          shot fishdex fishdex-dark
           ls -la "$OUT"
 
       - name: Capture Apple Watch screenshot
@@ -230,6 +315,11 @@ jobs:
             --captions AppStore/captions.json
           ls -la screenshots/6.9-framed
 
+      - name: Compose the store art
+        run: |
+          uv run ../scripts/store_art.py --shots screenshots/stills --out screenshots/store
+          find screenshots/store -name '*.png' | sort
+
       - name: Render in-app event media
         run: |
           uv run ../scripts/render_event_media.py \
@@ -272,6 +362,8 @@ jobs:
           cp ios/screenshots/6.9/*.png "$TMP/raw/" 2>/dev/null || true
           cp ios/screenshots/6.9-framed/*.png "$TMP/framed/" 2>/dev/null || true
           cp ios/screenshots/watch/*.png "$TMP/" 2>/dev/null || true
+          cp -R ios/screenshots/stills "$TMP/stills" 2>/dev/null || true
+          cp -R ios/screenshots/store "$TMP/store" 2>/dev/null || true
           cp -R ios/screenshots/events "$TMP/events" 2>/dev/null || true
           if ! ls "$TMP"/raw/*.png >/dev/null 2>&1; then
             echo "No screenshots to publish"; exit 0

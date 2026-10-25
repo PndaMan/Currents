@@ -2,15 +2,18 @@
 # Downloads the app-store-screenshots branch (published by
 # .github/workflows/screenshots.yml) and lays it out for fastlane deliver.
 #
-#   ios/build/appstore-screenshots/branch/   the branch as published: raw/, framed/, watch.png, events/
-#   ios/build/appstore-screenshots/deliver/  one folder per localisation: the framed set plus watch.png
+#   ios/build/appstore-screenshots/branch/   the branch as published: raw/, framed/, stills/, store/, watch.png, events/
+#   ios/build/appstore-screenshots/deliver/  one folder per localisation: the listing set plus watch.png
+#
+# The listing set is store/6.9 (composed by scripts/store_art.py) when the
+# branch has it, otherwise framed/.
 #
 # deliver reads every PNG in a locale folder and picks the display type from
 # the pixel size: 1320x2868 is APP_IPHONE_67 (the 6.9-inch slot) and 410x502 is
 # APP_WATCH_ULTRA. Prints the deliver folder on the last line.
 #
 # STORE_ART_DIR, when set, is a folder of 1320x2868 PNGs (such as the 6.9
-# folder scripts/store_art.py writes) used in place of the branch's framed set.
+# folder scripts/store_art.py writes) used in place of the branch's set.
 # The branch's watch.png is still added, since deliver replaces every slot.
 set -euo pipefail
 
@@ -30,9 +33,12 @@ shopt -s nullglob
 if [ -n "${STORE_ART_DIR:-}" ]; then
   framed=("$STORE_ART_DIR/"*.png)
   SOURCE="$STORE_ART_DIR"
+elif [ -d "$OUT/branch/store/6.9" ]; then
+  framed=("$OUT/branch/store/6.9/"*.png)
+  SOURCE="$BRANCH ($COMMIT) store/6.9"
 else
   framed=("$OUT/branch/framed/"*.png)
-  SOURCE="$BRANCH ($COMMIT)"
+  SOURCE="$BRANCH ($COMMIT) framed"
 fi
 if [ "${#framed[@]}" -eq 0 ]; then
   echo "No screenshots in $SOURCE. Run the screenshots workflow first." >&2
@@ -47,5 +53,5 @@ for locale in "${LOCALES[@]}"; do
   fi
 done
 
-echo "${STORE_ART_DIR:-$BRANCH at ${COMMIT:0:8}}: ${#framed[@]} screenshots, watch $([ -f "$OUT/branch/watch.png" ] && echo yes || echo no), events $([ -d "$OUT/branch/events" ] && ls "$OUT/branch/events" | tr '\n' ' ' || echo none)" >&2
+echo "$SOURCE: ${#framed[@]} screenshots, watch $([ -f "$OUT/branch/watch.png" ] && echo yes || echo no), events $([ -d "$OUT/branch/events" ] && ls "$OUT/branch/events" | tr '\n' ' ' || echo none)" >&2
 echo "$OUT/deliver"
