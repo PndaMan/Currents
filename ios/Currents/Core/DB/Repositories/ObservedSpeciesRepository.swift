@@ -27,8 +27,10 @@ final class ObservedSpeciesRepository: ObservableObject {
     }
 
     /// Get fish species near a coordinate. Checks cache first, then queries iNaturalist + GBIF.
-    /// `freshwater` leaves out species whose habitat is marine, for a dam,
-    /// lake or river; the cache keeps every record either way.
+    /// `freshwater` keeps only species the guide records as freshwater or
+    /// brackish, for a dam, lake or river. A fish with no guide record is
+    /// left out too: most are sea fish recorded on the coast nearby. The
+    /// cache keeps every record either way.
     func fishNear(
         latitude: Double,
         longitude: Double,
@@ -38,7 +40,10 @@ final class ObservedSpeciesRepository: ObservableObject {
         let results = await cachedOrFetched(latitude: latitude, longitude: longitude,
                                             speciesRepository: speciesRepository)
         guard freshwater else { return results }
-        return results.filter { $0.localSpecies?.habitat != .marine }
+        return results.filter { fish in
+            guard let habitat = fish.localSpecies?.habitat else { return false }
+            return habitat == .freshwater || habitat == .brackish
+        }
     }
 
     private func cachedOrFetched(
