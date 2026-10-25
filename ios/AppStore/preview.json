@@ -1,3 +1,10 @@
 {
-  "poster": "00:00:01:20"
+  "poster": "00:00:00:00",
+  "music": {
+    "title": "That's the Way of Life",
+    "artist": "Michael Ramir C.",
+    "page": "https://mixkit.co/free-stock-music/tag/ukulele/",
+    "source": "https://assets.mixkit.co/music/840/840.mp3",
+    "licence": "Mixkit Stock Music Free License, https://mixkit.co/license/#musicFree"
+  }
 }

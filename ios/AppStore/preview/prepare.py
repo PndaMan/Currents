@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 from PIL import Image, ImageDraw
@@ -25,6 +26,9 @@ from PIL import Image, ImageDraw
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[2]
 PUBLIC = HERE / "public"
+
+sys.path.insert(0, str(ROOT / "scripts"))
+from store_art import phone  # noqa: E402  the same iPhone the screenshots draw
 
 STILLS = [
     "today", "add-menu", "log-catch-camera", "log-catch-id-trout", "forecast-week", "forecast-day",
@@ -37,6 +41,8 @@ FRAMES = [
 ]
 # Plates: (still, x of an empty column of background).
 PLATES = [("today", 14), ("forecast-week", 14), ("forecast-day", 14), ("streak-moment", 14)]
+# Stills shown inside a phone on the opening frame: (still, boxes to paint out).
+PHONES = [("today", []), ("log-catch-id-trout", [(645, 1515, 729, 1578)])]  # the species picker's chevron
 
 
 def frame(take: Path, seconds: float, out: Path) -> None:
@@ -56,7 +62,7 @@ def main() -> None:
     ap.add_argument("--footage", type=Path, default=ROOT / "ios/build/preview-footage")
     args = ap.parse_args()
 
-    for d in ("s", "p", "fonts"):
+    for d in ("s", "p", "phones", "fonts"):
         (PUBLIC / d).mkdir(parents=True, exist_ok=True)
     for name in STILLS:
         shutil.copyfile(args.stills / f"{name}.png", PUBLIC / "s" / f"{name}.png")
@@ -68,6 +74,12 @@ def main() -> None:
     for name, x in PLATES:
         img = Image.open(PUBLIC / "s" / f"{name}.png").convert("RGB")
         img.crop((x, 0, x + 1, img.height)).resize(img.size).save(PUBLIC / "p" / f"{name}.png")
+
+    for name, erase in PHONES:
+        shot = Image.open(PUBLIC / "s" / f"{name}.png").convert("RGB")
+        for box in erase:
+            ImageDraw.Draw(shot).rectangle(box, fill=shot.getpixel((box[0] - 6, box[1])))
+        phone(shot, "dark").save(PUBLIC / "phones" / f"{name}.png")
 
     # The streak card with its week dots taken off, for the dots to pop onto.
     card = Image.open(PUBLIC / "s" / "streak-moment.png").convert("RGB")

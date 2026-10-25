@@ -287,7 +287,7 @@ export const Flame: React.FC = () => {
 
 export const EndCard: React.FC = () => {
   const { frame, sp } = useT();
-  const mark = sp(2, { damping: 10, stiffness: 160 });
+  const mark = sp(0, { damping: 10, stiffness: 160 });
   const name = sp(10, { damping: 16, stiffness: 180 });
   const words = ["Works", "with", "no", "signal."];
   return (
