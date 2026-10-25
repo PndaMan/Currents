@@ -29,6 +29,9 @@ struct LaunchAnimation: View {
     @State private var opening = false
     /// 1, or slower for a CI recording (ScreenshotSupport.launchPace).
     private let pace = ScreenshotSupport.launchPace
+    /// Absorbs stalls, so launch work that holds up the main thread delays
+    /// the animation instead of skipping it.
+    @State private var clock = LaunchClock()
 
     init(onReveal: @escaping (Bool) -> Void, onFinish: @escaping () -> Void) {
         self.onReveal = onReveal
@@ -44,7 +47,7 @@ struct LaunchAnimation: View {
 
     var body: some View {
         TimelineView(.animation) { timeline in
-            let current = pose(at: timeline.date)
+            let current = pose(at: clock.frame(at: timeline.date))
             let color = tint
             Canvas { context, size in
                 LaunchArt.draw(current, in: &context, size: size, tint: color,
@@ -70,15 +73,16 @@ struct LaunchAnimation: View {
 
     private func begin() {
         guard start == nil else { return }
-        let now = Date()
+        let now = clock.now
         start = now
         exitAt = now.addingTimeInterval((reduceMotion ? LaunchArt.stillHold : LaunchArt.openAt) * pace)
     }
 
     /// A tap goes straight to the opening.
     private func skip() {
-        guard !opening, let at = exitAt, at > Date() else { return }
-        exitAt = Date()
+        let now = clock.now
+        guard !opening, let at = exitAt, at > now else { return }
+        exitAt = now
     }
 
     /// Waits for the opening, plays it, then hands over. A tap moves
@@ -87,15 +91,29 @@ struct LaunchAnimation: View {
         guard let at = exitAt else { return }
         let length = (reduceMotion ? LaunchArt.fade : LaunchArt.zoom) * pace
         do {
-            try await Task.sleep(for: .seconds(max(0, at.timeIntervalSinceNow)))
+            try await sleep(until: at)
             opening = true
             if !reduceMotion { Haptics.softPress() }
             onReveal(!reduceMotion)
-            try await Task.sleep(for: .seconds(max(0, at.timeIntervalSinceNow + length)))
+            try await sleep(until: at.addingTimeInterval(length))
         } catch {
             return
         }
         onFinish()
+    }
+
+    /// Sleeps until `date` on the animation's clock, which stands still
+    /// through a stall, so the hand-over keeps pace with what is on screen.
+    /// It gives up six seconds late in real time, longer than any launch
+    /// stall seen, so a clock with no frames can never hold the overlay over
+    /// the app.
+    private func sleep(until date: Date) async throws {
+        let deadline = Date().addingTimeInterval(date.timeIntervalSince(clock.now) + 6)
+        while true {
+            let left = min(date.timeIntervalSince(clock.now), deadline.timeIntervalSinceNow)
+            guard left > 0 else { return }
+            try await Task.sleep(for: .seconds(left))
+        }
     }
 
     private func pose(at date: Date) -> LaunchPose {
@@ -107,8 +125,40 @@ struct LaunchAnimation: View {
     }
 }
 
-/// Where the animation is at one moment, worked out from the clock alone so
-/// a dropped frame at launch never leaves it behind.
+/// The animation's time: real time less the stalls. Each frame drawn moves
+/// it on by the time since the last frame, but never by more than
+/// `maxStep`, so when launch work holds up the main thread for a second the
+/// animation picks up where it stopped instead of jumping to the end.
+private final class LaunchClock {
+    static let maxStep = 1.0 / 15
+    private var lastFrame: Date?
+    /// Real time lost to stalls so far, in seconds.
+    private var lost: TimeInterval = 0
+
+    /// Now, on the animation's clock. A stall still going on, or one the
+    /// next frame has yet to record, counts as lost already.
+    var now: Date {
+        let date = Date()
+        return date.addingTimeInterval(-lost - stalled(at: date))
+    }
+
+    /// Records a frame drawn at `date` and returns that moment on the
+    /// animation's clock.
+    func frame(at date: Date) -> Date {
+        lost += stalled(at: date)
+        lastFrame = date
+        return date.addingTimeInterval(-lost)
+    }
+
+    /// How far `date` is past a frame's worth after the last frame.
+    private func stalled(at date: Date) -> TimeInterval {
+        guard let lastFrame else { return 0 }
+        return max(0, date.timeIntervalSince(lastFrame) - Self.maxStep)
+    }
+}
+
+/// Where the animation is at one moment, worked out from the animation's
+/// clock alone, so a dropped frame never leaves it behind.
 private struct LaunchPose {
     /// Seconds since the first frame.
     var time: Double
