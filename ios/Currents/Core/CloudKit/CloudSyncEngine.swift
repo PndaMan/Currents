@@ -17,10 +17,9 @@ import UIKit
 final class CloudSyncEngine: NSObject, CKSyncEngineDelegate, @unchecked Sendable {
     static let shared = CloudSyncEngine()
 
-    // Lazy so a build without the iCloud entitlement (the unsigned CI test
-    // build) never instantiates the container at launch — it's only touched
-    // once sync is actually enabled.
-    private lazy var container = CKContainer(identifier: "iCloud.com.aidanmcconnon.currents")
+    // Lazy so the container is only made once sync is actually enabled, and
+    // nil on a build without the iCloud entitlement.
+    private lazy var container: CKContainer? = CloudCapability.container()
     private let zoneID = CKRecordZone.ID(zoneName: "CurrentsData", ownerName: CKCurrentUserDefaultName)
     private let catchType = "SyncCatch"
     private let spotType = "SyncSpot"
@@ -31,7 +30,7 @@ final class CloudSyncEngine: NSObject, CKSyncEngineDelegate, @unchecked Sendable
     /// callbacks can read/write it without hopping to the main actor.
     private var dbQueue: DatabaseQueue?
 
-    var isEnabled: Bool { UserDefaults.standard.bool(forKey: "cloudSyncEnabled") }
+    var isEnabled: Bool { CloudCapability.isAvailable && UserDefaults.standard.bool(forKey: "cloudSyncEnabled") }
 
     // MARK: - Lifecycle
 
@@ -45,11 +44,14 @@ final class CloudSyncEngine: NSObject, CKSyncEngineDelegate, @unchecked Sendable
     /// Toggle from Settings. Turning on kicks off an initial upload of everything.
     func setEnabled(_ on: Bool) {
         UserDefaults.standard.set(on, forKey: "cloudSyncEnabled")
+        // A build without the iCloud entitlement crashes on any CloudKit call.
+        guard CloudCapability.isAvailable else { engine = nil; return }
         if on { start(initialUpload: true) } else { engine = nil }
     }
 
     private func start(initialUpload: Bool = false) {
         if engine == nil {
+            guard let container else { return }
             var config = CKSyncEngine.Configuration(
                 database: container.privateCloudDatabase,
                 stateSerialization: loadState(),

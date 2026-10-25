@@ -1,5 +1,10 @@
 import SwiftUI
 
+// Retired in the redesign: a cross-tab edge swipe fights the iOS back swipe
+// on pushed detail pages, so `.smartSwipe(_:)` is now a no-op and the shell
+// no longer listens to `AppState.swipePage`. The types stay so existing call
+// sites compile until each tab drops the modifier.
+
 /// The single left-to-right continuum of top-level screens that edge swipes
 /// travel through — the tab bar and each tab's inner segments flattened into
 /// one order:
@@ -17,10 +22,9 @@ enum SwipePage: Int, CaseIterable {
     var tab: ContentView.Tab {
         switch self {
         case .today: .today
-        case .map: .map
-        case .catches: .catches
-        case .fishGuide, .fishSeasons: .fish
-        case .communityFeed, .communityCrews, .communityFriends: .community
+        case .map, .fishGuide, .fishSeasons: .explore
+        case .catches: .logbook
+        case .communityFeed, .communityCrews, .communityFriends: .crew
         }
     }
 
@@ -79,10 +83,10 @@ private struct SmartSwipeModifier: ViewModifier {
 }
 
 extension View {
-    /// Arms edge-swipe navigation on a tab's ROOT screen. Attach inside the
-    /// NavigationStack so pushed detail views cover the strips (and keep the
-    /// system back-swipe to themselves).
+    /// Retired: returns the view unchanged (see the note at the top). Remove
+    /// call sites as screens are rebuilt. `SmartSwipeModifier` is kept for
+    /// reference only.
     func smartSwipe(_ page: SwipePage, edgeWidth: CGFloat = 22) -> some View {
-        modifier(SmartSwipeModifier(page: page, edgeWidth: edgeWidth))
+        self
     }
 }

@@ -9,9 +9,15 @@ final class SpotRepository: ObservableObject {
         self.db = db
     }
 
+    /// Saves a new or changed spot. A new one gets its alert row switched
+    /// off in the same write, so every way of adding a spot starts quiet.
     func save(_ spot: inout Spot) throws {
         try db.db.write { db in
+            let isNew = try !spot.exists(db)
             try spot.save(db)
+            if isNew {
+                try SpotAlert.off(for: spot.id).save(db)
+            }
         }
         CloudSyncEngine.shared.spotChanged(spot.id)
     }
@@ -26,6 +32,30 @@ final class SpotRepository: ObservableObject {
     func fetchAll() throws -> [Spot] {
         try db.db.read { db in
             try Spot.order(Column("createdAt").desc).fetchAll(db)
+        }
+    }
+
+    // MARK: - Notification choices
+
+    /// Every stored per-spot choice, keyed by spot id. Spots missing from the
+    /// result follow the defaults.
+    func alerts() throws -> [String: SpotAlert] {
+        let rows = try db.db.read { db in try SpotAlert.fetchAll(db) }
+        return Dictionary(rows.map { ($0.spotId, $0) }, uniquingKeysWith: { a, _ in a })
+    }
+
+    func alert(for spotId: String) throws -> SpotAlert {
+        try db.db.read { db in try SpotAlert.fetchOne(db, key: spotId) } ?? .defaults(for: spotId)
+    }
+
+    /// Stores the choice, or removes the row when it is back to the defaults.
+    func saveAlert(_ alert: SpotAlert) throws {
+        try db.db.write { db in
+            if alert.isDefault {
+                _ = try SpotAlert.deleteOne(db, key: alert.spotId)
+            } else {
+                try alert.save(db)
+            }
         }
     }
 

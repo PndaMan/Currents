@@ -1,0 +1,598 @@
+name: Preview Footage
+
+# Records real in-app footage for the App Store preview video, and lossless
+# stills for the App Store screenshots, in one run. Each clip relaunches the
+# app in screenshot mode (SCREENSHOT_MODE=1, fictional demo data) on the
+# screen named by SCREENSHOT_SCREEN, records the simulator with simctl and
+# drives the gestures with AXe (taps and slow drags). Log catch takes the
+# demo photo named by SCREENSHOT_PHOTO by itself
+# (ScreenshotSupport.capturePhoto), so the camera, the shutter and the
+# on-device species ID are the app's own. A gesture that misses is logged as
+# a warning and never fails the run; its clip is still recorded.
+#
+# Records only some takes when given their names, space separated: the
+# "takes" input on a manual run, or the message of an annotated footage-* tag
+# (git tag -a footage-4 -m "add-flow-light explore-pin-light"). Empty
+# records every take.
+#
+# Manual, or a footage-* tag. Download "preview-footage": one MP4 per take at the device's
+# native 1320x2868 (light, then the key takes again in dark), stills/ with a
+# PNG per screen for scripts/store_art.py, and gestures.log with each
+# gesture's time from the start of its clip. Render the video with
+# ios/AppStore/preview/render.ts. About 15 minutes with a warm build cache: the
+# setup is the same as ui-review.yml and shares its cache.
+
+on:
+  workflow_dispatch:
+    inputs:
+      takes:
+        description: Takes to record, space separated (empty records all)
+        required: false
+        default: ''
+  # A footage-* tag runs it from a branch, before this file is on master
+  # (GitHub only offers manual runs of workflows on the default branch).
+  push:
+    tags: ['footage-*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: preview-footage-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  record:
+    name: Record Clips
+    runs-on: macos-15
+    timeout-minutes: 40
+    env:
+      BUNDLE_ID: com.aidanmcconnon.currents
+    defaults:
+      run:
+        working-directory: ios
+        shell: bash --noprofile --norc -euo pipefail {0}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        id: xcode
+        run: |
+          XCODE_PATH=$(ls -d /Applications/Xcode*.app 2>/dev/null | sort -V | tail -1)
+          sudo xcode-select -s "$XCODE_PATH"
+          xcodebuild -version
+          echo "build=$(xcodebuild -version | awk '/Build version/ {print $3}')" >> "$GITHUB_OUTPUT"
+
+      - name: Install XcodeGen and AXe
+        run: |
+          brew install xcodegen
+          if brew install cameroncooke/axe/axe && axe --version; then
+            echo "AXe installed"
+          else
+            echo "::warning::AXe did not install; clips are recorded without gestures"
+          fi
+
+      - name: Generate Xcode Project
+        run: xcodegen generate
+
+      # No Package.resolved is committed, so key the package cache on the
+      # packages listed in project.yml (same as ios.yml).
+      - name: Key the package cache
+        id: spm-key
+        run: |
+          echo "hash=$(awk '/^[^ #]/{p=($0 ~ /^packages:/)} p' project.yml | shasum -a 256 | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
+      # Restores ui-review's DerivedData (same app, simulator and settings), so
+      # the build is incremental.
+      - name: Restore build cache
+        uses: irgaly/xcode-cache@v1.9.2
+        with:
+          key: deriveddata-uireview-${{ steps.xcode.outputs.build }}-${{ github.sha }}
+          restore-keys: |
+            deriveddata-uireview-${{ steps.xcode.outputs.build }}-
+            deriveddata-test-${{ steps.xcode.outputs.build }}-
+          deriveddata-directory: ios/DerivedData
+          sourcepackages-directory: ios/.spm-cache
+          swiftpm-cache-key: spm-${{ steps.spm-key.outputs.hash }}
+          swiftpm-cache-restore-keys: spm-
+
+      - name: Resolve packages
+        run: |
+          xcodebuild -resolvePackageDependencies \
+            -project Currents.xcodeproj \
+            -scheme Currents \
+            -clonedSourcePackagesDirPath .spm-cache
+
+      - name: Install iOS Simulator
+        run: |
+          if xcrun simctl list runtimes | grep -q "iOS 26"; then
+            echo "iOS 26 runtime already installed"
+          else
+            xcodebuild -downloadPlatform iOS
+          fi
+
+      - name: Create Simulator (6.9" iPhone 16 Pro Max)
+        run: |
+          RUNTIME=$(xcrun simctl list runtimes -j | python3 -c "
+          import json, sys
+          data = json.load(sys.stdin)
+          runtimes = [r for r in data['runtimes'] if 'iOS' in r.get('name','') and '26' in r.get('name','') and r.get('isAvailable', False)]
+          if runtimes: print(runtimes[-1]['identifier'])
+          ")
+          if [ -z "$RUNTIME" ]; then echo "No iOS 26 runtime"; exit 1; fi
+          echo "Runtime: $RUNTIME"
+          UDID=$(xcrun simctl create "Footage-6.9" "com.apple.CoreSimulator.SimDeviceType.iPhone-16-Pro-Max" "$RUNTIME")
+          echo "UDID=$UDID" >> "$GITHUB_ENV"
+
+      # Same destination and build settings as ui-review.yml, so the restored
+      # DerivedData is reused instead of recompiled.
+      - name: Build for Simulator
+        run: |
+          if ! xcodebuild build \
+            -project Currents.xcodeproj \
+            -scheme Currents \
+            -destination "platform=iOS Simulator,id=$UDID" \
+            -derivedDataPath DerivedData \
+            -clonedSourcePackagesDirPath .spm-cache \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            COMPILER_INDEX_STORE_ENABLE=NO \
+            DEBUG_INFORMATION_FORMAT=dwarf \
+            OTHER_SWIFT_FLAGS='$(inherited) -continue-building-after-errors' > build.log 2>&1; then
+            grep -E "error:" build.log | head -40 || true
+            tail -60 build.log
+            exit 1
+          fi
+          tail -5 build.log
+
+      - name: Trim build cache
+        run: rm -rf DerivedData/Logs
+
+      - name: Boot and prepare simulator
+        run: |
+          xcrun simctl boot "$UDID"
+          xcrun simctl bootstatus "$UDID"
+          xcrun simctl ui "$UDID" appearance dark
+
+          # Clean status bar (9:41, full battery and signal).
+          xcrun simctl status_bar "$UDID" override \
+            --time "9:41" \
+            --batteryState charged --batteryLevel 100 \
+            --cellularMode active --cellularBars 4 \
+            --wifiMode active --wifiBars 3 \
+            --dataNetwork wifi || true
+
+          # Kogel Bay, South Africa, matching the seeded demo spots.
+          xcrun simctl location "$UDID" set -34.235,18.848 || true
+          xcrun simctl privacy "$UDID" grant location "$BUNDLE_ID" || true
+          xcrun simctl privacy "$UDID" grant camera "$BUNDLE_ID" || true
+          xcrun simctl privacy "$UDID" grant photos "$BUNDLE_ID" || true
+
+          APP_PATH=$(find DerivedData -name "Currents.app" -path "*/Debug-iphonesimulator/*" -type d -print -quit)
+          if [ -z "$APP_PATH" ]; then echo "Currents.app not found"; exit 1; fi
+          xcrun simctl install "$UDID" "$APP_PATH"
+
+          DATA=$(xcrun simctl get_app_container "$UDID" "$BUNDLE_ID" data)
+          echo "DATA=$DATA" >> "$GITHUB_ENV"
+          mkdir -p "$DATA/Documents/ScreenshotPhotos"
+          cp AppStore/demo-photos/*.jpg "$DATA/Documents/ScreenshotPhotos/"
+          echo "Copied $(ls "$DATA/Documents/ScreenshotPhotos" | wc -l | tr -d ' ') photos"
+
+      # Species ID runs on the BioCLIP model the app downloads on first use.
+      # Compile it here and put it where FishModelDownloader keeps it
+      # (Library/Caches/MLModels/FishID.mlmodelc), so the first recorded catch
+      # is identified without waiting for a 160 MB download. If this fails,
+      # the warm-up below lets the app fetch the model itself.
+      - name: Install the species model
+        continue-on-error: true
+        run: |
+          curl -sSfL -o "$RUNNER_TEMP/FishID.zip" \
+            https://github.com/PndaMan/Currents/releases/download/fish-model/FishID.mlpackage.zip
+          mkdir -p "$RUNNER_TEMP/fishid/out"
+          unzip -q "$RUNNER_TEMP/FishID.zip" -d "$RUNNER_TEMP/fishid"
+          PKG=$(find "$RUNNER_TEMP/fishid" -maxdepth 2 -name '*.mlpackage' -not -name '._*' -not -path '*__MACOSX*' -print -quit)
+          xcrun coremlcompiler compile "$PKG" "$RUNNER_TEMP/fishid/out"
+          COMPILED=$(find "$RUNNER_TEMP/fishid/out" -maxdepth 1 -name '*.mlmodelc' -print -quit)
+          mkdir -p "$DATA/Library/Caches/MLModels"
+          cp -R "$COMPILED" "$DATA/Library/Caches/MLModels/FishID.mlmodelc"
+          ls "$DATA/Library/Caches/MLModels"
+
+      - name: Record clips
+        env:
+          INPUT_TAKES: ${{ inputs.takes }}
+        run: |
+          # The takes to record: the manual input, else the tag's message.
+          # Checkout makes the tag lightweight, so fetch the annotated one.
+          TAKES="${INPUT_TAKES:-}"
+          if [ -z "$TAKES" ] && [ "${GITHUB_REF_TYPE:-}" = tag ]; then
+            git fetch --depth=1 --force origin "+refs/tags/$GITHUB_REF_NAME:refs/tags/$GITHUB_REF_NAME" >/dev/null 2>&1 || true
+            if [ "$(git cat-file -t "$GITHUB_REF_NAME" 2>/dev/null)" = tag ]; then
+              TAKES=$(git tag -l --format='%(contents:subject)' "$GITHUB_REF_NAME")
+            fi
+          fi
+          echo "Takes: ${TAKES:-all}"
+          want() { [ -z "$TAKES" ] || [[ " $TAKES " == *" $1 "* ]]; }
+
+          OUT=footage
+          LOG="$OUT/gestures.log"
+          mkdir -p "$OUT/stills"
+          MODEL="$DATA/Library/Caches/MLModels/FishID.mlmodelc"
+          HAVE_AXE=0
+          if command -v axe >/dev/null; then HAVE_AXE=1; fi
+
+          now() { python3 -c 'import time; print(f"{time.time():.2f}")'; }
+
+          # Light first: the store screenshots and the preview use the light
+          # look. A shorter dark pass follows.
+          APPEARANCE=light
+          echo "$(date -u +%T) Light appearance"
+          xcrun simctl ui "$UDID" appearance light
+          PLAY_LAUNCH=""
+          launch() { # launch <screen> [photo]
+            SIMCTL_CHILD_TZ=Africa/Johannesburg \
+            SIMCTL_CHILD_SCREENSHOT_MODE=1 \
+            SIMCTL_CHILD_SCREENSHOT_SCREEN="$1" \
+            SIMCTL_CHILD_SCREENSHOT_PHOTO="${2:-}" \
+            SIMCTL_CHILD_SCREENSHOT_PLAY_LAUNCH="$PLAY_LAUNCH" \
+            SIMCTL_CHILD_SCREENSHOT_LAUNCH_PACE="${LAUNCH_PACE:-1}" \
+              xcrun simctl launch "$UDID" "$BUNDLE_ID" -appearanceMode "$APPEARANCE" >/dev/null \
+              || echo "::warning::${CLIP:-warm-up}: launch of $1 failed"
+          }
+
+          # Warm-up: seeds the demo data and fills the forecast cache. If the
+          # model step failed, a Log catch launch makes the app download the
+          # model; wait for it so the recorded takes are identified.
+          echo "$(date -u +%T) Warm-up launch"
+          launch today
+          echo "$(date -u +%T) Warm-up launched"
+          sleep 20
+          if [ ! -d "$MODEL" ]; then
+            echo "::warning::Model not installed by the runner; letting the app download it"
+            xcrun simctl terminate "$UDID" "$BUNDLE_ID" 2>/dev/null || true
+            launch log-catch bass-06.jpg
+            for _ in $(seq 1 60); do
+              if [ -d "$MODEL" ]; then break; fi
+              sleep 3
+            done
+          fi
+          if [ -d "$MODEL" ]; then echo "Species model ready"; else echo "::warning::Species model missing; ID takes will show no match"; fi
+
+          T0=$(now)
+          mark() { echo "$CLIP $(python3 -c "print(f'{$(now) - $T0:.2f}')") $*" >> "$LOG"; }
+
+          # start <clip> <screen> [photo]: relaunch on a screen and record it.
+          start() {
+            CLIP="$1"
+            xcrun simctl terminate "$UDID" "$BUNDLE_ID" 2>/dev/null || true
+            sleep 1
+            xcrun simctl io "$UDID" recordVideo --codec=h264 --force "$OUT/$CLIP.mp4" >/dev/null 2>&1 &
+            REC=$!
+            sleep 1.5
+            T0=$(now)
+            mark "launch $2 ${3:-}"
+            launch "$2" "${3:-}"
+          }
+
+          # halt <pid> <name>: SIGINT makes recordVideo finish the file. Give
+          # it 15 seconds, then TERM, then KILL, and never wait unbounded, so
+          # a stuck recorder can't hang the job.
+          halt() {
+            local sig
+            for sig in INT TERM KILL; do
+              kill -"$sig" "$1" 2>/dev/null || true
+              for _ in $(seq 1 30); do
+                kill -0 "$1" 2>/dev/null || break 2
+                sleep 0.5
+              done
+              echo "::warning::$2: recorder ignored SIG$sig"
+            done
+            wait "$1" 2>/dev/null || true
+          }
+
+          # The recorder runs seconds behind the screen here and drops what it
+          # hasn't written when stopped, so give each take a tail.
+          stop() {
+            sleep 6
+            mark "stop"
+            halt "$REC" "$CLIP"
+            if [ -s "$OUT/$CLIP.mp4" ]; then
+              echo "Recorded $CLIP ($(du -h "$OUT/$CLIP.mp4" | cut -f1))"
+            else
+              echo "::warning::$CLIP: no video written"
+            fi
+          }
+
+          # still <name>: a lossless PNG of the screen as it is now, for the
+          # App Store screenshots (the video frames are compressed). Named
+          # after the screen, as scripts/store_art.py expects.
+          still() {
+            mark "still $1"
+            xcrun simctl io "$UDID" screenshot "$OUT/stills/$1.png" >/dev/null 2>&1 \
+              || echo "::warning::$CLIP: still $1 failed"
+          }
+
+          # shot <screen> [name]: a still with no recording.
+          shot() {
+            CLIP="shot-$1"
+            xcrun simctl terminate "$UDID" "$BUNDLE_ID" 2>/dev/null || true
+            sleep 1
+            T0=$(now)
+            launch "$1"
+            sleep 6
+            still "${2:-$1}"
+          }
+
+          # ax <axe command and flags>: one gesture, logged with its time.
+          ax() {
+            mark "$*"
+            if [ "$HAVE_AXE" = 1 ]; then
+              axe "$@" --udid "$UDID" >/dev/null 2>&1 || echo "::warning::$CLIP: axe $* failed"
+            fi
+          }
+
+          # A slow vertical scroll: scroll <from y> <to y> [seconds].
+          scroll() { ax drag --start-x 220 --start-y "$1" --end-x 220 --end-y "$2" --duration "${3:-1.4}" --steps 90; }
+
+          # Tap a control by its accessibility identifier or label, or at x,y
+          # if that misses: tap_on <--id|--label> <value> <x> <y>.
+          tap_on() {
+            mark "tap $1 $2"
+            if [ "$HAVE_AXE" = 1 ]; then
+              axe tap "$1" "$2" --wait-timeout 4 --udid "$UDID" >/dev/null 2>&1 \
+                || axe tap -x "$3" -y "$4" --udid "$UDID" >/dev/null 2>&1 \
+                || echo "::warning::$CLIP: tap $2 failed"
+            fi
+          }
+
+          # The first recording of a session keeps a single frame, so make a
+          # throwaway one before the takes.
+          xcrun simctl io "$UDID" recordVideo --codec=h264 --force "$RUNNER_TEMP/primer.mp4" >/dev/null 2>&1 &
+          PRIMER=$!
+          sleep 5
+          halt "$PRIMER" primer
+          echo "Primer: $(du -h "$RUNNER_TEMP/primer.mp4" 2>/dev/null | cut -f1 || echo none)"
+
+          # Points on the 440x956 screen, measured on the captures. AXe is
+          # slow here: each command takes about 3 seconds (8 with --label or
+          # --id), and a drag can rest before it moves, which the map takes
+          # for a long press and drops a spot. So the map gets taps on pins
+          # only, never drags. The tab bar's Add item is at 220,904.
+
+          # The opening animation at its real pace. The slow take plays it four
+          # times slower, to see every stage of the drawing.
+          if want launch-light; then
+            PLAY_LAUNCH=1
+            start launch-light today
+            sleep 10
+            stop
+            PLAY_LAUNCH=""
+          fi
+
+          if want launch-slow-light; then
+            PLAY_LAUNCH=1
+            LAUNCH_PACE=4
+            start launch-slow-light today
+            sleep 15
+            stop
+            PLAY_LAUNCH=""
+            LAUNCH_PACE=""
+          fi
+
+          # Today settles, then two slow scrolls down the page.
+          if want today-light; then
+            start today-light today
+            sleep 6
+            still today
+            scroll 780 380; sleep 2.5
+            scroll 780 380; sleep 2.5
+            stop
+          fi
+
+          # The hero flow: Add in the tab bar, the menu springs up, Log catch.
+          # The camera shows the demo trout for 3 seconds, takes it, and the
+          # species is identified on the phone.
+          if want add-flow-light; then
+            start add-flow-light today trout-01.jpg
+            sleep 5
+            ax tap -x 220 -y 904
+            sleep 2
+            still add-menu
+            ax tap -x 123 -y 658
+            sleep 2.5
+            still log-catch-camera
+            sleep 8.5
+            still log-catch-id
+            sleep 3
+            stop
+          fi
+
+          # The same from Today's own Log catch button, and a second species.
+          if want log-catch-light; then
+            start log-catch-light today bass-06.jpg
+            sleep 5
+            ax tap -x 220 -y 539
+            sleep 14
+            stop
+          fi
+
+          if want log-catch-trout-light; then
+            start log-catch-trout-light log-catch trout-01.jpg
+            sleep 15
+            still log-catch-id-trout
+            stop
+          fi
+
+          # The day's forecast: tap the evening bar, then midday. The bars are
+          # buttons (no scrub), and a drag from the edge would swipe back.
+          # Bar centres sit at x = 16 + (hour + 0.5) * 17.
+          if want forecast-day-light; then
+            start forecast-day-light forecast-day
+            sleep 5
+            still forecast-day
+            ax tap -x 330 -y 630; sleep 3
+            still forecast-day-hour
+            ax tap -x 228 -y 630; sleep 3
+            stop
+          fi
+
+          if want forecast-week-light; then
+            start forecast-week-light forecast-week
+            sleep 5
+            still forecast-week
+            scroll 800 400; sleep 2.5
+            stop
+          fi
+
+          # Explore: the map loads, tap the Kogel Bay Reef pin, scroll its page.
+          if want explore-pin-light; then
+            start explore-pin-light explore
+            sleep 9
+            still explore
+            ax tap -x 188 -y 377; sleep 4
+            still spot-sheet
+            scroll 820 420; sleep 3
+            stop
+          fi
+
+          # Explore: "Biting near you" opens by itself after 2 seconds
+          # (screen explore-near), no gesture needed.
+          if want explore-near-light; then
+            start explore-near-light explore-near
+            sleep 12
+            still explore-near
+            stop
+          fi
+
+          # The hero catch: swipe its photos, then scroll the page.
+          if want catch-light; then
+            start catch-light catch
+            sleep 5
+            still catch
+            ax drag --start-x 360 --start-y 260 --end-x 80 --end-y 260 --duration 0.5 --steps 30; sleep 2
+            scroll 820 420; sleep 2.5
+            stop
+          fi
+
+          # A week's streak kept: the streak moment plays over Today.
+          if want streak-moment-light; then
+            start streak-moment-light streak-moment
+            sleep 3
+            still streak-moment-start
+            sleep 4
+            still streak-moment
+            sleep 3
+            stop
+          fi
+
+          if want fishdex-light; then
+            start fishdex-light fishdex
+            sleep 5
+            still fishdex
+            scroll 820 360 2.2; sleep 2
+            stop
+          fi
+
+          if want lures-light; then
+            start lures-light lures
+            sleep 5
+            still lures
+            scroll 820 400 1.8; sleep 2.5
+            stop
+          fi
+
+          if want leaderboard-light; then
+            start leaderboard-light leaderboard
+            sleep 6
+            still leaderboard
+            stop
+          fi
+
+          # Stills only.
+          if want shots; then
+            for s in streak stats profile spot species session; do shot "$s"; done
+          fi
+
+          # The dark pass: the key takes again, and the stills a dark slide
+          # needs.
+          APPEARANCE=dark
+          xcrun simctl ui "$UDID" appearance dark
+
+          if want launch-dark; then
+            PLAY_LAUNCH=1
+            start launch-dark today
+            sleep 10
+            stop
+            PLAY_LAUNCH=""
+          fi
+
+          if want today-dark; then
+            start today-dark today
+            sleep 6
+            still today-dark
+            scroll 780 380; sleep 2.5
+            stop
+          fi
+
+          if want add-flow-dark; then
+            start add-flow-dark today trout-01.jpg
+            sleep 5
+            ax tap -x 220 -y 904
+            sleep 2
+            still add-menu-dark
+            ax tap -x 123 -y 658
+            sleep 11
+            still log-catch-id-dark
+            stop
+          fi
+
+          if want forecast-day-dark; then
+            start forecast-day-dark forecast-day
+            sleep 5
+            ax tap -x 330 -y 630; sleep 3
+            stop
+          fi
+
+          if want explore-pin-dark; then
+            start explore-pin-dark explore
+            sleep 9
+            still explore-dark
+            ax tap -x 188 -y 377; sleep 4
+            stop
+          fi
+
+          if want streak-moment-dark; then
+            start streak-moment-dark streak-moment
+            sleep 7
+            still streak-moment-dark
+            sleep 3
+            stop
+          fi
+
+          if want shots-dark; then
+            shot fishdex fishdex-dark
+            shot catch catch-dark
+          fi
+
+          ls -la "$OUT" "$OUT/stills"
+          cat "$LOG"
+
+      - name: Collect diagnostics
+        if: always()
+        run: |
+          mkdir -p footage/diagnostics
+          cp ~/Library/Logs/DiagnosticReports/Currents* footage/diagnostics/ 2>/dev/null || true
+          if [ -n "${UDID:-}" ]; then
+            xcrun simctl spawn "$UDID" log show --last 10m \
+              --predicate 'processImagePath CONTAINS "Currents"' \
+              --style compact > footage/diagnostics/oslog.txt 2>/dev/null || true
+          fi
+
+      - name: Upload footage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: preview-footage
+          path: ios/footage/
+          retention-days: 30

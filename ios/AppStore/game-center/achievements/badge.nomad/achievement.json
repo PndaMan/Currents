@@ -1,0 +1,11 @@
+{
+  "reference_name": "Nomad",
+  "vendor_identifier": "badge.nomad",
+  "points": 20,
+  "show_before_earned": true,
+  "repeatable": false,
+  "rarity": "epic",
+  "name": "Nomad",
+  "before_earned_description": "Log catches at 8 different saved spots.",
+  "after_earned_description": "Logged catches at 8 different saved spots."
+}

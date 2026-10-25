@@ -1,0 +1,12 @@
+{
+  "reference_name": "Most fish",
+  "vendor_identifier": "catches.total",
+  "formatter": "INTEGER",
+  "submission_type": "BEST_SCORE",
+  "sort": "DESC",
+  "name": "Most fish",
+  "description": "Every catch you have logged in Currents.",
+  "suffix": " fish",
+  "suffix_singular": " fish",
+  "art": {"icon": "fish", "color": "#0A84FF"}
+}

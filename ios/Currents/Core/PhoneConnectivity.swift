@@ -39,10 +39,9 @@ final class PhoneConnectivity: NSObject, WCSessionDelegate, @unchecked Sendable 
             dict[WatchMessage.sessionStart] = trip.startDate.timeIntervalSince1970
         }
         // Next planned trip → the "Next Trip" watch complication.
+        // "Dawn session, Sat 05:30", in the user's 12 or 24-hour setting.
         if let name = snap?.nextSessionName, let date = snap?.nextSessionDate, date > .now {
-            let f = DateFormatter()
-            f.dateFormat = "EEE h a"
-            dict[WatchMessage.nextPrimeWindow] = "\(name) · \(f.string(from: date))"
+            dict[WatchMessage.nextPrimeWindow] = "\(name), \(ForecastFormat.shortDay(date)) \(ForecastFormat.time(date))"
         }
         // Upcoming hourly bite scores so the watch face ticks on its own.
         if let hourly = snap?.hourly, !hourly.isEmpty {

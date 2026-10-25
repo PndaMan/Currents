@@ -1,0 +1,6 @@
+01_bite
+02_nearby
+04_forecast
+06_lures
+03_identify
+05_catch

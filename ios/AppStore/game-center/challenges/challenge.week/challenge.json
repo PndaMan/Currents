@@ -1,0 +1,9 @@
+{
+  "reference_name": "Fish this week challenge",
+  "vendor_identifier": "challenge.week",
+  "leaderboard": "catches.week",
+  "repeatable": true,
+  "name": "Most fish this week",
+  "description": "Log the most catches before the challenge ends.",
+  "art": {"icon": "calendar-check", "color": "#30D158"}
+}

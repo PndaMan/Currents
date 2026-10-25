@@ -1,0 +1,12 @@
+/* Crew push alerts. CloudKit sends these keys with the record's fields as
+   arguments; the phone formats them from this table. */
+"%1$@ wants to be friends on Currents" = "%1$@ wants to be friends on Currents";
+"%1$@ invited you to “%2$@” on Currents" = "%1$@ invited you to “%2$@” on Currents";
+"%1$@ reacted %2$@ to your catch" = "%1$@ reacted %2$@ to your catch";
+"%1$@: %2$@" = "%1$@: %2$@";
+"%1$@ landed a %2$@" = "%1$@ landed a %2$@";
+"%1$@ started a live group trip. Jump in" = "%1$@ started a live group trip. Jump in";
+/* The old key. Crew subscriptions made before the rename still send it
+   until they are re-created, so it reads the same as the new one. */
+"%1$@ started a live trip — jump in" = "%1$@ started a live group trip. Jump in";
+"%1$@ just landed a %2$@ on the trip!" = "%1$@ just landed a %2$@ on the trip!";

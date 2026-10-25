@@ -8,12 +8,16 @@ import MapKit
 /// tile overlays.
 struct SpeciesRangeMapView: UIViewRepresentable {
     let taxonId: Int
+    /// False inside a scrolling page, so a swipe scrolls the page rather
+    /// than the map. The full-screen map passes true.
+    var interactive = false
 
     func makeUIView(context: Context) -> MKMapView {
         let map = MKMapView()
+        map.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         map.delegate = context.coordinator
-        map.isZoomEnabled = true
-        map.isScrollEnabled = true
+        map.isZoomEnabled = interactive
+        map.isScrollEnabled = interactive
         map.isRotateEnabled = false
         map.isPitchEnabled = false
         map.pointOfInterestFilter = .excludingAll
@@ -24,6 +28,12 @@ struct SpeciesRangeMapView: UIViewRepresentable {
         ), animated: false)
         addOverlay(to: map, context: context)
         return map
+    }
+
+    /// Exactly the space offered. Left to UIKit, a map view's own size can
+    /// exceed the slot and push a scroll page wider than the screen.
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView: MKMapView, context: Context) -> CGSize? {
+        proposal.replacingUnspecifiedDimensions(by: CGSize(width: 320, height: 200))
     }
 
     func updateUIView(_ map: MKMapView, context: Context) {

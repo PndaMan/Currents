@@ -102,6 +102,10 @@ final class TripTracker: NSObject, CLLocationManagerDelegate {
         t.startDate = .now
         t.currentDayStart = .now
         try? repository?.save(&t)
+        // It is a session now, so its reminder and the widget's next session
+        // no longer apply.
+        NotificationManager.shared.cancelPlannedSessionAlert(tripId: t.id)
+        if let repository { PlanWidget.refresh(repository) }
         activeTrip = t
         track = []
         isDayActive = true

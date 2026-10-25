@@ -20,6 +20,20 @@ enum SolunarEngine {
         let moonPhase: MoonPhase
         let moonIllumination: Double             // 0.0 – 1.0
         let dayRating: DayRating
+
+        /// True before sunrise or from sunset on: the one day-or-night test
+        /// that Today, the forecast pages and What to throw share. A time on
+        /// a neighbouring day (the hour strip runs on into tomorrow) is
+        /// tested against this day's sun times moved by whole days, since
+        /// they shift only a minute or so a day.
+        func isNight(at time: Date) -> Bool {
+            let calendar = Calendar.current
+            let days = calendar.dateComponents([.day], from: calendar.startOfDay(for: date),
+                                               to: calendar.startOfDay(for: time)).day ?? 0
+            let rise = calendar.date(byAdding: .day, value: days, to: sunrise) ?? sunrise
+            let dusk = calendar.date(byAdding: .day, value: days, to: sunset) ?? sunset
+            return SolunarEngine.isNight(time, sunrise: rise, sunset: dusk)
+        }
     }
 
     struct FeedingWindow: Sendable {
@@ -78,25 +92,31 @@ enum SolunarEngine {
         let moonrise = moonEvent(date: noon, latitude: lat, longitude: lon, isRise: true)
         let moonset = moonEvent(date: noon, latitude: lat, longitude: lon, isRise: false)
 
-        // Moon transit (overhead) and anti-transit (underfoot)
-        let transit = moonTransit(date: noon, longitude: lon)
-        let antiTransit = transit.addingTimeInterval(12.37 * 3600) // ~12h 22m later
+        // Moon overhead and underfoot: its upper and lower meridian crossings,
+        // from the same position model as moonrise and moonset
+        let dayStart = calendar.startOfDay(for: noon)
+        let transit = moonMeridian(dayStart: dayStart, longitude: lon, upper: true)
+        let antiTransit = moonMeridian(dayStart: dayStart, longitude: lon, upper: false)
 
         // Major periods: 1h before → 1h after transit
         var majors: [FeedingWindow] = []
         let majorDuration: TimeInterval = 3600 // 1h each side
-        majors.append(FeedingWindow(
-            start: transit.addingTimeInterval(-majorDuration),
-            peak: transit,
-            end: transit.addingTimeInterval(majorDuration),
-            kind: .majorOverhead
-        ))
-        majors.append(FeedingWindow(
-            start: antiTransit.addingTimeInterval(-majorDuration),
-            peak: antiTransit,
-            end: antiTransit.addingTimeInterval(majorDuration),
-            kind: .majorUnderfoot
-        ))
+        if let transit {
+            majors.append(FeedingWindow(
+                start: transit.addingTimeInterval(-majorDuration),
+                peak: transit,
+                end: transit.addingTimeInterval(majorDuration),
+                kind: .majorOverhead
+            ))
+        }
+        if let antiTransit {
+            majors.append(FeedingWindow(
+                start: antiTransit.addingTimeInterval(-majorDuration),
+                peak: antiTransit,
+                end: antiTransit.addingTimeInterval(majorDuration),
+                kind: .majorUnderfoot
+            ))
+        }
 
         // Minor periods: 30m before → 30m after rise/set
         var minors: [FeedingWindow] = []
@@ -141,6 +161,19 @@ enum SolunarEngine {
             moonIllumination: illumination,
             dayRating: rating
         )
+    }
+
+    /// The day-or-night test for a place whose solunar day is not worked out,
+    /// from its sun times alone. The same rule as `SolunarDay.isNight(at:)`.
+    static func isNight(at time: Date, coordinate: CLLocationCoordinate2D) -> Bool {
+        let noon = Calendar.current.date(bySettingHour: 12, minute: 0, second: 0, of: time)!
+        let (rise, dusk) = sunTimes(date: noon, latitude: coordinate.latitude, longitude: coordinate.longitude)
+        return isNight(time, sunrise: rise, sunset: dusk)
+    }
+
+    /// Night is before sunrise and from sunset on.
+    static func isNight(_ time: Date, sunrise: Date, sunset: Date) -> Bool {
+        time < sunrise || time >= sunset
     }
 
     /// Hourly fishing score for a 24-hour period.
@@ -295,33 +328,41 @@ enum SolunarEngine {
         return (sunrise, sunset)
     }
 
-    /// Approximate moon transit time (when moon is at its highest).
-    private static func moonTransit(date: Date, longitude: Double) -> Date {
-        let jd = julianDay(date)
-        let T = (jd - 2451545.0) / 36525.0
+    /// When the moon crosses the meridian: overhead (`upper`) or underfoot.
+    /// An hourly scan of its hour angle, interpolated to well under a minute.
+    /// Takes the crossing inside the day, or the nearest one on the day each
+    /// month that the moon skips.
+    private static func moonMeridian(dayStart: Date, longitude: Double, upper: Bool) -> Date? {
+        func angle(_ time: Date) -> Double {
+            let hourAngle = moonHourAngle(at: time, longitude: longitude)
+            if upper { return hourAngle }
+            return hourAngle < 0 ? hourAngle + 180 : hourAngle - 180
+        }
 
-        // Mean lunar longitude
-        let L = 218.3165 + 481267.8813 * T
-        let normalizedL = L.truncatingRemainder(dividingBy: 360)
+        let dayEnd = dayStart.addingTimeInterval(86400)
+        var best: Date?
+        var bestGap = Double.infinity
+        var previousTime = dayStart.addingTimeInterval(-3 * 3600)
+        var previous = angle(previousTime)
 
-        // Approximate transit: when moon's hour angle = 0
-        // Moon moves ~13.2° per day relative to sun, transits ~50 min later each day
-        let knownTransitJD = 2451545.0 + (normalizedL - longitude) / 360.0
-        let daysSinceKnown = jd - knownTransitJD
-        let lunarDay = 24.0 + 50.0 / 60.0 // hours between successive transits
-        let transitsSince = (daysSinceKnown * 24.0 / lunarDay).rounded()
-        let transitJD = knownTransitJD + transitsSince * lunarDay / 24.0
-
-        // Clamp to the given date
-        let cal = Calendar.current
-        let startOfDay = cal.startOfDay(for: date)
-        var result = Date(timeIntervalSince1970: (transitJD - 2440587.5) * 86400.0)
-
-        // Adjust to be within the day
-        while result < startOfDay { result = result.addingTimeInterval(lunarDay * 3600) }
-        while result > startOfDay.addingTimeInterval(86400) { result = result.addingTimeInterval(-lunarDay * 3600) }
-
-        return result
+        for hour in -2...27 {
+            let time = dayStart.addingTimeInterval(Double(hour) * 3600)
+            let current = angle(time)
+            // The angle grows about 14.5° an hour, so a step from below zero to
+            // zero or above is the crossing. The wrap at ±180° steps down instead.
+            if previous < 0 && current >= 0 {
+                let fraction = -previous / (current - previous)
+                let crossing = previousTime.addingTimeInterval(fraction * 3600)
+                let gap = max(0, dayStart.timeIntervalSince(crossing), crossing.timeIntervalSince(dayEnd))
+                if gap < bestGap {
+                    best = crossing
+                    bestGap = gap
+                }
+            }
+            previous = current
+            previousTime = time
+        }
+        return best
     }
 
     /// Approximate moonrise/moonset using iterative search.
@@ -350,26 +391,19 @@ enum SolunarEngine {
         return nil // Moon doesn't rise/set on this day (can happen near poles)
     }
 
-    /// Approximate moon altitude above horizon in degrees.
-    private static func moonAltitude(at date: Date, latitude: Double, longitude: Double) -> Double {
+    /// Simplified lunar position: right ascension, declination and the local
+    /// sidereal angle, all in radians.
+    private static func moonPosition(at date: Date, longitude: Double) -> (ra: Double, dec: Double, lst: Double) {
         let jd = julianDay(date)
         let T = (jd - 2451545.0) / 36525.0
 
-        // Simplified lunar position
         let L = 218.3165 + 481267.8813 * T // Mean longitude
         let M = 134.9634 + 477198.8676 * T // Mean anomaly
         let F = 93.2721 + 483202.0175 * T  // Argument of latitude
 
-        let Lrad = toRadians(L)
-        let Mrad = toRadians(M)
-        let Frad = toRadians(F)
-
         // Ecliptic longitude and latitude (simplified)
-        let lambda = L + 6.289 * sin(Mrad)
-        let beta = 5.128 * sin(Frad)
-
-        let lambdaRad = toRadians(lambda)
-        let betaRad = toRadians(beta)
+        let lambdaRad = toRadians(L + 6.289 * sin(toRadians(M)))
+        let betaRad = toRadians(5.128 * sin(toRadians(F)))
 
         // Obliquity of ecliptic
         let epsilon = toRadians(23.439 - 0.00000036 * (jd - 2451545.0))
@@ -379,15 +413,27 @@ enum SolunarEngine {
         let dec = asin(sinDec)
         let ra = atan2(sin(lambdaRad) * cos(epsilon) - tan(betaRad) * sin(epsilon), cos(lambdaRad))
 
-        // Hour angle
+        // Local sidereal angle
         let gmst = 280.46061837 + 360.98564736629 * (jd - 2451545.0)
-        let lst = toRadians(gmst + longitude)
-        let ha = lst - ra
+        return (ra: ra, dec: dec, lst: toRadians(gmst + longitude))
+    }
 
-        // Altitude
+    /// Approximate moon altitude above horizon in degrees.
+    private static func moonAltitude(at date: Date, latitude: Double, longitude: Double) -> Double {
+        let position = moonPosition(at: date, longitude: longitude)
+        let ha = position.lst - position.ra
+
         let latRad = toRadians(latitude)
-        let sinAlt = sin(latRad) * sin(dec) + cos(latRad) * cos(dec) * cos(ha)
+        let sinAlt = sin(latRad) * sin(position.dec) + cos(latRad) * cos(position.dec) * cos(ha)
         return toDegrees(asin(sinAlt))
+    }
+
+    /// The moon's local hour angle in degrees, from -180 up to 180: zero with
+    /// the moon on the meridian overhead, ±180 underfoot.
+    private static func moonHourAngle(at date: Date, longitude: Double) -> Double {
+        let position = moonPosition(at: date, longitude: longitude)
+        let shifted = (toDegrees(position.lst - position.ra) + 180).truncatingRemainder(dividingBy: 360)
+        return (shifted < 0 ? shifted + 360 : shifted) - 180
     }
 
     /// Moon illumination fraction (0 = new, 1 = full).

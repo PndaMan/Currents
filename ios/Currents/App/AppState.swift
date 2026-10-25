@@ -13,14 +13,12 @@ final class AppState {
     /// Catches tab and CatchesTab presents the log sheet, then resets it.
     var siriRequestedLogCatch = false
 
-    // MARK: - Deep-link routing (Live Activity taps + notification taps)
+    /// True once the opening animation has gone (CurrentsApp), so alerts
+    /// raised at launch never appear behind it. Stays false in screenshot
+    /// mode, which has no opening animation.
+    var launchFinished = false
 
-    /// A destination inside the "More" tab's navigation stack, pushed
-    /// programmatically when a notification points there.
-    enum MoreDestination: String, Identifiable, Hashable {
-        case community, gear, licenses, sessions
-        var id: String { rawValue }
-    }
+    // MARK: - Deep-link routing (Live Activity taps + notification taps)
 
     /// A deep link (currents://…) received from a notification tap — ContentView
     /// observes this and routes, then clears it.
@@ -28,8 +26,13 @@ final class AppState {
     /// Set when a link should open the live fishing session so a catch can be
     /// logged straight away — MapTab watches this and presents the session.
     var openLiveSession = false
-    /// Push a screen inside the More tab (Community / Gear / Licences / Sessions).
-    var moreDestination: MoreDestination?
+    /// Set by the tab bar's Add menu: MapTab starts placing a new spot (its
+    /// own Add spot button's drop pin), then clears it.
+    var openAddSpot = false
+    /// Counts the sessions and plans saved from the Add menu's sheets. They
+    /// sit at the app root, so closing one fires no onAppear underneath;
+    /// Today and the Logbook reload when this changes.
+    var addMenuSheetsClosed = 0
     /// Set by a crew push-notification tap: the Community tab opens this
     /// crew's detail screen, then clears it.
     var openCrewCode: String?
@@ -124,12 +127,17 @@ final class AppState {
         // they opted in). Starts syncing catches + spots across their devices.
         CloudSyncEngine.shared.configure(db: db)
 
+        // Game Center: signs in quietly when the phone already is, then keeps
+        // achievements and leaderboard scores in step with the catches.
+        GameCenter.shared.start(db: db, catches: catchRepository)
+
         // Apple Watch companion link.
         PhoneConnectivity.shared.activate()
 
-        // Refresh licence-expiry reminders from stored licences.
+        // Refresh licence-expiry reminders from stored licences, without
+        // asking for notification permission.
         if let licenses = try? licenseRepository.fetchAll(), !licenses.isEmpty {
-            Task { await NotificationManager.shared.scheduleLicenseExpiryAlerts(licenses: licenses) }
+            Task { await LicenseReminders.reschedule(licenses) }
         }
 
         // App Store screenshot capture (CI only — gated on SCREENSHOT_MODE env).

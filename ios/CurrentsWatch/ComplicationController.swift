@@ -52,14 +52,10 @@ enum ComplicationStore {
     }
 
     static func color(forScore s: Int) -> UIColor {
-        // watchOS UIColor has no system* semantic colours, so use fixed RGB
-        // matching the app's score palette (green / teal / orange / gray).
-        switch s {
-        case 80...:   return UIColor(red: 0.30, green: 0.78, blue: 0.36, alpha: 1)
-        case 60..<80: return UIColor(red: 0.19, green: 0.69, blue: 0.78, alpha: 1)
-        case 40..<60: return UIColor(red: 0.98, green: 0.58, blue: 0.13, alpha: 1)
-        default:      return .gray
-        }
+        // The app's score ramp (WatchTheme / DS.scoreColor), with the top band
+        // in the theme colour synced from the phone.
+        let theme = d.string(forKey: "cx_theme") ?? "ocean"
+        return UIColor(WatchTheme.scoreColor(s, theme: theme))
     }
 }
 
@@ -79,10 +75,10 @@ final class ComplicationController: NSObject, CLKComplicationDataSource {
 
     func getComplicationDescriptors(handler: @escaping ([CLKComplicationDescriptor]) -> Void) {
         handler([
-            CLKComplicationDescriptor(identifier: "bite", displayName: "Bite Score", supportedFamilies: families),
-            CLKComplicationDescriptor(identifier: "session", displayName: "Fishing Session", supportedFamilies: families),
-            CLKComplicationDescriptor(identifier: "window", displayName: "Next Trip", supportedFamilies: families),
-            CLKComplicationDescriptor(identifier: "log", displayName: "Log a Catch", supportedFamilies: families),
+            CLKComplicationDescriptor(identifier: "bite", displayName: "Bite score", supportedFamilies: families),
+            CLKComplicationDescriptor(identifier: "session", displayName: "Fishing session", supportedFamilies: families),
+            CLKComplicationDescriptor(identifier: "window", displayName: "Next trip", supportedFamilies: families),
+            CLKComplicationDescriptor(identifier: "log", displayName: "Log a catch", supportedFamilies: families),
         ])
     }
 
@@ -130,14 +126,14 @@ final class ComplicationController: NSObject, CLKComplicationDataSource {
         }
     }
 
-    // Bite score — a 0…100 gauge with the number and a 🎣 so it clearly reads
-    // as a fishing bite score.
+    // Bite score — a 0…100 gauge with the number and a "Bite" label so it
+    // clearly reads as a fishing bite score.
     private func biteTemplate(_ family: CLKComplicationFamily, date: Date, sample: Bool) -> CLKComplicationTemplate? {
         let score = sample ? 72 : ComplicationStore.score(at: date)
         let color = ComplicationStore.color(forScore: score)
         let fill = Float(max(0, min(100, score))) / 100
         let num = CLKSimpleTextProvider(text: "\(score)")
-        let fishText = CLKSimpleTextProvider(text: "🎣")
+        let fishText = CLKSimpleTextProvider(text: "Bite")
         let gauge = CLKSimpleGaugeProvider(style: .fill, gaugeColor: color, fillFraction: fill)
 
         switch family {
@@ -149,29 +145,29 @@ final class ComplicationController: NSObject, CLKComplicationDataSource {
                 gaugeProvider: gauge, centerTextProvider: num)
         case .graphicCorner:
             return CLKComplicationTemplateGraphicCornerGaugeText(
-                gaugeProvider: gauge, outerTextProvider: CLKSimpleTextProvider(text: "🎣 \(score)"))
+                gaugeProvider: gauge, outerTextProvider: CLKSimpleTextProvider(text: "Bite \(score)"))
         case .graphicBezel:
             let circ = CLKComplicationTemplateGraphicCircularClosedGaugeText(gaugeProvider: gauge, centerTextProvider: num)
             return CLKComplicationTemplateGraphicBezelCircularText(
-                circularTemplate: circ, textProvider: CLKSimpleTextProvider(text: "🎣 Bite Score"))
+                circularTemplate: circ, textProvider: CLKSimpleTextProvider(text: "Bite score"))
         case .graphicRectangular:
             return CLKComplicationTemplateGraphicRectangularTextGauge(
-                headerTextProvider: CLKSimpleTextProvider(text: "🎣 Bite Score"),
+                headerTextProvider: CLKSimpleTextProvider(text: "Bite score"),
                 body1TextProvider: num, gaugeProvider: gauge)
         case .modularSmall:
             return CLKComplicationTemplateModularSmallStackText(line1TextProvider: fishText, line2TextProvider: num)
         case .modularLarge:
             return CLKComplicationTemplateModularLargeStandardBody(
-                headerTextProvider: CLKSimpleTextProvider(text: "🎣 Bite Score"),
-                body1TextProvider: CLKSimpleTextProvider(text: "\(score) / 100"))
+                headerTextProvider: CLKSimpleTextProvider(text: "Bite score"),
+                body1TextProvider: CLKSimpleTextProvider(text: "\(score) of 100"))
         case .circularSmall:
             return CLKComplicationTemplateCircularSmallStackText(line1TextProvider: fishText, line2TextProvider: num)
         case .extraLarge:
             return CLKComplicationTemplateExtraLargeStackText(line1TextProvider: fishText, line2TextProvider: num)
         case .utilitarianSmall, .utilitarianSmallFlat:
-            return CLKComplicationTemplateUtilitarianSmallFlat(textProvider: CLKSimpleTextProvider(text: "🎣 \(score)"))
+            return CLKComplicationTemplateUtilitarianSmallFlat(textProvider: CLKSimpleTextProvider(text: "Bite \(score)"))
         case .utilitarianLarge:
-            return CLKComplicationTemplateUtilitarianLargeFlat(textProvider: CLKSimpleTextProvider(text: "🎣 Bite \(score)"))
+            return CLKComplicationTemplateUtilitarianLargeFlat(textProvider: CLKSimpleTextProvider(text: "Bite score \(score)"))
         default:
             return nil
         }
@@ -183,7 +179,7 @@ final class ComplicationController: NSObject, CLKComplicationDataSource {
         let catches = sample ? 3 : ComplicationStore.catchCount
         let start = sample ? Date().addingTimeInterval(-3600) : ComplicationStore.sessionStart
 
-        let caughtText = CLKSimpleTextProvider(text: "\(catches) caught")
+        let caughtText = CLKSimpleTextProvider(text: catches == 1 ? "1 catch" : "\(catches) catches")
         let timeProvider: CLKTextProvider = (tracking && start != nil)
             ? CLKRelativeDateTextProvider(date: start!, style: .timer, units: [.hour, .minute])
             : CLKSimpleTextProvider(text: "Tap to start")
@@ -201,26 +197,26 @@ final class ComplicationController: NSObject, CLKComplicationDataSource {
                 innerTextProvider: caughtText, outerTextProvider: header)
         case .utilitarianLarge:
             return CLKComplicationTemplateUtilitarianLargeFlat(
-                textProvider: CLKSimpleTextProvider(text: tracking ? "🎣 \(catches) caught" : "Start session"))
+                textProvider: tracking ? caughtText : CLKSimpleTextProvider(text: "Start session"))
         case .modularSmall, .circularSmall:
             return CLKComplicationTemplateModularSmallSimpleText(textProvider: CLKSimpleTextProvider(text: "\(catches)"))
         case .utilitarianSmall, .utilitarianSmallFlat:
-            return CLKComplicationTemplateUtilitarianSmallFlat(textProvider: CLKSimpleTextProvider(text: "🐟 \(catches)"))
+            return CLKComplicationTemplateUtilitarianSmallFlat(textProvider: CLKSimpleTextProvider(text: "\(catches) caught"))
         case .graphicCircular:
             return CLKComplicationTemplateGraphicCircularStackText(
                 line1TextProvider: CLKSimpleTextProvider(text: "\(catches)"),
-                line2TextProvider: CLKSimpleTextProvider(text: "🐟"))
+                line2TextProvider: CLKSimpleTextProvider(text: "caught"))
         default:
             return nil
         }
     }
 
-    // Next planned trip, e.g. "Kariba · Sat 6 AM".
+    // Next planned trip, as the phone formats it.
     private func windowTemplate(_ family: CLKComplicationFamily, sample: Bool) -> CLKComplicationTemplate? {
-        let raw = sample ? "Kariba · Sat 6 AM" : ComplicationStore.nextWindow
+        let raw = sample ? "Kariba, Sat 6 AM" : ComplicationStore.nextWindow
         let text = raw.isEmpty ? "None planned" : raw
         let value = CLKSimpleTextProvider(text: text)
-        let header = CLKSimpleTextProvider(text: "Next Trip")
+        let header = CLKSimpleTextProvider(text: "Next trip")
 
         switch family {
         case .graphicRectangular:
@@ -232,12 +228,12 @@ final class ComplicationController: NSObject, CLKComplicationDataSource {
         case .graphicCorner:
             return CLKComplicationTemplateGraphicCornerStackText(innerTextProvider: value, outerTextProvider: header)
         case .utilitarianLarge:
-            return CLKComplicationTemplateUtilitarianLargeFlat(textProvider: CLKSimpleTextProvider(text: "📅 \(text)"))
+            return CLKComplicationTemplateUtilitarianLargeFlat(textProvider: value)
         case .utilitarianSmall, .utilitarianSmallFlat:
             return CLKComplicationTemplateUtilitarianSmallFlat(textProvider: value)
         case .graphicBezel:
             let circ = CLKComplicationTemplateGraphicCircularStackText(
-                line1TextProvider: CLKSimpleTextProvider(text: "📅"),
+                line1TextProvider: CLKSimpleTextProvider(text: "Next"),
                 line2TextProvider: CLKSimpleTextProvider(text: text))
             return CLKComplicationTemplateGraphicBezelCircularText(circularTemplate: circ, textProvider: header)
         default:
@@ -247,7 +243,7 @@ final class ComplicationController: NSObject, CLKComplicationDataSource {
 
     // One-tap launcher — opens the watch app (ready to log).
     private func logTemplate(_ family: CLKComplicationFamily) -> CLKComplicationTemplate? {
-        let icon = CLKSimpleTextProvider(text: "🎣")
+        let icon = CLKSimpleTextProvider(text: "Catch")
         let label = CLKSimpleTextProvider(text: "Log")
         switch family {
         case .graphicCircular:
@@ -257,9 +253,9 @@ final class ComplicationController: NSObject, CLKComplicationDataSource {
         case .circularSmall, .modularSmall:
             return CLKComplicationTemplateModularSmallSimpleText(textProvider: label)
         case .utilitarianSmall, .utilitarianSmallFlat:
-            return CLKComplicationTemplateUtilitarianSmallFlat(textProvider: CLKSimpleTextProvider(text: "🎣 Log"))
+            return CLKComplicationTemplateUtilitarianSmallFlat(textProvider: CLKSimpleTextProvider(text: "Log catch"))
         case .utilitarianLarge:
-            return CLKComplicationTemplateUtilitarianLargeFlat(textProvider: CLKSimpleTextProvider(text: "🎣 Log a catch"))
+            return CLKComplicationTemplateUtilitarianLargeFlat(textProvider: CLKSimpleTextProvider(text: "Log a catch"))
         case .graphicRectangular:
             return CLKComplicationTemplateGraphicRectangularStandardBody(
                 headerTextProvider: CLKSimpleTextProvider(text: "Currents"),

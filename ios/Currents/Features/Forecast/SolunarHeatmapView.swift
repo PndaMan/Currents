@@ -1,95 +1,78 @@
 import SwiftUI
-import CoreLocation
 
-/// A 7-day × 24-hour heatmap of solunar bite quality for a location. Each cell
-/// is tinted by the hourly solunar score (red = poor … green = prime), so an
-/// angler can eyeball the best days and times of day at a glance.
+/// Seven days by 24 hours of bite score, one cell per hour in the score
+/// colour. Tap a cell to open that day with the hour selected. VoiceOver
+/// reads each day as one row that opens the day, rather than 24 cells.
 struct SolunarHeatmapView: View {
-    let coordinate: CLLocationCoordinate2D
-    @State private var days: [DayScores] = []
-
-    struct DayScores: Identifiable {
-        let id = UUID()
-        let label: String
-        let scores: [Double]   // 24 hourly scores, 0…1
-    }
+    let store: ForecastStore
+    @AppStorage("use24HourTime") private var use24 = true
+    @ScaledMetric(relativeTo: .caption) private var labelWidth: CGFloat = 36
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Label("Solunar Bite Heatmap", systemImage: "moon.stars.fill")
-                    .font(.headline)
-                Spacer()
-                Text("Next 7 days").font(.caption2).foregroundStyle(.secondary)
-            }
-
-            if days.isEmpty {
-                ProgressView().frame(maxWidth: .infinity).padding(.vertical, 8)
-            } else {
-                // Hour axis
-                HStack(spacing: 0) {
-                    Color.clear.frame(width: 34)
-                    ForEach([0, 6, 12, 18], id: \.self) { h in
-                        Text("\(h)h")
-                            .font(.system(size: 9))
-                            .foregroundStyle(.secondary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 0) {
+                Color.clear.frame(width: labelWidth + 4)
+                ForEach([0, 6, 12, 18], id: \.self) { h in
+                    Text(ForecastFormat.hour(h, use24: use24))
+                        .font(.caption2)
+                        .foregroundStyle(.dsText2)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
+            }
+            .accessibilityHidden(true)
 
-                ForEach(days) { day in
-                    HStack(spacing: 3) {
-                        Text(day.label)
-                            .font(.caption2.bold())
-                            .frame(width: 31, alignment: .leading)
-                        HStack(spacing: 1) {
-                            ForEach(0..<24, id: \.self) { h in
-                                RoundedRectangle(cornerRadius: 2)
-                                    .fill(CurrentsTheme.scoreColor(Int((day.scores[safe: h] ?? 0) * 100)))
-                                    .frame(height: 15)
+            ForEach(0..<7, id: \.self) { offset in
+                let day = store.day(offset)
+                HStack(spacing: 4) {
+                    NavigationLink(value: ForecastRoute.day(offset: offset, hour: nil)) {
+                        Text(offset == 0 ? "Today" : ForecastFormat.shortDay(day.date))
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.dsText)
+                            .frame(width: labelWidth, alignment: .leading)
+                    }
+                    .buttonStyle(.dim)
+                    .accessibilityLabel(rowLabel(day))
+                    .accessibilityHint("Opens that day")
+                    HStack(spacing: 1.5) {
+                        ForEach(0..<24, id: \.self) { h in
+                            let score = day.score(at: h) ?? 0
+                            NavigationLink(value: ForecastRoute.day(offset: offset, hour: h)) {
+                                RoundedRectangle(cornerRadius: 2.5, style: .continuous) // ui-lint: allow, heatmap cell, not a card
+                                    .fill(DS.scoreColor(score).opacity(0.25 + 0.75 * Double(score) / 100))
+                                    .frame(height: 18)
                                     .frame(maxWidth: .infinity)
+                                    .contentShape(Rectangle())
                             }
+                            .buttonStyle(.dim)
                         }
                     }
+                    .accessibilityHidden(true)
                 }
-
-                // Legend
-                HStack(spacing: 5) {
-                    Text("Poor").font(.system(size: 9)).foregroundStyle(.secondary)
-                    ForEach([10, 35, 55, 80, 100], id: \.self) { s in
-                        RoundedRectangle(cornerRadius: 2)
-                            .fill(CurrentsTheme.scoreColor(s))
-                            .frame(width: 16, height: 8)
-                    }
-                    Text("Prime").font(.system(size: 9)).foregroundStyle(.secondary)
-                    Spacer()
-                    Text("Tap a day in the picker for detail")
-                        .font(.system(size: 9))
-                        .foregroundStyle(.tertiary)
-                }
-                .padding(.top, 2)
             }
+
+            HStack(spacing: 6) {
+                Text("Slow").font(.caption2).foregroundStyle(.dsText2)
+                ForEach([20, 45, 60, 85], id: \.self) { s in
+                    RoundedRectangle(cornerRadius: 2.5, style: .continuous) // ui-lint: allow, heatmap cell, not a card
+                        .fill(DS.scoreColor(s))
+                        .frame(width: 22, height: 8)
+                }
+                Text("Excellent").font(.caption2).foregroundStyle(.dsText2)
+                Spacer()
+            }
+            .padding(.top, 4)
+            .accessibilityHidden(true)
+
+            Text("Tap any hour to open that day.")
+                .font(.footnote)
+                .foregroundStyle(.dsText2)
         }
-        .glassCard()
-        .task(id: "\(coordinate.latitude),\(coordinate.longitude)") { compute() }
     }
 
-    private func compute() {
-        let cal = Calendar.current
-        let fmt = DateFormatter()
-        fmt.dateFormat = "EEE"
-        var out: [DayScores] = []
-        for offset in 0..<7 {
-            guard let date = cal.date(byAdding: .day, value: offset, to: Date()) else { continue }
-            let hourly = SolunarEngine.hourlyScores(date: date, coordinate: coordinate)
-            out.append(DayScores(label: fmt.string(from: date), scores: hourly.map(\.score)))
-        }
-        days = out
-    }
-}
-
-private extension Array {
-    subscript(safe index: Int) -> Element? {
-        indices.contains(index) ? self[index] : nil
+    /// One line for the whole day: its best score and when.
+    private func rowLabel(_ day: ForecastDay) -> String {
+        let name = ForecastFormat.dayName(day.offset, date: day.date)
+        let hour = ForecastFormat.hour(day.bestHour, use24: use24)
+        return "\(name), best around \(hour), \(ForecastFormat.grade(day.peakScore)), \(day.peakScore) of 100"
     }
 }

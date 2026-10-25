@@ -1,0 +1,9 @@
+{
+  "reference_name": "Heaviest fish challenge",
+  "vendor_identifier": "challenge.heaviest",
+  "leaderboard": "catches.heaviest",
+  "repeatable": true,
+  "name": "Heaviest fish",
+  "description": "Land the heaviest fish before the challenge ends.",
+  "art": {"icon": "scales", "color": "#FF9F0A"}
+}

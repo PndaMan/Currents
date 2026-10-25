@@ -1,0 +1,11 @@
+{
+  "reference_name": "Monster",
+  "vendor_identifier": "badge.monster",
+  "points": 20,
+  "show_before_earned": true,
+  "repeatable": false,
+  "rarity": "epic",
+  "name": "Monster",
+  "before_earned_description": "Land a fish weighing 12 kg (26 lb) or more.",
+  "after_earned_description": "Landed a fish of 12 kg (26.5 lb) or more."
+}

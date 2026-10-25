@@ -2,253 +2,281 @@ import SwiftUI
 import MapKit
 import CoreLocation
 
-/// Sheet shown when the user taps anywhere on the map.
-///
-/// Gives a full picture of why (or why not) that coordinate is worth fishing:
-/// current weather, a full bite forecast, nearby saved spots, and probable
-/// fishing holes derived from the user's catch history + terrain heuristics.
+/// Sheet shown when the user taps anywhere on the map, or the "Biting near
+/// you" capsule. Why (or why not) that point is worth fishing: the bite now,
+/// what has been recorded there, conditions, water and saved spots nearby.
 struct LocationInspectorSheet: View {
     @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dynamicTypeSize) private var typeSize
+    @AppStorage("use24HourTime") private var use24HourTime = true
 
     let coordinate: CLLocationCoordinate2D
+    var isUserLocation = false
+    /// A name the caller already has for the point, such as a session stop.
+    var title: String? = nil
+    /// Closes the sheet. The map opens a spot or water as its place sheet
+    /// and pushes anything else on the Explore stack.
+    var onOpen: (ExploreRoute) -> Void = { _ in }
+    /// A fish tapped under "Biting near you": the map narrows to the spots
+    /// and waters where it is confirmed.
+    var onShowSpecies: (Species) -> Void = { _ in }
 
     @State private var weather: WeatherService.WeatherData?
-    @State private var forecast: ForecastEngine.ForecastResult?
+    @State private var bite: BiteSnapshot?
     @State private var placeName: String?
     @State private var nearbySpots: [ScoredSpot] = []
     @State private var probableSpots: [ProbableSpot] = []
+    @State private var biting: [BitingFish] = []
+    /// Recorded fish that are not in the species guide, so have no art or
+    /// bite of their own.
+    @State private var unlistedFish = 0
+    @State private var unnotedFish = 0
     @State private var isLoading = true
-    @State private var showingSaveAsSpot = false
-    @State private var selectedWaterbody: Waterbody?
-    @State private var selectedSpot: Spot?
+    @State private var isLoadingFish = true
+    @State private var isLoadingWater = true
+    @State private var showingSaveForm = false
+    /// The spot saved here, from this sheet or before it opened. Once set,
+    /// Save spot shows "Saved" and opens that spot instead of saving again.
+    @State private var savedSpot: Spot?
+    @State private var detent: PresentationDetent = .medium
 
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(spacing: CurrentsTheme.paddingM) {
+                VStack(alignment: .leading, spacing: 0) {
                     header
-                    if let forecast {
-                        BiteScoreCard(forecast: forecast)
+                    if isLoading && bite == nil {
+                        SheetSkeleton().padding(.top, DS.Space.s5)
+                    } else {
+                        content
+                            .transition(.opacity)
                     }
-                    if let weather {
-                        weatherCard(weather)
-                    }
-                    probableSpotsSection
-                    nearbySpotsSection
-                    actionBar
                 }
-                .padding()
+                .padding(.bottom, DS.Space.s8)
+                .pageWidth()
             }
-            .navigationTitle("Location Insight")
-            .navigationBarTitleDisplayMode(.inline)
+            .detailScrollEdge()
+            .background(Color.dsBackground.ignoresSafeArea())
+            .exploreInlineTitle(heading)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Done") { dismiss() }
+                ToolbarItem(placement: .confirmationAction) {
+                    SheetDoneButton()
                 }
             }
             .task { await load() }
-            .sheet(isPresented: $showingSaveAsSpot) {
-                AddSpotSheet(prefillCoordinate: coordinate)
-                    .presentationDetents([.medium])
-            }
-            .sheet(item: $selectedWaterbody) { wb in
-                WaterbodyDetailSheet(waterbody: wb)
-                    .presentationDetents([.medium, .large])
-                    .presentationBackground(.ultraThinMaterial)
-            }
-            .sheet(item: $selectedSpot) { spot in
-                SpotDetailSheet(spot: spot)
-                    .presentationDetents([.medium, .large])
-                    .presentationBackground(.ultraThinMaterial)
-                    .presentationDragIndicator(.visible)
-                    .presentationContentInteraction(.resizes)
+            // The form is pushed inside this sheet rather than stacked on it.
+            .navigationDestination(isPresented: $showingSaveForm) {
+                AddSpotForm(prefillCoordinate: coordinate, isPushed: true) { spot in
+                    savedSpot = spot
+                    nearbySpots = savedSpotsNearby()
+                }
             }
         }
+        // The detent is bound so the form opens at full height.
+        .dsSheet([.medium, .large], selection: $detent)
     }
 
     // MARK: - Header
 
+    private var heading: String {
+        title ?? placeName ?? (isUserLocation ? "Near you" : "Dropped pin")
+    }
+
+    /// Under a given title the place name, once found, replaces the coordinates.
+    private var subheading: String {
+        if isUserLocation { return "Your location" }
+        if title != nil, let placeName { return placeName }
+        return ExploreFormat.coords(coordinate)
+    }
+
+    /// The place sheet's header: name and grade beside the ring (the ring
+    /// under them at accessibility sizes), then the window in one footnote
+    /// across the sheet.
     private var header: some View {
-        VStack(spacing: 8) {
-            Map(initialPosition: .camera(.init(
-                centerCoordinate: coordinate,
-                distance: 2500
-            ))) {
-                Marker("", coordinate: coordinate)
-                    .tint(CurrentsTheme.accent)
-            }
-            .mapStyle(.hybrid)
-            .frame(height: 160)
-            .clipShape(RoundedRectangle(cornerRadius: 16))
-            .allowsHitTesting(false)
-
-            HStack {
-                Image(systemName: "scope")
-                    .foregroundStyle(CurrentsTheme.accent)
-                Text(placeName ?? String(format: "%.4f, %.4f", coordinate.latitude, coordinate.longitude))
-                    .font(.subheadline.monospacedDigit())
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-        }
-    }
-
-    // MARK: - Weather Card
-
-    @ViewBuilder
-    private func weatherCard(_ w: WeatherService.WeatherData) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Label("Current Conditions", systemImage: "cloud.sun.fill")
-                .font(.headline)
-            HStack(spacing: 16) {
-                WeatherStat(icon: "thermometer.medium", label: "Air", value: String(format: "%.0f°", w.temperatureC))
-                if let wt = w.waterTempC {
-                    WeatherStat(icon: "drop.fill", label: "Water", value: String(format: "%.0f°", wt))
-                }
-                WeatherStat(icon: "wind", label: "Wind", value: "\(Int(w.windSpeedKmh))km/h")
-                WeatherStat(icon: "barometer", label: "Pres", value: "\(Int(w.pressureHpa))")
-            }
-            if w.pressureChange6h != 0 {
-                let sign = w.pressureChange6h > 0 ? "rising" : "falling"
-                let arrow = w.pressureChange6h > 0 ? "arrow.up" : "arrow.down"
-                HStack {
-                    Image(systemName: arrow)
-                    Text("Pressure \(sign) \(String(format: "%.1f", abs(w.pressureChange6h))) hPa / 6h")
-                        .font(.caption)
-                }
-                .foregroundStyle(CurrentsTheme.accent)
-            }
-        }
-        .glassCard()
-    }
-
-    // MARK: - Probable Spots
-
-    @ViewBuilder
-    private var probableSpotsSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Label("Probable Fishing Spots", systemImage: "sparkles")
-                .font(.headline)
-
-            if probableSpots.isEmpty {
-                ContentUnavailableView(
-                    "No Water Nearby",
-                    systemImage: "water.waves.slash",
-                    description: Text("No mapped dams or lakes near this tap — try closer to water.")
-                )
-                .frame(maxWidth: .infinity)
-            } else {
-                ForEach(probableSpots) { p in
-                    Button {
-                        selectedWaterbody = p.waterbody
-                    } label: {
-                        HStack(spacing: 12) {
-                            ZStack {
-                                Circle()
-                                    .fill(CurrentsTheme.scoreColor(p.score).gradient)
-                                    .frame(width: 36, height: 36)
-                                Text("\(p.score)")
-                                    .font(.caption.bold())
-                                    .monospacedDigit()
-                                    .foregroundStyle(.white)
-                            }
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(p.name)
-                                    .font(.subheadline.bold())
-                                    .foregroundStyle(.primary)
-                                Text(p.reason)
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(2)
-                            }
-                            Spacer()
-                            Text(p.distanceString)
-                                .font(.caption.monospacedDigit())
-                                .foregroundStyle(.secondary)
-                            Image(systemName: "chevron.right")
-                                .font(.caption2)
-                                .foregroundStyle(.tertiary)
-                        }
-                        .padding(.vertical, 4)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
+        VStack(alignment: .leading, spacing: 0) {
+            headerLayout {
+                DetailHeader(over: subheading, title: heading,
+                             subtitle: bite.map { "\(ForecastFormat.grade($0.now)) now" })
+                if let bite {
+                    ScoreRing(score: bite.now, size: 88, caption: "now")
+                        .padding(typeSize.isAccessibilitySize ? Edge.Set.leading : Edge.Set.trailing, DS.gutter)
                 }
             }
+            if let windowLine {
+                ExploreFootnote(windowLine)
+            }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .glassCard()
+        .padding(.top, DS.Space.s2)
     }
 
-    // MARK: - Nearby Spots
+    private var headerLayout: AnyLayout {
+        typeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: DS.Space.s3))
+            : AnyLayout(HStackLayout(alignment: .center, spacing: DS.Space.s3))
+    }
+
+    /// "Best 06:00 to 09:00, peaking at 81."
+    private var windowLine: String? {
+        guard let bite else { return nil }
+        let line = bite.bestLine(use24: use24HourTime)
+            ?? bite.reasons.first.map(ExploreFormat.sentence)
+            ?? "No strong window left today"
+        return line.hasSuffix(".") ? line : line + "."
+    }
+
+    // MARK: - Content
 
     @ViewBuilder
-    private var nearbySpotsSection: some View {
+    private var content: some View {
+        ActionTriple {
+            Button {
+                // Saved here already: the tile opens that spot.
+                if let savedSpot {
+                    onOpen(.spot(SpotRef(savedSpot)))
+                    return
+                }
+                guard !showingSaveForm else { return }
+                detent = .large
+                showingSaveForm = true
+            } label: {
+                Label(savedSpot == nil ? "Save spot" : "Saved",
+                      systemImage: savedSpot == nil ? "bookmark" : "bookmark.fill")
+            }
+            .buttonStyle(ActionTileStyle(savedSpot == nil ? .primary : .tonal))
+            .accessibilityHint(savedSpot == nil ? "Adds this place to your spots" : "Opens this spot")
+            DirectionsMenu(coordinate: coordinate, name: heading) {
+                ActionTileLabel("Directions", systemImage: "location.north.line")
+            }
+            ShareLink(item: mapsURL) {
+                ActionTileLabel("Share", systemImage: "square.and.arrow.up")
+            }
+        }
+        .padding(.top, DS.Space.s4)
+
+        bitingSection
+
+        if weather != nil {
+            section {
+                SectionTitle("Conditions")
+                ExploreConditions(weather: weather, coordinate: coordinate)
+            }
+        }
+
+        waterSection
+
         if !nearbySpots.isEmpty {
-            VStack(alignment: .leading, spacing: 10) {
-                Label("Your Spots Nearby", systemImage: "mappin.and.ellipse")
-                    .font(.headline)
+            section {
+                SectionTitle("Your spots nearby")
                 ForEach(nearbySpots) { entry in
                     Button {
-                        selectedSpot = entry.spot
+                        onOpen(.spot(SpotRef(entry.spot)))
                     } label: {
-                        HStack(spacing: 12) {
-                            Image(systemName: "mappin.circle.fill")
-                                .foregroundStyle(CurrentsTheme.accent)
-                                .frame(width: 24)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(entry.spot.name)
-                                    .font(.subheadline.bold())
-                                    .foregroundStyle(.primary)
-                                Text("\(entry.catchCount) catch\(entry.catchCount == 1 ? "" : "es")")
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                            }
-                            Spacer()
-                            Text(entry.distanceString)
-                                .font(.caption.monospacedDigit())
-                                .foregroundStyle(.secondary)
-                            Image(systemName: "chevron.right")
-                                .font(.caption2)
-                                .foregroundStyle(.tertiary)
+                        ArtRow(title: entry.spot.name,
+                               subtitle: "\(entry.catchCount) \(entry.catchCount == 1 ? "catch" : "catches"), \(entry.distanceString)",
+                               chevron: true) {
+                            PlaceSnapshotThumb(spot: entry.spot, size: 48)
                         }
-                        .padding(.vertical, 4)
-                        .contentShape(Rectangle())
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.dsRow)
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .glassCard()
+            .placeThumbsTogether()
         }
     }
 
-    // MARK: - Actions
-
-    private var actionBar: some View {
-        VStack(spacing: 12) {
-            // Primary action: navigate to the exact tapped coordinate. This is
-            // the one thing you can do with *any* point on the map, saved or not.
-            DriveToButton(coordinate: coordinate, name: placeName ?? "Dropped Pin")
-
-            HStack(spacing: 12) {
-                Button {
-                    Haptics.tap()
-                    showingSaveAsSpot = true
-                } label: {
-                    Label("Save as Spot", systemImage: "mappin.and.ellipse")
-                        .frame(maxWidth: .infinity)
+    private var waterSection: some View {
+        section {
+            SectionTitle("Water nearby")
+            if probableSpots.isEmpty {
+                if isLoadingWater {
+                    loadingRow("Looking for water")
+                } else {
+                    InlineEmpty(systemImage: "water.waves",
+                                text: "No mapped dams, rivers or lakes near this point. Try closer to water.")
                 }
-                .buttonStyle(.bordered)
-
-                ShareLink(item: mapsURL) {
-                    Label("Share", systemImage: "square.and.arrow.up")
-                        .frame(maxWidth: .infinity)
+            } else {
+                ForEach(probableSpots.prefix(6)) { p in
+                    Button {
+                        onOpen(.waterbody(WaterbodyRef(p.waterbody)))
+                    } label: {
+                        ArtRow(title: p.name, subtitle: "\(p.reason), \(p.distanceString)", chevron: true) {
+                            ThumbView(water: p.waterbody, size: 48)
+                        } trailing: {
+                            Text("\(p.score)")
+                                .foregroundStyle(DS.scoreInk(p.score))
+                        }
+                    }
+                    .buttonStyle(.dsRow)
                 }
-                .buttonStyle(.bordered)
             }
         }
+    }
+
+    // MARK: - Biting
+
+    private var bitingSection: some View {
+        section {
+            SectionTitle(isUserLocation ? "Biting near you" : "Biting here")
+            if isLoadingFish {
+                loadingRow("Checking fish records near here")
+            } else if biting.isEmpty {
+                InlineEmpty(systemImage: "fish", text: bitingEmptyText)
+            } else {
+                ForEach(biting.prefix(8)) { fish in
+                    fishRow(fish)
+                }
+                ExploreFootnote(bitingNote)
+            }
+        }
+    }
+
+    private func fishRow(_ fish: BitingFish) -> some View {
+        Button { onShowSpecies(fish.species) } label: {
+            ArtRow(over: "\(fish.records) \(fish.records == 1 ? "record" : "records") nearby",
+                   title: fish.species.commonName,
+                   subtitle: fish.why) {
+                ThumbView(species: fish.species, size: 56)
+            } trailing: {
+                Text("\(fish.score)")
+                    .foregroundStyle(DS.scoreInk(fish.score))
+            }
+        }
+        .buttonStyle(.dsRow)
+        .accessibilityHint("Shows the spots and waters where it is confirmed")
+        .contextMenu {
+            Button { onOpen(.species(fish.species)) } label: {
+                Label("Open species page", systemImage: "book")
+            }
+        }
+    }
+
+    private var bitingEmptyText: String {
+        if unnotedFish > 0 {
+            return "Fish have been recorded near here, but the species guide has no bait notes for them yet."
+        }
+        if unlistedFish > 0 {
+            return "Fish have been recorded near here, but none of them are in the species guide yet."
+        }
+        return "No fish records near here yet. They load from iNaturalist and GBIF when you have signal."
+    }
+
+    private var bitingNote: String {
+        "Tap a fish to see where it is recorded."
+    }
+
+    // MARK: - Layout
+
+    private func section<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 0) { content() }
+            .padding(.top, DS.Space.s8)
+    }
+
+    /// Section loading, as the place page shows it.
+    private func loadingRow(_ text: String) -> some View {
+        FishLoader(message: text)
+            .frame(minHeight: 90)
+            .frame(maxWidth: .infinity)
     }
 
     private var mapsURL: URL {
@@ -258,35 +286,111 @@ struct LocationInspectorSheet: View {
     // MARK: - Loading
 
     private func load() async {
-        async let weatherTask = WeatherService.shared.current(for: coordinate)
         async let placeNameTask = reverseGeocode(coordinate)
+        async let fishTask = appState.observedSpeciesRepository.fishNear(
+            latitude: coordinate.latitude,
+            longitude: coordinate.longitude,
+            speciesRepository: appState.speciesRepository
+        )
 
-        let w = await weatherTask
-        await MainActor.run { self.weather = w }
+        let (b, w) = await BiteSnapshot.load(at: coordinate)
+        withAnimation(DS.Motion.easeOut) {
+            bite = b
+            weather = w
+        }
 
-        // Build forecast using weather inputs
-        let f = ForecastEngine.forecast(
-            date: .now,
+        placeName = await placeNameTask
+
+        // Saved spots and mapped water come from the phone first, so the
+        // list never waits on the network.
+        nearbySpots = savedSpotsNearby()
+        if savedSpot == nil, let here = nearbySpots.first(where: { $0.distanceMeters < 25 }) {
+            savedSpot = here.spot
+        }
+        if !ScreenshotSupport.isActive {
+            await BundledMapData.importWaterIfNeeded(into: appState.db)
+        }
+        probableSpots = probableWater(baseScore: b.now)
+        isLoadingWater = false
+
+        // The fish list does not wait on the water top-up.
+        async let topUp: Void = topUpWater(baseScore: b.now)
+
+        let fish = await fishTask
+        biting = bitingFish(from: fish, weather: w)
+        unlistedFish = Set(fish.filter { $0.localSpecies == nil }.map(\.scientificName)).count
+        // Guide species left out of the list for having no bait notes yet.
+        unnotedFish = Set(fish.compactMap { $0.localSpecies?.id }).count - biting.count
+        isLoadingFish = false
+
+        await topUp
+        isLoading = false
+    }
+
+    /// Outside the bundled area, tops up the water from Overpass when online.
+    private func topUpWater(baseScore: Int) async {
+        guard !BundledMapData.covers(minLat: waterBox.minLat, maxLat: waterBox.maxLat,
+                                     minLon: waterBox.minLon, maxLon: waterBox.maxLon),
+              let fresh = await OverpassService.shared.fetchWaterbodies(
+                  minLat: waterBox.minLat, maxLat: waterBox.maxLat,
+                  minLon: waterBox.minLon, maxLon: waterBox.maxLon
+              ) else { return }
+        _ = try? appState.waterbodyRepository.insertFromOverpass(fresh)
+        probableSpots = probableWater(baseScore: baseScore)
+    }
+
+    /// Each recorded fish in the species guide, with its own bite now and the
+    /// reason for it, best bite first, then most records, then by name, so
+    /// the order holds from one opening to the next. Two sources naming the
+    /// same species count once. A fish whose only bait list is the seed's
+    /// stand-in one is left out, as in the Target list and the fish menu,
+    /// unless the angler has caught it.
+    private func bitingFish(from fish: [ObservedSpeciesRepository.FishResult],
+                            weather w: WeatherService.WeatherData?) -> [BitingFish] {
+        let caught = Set(((try? appState.catchRepository.speciesCounts()) ?? []).map { $0.speciesId })
+        var records: [Int64: (species: Species, count: Int)] = [:]
+        for result in fish {
+            guard let sp = result.localSpecies,
+                  LureEngine.hasBaitRecord(sp) || caught.contains(sp.id) else { continue }
+            let count = max(records[sp.id]?.count ?? 0, result.observationCount)
+            records[sp.id] = (sp, count)
+        }
+        let rows = records.values.map { entry -> BitingFish in
+            let result = forecast(for: entry.species, weather: w)
+            return BitingFish(species: entry.species, records: entry.count,
+                              score: result.score, why: Self.why(result, species: entry.species))
+        }
+        return rows.sorted { a, b in
+            if a.score != b.score { return a.score > b.score }
+            if a.records != b.records { return a.records > b.records }
+            let byName = a.species.commonName.localizedCaseInsensitiveCompare(b.species.commonName)
+            return byName == .orderedSame ? a.species.id < b.species.id : byName == .orderedAscending
+        }
+    }
+
+    private func forecast(for species: Species, weather w: WeatherService.WeatherData?) -> ForecastEngine.ForecastResult {
+        ForecastEngine.forecast(
             coordinate: coordinate,
             currentPressureHpa: w?.pressureHpa,
             pressureChange6h: w?.pressureChange6h,
-            waterTempC: w?.waterTempC,
-            windSpeedKmh: w?.windSpeedKmh,
-            windDirection: w?.windDirectionDeg,
-            species: nil,
+            waterTempC: w?.measured?.waterTempC,
+            windSpeedKmh: w?.measured?.windSpeedKmh,
+            windDirection: w?.measured?.windDirectionDeg,
+            species: species,
             isInSpawningZone: false
         )
-        await MainActor.run { self.forecast = f }
+    }
 
-        self.placeName = await placeNameTask
-
-        // Compute nearby user spots & probable spots
-        let (nearby, probable) = await computeSpotInsights()
-        await MainActor.run {
-            self.nearbySpots = nearby
-            self.probableSpots = probable
-            self.isLoading = false
-        }
+    /// The reason that is about this fish (its water temperature, or feeding
+    /// after dark), else the strongest general one. The row's title already
+    /// names the fish, so "Water at 17°C is ideal for Galjoen" reads "Water
+    /// at 17°C is ideal".
+    private static func why(_ result: ForecastEngine.ForecastResult, species: Species) -> String {
+        let own = result.reasons.first { $0.contains(species.commonName) }
+        var line = own ?? result.reasons.first ?? BiteWindows.guidance(forScore: result.score)
+        let named = " for \(species.commonName)"
+        if line.hasSuffix(named) { line = String(line.dropLast(named.count)) }
+        return ExploreFormat.sentence(line)
     }
 
     private func reverseGeocode(_ coord: CLLocationCoordinate2D) async -> String? {
@@ -295,9 +399,7 @@ struct LocationInspectorSheet: View {
         do {
             let placemarks = try await geocoder.reverseGeocodeLocation(loc)
             if let p = placemarks.first {
-                return [p.locality, p.administrativeArea, p.country]
-                    .compactMap { $0 }
-                    .joined(separator: ", ")
+                return p.locality ?? p.name
             }
         } catch {
             return nil
@@ -305,10 +407,9 @@ struct LocationInspectorSheet: View {
         return nil
     }
 
-    private func computeSpotInsights() async -> ([ScoredSpot], [ProbableSpot]) {
+    /// Saved spots within 30 km, nearest first.
+    private func savedSpotsNearby() -> [ScoredSpot] {
         let origin = CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)
-
-        // Nearby saved spots — shown in "Your Spots Nearby".
         let spots = (try? appState.spotRepository.fetchNearby(
             latitude: coordinate.latitude,
             longitude: coordinate.longitude,
@@ -323,38 +424,33 @@ struct LocationInspectorSheet: View {
             return ScoredSpot(spot: spot, distanceMeters: distM, catchCount: count)
         }
         .sorted { $0.distanceMeters < $1.distanceMeters }
+        return Array(scored.prefix(5))
+    }
 
-        // Probable fishing spots — real dams/lakes/rivers around the tap
-        // (OpenStreetMap-backed waterbody DB), NOT the user's saved spots.
-        let delta = 0.45 // ≈ 50 km
-        let minLat = coordinate.latitude - delta
-        let maxLat = coordinate.latitude + delta
-        let minLon = coordinate.longitude - delta
-        let maxLon = coordinate.longitude + delta
+    /// About 50 km around the point.
+    private var waterBox: (minLat: Double, maxLat: Double, minLon: Double, maxLon: Double) {
+        let delta = 0.45
+        return (coordinate.latitude - delta, coordinate.latitude + delta,
+                coordinate.longitude - delta, coordinate.longitude + delta)
+    }
 
-        func cachedBodies() -> [Waterbody] {
-            (try? appState.waterbodyRepository.fetchForRegion(
-                minLat: minLat, maxLat: maxLat,
-                minLon: minLon, maxLon: maxLon,
-                minSurfaceAreaKm2: 0,
-                includeNilArea: true,
-                limit: 200
-            )) ?? []
-        }
+    /// Real dams, lakes and rivers around the point from the water database
+    /// (bundled and OpenStreetMap), not the user's saved spots.
+    private func probableWater(baseScore: Int) -> [ProbableSpot] {
+        let origin = CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)
+        let box = waterBox
+        let bodies = (try? appState.waterbodyRepository.fetchForRegion(
+            minLat: box.minLat, maxLat: box.maxLat,
+            minLon: box.minLon, maxLon: box.maxLon,
+            minSurfaceAreaKm2: 0,
+            includeNilArea: true,
+            limit: 400
+        )) ?? []
+        // A saved water is listed under your spots instead.
+        let saved = Set(((try? appState.spotRepository.fetchAll()) ?? []).compactMap(\.waterbodyId))
 
-        var bodies = cachedBodies()
-
-        // Top up from Overpass when online so we surface as many dams as possible.
-        if let fresh = await OverpassService.shared.fetchWaterbodies(
-            minLat: minLat, maxLat: maxLat,
-            minLon: minLon, maxLon: maxLon
-        ) {
-            _ = try? appState.waterbodyRepository.insertFromOverpass(fresh)
-            bodies = cachedBodies()
-        }
-
-        let baseScore = forecast?.score ?? 50
-        let probable = bodies
+        return bodies
+            .filter { wb in wb.id.map { !saved.contains($0) } ?? true }
             .map { wb -> (Waterbody, Double) in
                 let d = origin.distance(from: CLLocation(latitude: wb.latitude, longitude: wb.longitude))
                 return (wb, d)
@@ -373,26 +469,27 @@ struct LocationInspectorSheet: View {
                     waterbody: wb
                 )
             }
-
-        return (Array(scored.prefix(5)), Array(probable))
     }
 
     private func probableReason(for wb: Waterbody) -> String {
-        let typeLabel = switch wb.type {
-        case .dam: "Dam"
-        case .lake: "Lake"
-        case .river: "River"
-        case .estuary: "Estuary"
-        case .coast: "Coastline"
-        }
+        let typeLabel = ExploreFormat.waterType(wb.type)
         if let area = wb.surfaceAreaKm2, area > 0 {
-            return "\(typeLabel) • \(String(format: "%.1f", area)) km² of water"
+            return "\(typeLabel), \(ExploreFormat.area(area))"
         }
-        return "\(typeLabel) • mapped water body"
+        return typeLabel
     }
 }
 
 // MARK: - Supporting Types
+
+private struct BitingFish: Identifiable {
+    let species: Species
+    let records: Int
+    let score: Int
+    let why: String
+
+    var id: Int64 { species.id }
+}
 
 private struct ScoredSpot: Identifiable {
     let spot: Spot
@@ -401,12 +498,7 @@ private struct ScoredSpot: Identifiable {
 
     var id: String { spot.id }
 
-    var distanceString: String {
-        if distanceMeters < 1000 {
-            return "\(Int(distanceMeters)) m"
-        }
-        return String(format: "%.1f km", distanceMeters / 1000)
-    }
+    var distanceString: String { Units.distance(m: distanceMeters) }
 }
 
 private struct ProbableSpot: Identifiable {
@@ -417,79 +509,5 @@ private struct ProbableSpot: Identifiable {
     let distanceMeters: Double
     let waterbody: Waterbody
 
-    var distanceString: String {
-        if distanceMeters < 1000 {
-            return "\(Int(distanceMeters)) m"
-        }
-        return String(format: "%.1f km", distanceMeters / 1000)
-    }
-}
-
-// MARK: - Bite Score Card
-
-struct BiteScoreCard: View {
-    let forecast: ForecastEngine.ForecastResult
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Label("Bite Forecast", systemImage: "fish.fill")
-                    .font(.headline)
-                Spacer()
-                Text(ratingLabel)
-                    .font(.caption.bold())
-                    .glassPill()
-            }
-            HStack(spacing: 16) {
-                ScoreGauge(score: forecast.score, label: "Right now", size: 88)
-                VStack(alignment: .leading, spacing: 4) {
-                    ForEach(forecast.reasons.prefix(3), id: \.self) { reason in
-                        HStack(alignment: .top, spacing: 6) {
-                            Circle()
-                                .fill(CurrentsTheme.scoreColor(forecast.score))
-                                .frame(width: 6, height: 6)
-                                .padding(.top, 5)
-                            Text(reason)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                }
-                Spacer(minLength: 0)
-            }
-        }
-        .glassCard()
-    }
-
-    private var ratingLabel: String {
-        switch forecast.score {
-        case 85...: return "Excellent"
-        case 70..<85: return "Very Good"
-        case 55..<70: return "Good"
-        case 40..<55: return "Fair"
-        default: return "Poor"
-        }
-    }
-}
-
-// MARK: - Weather Stat
-
-private struct WeatherStat: View {
-    let icon: String
-    let label: String
-    let value: String
-
-    var body: some View {
-        VStack(spacing: 2) {
-            Image(systemName: icon)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            Text(value)
-                .font(.subheadline.bold().monospacedDigit())
-            Text(label)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity)
-    }
+    var distanceString: String { Units.distance(m: distanceMeters) }
 }

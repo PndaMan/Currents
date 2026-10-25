@@ -1,0 +1,11 @@
+{
+  "reference_name": "Keeper",
+  "vendor_identifier": "badge.keeper",
+  "points": 5,
+  "show_before_earned": true,
+  "repeatable": false,
+  "rarity": "common",
+  "name": "Keeper",
+  "before_earned_description": "Land a fish weighing 1 kg (2.2 lb) or more.",
+  "after_earned_description": "Landed a fish of 1 kg (2.2 lb) or more."
+}

@@ -1,15 +1,18 @@
 import SwiftUI
 import CoreLocation
+import UserNotifications
 
-/// Plan an upcoming session: name it, pick a date/time, and see a multi-day
-/// bite-score outlook with the best times to fish each day + a gear checklist.
-/// Saved as a planned session that reminds you to start near the time. The
-/// session itself uses your current location when you start it; the outlook is
-/// computed for your current location by default, or for a pin you drop purely
-/// to preview the forecast somewhere else.
+/// Plan an upcoming session in one short flow: name, when, where, a bite
+/// outlook per day (tap a day to plan it, a bar to set the start time), then
+/// what to bring. Saved as a planned session that reminds you near the time.
+/// The session records wherever you are when you start it; the place picked
+/// here sets the forecast and, for a saved spot, the spot it is logged at.
 struct PlanSessionSheet: View {
     @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @AppStorage("use24HourTime") private var use24 = true
+    @ScaledMetric(relativeTo: .headline) private var dayWidth: CGFloat = 60
 
     /// When set, the sheet edits this existing (planned) trip instead of
     /// creating a new one. Its returned id is reported via `onSaved`.
@@ -17,232 +20,393 @@ struct PlanSessionSheet: View {
     /// Called with the saved trip's id (useful for linking a group trip).
     var onSaved: ((String) -> Void)?
 
-    init(editingTrip: Trip? = nil, onSaved: ((String) -> Void)? = nil) {
+    /// `initialDate` opens a new plan on that day (planning from a forecast
+    /// day). It is ignored when editing a trip.
+    init(editingTrip: Trip? = nil, initialDate: Date? = nil, onSaved: ((String) -> Void)? = nil) {
         self.editingTrip = editingTrip
         self.onSaved = onSaved
+        if editingTrip == nil, let initialDate {
+            _date = State(initialValue: Self.planDate(on: initialDate))
+        }
     }
 
     @State private var name = SessionFormat.defaultName()
     @State private var date = defaultPlanDate()
-    @State private var dayCount = 3
-    /// A pin dropped ONLY to preview the bite forecast somewhere other than
-    /// your current location. It never changes where the session records — that
-    /// always uses your live GPS location when you start.
+    /// Where the outlook is worked out: a saved spot's position or a dropped
+    /// pin. Nil means your current location.
     @State private var forecastPin: CLLocationCoordinate2D?
+    @State private var spotId: String?
+    @State private var spots: [Spot] = []
     @State private var showingPinPicker = false
     @State private var outlook: [DayOutlook] = []
     @State private var checklist: [Trip.ChecklistItem] = PlanSessionSheet.defaultChecklist
     @State private var newItem = ""
     @State private var loaded = false
     @State private var isSaving = false
+    @FocusState private var focus: Field?
+
+    private enum Field { case name, item }
 
     static let defaultChecklist: [Trip.ChecklistItem] = [
-        "Rod & reel", "Tackle box / lures", "Bait", "Licence / permit",
-        "Landing net", "Pliers & line cutter", "Sun protection & hat",
-        "Water & snacks", "First-aid kit", "Phone charged / power bank",
+        "Rod and reel", "Tackle box and lures", "Bait", "Licence or permit",
+        "Landing net", "Pliers and line cutter", "Sun protection and hat",
+        "Water and snacks", "First-aid kit", "Phone charged or power bank",
     ].map { Trip.ChecklistItem(name: $0) }
 
-    /// A day's bite outlook: peak bite score + the best fishing windows.
+    /// One day of the outlook: the bite by hour and its best windows.
     struct DayOutlook: Identifiable {
-        let id = UUID()
         let date: Date
-        let peakScore: Int
-        let windows: [BiteWindow]
-    }
-    struct BiteWindow: Identifiable {
-        let id = UUID()
-        let label: String      // e.g. "Major" / "Dawn"
-        let range: String      // e.g. "5:12–7:12 AM"
-        let prime: Bool
+        let hourly: [(hour: Int, score: Int)]
+        let windows: [BiteWindows.Window]
+
+        var id: Date { date }
+        var peakScore: Int { hourly.map(\.score).max() ?? 0 }
+        var bestHour: Int { hourly.max { $0.score < $1.score }?.hour ?? 6 }
     }
 
     var body: some View {
         NavigationStack {
-            Form {
-                Section {
-                    TextField("Name", text: $name)
-                    DatePicker("Date & time", selection: $date, displayedComponents: [.date, .hourAndMinute])
-                } header: {
-                    Text("Session")
-                } footer: {
-                    Text("The session records your current location when you start it. The bite outlook below is just a preview — it doesn't change where the session tracks.")
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    nameField
+                    whenSection
+                    whereSection
+                    outlookSection
+                    bringSection
                 }
-
-                Section {
-                    Button {
-                        showingPinPicker = true
-                    } label: {
-                        HStack {
-                            Label("Forecast location", systemImage: "mappin.and.ellipse")
-                                .foregroundStyle(.primary)
-                            Spacer()
-                            Text(forecastPin == nil ? "My location" : "Dropped pin")
-                                .foregroundStyle(.secondary)
-                            Image(systemName: "chevron.right")
-                                .font(.caption).foregroundStyle(.tertiary)
-                        }
-                    }
-                    if forecastPin != nil {
-                        Button(role: .destructive) { forecastPin = nil } label: {
-                            Label("Use my current location", systemImage: "location.fill")
-                        }
-                    }
-                    Stepper("Show \(dayCount) \(dayCount == 1 ? "day" : "days")", value: $dayCount, in: 1...14)
-                } header: {
-                    Text("Best times to fish")
-                } footer: {
-                    Text("Drop a pin to preview the bite forecast anywhere you're thinking of fishing — it only changes the outlook below, not the session. Based on solunar feeding windows, tides, sun and moon for that spot; no internet needed.")
-                }
-
-                // Every day collapsed to one glanceable row (date + peak
-                // score); tap to expand its windows. Adding days just adds
-                // more collapsed rows — a two-week trip stays one screen.
-                Section("Day-by-day outlook") {
-                    ForEach(outlook) { day in
-                        DisclosureGroup {
-                            dayRows(day)
-                        } label: {
-                            HStack {
-                                Text(day.date.formatted(.dateTime.weekday(.abbreviated).month().day()))
-                                    .font(.subheadline)
-                                Spacer()
-                                Text("\(day.peakScore)")
-                                    .font(.subheadline.bold().monospacedDigit())
-                                    .foregroundStyle(scoreColor(day.peakScore))
-                            }
-                        }
-                    }
-                }
-
-                Section {
-                    // Checkbox rows, not switches — a packing list ticks off.
-                    ForEach($checklist) { $item in
-                        Button {
-                            withAnimation(.snappy(duration: 0.15)) { item.checked.toggle() }
-                            Haptics.tap()
-                        } label: {
-                            HStack(spacing: 12) {
-                                Image(systemName: item.checked ? "checkmark.circle.fill" : "circle")
-                                    .font(.title3)
-                                    .foregroundStyle(item.checked ? CurrentsTheme.accent : .secondary)
-                                    .contentTransition(.symbolEffect(.replace))
-                                Text(item.name)
-                                    .strikethrough(item.checked, color: .secondary)
-                                    .foregroundStyle(item.checked ? .secondary : .primary)
-                                Spacer()
-                            }
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                    }
-                    .onDelete { checklist.remove(atOffsets: $0) }
-                    HStack {
-                        Image(systemName: "plus.circle.fill").foregroundStyle(CurrentsTheme.accent)
-                        TextField("Add an item", text: $newItem)
-                            .onSubmit(addChecklistItem)
-                        if !newItem.trimmingCharacters(in: .whitespaces).isEmpty {
-                            Button("Add", action: addChecklistItem).font(.caption.bold())
-                        }
-                    }
-                } header: {
-                    Text("Gear checklist")
-                } footer: {
-                    Text("Ticked items are saved with the session — reopen it any time and your checklist is right where you left it.")
-                }
+                .padding(.bottom, DS.Space.s6)
+                .pageWidth()
             }
-            .navigationTitle(editingTrip == nil ? "Plan a Session" : "Edit Session")
+            .scrollDismissesKeyboard(.interactively)
+            .detailScrollEdge()
+            .dsScreenBackground()
+            .navigationTitle(editingTrip == nil ? "Plan a session" : "Edit plan")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button(editingTrip == nil ? "Save Plan" : "Save") { savePlan() }
-                        .bold().disabled(name.isEmpty || isSaving)
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("Done") { focus = nil }
                 }
             }
+            .safeAreaInset(edge: .bottom) { saveBar }
             .sheet(isPresented: $showingPinPicker) {
-                LocationPickerSheet(coordinate: $forecastPin, pinLabel: "Forecast Location")
+                LocationPickerSheet(coordinate: pinBinding, pinLabel: "Forecast location")
             }
             .task {
-                if !loaded { loadEditingTrip(); loaded = true }
+                if !loaded {
+                    loadEditingTrip()
+                    loadSpots()
+                    loaded = true
+                }
                 recompute()
             }
-            .onChange(of: date) { _, _ in recompute() }
-            .onChange(of: dayCount) { _, _ in recompute() }
             .onChange(of: forecastPin?.latitude) { _, _ in recompute() }
-            .sensoryFeedback(.selection, trigger: dayCount)
-            .sensoryFeedback(.selection, trigger: checklist.map(\.checked))
+            .onChange(of: forecastPin?.longitude) { _, _ in recompute() }
+            .onChange(of: Calendar.current.startOfDay(for: date)) { _, day in
+                // Only rebuild when the date picker jumps outside the strip.
+                if !outlook.contains(where: { $0.date == day }) { recompute() }
+            }
+        }
+        .dsSheet([.large])
+    }
+
+    // MARK: - Name
+
+    private var nameField: some View {
+        TripNameField("Name this session", text: $name)
+            .focused($focus, equals: .name)
+            .padding(.top, DS.Space.s4)
+    }
+
+    // MARK: - When
+
+    private var whenSection: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            SectionTitle("When")
+                .padding(.top, DS.Space.s8)
+            HStack(spacing: 14) {
+                ThumbView(systemImage: "calendar", tint: DS.accent, size: 44)
+                DatePicker("Starts", selection: $date, in: Date.now..., displayedComponents: [.date, .hourAndMinute])
+                    .font(.body.weight(.medium))
+                    .foregroundStyle(.dsText)
+            }
+            .padding(.horizontal, DS.gutter)
+            .padding(.vertical, 4)
         }
     }
 
-    /// Where the bite outlook is computed: the dropped forecast pin if set,
-    /// otherwise your current location.
+    // MARK: - Where
+
+    private var whereSection: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            SectionTitle("Where")
+                .padding(.top, DS.Space.s8)
+
+            SpotChoices(spotId: spotChoice, spots: spots,
+                        noneTitle: "My location",
+                        noneSubtitle: appState.locationManager.currentLocation == nil ? "Location is off" : "Wherever you are",
+                        noneSelected: spotId == nil && forecastPin == nil)
+
+            let pinned = spotId == nil && forecastPin != nil
+            ChoiceRow(title: pinned ? "Dropped pin" : "Drop a pin",
+                      subtitle: pinned ? "Tap to move it" : "Anywhere on the map",
+                      systemImage: "mappin.and.ellipse", selected: pinned) {
+                showingPinPicker = true
+            }
+        }
+    }
+
+    /// Picking a saved spot also moves the forecast there; My location
+    /// clears both.
+    private var spotChoice: Binding<String?> {
+        Binding(get: { spotId }, set: { id in
+            spotId = id
+            forecastPin = id.flatMap { chosen in spots.first { $0.id == chosen } }
+                .map { CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude) }
+        })
+    }
+
+    // MARK: - Bite outlook
+
+    private var outlookSection: some View {
+        let planDay = Calendar.current.startOfDay(for: date)
+        return VStack(alignment: .leading, spacing: 0) {
+            SectionTitle("Bite outlook")
+                .padding(.top, DS.Space.s8)
+
+            ScrollViewReader { proxy in
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(outlook) { day in
+                            dayCell(day, selected: day.date == planDay)
+                                .id(day.date)
+                        }
+                    }
+                    .padding(.horizontal, DS.gutter)
+                }
+                .onChange(of: outlook.map(\.date)) { _, _ in
+                    proxy.scrollTo(planDay, anchor: .center)
+                }
+            }
+
+            if let day = outlook.first(where: { $0.date == planDay }) {
+                let isToday = Calendar.current.isDateInToday(day.date)
+                VStack(alignment: .leading, spacing: 8) {
+                    BiteBars(hourly: day.hourly, windows: day.windows,
+                             currentHour: isToday ? Calendar.current.component(.hour, from: .now) : nil,
+                             selected: startHour, height: 64, use24: use24)
+                    HourAxis(labels: use24 ? ["00:00", "06:00", "12:00", "18:00", "23:00"]
+                                           : ["12 am", "6 am", "Noon", "6 pm", "11 pm"])
+                    BiteWindowTiles(windows: day.windows, bestHour: day.bestHour,
+                                    hour: Calendar.current.component(.hour, from: date),
+                                    use24: use24) { setStart(hour: $0) }
+                        .padding(.top, 6)
+                }
+                .padding(.horizontal, DS.gutter)
+                .padding(.top, DS.Space.s5)
+                SectionFootnote("Tap a day to plan it, or a bar to set the start time.")
+            }
+        }
+    }
+
+    private func dayCell(_ day: DayOutlook, selected: Bool) -> some View {
+        let cal = Calendar.current
+        let label = cal.isDateInToday(day.date) ? "Today" : ForecastFormat.shortDay(day.date)
+        return Button {
+            pick(day)
+        } label: {
+            VStack(spacing: 6) {
+                Text(label)
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.dsText2)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                Text(ForecastFormat.dayNumber(day.date))
+                    .font(.headline)
+                    .monospacedDigit()
+                    .foregroundStyle(.dsText)
+                ScoreRing(score: day.peakScore, size: 40)
+            }
+            .frame(width: dayWidth)
+            .padding(.vertical, 10)
+            .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.button, style: .continuous))
+            .overlay {
+                if selected {
+                    RoundedRectangle(cornerRadius: DS.Radius.button, style: .continuous)
+                        .strokeBorder(Color.dsText, lineWidth: 2)
+                }
+            }
+        }
+        .buttonStyle(.dim)
+        .buttonHaptic(.selection)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(ForecastFormat.longDate(day.date)), best bite \(day.peakScore)")
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
+    // MARK: - Gear checklist
+
+    private var bringSection: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            SectionTitle("Gear checklist",
+                         detail: checklist.isEmpty ? nil : "\(checklist.filter(\.checked).count) of \(checklist.count)")
+                .padding(.top, DS.Space.s8)
+            ForEach($checklist) { $item in
+                HStack(spacing: 0) {
+                    Button {
+                        withAnimation(DS.Motion.press) { item.checked.toggle() }
+                    } label: {
+                        HStack(spacing: 12) {
+                            Image(systemName: item.checked ? "checkmark.circle.fill" : "circle")
+                                .font(.title3)
+                                .foregroundStyle(item.checked ? DS.accent : Color.dsText3)
+                                .contentTransition(.symbolEffect(.replace))
+                            Text(item.name)
+                                .font(.body)
+                                .strikethrough(item.checked, color: .dsText3)
+                                .foregroundStyle(item.checked ? Color.dsText2 : Color.dsText)
+                            Spacer(minLength: 0)
+                        }
+                        .padding(.vertical, 11)
+                        .padding(.leading, DS.gutter)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.dsRow)
+                    .buttonHaptic(.toggle)
+                    .accessibilityAddTraits(item.checked ? .isSelected : [])
+
+                    Button {
+                        let id = item.id
+                        withAnimation(DS.Motion.press) { checklist.removeAll { $0.id == id } }
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.footnote.weight(.semibold))
+                            .foregroundStyle(.dsText3)
+                            .frame(width: 44, height: 44)
+                    }
+                    .buttonStyle(.dim)
+                    .accessibilityLabel("Remove \(item.name)")
+                    .padding(.trailing, DS.gutter - 12)
+                }
+            }
+            HStack(spacing: 12) {
+                Image(systemName: "plus.circle.fill")
+                    .font(.title3)
+                    .foregroundStyle(DS.accent)
+                TextField("Add an item", text: $newItem)
+                    .focused($focus, equals: .item)
+                    .submitLabel(.done)
+                    .onSubmit(addChecklistItem)
+                if !newItem.trimmingCharacters(in: .whitespaces).isEmpty {
+                    Button("Add item", action: addChecklistItem)
+                        .buttonStyle(TonalButtonStyle(fullWidth: false))
+                }
+            }
+            .padding(.vertical, 11)
+            .padding(.horizontal, DS.gutter)
+        }
+    }
+
+    // MARK: - Save bar
+
+    private var saveBar: some View {
+        SheetActionBar("Save",
+                       systemImage: "calendar.badge.checkmark",
+                       disabled: trimmedName.isEmpty || isSaving) {
+            savePlan()
+        }
+    }
+
+    // MARK: - Logic
+
+    private var trimmedName: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }
+
+    /// Where the bite outlook is computed: the chosen spot or pin, otherwise
+    /// your current location.
     private var coordinate: CLLocationCoordinate2D {
         forecastPin
             ?? appState.locationManager.currentLocation?.coordinate
-            ?? CLLocationCoordinate2D(latitude: -33.9, longitude: 18.4)
+            ?? ForecastStore.fallbackCoordinate
     }
 
+    /// The bite bars' outlined hour is the planned start hour. Tapping a bar
+    /// moves the start there; tapping it again leaves it as it is.
+    private var startHour: Binding<Int?> {
+        Binding(get: { Calendar.current.component(.hour, from: date) },
+                set: { hour in if let hour { setStart(hour: hour) } })
+    }
+
+    /// The pin picker shows the dropped pin, not a saved spot's position.
+    private var pinBinding: Binding<CLLocationCoordinate2D?> {
+        Binding(get: { spotId == nil ? forecastPin : nil },
+                set: { new in
+                    guard let new else { return }
+                    spotId = nil
+                    forecastPin = new
+                })
+    }
+
+    private func pick(_ day: DayOutlook) {
+        let cal = Calendar.current
+        let h = cal.component(.hour, from: date)
+        let m = cal.component(.minute, from: date)
+        let new = cal.date(bySettingHour: h, minute: m, second: 0, of: day.date) ?? day.date
+        withAnimation(reduceMotion ? nil : DS.Motion.softSpring) { date = notPast(new) }
+    }
+
+    private func setStart(hour: Int) {
+        let new = Calendar.current.date(bySettingHour: hour, minute: 0, second: 0, of: date) ?? date
+        withAnimation(reduceMotion ? nil : DS.Motion.softSpring) { date = notPast(new) }
+    }
+
+    /// Plans start ahead: a time already gone moves to the next whole hour.
+    private func notPast(_ d: Date) -> Date {
+        guard d < .now else { return d }
+        return Calendar.current.nextDate(after: .now, matching: DateComponents(minute: 0),
+                                         matchingPolicy: .nextTime) ?? .now
+    }
+
+    /// Two weeks from today, or a week around the plan's day when it falls
+    /// outside that.
     private func recompute() {
         let coord = coordinate
         let cal = Calendar.current
-        outlook = (0..<dayCount).map { offset in
-            let day = cal.date(byAdding: .day, value: offset, to: date) ?? date
+        let today = cal.startOfDay(for: .now)
+        let planDay = cal.startOfDay(for: date)
+        let ahead = cal.dateComponents([.day], from: today, to: planDay).day ?? 0
+        let first = (0...13).contains(ahead) ? today : (cal.date(byAdding: .day, value: -3, to: planDay) ?? planDay)
+        let count = first == today ? 14 : 7
+        outlook = (0..<count).compactMap { offset in
+            guard let day = cal.date(byAdding: .day, value: offset, to: first) else { return nil }
+            let noon = cal.date(bySettingHour: 12, minute: 0, second: 0, of: day) ?? day
             let f = ForecastEngine.forecast(
-                date: day, coordinate: coord,
+                date: noon, coordinate: coord,
                 currentPressureHpa: nil, pressureChange6h: nil,
                 waterTempC: nil, windSpeedKmh: nil, windDirection: nil,
                 species: nil, isInSpawningZone: false)
-            let peak = f.hourlyScores.map(\.score).max() ?? f.score
-
-            let solunar = SolunarEngine.compute(date: day, coordinate: coord)
-            // Collect the day's feeding windows (major/minor solunar + golden
-            // hours) and present them in chronological order.
-            let dated: [(Date, BiteWindow)] =
-                solunar.majorPeriods.map { ($0.start, BiteWindow(label: "Major feed", range: rangeLabel($0.start, $0.end), prime: true)) }
-                + [(solunar.dawnGoldenHour.lowerBound, BiteWindow(label: "Dawn", range: rangeLabel(solunar.dawnGoldenHour.lowerBound, solunar.dawnGoldenHour.upperBound), prime: true))]
-                + [(solunar.duskGoldenHour.lowerBound, BiteWindow(label: "Dusk", range: rangeLabel(solunar.duskGoldenHour.lowerBound, solunar.duskGoldenHour.upperBound), prime: true))]
-                + solunar.minorPeriods.map { ($0.start, BiteWindow(label: "Minor feed", range: rangeLabel($0.start, $0.end), prime: false)) }
-            let windows = dated.sorted { $0.0 < $1.0 }.map(\.1)
-
-            return DayOutlook(date: day, peakScore: peak, windows: windows)
+            return DayOutlook(date: day, hourly: f.hourlyScores,
+                              windows: BiteWindows.best(from: f.hourlyScores))
         }
     }
 
-    private func rangeLabel(_ start: Date, _ end: Date) -> String {
-        "\(start.formatted(date: .omitted, time: .shortened))–\(end.formatted(date: .omitted, time: .shortened))"
-    }
-
-    /// One day's outlook rows: peak score + each bite window.
-    @ViewBuilder private func dayRows(_ day: DayOutlook) -> some View {
-        HStack {
-            Label("Bite score", systemImage: "gauge.with.dots.needle.67percent")
-            Spacer()
-            Text("\(day.peakScore)").font(.title3.bold())
-                .foregroundStyle(scoreColor(day.peakScore))
-            Text("/100").font(.caption).foregroundStyle(.secondary)
-        }
-        if day.windows.isEmpty {
-            Text("No standout windows — fish dawn and dusk.")
-                .font(.caption).foregroundStyle(.secondary)
-        } else {
-            ForEach(day.windows) { w in
-                HStack {
-                    Image(systemName: w.prime ? "star.fill" : "clock")
-                        .font(.caption).foregroundStyle(w.prime ? CurrentsTheme.accent : .secondary)
-                    Text(w.label).font(.subheadline)
-                    Spacer()
-                    Text(w.range).font(.subheadline.monospacedDigit())
-                        .foregroundStyle(w.prime ? .primary : .secondary)
-                }
-            }
-        }
+    /// Every saved spot. SpotChoices shows the nearest three and the plan's
+    /// own spot, with the rest a tap away.
+    private func loadSpots() {
+        spots = (try? appState.spotRepository.fetchAll()) ?? []
     }
 
     private func addChecklistItem() {
         let n = newItem.trimmingCharacters(in: .whitespaces)
         guard !n.isEmpty else { return }
-        checklist.append(Trip.ChecklistItem(name: n))
+        withAnimation(DS.Motion.spring) {
+            checklist.append(Trip.ChecklistItem(name: n))
+        }
         newItem = ""
+        focus = .item
     }
 
     /// Populate the sheet from an existing planned trip when editing.
@@ -252,8 +416,7 @@ struct PlanSessionSheet: View {
         date = t.plannedDate ?? t.startDate
         let items = t.decodedChecklist
         if !items.isEmpty { checklist = items }
-        // Restore a previously-chosen forecast pin (session location is always
-        // live GPS, so this coordinate is only ever the outlook preview).
+        spotId = t.spotId
         forecastPin = t.plannedCoordinate
     }
 
@@ -261,37 +424,53 @@ struct PlanSessionSheet: View {
         guard !isSaving else { return }
         isSaving = true
         // Edit in place when we opened an existing trip, else create a new one.
-        // The session uses your current location when you start it, so no
-        // location is stored on the plan itself.
-        var trip = editingTrip ?? Trip(name: name, startDate: date, plannedDate: date)
-        trip.name = name
+        var trip = editingTrip ?? Trip(name: trimmedName, startDate: date, plannedDate: date)
+        trip.name = trimmedName
         trip.startDate = date
         trip.plannedDate = date
-        trip.spotId = nil
-        // Persist the forecast pin only as a preview hint. `startPlanned` clears
-        // these and tracks live GPS, so it never affects the session location.
+        trip.spotId = spotId
+        // The forecast position only. `startPlanned` clears it and tracks
+        // live GPS, so it never moves where the session records.
         trip.plannedLatitude = forecastPin?.latitude
         trip.plannedLongitude = forecastPin?.longitude
         trip.checklist = Trip.encodeChecklist(checklist)
-        try? appState.tripRepository.save(&trip)
-        Task { await NotificationManager.shared.schedulePlannedSessionAlert(trip: trip) }
-        ToastCenter.shared.show(editingTrip == nil ? "Session planned" : "Session updated")
+        do {
+            try appState.tripRepository.save(&trip)
+        } catch {
+            isSaving = false
+            ToastCenter.shared.show("Could not save this plan", style: .error)
+            return
+        }
+        PlanWidget.refresh(appState.tripRepository)
+        let saved = trip
+        let previousDate = editingTrip?.plannedDate
+        Task {
+            // An edited plan keeps a reminder that was switched off: no
+            // reminder pending while its time was still ahead means it is off.
+            if let previousDate, previousDate.addingTimeInterval(-30 * 60) > .now {
+                let pending = await UNUserNotificationCenter.current().pendingNotificationRequests()
+                guard pending.contains(where: { $0.identifier == "session-plan-\(saved.id)" }) else { return }
+            }
+            await NotificationManager.shared.schedulePlannedSessionAlert(trip: saved)
+        }
+        ToastCenter.shared.show(editingTrip == nil ? "Session planned" : "Plan updated", icon: "calendar.badge.checkmark")
         onSaved?(trip.id)
         dismiss()
-    }
-
-    private func scoreColor(_ score: Int) -> Color {
-        switch score {
-        case 75...: .green
-        case 55..<75: CurrentsTheme.accent
-        case 35..<55: .orange
-        default: .secondary
-        }
     }
 
     private static func defaultPlanDate() -> Date {
         let cal = Calendar.current
         let tomorrow = cal.date(byAdding: .day, value: 1, to: .now) ?? .now
         return cal.date(bySettingHour: 6, minute: 0, second: 0, of: tomorrow) ?? tomorrow
+    }
+
+    /// 06:00 on the given day, or the next whole hour when that has already
+    /// gone (planning from today's forecast).
+    private static func planDate(on day: Date) -> Date {
+        let cal = Calendar.current
+        let six = cal.date(bySettingHour: 6, minute: 0, second: 0, of: day) ?? day
+        guard six < .now else { return six }
+        return cal.nextDate(after: .now, matching: DateComponents(minute: 0),
+                            matchingPolicy: .nextTime) ?? .now
     }
 }

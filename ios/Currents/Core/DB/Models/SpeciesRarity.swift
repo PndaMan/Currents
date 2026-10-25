@@ -36,12 +36,12 @@ enum SpeciesRarity: Int, CaseIterable, Codable, Sendable, Comparable {
     /// the same, like loot rarities in a game.
     var color: Color {
         switch self {
-        case .common: Color(red: 0.62, green: 0.66, blue: 0.70)      // steel grey
-        case .uncommon: Color(red: 0.30, green: 0.72, blue: 0.40)    // green
-        case .rare: Color(red: 0.25, green: 0.55, blue: 0.95)        // blue
-        case .epic: Color(red: 0.62, green: 0.35, blue: 0.90)        // purple
-        case .legendary: Color(red: 0.95, green: 0.68, blue: 0.15)   // gold
-        case .mythical: Color(red: 0.90, green: 0.20, blue: 0.30)    // crimson
+        case .common: Color(red: 0.62, green: 0.66, blue: 0.70) // ui-lint: allow, rarity tiers keep fixed hues (steel grey)
+        case .uncommon: Color(red: 0.30, green: 0.72, blue: 0.40) // ui-lint: allow, rarity tiers keep fixed hues (green)
+        case .rare: Color(red: 0.25, green: 0.55, blue: 0.95) // ui-lint: allow, rarity tiers keep fixed hues (blue)
+        case .epic: Color(red: 0.62, green: 0.35, blue: 0.90) // ui-lint: allow, rarity tiers keep fixed hues (purple)
+        case .legendary: Color(red: 0.95, green: 0.68, blue: 0.15) // ui-lint: allow, rarity tiers keep fixed hues (gold)
+        case .mythical: Color(red: 0.90, green: 0.20, blue: 0.30) // ui-lint: allow, rarity tiers keep fixed hues (crimson)
         }
     }
 

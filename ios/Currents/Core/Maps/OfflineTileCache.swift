@@ -4,18 +4,20 @@ import UIKit
 
 /// A disk-caching XYZ tile overlay.
 ///
-/// Apple's own base-map tiles can't legally be cached for offline use, so for
-/// the offline fishing view we render a cacheable satellite layer (Esri World
-/// Imagery, which permits offline caching). Every tile fetched while online is
-/// written to disk keyed by `z/x/y`; when the same tile is requested again —
-/// including with no connectivity — it is served straight from disk.
+/// Apple's own base-map tiles can't be cached for offline use, so the offline
+/// fishing view draws its own satellite layer from `TileSources.current`.
+/// Every tile fetched while online is written to disk keyed by `z/x/y`; when the same
+/// tile is requested again, including with no connectivity, it is served
+/// straight from disk. Tiles from offline maps saved tile by tile
+/// (`OfflineTileFiles`) are served the same way.
 ///
 /// Combined with `OfflineTilePrefetcher`, the area around the user is filled
 /// into the cache in the background so it's visible even without signal.
 final class OfflineTileOverlay: MKTileOverlay {
-    static let template =
-        "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+    /// Credit the imagery provider asks for wherever its tiles are shown.
+    static var attribution: String { TileSources.current.attribution }
 
+    private let source = TileSources.current
     private let cacheDir: URL
     private let session: URLSession
     /// All disk I/O runs here so MapKit's tile-loading thread is never blocked
@@ -29,7 +31,7 @@ final class OfflineTileOverlay: MKTileOverlay {
 
     init() {
         let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
-        self.cacheDir = caches.appendingPathComponent("MapTiles", isDirectory: true)
+        self.cacheDir = caches.appendingPathComponent(TileSources.current.cacheFolder, isDirectory: true)
         try? FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
 
         let config = URLSessionConfiguration.default
@@ -40,23 +42,16 @@ final class OfflineTileOverlay: MKTileOverlay {
         config.waitsForConnectivity = false
         self.session = URLSession(configuration: config)
 
-        super.init(urlTemplate: OfflineTileOverlay.template)
+        super.init(urlTemplate: nil)
         self.canReplaceMapContent = true
-        self.maximumZ = 19
-        self.minimumZ = 3
+        self.maximumZ = source.maxZoom
+        self.minimumZ = source.minZoom
     }
 
     private func fileURL(for path: MKTileOverlayPath) -> URL {
         cacheDir
             .appendingPathComponent("\(path.z)", isDirectory: true)
             .appendingPathComponent("\(path.x)_\(path.y).jpg")
-    }
-
-    override func url(forTilePath path: MKTileOverlayPath) -> URL {
-        URL(string: Self.template
-            .replacingOccurrences(of: "{z}", with: "\(path.z)")
-            .replacingOccurrences(of: "{x}", with: "\(path.x)")
-            .replacingOccurrences(of: "{y}", with: "\(path.y)"))!
     }
 
     override func loadTile(
@@ -75,18 +70,29 @@ final class OfflineTileOverlay: MKTileOverlay {
                 return
             }
 
-            // 2. Fetch it. On success cache + return the crisp tile.
-            let task = self.session.dataTask(with: self.url(forTilePath: path)) { [weak self] data, _, error in
-                guard let self else { result(data, error); return }
-                if let data {
-                    try? FileManager.default.createDirectory(
-                        at: cached.deletingLastPathComponent(), withIntermediateDirectories: true
-                    )
-                    try? data.write(to: cached, options: .atomic)
-                    self.noteWriteAndMaybeSweep()
+            // 2. A downloaded offline map has it.
+            if let data = OfflineTileFiles.shared.tile(z: path.z, x: path.x, y: path.y) {
+                result(data, nil)
+                return
+            }
+
+            // 3. Fetch it. On success cache + return the crisp tile. Error
+            // pages and empty replies are never cached as tiles.
+            let source = self.source, session = self.session
+            Task.detached(priority: .userInitiated) { [weak self] in
+                let fetched = await source.fetch(z: path.z, x: path.x, y: path.y, session: session)
+                guard let self else { result(nil, nil); return }
+                if case .tile(let data) = fetched {
+                    self.ioQueue.async(flags: .barrier) {
+                        try? FileManager.default.createDirectory(
+                            at: cached.deletingLastPathComponent(), withIntermediateDirectories: true
+                        )
+                        try? data.write(to: cached, options: .atomic)
+                        self.noteWriteAndMaybeSweep()
+                    }
                     result(data, nil)
                 } else {
-                    // 3. Offline / fetch failed — rather than a blank tile,
+                    // 4. Offline / fetch failed — rather than a blank tile,
                     // serve a scaled-up cached PARENT tile if we have one, so a
                     // zoom level that was never cached still shows (blurry) map
                     // instead of nothing.
@@ -95,7 +101,6 @@ final class OfflineTileOverlay: MKTileOverlay {
                     }
                 }
             }
-            task.resume()
         }
     }
 
@@ -111,7 +116,9 @@ final class OfflineTileOverlay: MKTileOverlay {
                 x: path.x >> k, y: path.y >> k, z: path.z - k,
                 contentScaleFactor: path.contentScaleFactor
             )
-            if let img = UIImage(contentsOfFile: fileURL(for: ancestor).path),
+            if let data = (try? Data(contentsOf: fileURL(for: ancestor)))
+                ?? OfflineTileFiles.shared.tile(z: ancestor.z, x: ancestor.x, y: ancestor.y),
+               let img = UIImage(data: data),
                let cg = img.cgImage {
                 let cellW = CGFloat(cg.width) / CGFloat(scale)
                 let cellH = CGFloat(cg.height) / CGFloat(scale)

@@ -1,0 +1,11 @@
+{
+  "reference_name": "Dawn Patrol",
+  "vendor_identifier": "badge.dawn.patrol",
+  "points": 15,
+  "show_before_earned": true,
+  "repeatable": false,
+  "rarity": "rare",
+  "name": "Dawn Patrol",
+  "before_earned_description": "Log a catch at first light, between 5 and 7 am.",
+  "after_earned_description": "Logged a catch at first light."
+}

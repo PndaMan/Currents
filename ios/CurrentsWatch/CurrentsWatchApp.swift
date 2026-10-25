@@ -68,12 +68,13 @@ final class WatchConnector: NSObject, ObservableObject, WCSessionDelegate {
     /// without an active session.
     func logCatch(species: String? = nil) {
         var extra: [String: Any] = [:]
-        var confirm = "Catch logged!"
+        var confirm = "Catch logged"
         if let species, !species.trimmingCharacters(in: .whitespaces).isEmpty {
             extra[WatchMessage.speciesName] = species
             let parsed = CatchPhraseParser.parse(species)
             let name = parsed.speciesText.isEmpty ? species : parsed.speciesText.capitalized
-            confirm = parsed.summary.isEmpty ? "Logged \(name)!" : "Logged \(name) · \(parsed.summary)"
+            let details = WatchCatchDetails.parts(parsed)
+            confirm = details.isEmpty ? "Logged \(name)" : "Logged \(name), \(details.joined(separator: ", "))"
         }
         send(WatchMessage.logCatch, extra: extra, confirm: confirm)
     }
@@ -150,27 +151,51 @@ final class WatchConnector: NSObject, ObservableObject, WCSessionDelegate {
 struct WatchRootView: View {
     @EnvironmentObject var connector: WatchConnector
     @State private var showingLog = false
+    @State private var confirmingEnd = false
 
     var body: some View {
         ScrollView {
             VStack(spacing: 10) {
                 WatchLogoHeader(theme: connector.theme)
                     .padding(.top, 2)
-                biteCard
+                biteHero
+                if connector.isTracking { liveSession }
+
                 // Log a catch is always available — no need to start a session.
                 Button { showingLog = true } label: {
-                    Label("Log a Catch", systemImage: "plus.circle.fill").frame(maxWidth: .infinity)
+                    Label("Log a catch", systemImage: "plus")
                 }
-                .tint(.blue)
+                .buttonStyle(WatchPrimaryButtonStyle())
                 .disabled(connector.busy)
 
-                if connector.isTracking { activeCard } else { idleCard }
+                if connector.isTracking {
+                    Button { confirmingEnd = true } label: {
+                        Label("End session", systemImage: "stop.fill")
+                    }
+                    .buttonStyle(WatchTonalButtonStyle(tint: WatchTheme.scoreSlow))
+                    .disabled(connector.busy)
+                } else {
+                    Button { connector.startSession() } label: {
+                        Label("Start session", systemImage: "play.fill")
+                    }
+                    .buttonStyle(WatchTonalButtonStyle())
+                    .disabled(connector.busy)
+                }
+
                 if let msg = connector.lastConfirmation {
-                    Text(msg).font(.footnote).foregroundStyle(.green)
+                    Label {
+                        Text(msg)
+                    } icon: {
+                        Image(systemName: "checkmark.circle.fill").foregroundStyle(WatchTheme.scoreGood)
+                    }
+                    .font(.footnote)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 if !connector.reachable {
                     Label("Open Currents on iPhone", systemImage: "iphone.slash")
-                        .font(.caption2).foregroundStyle(.secondary)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
             .padding(.horizontal, 4)
@@ -178,49 +203,57 @@ struct WatchRootView: View {
         .navigationTitle("Currents")
         .onAppear { connector.refresh() }
         .sheet(isPresented: $showingLog) { WatchLogView() }
+        .confirmationDialog("End this session?", isPresented: $confirmingEnd, titleVisibility: .visible) {
+            Button("End session", role: .destructive) { connector.endSession() }
+            Button("Keep fishing", role: .cancel) {}
+        }
+        .sensoryFeedback(.success, trigger: connector.lastConfirmation)
     }
 
-    private var biteCard: some View {
-        VStack(spacing: 2) {
-            Text("\(connector.biteScore)")
-                .font(.system(size: 40, weight: .bold, design: .rounded))
-                .foregroundStyle(scoreColor(connector.biteScore))
-            Text("Bite Score").font(.caption2).foregroundStyle(.secondary)
+    // The Today hero: the score ring with its label underneath.
+    private var biteHero: some View {
+        VStack(spacing: 6) {
+            WatchScoreRing(score: connector.biteScore, theme: connector.theme, size: 84)
+            Text("Bite score")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 6)
-        .background(.gray.opacity(0.15), in: RoundedRectangle(cornerRadius: 12))
+        .padding(.vertical, 4)
     }
 
-    private var activeCard: some View {
-        VStack(spacing: 8) {
+    private var liveSession: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 6) {
+                Circle().fill(WatchTheme.scoreSlow).frame(width: 7, height: 7)
+                Text(connector.sessionName.isEmpty ? "Live session" : connector.sessionName)
+                    .font(.footnote.weight(.semibold))
+                    .lineLimit(1)
+            }
             if let start = connector.sessionStart {
                 Text(start, style: .timer)
-                    .font(.system(.title3, design: .rounded).bold()).monospacedDigit()
+                    .font(.title2.bold())
+                    .monospacedDigit()
             }
-            Text("\(connector.catchCount) caught").font(.caption)
-            Button(role: .destructive) { connector.endSession() } label: {
-                Label("End", systemImage: "stop.fill").frame(maxWidth: .infinity)
-            }
+            Text(connector.catchCount == 1 ? "1 catch" : "\(connector.catchCount) catches")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .contentTransition(.numericText(value: Double(connector.catchCount)))
         }
-        .disabled(connector.busy)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
     }
+}
 
-    private var idleCard: some View {
-        Button { connector.startSession() } label: {
-            Label("Start Session", systemImage: "play.fill").frame(maxWidth: .infinity)
-        }
-        .tint(.green)
-        .disabled(connector.busy)
-    }
-
-    private func scoreColor(_ s: Int) -> Color {
-        switch s {
-        case 80...: return .green
-        case 60..<80: return .teal
-        case 40..<60: return .orange
-        default: return .gray
-        }
+/// The parsed measurements as separate values ("3½ lb", "45 cm", "released"),
+/// so the watch never shows a dotted metadata string.
+enum WatchCatchDetails {
+    static func parts(_ parsed: ParsedCatchPhrase) -> [String] {
+        var parts: [String] = []
+        if !parsed.weightLabel.isEmpty { parts.append(parsed.weightLabel) }
+        if !parsed.lengthLabel.isEmpty { parts.append(parsed.lengthLabel) }
+        if let released = parsed.released { parts.append(released ? "Released" : "Kept") }
+        return parts
     }
 }
 
@@ -235,26 +268,39 @@ struct WatchLogView: View {
     @State private var species = ""
 
     private var parsed: ParsedCatchPhrase { CatchPhraseParser.parse(species) }
+    private var speciesName: String { parsed.speciesText.isEmpty ? species : parsed.speciesText.capitalized }
 
     var body: some View {
         ScrollView {
             VStack(spacing: 10) {
                 // watchOS shows Dictation / Scribble automatically for this field.
-                TextField("Species (tap 🎙 to speak)", text: $species)
+                TextField("Species, or speak it", text: $species)
                     .textInputAutocapitalization(.words)
 
                 if species.isEmpty {
-                    Text("Try “3 lb bass released” — weight, length and released/kept are understood.")
-                        .font(.caption2).foregroundStyle(.secondary)
+                    Text("Try “3 lb bass released”. Weight, length and kept or released are understood.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 } else if parsed.hasDetails {
                     // Live read-back of what the phone will log.
-                    Label {
-                        Text("\(parsed.speciesText.isEmpty ? "Catch" : parsed.speciesText.capitalized) · \(parsed.summary)")
-                    } icon: {
-                        Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Label {
+                            Text(parsed.speciesText.isEmpty ? "Catch" : parsed.speciesText.capitalized)
+                                .font(.footnote.weight(.semibold))
+                        } icon: {
+                            Image(systemName: "checkmark.circle.fill").foregroundStyle(WatchTheme.scoreGood)
+                        }
+                        HStack(spacing: 4) {
+                            ForEach(WatchCatchDetails.parts(parsed), id: \.self) { part in
+                                Text(part)
+                                    .font(.caption2.weight(.medium))
+                                    .padding(.horizontal, 7)
+                                    .padding(.vertical, 3)
+                                    .background(WatchTheme.tonal, in: Capsule())
+                            }
+                        }
                     }
-                    .font(.caption2)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
 
@@ -262,24 +308,26 @@ struct WatchLogView: View {
                     connector.logCatch(species: species)
                     dismiss()
                 } label: {
-                    Label(species.isEmpty ? "Log Catch" : "Log \(parsed.speciesText.isEmpty ? species : parsed.speciesText.capitalized)",
-                          systemImage: "fish.fill")
-                        .frame(maxWidth: .infinity)
+                    Label(species.isEmpty ? "Log catch" : "Log \(speciesName)", systemImage: "fish.fill")
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
                 }
-                .tint(.blue)
+                .buttonStyle(WatchPrimaryButtonStyle())
                 .disabled(connector.busy)
 
                 if !connector.recentSpecies.isEmpty {
-                    Text("Recent").font(.caption2).foregroundStyle(.secondary)
+                    Text("Recent")
+                        .font(.headline)
                         .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.top, 4)
                     ForEach(connector.recentSpecies, id: \.self) { name in
                         Button {
                             connector.logCatch(species: name)
                             dismiss()
                         } label: {
-                            Text(name).frame(maxWidth: .infinity)
+                            Text(name).lineLimit(1)
                         }
-                        .buttonStyle(.bordered)
+                        .buttonStyle(WatchTonalButtonStyle())
                         .disabled(connector.busy)
                     }
                 }
@@ -288,11 +336,14 @@ struct WatchLogView: View {
                     connector.logCatch()
                     dismiss()
                 }
-                .font(.caption)
+                .font(.footnote)
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .padding(.top, 4)
                 .disabled(connector.busy)
             }
             .padding(.horizontal, 4)
         }
-        .navigationTitle("Log Catch")
+        .navigationTitle("Log catch")
     }
 }

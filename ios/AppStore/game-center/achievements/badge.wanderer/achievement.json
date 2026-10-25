@@ -1,0 +1,11 @@
+{
+  "reference_name": "Wanderer",
+  "vendor_identifier": "badge.wanderer",
+  "points": 15,
+  "show_before_earned": true,
+  "repeatable": false,
+  "rarity": "rare",
+  "name": "Wanderer",
+  "before_earned_description": "Log catches at 5 different saved spots.",
+  "after_earned_description": "Logged catches at 5 different saved spots."
+}

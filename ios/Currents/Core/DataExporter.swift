@@ -1,116 +1,68 @@
 import Foundation
 import SwiftUI
 import GRDB
+import ZIPFoundation
 
-/// Exports all user data (catches, spots, gear) to a CSV zip bundle for sharing.
+/// Exports all user data (catches, spots, gear) to a CSV zip bundle for
+/// sharing, and imports catches back from that bundle or a catches CSV.
 @MainActor
 struct DataExporter {
     let appState: AppState
 
-    /// Export all data to a temporary directory and return the zip URL.
-    func exportAll() throws -> URL {
-        let exportDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("currents_export_\(dateStamp())", isDirectory: true)
-        try FileManager.default.createDirectory(at: exportDir, withIntermediateDirectories: true)
-
-        try exportCatches(to: exportDir)
-        try exportSpots(to: exportDir)
-        try exportGear(to: exportDir)
-
-        // Create a zip archive
-        let zipURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("currents_export_\(dateStamp()).zip")
-        try? FileManager.default.removeItem(at: zipURL)
-
-        let coordinator = NSFileCoordinator()
-        var error: NSError?
-        coordinator.coordinate(readingItemAt: exportDir, options: [.forUploading], error: &error) { tempZipURL in
-            try? FileManager.default.copyItem(at: tempZipURL, to: zipURL)
-        }
-        if let error { throw error }
-
-        try? FileManager.default.removeItem(at: exportDir)
-        return zipURL
+    /// What an import did: catches added, and rows skipped because a catch
+    /// with the same id is already in the Logbook.
+    struct ImportResult: Sendable {
+        var imported = 0
+        var skipped = 0
     }
 
-    private func exportCatches(to dir: URL) throws {
-        let catches = try appState.catchRepository.fetchAll()
-        var csv = "id,species,spot,date,latitude,longitude,length_cm,weight_kg,released,gear,forecast_score,notes\n"
-        for detail in catches {
-            let c = detail.catchRecord
-            let fields: [String] = [
-                c.id,
-                csvEscape(detail.species?.commonName ?? ""),
-                csvEscape(detail.spot?.name ?? ""),
-                ISO8601DateFormatter().string(from: c.caughtAt),
-                String(c.latitude),
-                String(c.longitude),
-                c.lengthCm.map { String($0) } ?? "",
-                c.weightKg.map { String($0) } ?? "",
-                c.released ? "yes" : "no",
-                csvEscape(detail.gearLoadout?.name ?? ""),
-                c.forecastScoreAtCapture.map { String($0) } ?? "",
-                csvEscape(c.notes ?? ""),
-            ]
-            csv += fields.joined(separator: ",") + "\n"
-        }
-        try csv.write(to: dir.appendingPathComponent("catches.csv"), atomically: true, encoding: .utf8)
+    enum ImportError: Error {
+        /// The zip has no catches.csv in it.
+        case noCatchesFile
     }
 
-    private func exportSpots(to dir: URL) throws {
-        let spots = try appState.spotRepository.fetchAll()
-        var csv = "id,name,latitude,longitude,private,notes,created\n"
-        for s in spots {
-            let fields: [String] = [
-                s.id,
-                csvEscape(s.name),
-                String(s.latitude),
-                String(s.longitude),
-                s.isPrivate ? "yes" : "no",
-                csvEscape(s.notes ?? ""),
-                ISO8601DateFormatter().string(from: s.createdAt),
-            ]
-            csv += fields.joined(separator: ",") + "\n"
+    /// Export all data to a temporary directory and return the zip URL. The
+    /// reads run on the database queue and the files are written off the
+    /// main actor, so a long logbook doesn't stall the page.
+    func exportAll() async throws -> URL {
+        let database = appState.db
+        let catches = try await database.db.read { db in
+            try CatchDetail.fetchAll(db, Catch
+                .including(optional: Catch.species)
+                .including(optional: Catch.spot)
+                .including(optional: Catch.gearLoadout)
+                .order(Column("caughtAt").desc))
         }
-        try csv.write(to: dir.appendingPathComponent("spots.csv"), atomically: true, encoding: .utf8)
-    }
-
-    private func exportGear(to dir: URL) throws {
-        let gear = try appState.gearRepository.fetchAll()
-        var csv = "id,name,rod,reel,line_lb,leader_lb,lure,lure_color,lure_weight_g,technique,created\n"
-        for g in gear {
-            let fields: [String] = [
-                g.id,
-                csvEscape(g.name),
-                csvEscape(g.rod ?? ""),
-                csvEscape(g.reel ?? ""),
-                g.lineLb.map { String($0) } ?? "",
-                g.leaderLb.map { String($0) } ?? "",
-                csvEscape(g.lure ?? ""),
-                csvEscape(g.lureColor ?? ""),
-                g.lureWeightG.map { String($0) } ?? "",
-                csvEscape(g.technique ?? ""),
-                ISO8601DateFormatter().string(from: g.createdAt),
-            ]
-            csv += fields.joined(separator: ",") + "\n"
+        let spots = try await database.db.read { db in
+            try Spot.order(Column("createdAt").desc).fetchAll(db)
         }
-        try csv.write(to: dir.appendingPathComponent("gear.csv"), atomically: true, encoding: .utf8)
+        let gear = try await database.db.read { db in
+            try GearLoadout.order(Column("createdAt").desc).fetchAll(db)
+        }
+        return try await Task.detached(priority: .userInitiated) {
+            try ExportFiles.writeBundle(catches: catches, spots: spots, gear: gear)
+        }.value
     }
 
     // MARK: - Import
 
-    /// Import catches from a CSV file (matching the export format).
-    /// Returns the number of successfully imported catches.
-    func importCatches(from url: URL) throws -> Int {
+    /// Import catches from a CSV file (matching the export format). A row
+    /// whose id is already in the Logbook is skipped, never overwritten, so
+    /// importing the same file twice adds nothing the second time.
+    func importCatches(from url: URL) throws -> ImportResult {
         let csvString = try String(contentsOf: url, encoding: .utf8)
         let lines = csvString.components(separatedBy: .newlines).filter { !$0.isEmpty }
-        guard lines.count > 1 else { return 0 }
+        var result = ImportResult()
+        guard lines.count > 1 else { return result }
 
         let formatter = ISO8601DateFormatter()
         let allSpecies = try appState.speciesRepository.fetchAll()
         let allSpots = try appState.spotRepository.fetchAll()
         let allGear = try appState.gearRepository.fetchAll()
-        var imported = 0
+        let existingIds = try appState.db.db.read { db in
+            try String.fetchAll(db, sql: "SELECT id FROM \"catch\"")
+        }
+        var knownIds = Set(existingIds)
 
         for line in lines.dropFirst() {
             let fields = parseCSVLine(line)
@@ -119,6 +71,14 @@ struct DataExporter {
 
             let dateStr = fields.count > 3 ? fields[3] : ""
             guard let caughtAt = formatter.date(from: dateStr) else { continue }
+
+            // Keep the exported id, so a catch that is already here is found
+            // and skipped rather than added a second time.
+            let csvId = fields[0].trimmingCharacters(in: .whitespaces)
+            if !csvId.isEmpty, knownIds.contains(csvId) {
+                result.skipped += 1
+                continue
+            }
 
             let speciesName = fields.count > 1 ? fields[1] : ""
             let speciesId = allSpecies.first { $0.commonName.caseInsensitiveCompare(speciesName) == .orderedSame }?.id
@@ -133,6 +93,7 @@ struct DataExporter {
             let lon = fields.count > 5 ? Double(fields[5]) ?? 0 : 0
 
             var catchRecord = Catch(
+                id: csvId.isEmpty ? UUID().uuidString : csvId,
                 speciesId: speciesId,
                 spotId: spotId,
                 caughtAt: caughtAt,
@@ -147,41 +108,30 @@ struct DataExporter {
             )
 
             try appState.catchRepository.save(&catchRecord)
-            imported += 1
+            knownIds.insert(catchRecord.id)
+            result.imported += 1
         }
-        return imported
+        return result
     }
 
-    /// Import from a zip export (multiple CSVs).
-    func importFromZip(at url: URL) throws -> Int {
-        // Unzip to temp directory
-        let importDir = FileManager.default.temporaryDirectory
+    /// Import from a zip export: unzips it into a temporary folder and
+    /// imports the catches.csv inside. Spots and gear are not imported.
+    func importFromZip(at url: URL) throws -> ImportResult {
+        let fm = FileManager.default
+        let importDir = fm.temporaryDirectory
             .appendingPathComponent("currents_import_\(UUID().uuidString)", isDirectory: true)
+        try fm.createDirectory(at: importDir, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: importDir) }
 
-        let coordinator = NSFileCoordinator()
-        var error: NSError?
-        var unzippedURL: URL?
+        try fm.unzipItem(at: url, to: importDir)
 
-        coordinator.coordinate(readingItemAt: url, options: [.withoutChanges], error: &error) { coordURL in
-            // Try to decompress the zip
-            if let archive = try? FileManager.default.contentsOfDirectory(at: coordURL, includingPropertiesForKeys: nil) {
-                unzippedURL = coordURL
-            }
+        // The export zips its folder, so catches.csv sits one level down.
+        let files = fm.enumerator(at: importDir, includingPropertiesForKeys: nil)?
+            .compactMap { $0 as? URL } ?? []
+        guard let catchesFile = files.first(where: { $0.lastPathComponent.lowercased() == "catches.csv" }) else {
+            throw ImportError.noCatchesFile
         }
-
-        // Fall back to treating as a single CSV
-        if unzippedURL == nil {
-            return try importCatches(from: url)
-        }
-
-        // Look for catches.csv inside the extracted dir
-        let catchesFile = importDir.appendingPathComponent("catches.csv")
-        if FileManager.default.fileExists(atPath: catchesFile.path) {
-            return try importCatches(from: catchesFile)
-        }
-
-        // If it's a single CSV
-        return try importCatches(from: url)
+        return try importCatches(from: catchesFile)
     }
 
     private func parseCSVLine(_ line: String) -> [String] {
@@ -201,15 +151,115 @@ struct DataExporter {
         fields.append(current)
         return fields
     }
+}
 
-    private func csvEscape(_ value: String) -> String {
+/// Writes the export CSVs and zips them. Plain functions on no actor, so
+/// `DataExporter.exportAll` can run them off the main thread.
+private enum ExportFiles {
+    static func writeBundle(catches: [CatchDetail], spots: [Spot], gear: [GearLoadout]) throws -> URL {
+        let fm = FileManager.default
+        let stamp = dateStamp()
+        let exportDir = fm.temporaryDirectory
+            .appendingPathComponent("currents_export_\(stamp)", isDirectory: true)
+        try fm.createDirectory(at: exportDir, withIntermediateDirectories: true)
+
+        try catchesCSV(catches).write(to: exportDir.appendingPathComponent("catches.csv"), atomically: true, encoding: .utf8)
+        try spotsCSV(spots).write(to: exportDir.appendingPathComponent("spots.csv"), atomically: true, encoding: .utf8)
+        try gearCSV(gear).write(to: exportDir.appendingPathComponent("gear.csv"), atomically: true, encoding: .utf8)
+
+        // Create a zip archive
+        let zipURL = fm.temporaryDirectory
+            .appendingPathComponent("currents_export_\(stamp).zip")
+        try? fm.removeItem(at: zipURL)
+
+        let coordinator = NSFileCoordinator()
+        var coordinationError: NSError?
+        var copyError: Error?
+        coordinator.coordinate(readingItemAt: exportDir, options: [.forUploading], error: &coordinationError) { tempZipURL in
+            do {
+                try fm.copyItem(at: tempZipURL, to: zipURL)
+            } catch {
+                copyError = error
+            }
+        }
+        try? fm.removeItem(at: exportDir)
+        if let coordinationError { throw coordinationError }
+        if let copyError { throw copyError }
+        return zipURL
+    }
+
+    private static func catchesCSV(_ catches: [CatchDetail]) -> String {
+        let formatter = ISO8601DateFormatter()
+        var csv = "id,species,spot,date,latitude,longitude,length_cm,weight_kg,released,gear,forecast_score,notes\n"
+        for detail in catches {
+            let c = detail.catchRecord
+            let fields: [String] = [
+                c.id,
+                csvEscape(detail.species?.commonName ?? ""),
+                csvEscape(detail.spot?.name ?? ""),
+                formatter.string(from: c.caughtAt),
+                String(c.latitude),
+                String(c.longitude),
+                c.lengthCm.map { String($0) } ?? "",
+                c.weightKg.map { String($0) } ?? "",
+                c.released ? "yes" : "no",
+                csvEscape(detail.gearLoadout?.name ?? ""),
+                c.forecastScoreAtCapture.map { String($0) } ?? "",
+                csvEscape(c.notes ?? ""),
+            ]
+            csv += fields.joined(separator: ",") + "\n"
+        }
+        return csv
+    }
+
+    private static func spotsCSV(_ spots: [Spot]) -> String {
+        let formatter = ISO8601DateFormatter()
+        var csv = "id,name,latitude,longitude,private,notes,created\n"
+        for s in spots {
+            let fields: [String] = [
+                s.id,
+                csvEscape(s.name),
+                String(s.latitude),
+                String(s.longitude),
+                s.isPrivate ? "yes" : "no",
+                csvEscape(s.notes ?? ""),
+                formatter.string(from: s.createdAt),
+            ]
+            csv += fields.joined(separator: ",") + "\n"
+        }
+        return csv
+    }
+
+    private static func gearCSV(_ gear: [GearLoadout]) -> String {
+        let formatter = ISO8601DateFormatter()
+        var csv = "id,name,rod,reel,line_lb,leader_lb,lure,lure_color,lure_weight_g,technique,created\n"
+        for g in gear {
+            let fields: [String] = [
+                g.id,
+                csvEscape(g.name),
+                csvEscape(g.rod ?? ""),
+                csvEscape(g.reel ?? ""),
+                g.lineLb.map { String($0) } ?? "",
+                g.leaderLb.map { String($0) } ?? "",
+                csvEscape(g.lure ?? ""),
+                csvEscape(g.lureColor ?? ""),
+                g.lureWeightG.map { String($0) } ?? "",
+                csvEscape(g.technique ?? ""),
+                formatter.string(from: g.createdAt),
+            ]
+            csv += fields.joined(separator: ",") + "\n"
+        }
+        return csv
+    }
+
+    private static func csvEscape(_ value: String) -> String {
         if value.contains(",") || value.contains("\"") || value.contains("\n") {
             return "\"" + value.replacingOccurrences(of: "\"", with: "\"\"") + "\""
         }
         return value
     }
 
-    private func dateStamp() -> String {
+    private static func dateStamp() -> String {
         let f = DateFormatter()
         f.dateFormat = "yyyy-MM-dd"
         return f.string(from: Date())

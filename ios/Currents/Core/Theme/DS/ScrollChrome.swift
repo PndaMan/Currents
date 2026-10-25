@@ -1,0 +1,137 @@
+import SwiftUI
+
+extension View {
+    /// For a tab root whose ScrollView starts with `LargeTitleHeader`. Hides
+    /// the system navigation bar and keeps an opaque backdrop behind the
+    /// status bar, so content that scrolls up is hidden under the clock;
+    /// once the large title has scrolled away, a centred inline `title`
+    /// slides in under it, like Luma and the App Store Today tab. Apply to
+    /// the root ScrollView itself, in place of
+    /// `.toolbar(.hidden, for: .navigationBar)`. The page needs the plain
+    /// background at its top (`dsScreenBackground`), as the backdrop is that
+    /// colour.
+    func largeTitleChrome(_ title: String) -> some View {
+        modifier(LargeTitleChrome(title: title))
+    }
+
+    /// Pins a vertical scroll page's content to the scroll view's width, so
+    /// one over-wide child can never make the whole page scroll sideways.
+    /// Apply to the content stack inside the ScrollView. It is a guard, not a
+    /// fix: the over-wide child still needs fixing (it will be clipped).
+    func pageWidth() -> some View {
+        containerRelativeFrame(.horizontal, alignment: .topLeading)
+    }
+
+    /// The UI review run's scrolled shots open a page at its middle or its
+    /// end (see `ScreenshotSupport.scrollAnchor`). Does nothing in normal use.
+    /// `detailTint`, `detailScrollEdge` and `largeTitleChrome` apply it, so
+    /// every page built on them (TodayPage included) is covered.
+    func reviewScrollAnchor() -> some View {
+        modifier(ReviewScrollAnchor())
+    }
+
+    /// For a full-bleed map root: a soft fade of the page background behind
+    /// the status bar, so the clock stays legible over bright map tiles.
+    /// Apply to the root stack that holds the map. Pages whose hero runs
+    /// under the bar use it too: it turns off the opaque bar backdrop of
+    /// `detailTint` and `detailScrollEdge` inside it, which would cover the
+    /// hero (see `pageBarBackdrop(_:)`).
+    func statusBarScrim() -> some View {
+        safeAreaInset(edge: .top, spacing: 0) {
+            Color.clear
+                .frame(maxWidth: .infinity)
+                .frame(height: 0)
+                .background {
+                    LinearGradient(colors: [Color.dsBackground.opacity(0.7), Color.dsBackground.opacity(0)],
+                                   startPoint: .top, endPoint: .bottom)
+                        .ignoresSafeArea(edges: .top)
+                }
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+        }
+        .environment(\.pageHasStatusBarScrim, true)
+    }
+}
+
+private struct LargeTitleChrome: ViewModifier {
+    let title: String
+    /// 0 at rest, 1 once content is under the status bar, 2 once the large
+    /// title has scrolled out of view. Only the inline title follows it. The
+    /// backdrop is always on, because the action only runs when the value
+    /// changes: a page that opens already scrolled and never moves stays at 0.
+    @State private var stage = 0
+    @ScaledMetric(relativeTo: .largeTitle) private var headerHeight: CGFloat = 52
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func body(content: Content) -> some View {
+        content
+            .reviewScrollAnchor()
+            .toolbar(.hidden, for: .navigationBar)
+            .onScrollGeometryChange(for: Int.self) { geo in
+                let y = geo.contentOffset.y + geo.contentInsets.top
+                if y > headerHeight { return 2 }
+                return y > 1 ? 1 : 0
+            } action: { _, new in
+                withAnimation(.easeOut(duration: DS.Motion.fast)) { stage = new }
+            }
+            .safeAreaInset(edge: .top, spacing: 0) {
+                StatusBarBackdrop(title: title, stage: stage, reduceMotion: reduceMotion)
+            }
+    }
+}
+
+/// Opens the scroll view at the review run's anchor, both on first layout
+/// and as content loads in, so a bottom shot stays at the bottom. Content
+/// shorter than the screen keeps its usual alignment.
+private struct ReviewScrollAnchor: ViewModifier {
+    func body(content: Content) -> some View {
+        if let anchor = ScreenshotSupport.scrollAnchor {
+            content
+                .defaultScrollAnchor(anchor, for: .initialOffset)
+                .defaultScrollAnchor(anchor, for: .sizeChanges)
+        } else {
+            content
+        }
+    }
+}
+
+/// A zero-height bar at the top safe-area edge: its background reaches up
+/// under the status bar, and its overlay draws the inline title below it, so
+/// showing the title never moves the content. The background is the page's
+/// own colour, so it is always on: nothing changes at rest, and whatever
+/// scrolls under the clock is covered.
+private struct StatusBarBackdrop: View {
+    let title: String
+    let stage: Int
+    let reduceMotion: Bool
+
+    var body: some View {
+        Color.clear
+            .frame(maxWidth: .infinity)
+            .frame(height: 0)
+            .background {
+                Color.dsBackground
+                    .ignoresSafeArea(edges: .top)
+            }
+            .overlay(alignment: .top) {
+                Text(title)
+                    .font(.headline)
+                    .foregroundStyle(.dsText)
+                    .lineLimit(1)
+                    .dynamicTypeSize(...DynamicTypeSize.accessibility1)
+                    .padding(.horizontal, 64)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 44)
+                    .background(Color.dsBackground)
+                    .overlay(alignment: .bottom) {
+                        Rectangle()
+                            .fill(Color.dsSeparator)
+                            .frame(height: 0.5)
+                    }
+                    .offset(y: stage == 2 || reduceMotion ? 0 : -6)
+                    .opacity(stage == 2 ? 1 : 0)
+            }
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+    }
+}

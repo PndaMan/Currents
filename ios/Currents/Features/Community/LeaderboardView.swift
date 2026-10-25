@@ -1,207 +1,192 @@
 import SwiftUI
 
-/// The leaderboard, promoted to its own screen (toolbar trophy on Community).
-/// Scope toggles between your friends and each of your crews; Most Fish is an
-/// avatar podium + grid, Heaviest/Longest are the same photo-first 2-up
-/// gallery as the Catches tab.
-struct LeaderboardView: View {
+/// One crew's leaderboard, pushed from the crew's page. Ranks the crew's
+/// members only and wears the crew's look: its badge over the title and its
+/// art colour behind the page. Most fish is a podium with ranked rows,
+/// Heaviest and Longest are a photo-first 2-up gallery of catches. Friends
+/// and global rankings live in Game Center.
+struct CrewLeaderboardView: View {
+    let code: String
+
     @Environment(AppState.self) private var appState
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var typeSize
     @StateObject private var svc = CommunityService.shared
     @AppStorage("units") private var units = "metric"
+    /// The header's over line and large title, which grow with the text
+    /// size. The crew badge and the space around it (80 points) sit above
+    /// them, so the inline title waits for both: 143 points at the default.
+    @ScaledMetric(relativeTo: .largeTitle) private var titleBlock: CGFloat = 63
     private var imperial: Bool { units == "imperial" }
 
-    /// "friends" or a crew code.
-    @State private var scope = "friends"
     @State private var metric: CommunityService.Metric = .count
     @State private var rows: [CommunityService.LeaderRow] = []
     @State private var myStanding: (rank: Int, row: CommunityService.LeaderRow)?
     @State private var catchAccess: [String: Bool] = [:]
     @State private var avatars: [String: UIImage] = [:]
     @State private var loading = false
+    /// The crew art's colour, read from its icon; nil for photos and emoji.
+    @State private var tint: Color?
+    /// The local log, read once per visit on the database queue; metric
+    /// switches re-rank it without reading it again.
+    @State private var localCatches: [CatchDetail]?
+    @State private var reloadGen = 0
+
+    private var crew: CommunityService.Crew? { svc.crew(withCode: code) }
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: CurrentsTheme.paddingM) {
-                scopeChips
-                Picker("By", selection: $metric) {
-                    Text("Most Fish").tag(CommunityService.Metric.count)
-                    Text("Heaviest").tag(CommunityService.Metric.weight)
-                    Text("Longest").tag(CommunityService.Metric.length)
-                }
-                .pickerStyle(.segmented)
-
-                if loading && rows.isEmpty {
-                    FishLoader(message: "Reeling in the leaderboard…")
-                        .frame(maxWidth: .infinity)
-                        .padding(.top, 30)
-                } else if rows.isEmpty {
-                    emptyState
-                } else if metric == .count {
-                    podium
-                    if rows.count > 3 { runnersGrid }
-                } else {
-                    catchGallery
-                }
-
-                if let mine = myStanding,
-                   !rows.contains(where: { $0.friendCode == svc.friendCode }) {
-                    myStandingFooter(mine)
-                }
-            }
-            .padding(.horizontal)
-            .padding(.bottom, 24)
-        }
-        .navigationTitle("Leaderboard")
-        .navigationBarTitleDisplayMode(.inline)
-        .task { await reload() }
-        .onChange(of: metric) { _, _ in Task { await reload() } }
-        .onChange(of: scope) { _, _ in Task { await reload() } }
-        .onChange(of: svc.revision) { _, _ in Task { await reload() } }
-        .sensoryFeedback(.selection, trigger: metric)
+        // Without iCloud the Crew unavailable state shows and no load starts.
+        CrewCloudGate { page }
     }
 
-    // MARK: Scope
+    private var page: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                header
+                // The chips play their own selection haptic.
+                FilterChips([CommunityService.Metric.count, .weight, .length],
+                            selection: $metric.animation(reduceMotion ? nil : DS.Motion.softSpring),
+                            title: metricTitle)
+                    .padding(.top, DS.Space.s5)
 
-    private var scopeChips: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                FilterChip(title: "Friends", isSelected: scope == "friends",
-                           systemImage: "person.2.fill") {
-                    withAnimation(.easeInOut(duration: 0.15)) { scope = "friends" }
-                }
-                ForEach(svc.myCrews) { crew in
-                    FilterChip(title: "\(crew.emoji) \(crew.name)",
-                               isSelected: scope == crew.code) {
-                        withAnimation(.easeInOut(duration: 0.15)) { scope = crew.code }
+                Group {
+                    if loading && rows.isEmpty {
+                        FishLoader(message: "Reeling in the leaderboard")
+                            .frame(maxWidth: .infinity)
+                            .padding(.top, DS.Space.s8)
+                    } else if rows.isEmpty {
+                        emptyState
+                    } else if metric == .count {
+                        countBoard
+                    } else {
+                        catchGallery
                     }
                 }
+                .padding(.top, DS.Space.s5)
+                .id(metric)
+                .transition(.opacity)
+
+                // At accessibility sizes a pinned row would cover the podium,
+                // so your place ends the page instead.
+                if typeSize.isAccessibilitySize, let pinned = pinnedStanding {
+                    pinnedRow(pinned, floating: false)
+                        .padding(.horizontal, DS.gutter)
+                        .padding(.top, DS.Space.s5)
+                }
             }
-            .padding(.vertical, 2)
+            .padding(.bottom, DS.Space.s6)
+            .pageWidth()
         }
-        .scrollBounceBehavior(.basedOnSize, axes: [.vertical, .horizontal])
+        .detailTint(tint)
+        .eventPageTitle("Leaderboard", threshold: 80 + titleBlock)
+        .safeAreaInset(edge: .bottom) {
+            if !typeSize.isAccessibilitySize, let pinned = pinnedStanding {
+                pinnedRow(pinned, floating: true)
+                    .padding(.horizontal, DS.gutter)
+                    .padding(.bottom, DS.Space.s2)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .task {
+            if let icon = await CommunityDiskCache.image(key: "crewicon-\(code)") {
+                tint = CrewArt.tint(of: icon)
+            }
+            await reload()
+        }
+        .onChange(of: metric) { _, _ in
+            // Clear the old ranking so a new metric never shows under it.
+            rows = []
+            myStanding = nil
+            loading = true
+            Task { await reload() }
+        }
+        .onChange(of: svc.revision) { _, _ in
+            // A burst of pushes bumps the revision several times; reload once.
+            reloadGen &+= 1
+            let gen = reloadGen
+            Task {
+                try? await Task.sleep(nanoseconds: 300_000_000)
+                guard gen == reloadGen else { return }
+                await reload()
+            }
+        }
     }
 
-    private var scopeFooter: String {
-        scope == "friends" ? "Among you and your friends only."
-        : "Among \(svc.crew(withCode: scope)?.name ?? "the crew")'s members."
+    // MARK: Header
+
+    /// The crew's badge over the title block, as on the crew's page.
+    private var header: some View {
+        VStack(alignment: .leading, spacing: DS.Space.s3) {
+            CrewThumb(code: code, emoji: crew?.emoji, size: 56)
+                .padding(.horizontal, DS.gutter)
+            DetailHeader(over: crew?.name ?? "Crew", title: "Leaderboard",
+                         subtitle: rows.isEmpty || metric != .count ? nil : CrewText.anglers(rows.count))
+        }
+        .padding(.top, DS.Space.s3)
+    }
+
+    private func metricTitle(_ m: CommunityService.Metric) -> String {
+        switch m {
+        case .count: return "Most fish"
+        case .weight: return "Heaviest"
+        case .length: return "Longest"
+        }
     }
 
     private var emptyState: some View {
-        VStack(spacing: 10) {
-            ContentUnavailableView("No entries yet", systemImage: "trophy",
-                description: Text(scope == "friends"
-                    ? "Add friends and log catches to fill the board."
-                    : "When the crew logs measured catches, the board fills up."))
-            if scope == "friends" {
-                Button {
-                    Task {
-                        _ = await svc.sendFriendRequest(to: CommunityService.demoCode)
-                        svc.bumpRevision()
-                        await reload()
+        InlineEmpty(systemImage: "trophy", text: emptyText)
+    }
+
+    private var emptyText: String {
+        switch metric {
+        case .count: return "No catches from the crew yet. Log one to start the board."
+        case .weight: return "No weighed catches yet. Weigh a catch to get on the board."
+        case .length: return "No measured catches yet. Measure a catch to get on the board."
+        }
+    }
+
+    // MARK: Most fish: podium and ranked rows
+
+    private var countBoard: some View {
+        VStack(spacing: 0) {
+            EventPodium(entries: rows.prefix(3).map { row in
+                EventPodiumEntry(id: row.friendCode,
+                                 name: row.friendCode == svc.friendCode ? "You" : firstName(row.anglerName),
+                                 value: "\(row.catchCount ?? 0)", unit: "fish",
+                                 images: [avatars[row.friendCode]],
+                                 isMe: false)
+            }) { e in
+                FriendProfileView(code: e.id)
+            }
+            VStack(spacing: 0) {
+                ForEach(Array(rows.enumerated()).dropFirst(3), id: \.element.id) { i, row in
+                    let isSelf = row.friendCode == svc.friendCode
+                    NavigationLink {
+                        FriendProfileView(code: row.friendCode)
+                    } label: {
+                        EventRankRow(rank: i + 1,
+                                     name: isSelf ? "You" : row.anglerName,
+                                     value: value(row),
+                                     images: [avatars[row.friendCode]],
+                                     isMe: isSelf,
+                                     showsChevron: true)
                     }
-                } label: {
-                    Label("Add Marlin, the demo angler", systemImage: "sparkles")
+                    .buttonStyle(.dim)
                 }
-                .buttonStyle(.bordered)
             }
+            .padding(.top, DS.Space.s3)
         }
-        .padding(.top, 20)
+        .animation(reduceMotion ? nil : DS.Motion.softSpring, value: rows.map(\.id))
     }
 
-    // MARK: Most Fish — podium + avatar grid
-
-    /// Top three as a proper podium: champion centred and biggest, gold ring
-    /// and crown; silver and bronze flanking.
-    private var podium: some View {
-        let top = Array(rows.prefix(3))
-        return HStack(alignment: .bottom, spacing: 18) {
-            if top.count > 1 { podiumSpot(top[1], rank: 2, size: 64) }
-            if !top.isEmpty { podiumSpot(top[0], rank: 1, size: 92) }
-            if top.count > 2 { podiumSpot(top[2], rank: 3, size: 64) }
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 8)
+    private func firstName(_ name: String) -> String {
+        name.split(separator: " ").first.map(String.init) ?? name
     }
 
-    private func podiumSpot(_ row: CommunityService.LeaderRow, rank: Int, size: CGFloat) -> some View {
-        let ring: Color = rank == 1 ? .yellow : rank == 2 ? Color(white: 0.75) : .orange
-        let isSelf = row.friendCode == svc.friendCode
-        return NavigationLink {
-            FriendProfileView(code: row.friendCode)
-        } label: {
-            VStack(spacing: 5) {
-                if rank == 1 {
-                    Text("👑").font(.title3)
-                        .shadow(color: .yellow.opacity(0.6), radius: 6)
-                }
-                ZStack(alignment: .bottom) {
-                    // Ring drawn ON the avatar's edge (not a larger circle
-                    // behind it) so the photo fills flush to the ring with no
-                    // background gap showing through.
-                    AnglerAvatar(image: avatars[row.friendCode], size: size)
-                        .overlay(Circle().strokeBorder(ring, lineWidth: rank == 1 ? 3.5 : 2.5))
-                        .shadow(color: ring.opacity(0.45), radius: rank == 1 ? 10 : 5)
-                    Text(rank == 1 ? "🥇" : rank == 2 ? "🥈" : "🥉")
-                        .font(.system(size: rank == 1 ? 22 : 17))
-                        .offset(y: 10)
-                }
-                .padding(.bottom, 6)
-                Text(isSelf ? "You" : row.anglerName)
-                    .font(rank == 1 ? .subheadline.bold() : .caption.bold())
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
-                Text("\(row.catchCount ?? 0) fish")
-                    .font(.caption.bold().monospacedDigit())
-                    .foregroundStyle(CurrentsTheme.accent)
-            }
-            .frame(maxWidth: size + 40)
-        }
-        .buttonStyle(.plain)
-    }
+    // MARK: Heaviest and longest: catch gallery
 
-    /// Everyone from 4th place as tappable avatar cards — the board reads as
-    /// faces, not a table.
-    private var runnersGrid: some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 100), spacing: 10)], spacing: 10) {
-            ForEach(Array(rows.dropFirst(3).enumerated()), id: \.element.id) { i, row in
-                let isSelf = row.friendCode == svc.friendCode
-                NavigationLink {
-                    FriendProfileView(code: row.friendCode)
-                } label: {
-                    VStack(spacing: 6) {
-                        ZStack(alignment: .topLeading) {
-                            AnglerAvatar(image: avatars[row.friendCode], size: 54)
-                            Text("\(i + 4)")
-                                .font(.system(size: 10, weight: .heavy).monospacedDigit())
-                                .foregroundStyle(.white)
-                                .frame(width: 20, height: 20)
-                                .background(Color.secondary.opacity(0.85), in: Circle())
-                                .offset(x: -6, y: -4)
-                        }
-                        Text(isSelf ? "You" : row.anglerName)
-                            .font(.caption.bold())
-                            .foregroundStyle(.primary)
-                            .lineLimit(1)
-                        Text("\(row.catchCount ?? 0) fish")
-                            .font(.caption2.bold().monospacedDigit())
-                            .foregroundStyle(CurrentsTheme.accent)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
-                    .background(isSelf ? CurrentsTheme.accent.opacity(0.10)
-                                       : Color.clear)
-                    .background(.ultraThinMaterial)
-                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                }
-                .buttonStyle(.plain)
-            }
-        }
-    }
-
-    // MARK: Heaviest / Longest — catch gallery
-
-    /// Same 2-up photo-first cells as the Catches tab, with the rank medal
-    /// and the angler's name on the card.
+    /// Same 2-up photo-first cells as the Logbook, with the rank and the
+    /// angler's name on the card.
     private var catchGallery: some View {
         LazyVGrid(columns: [GridItem(.flexible(), spacing: 10),
                             GridItem(.flexible(), spacing: 10)],
@@ -217,46 +202,146 @@ struct LeaderboardView: View {
                                                value: value(row), isSelf: isSelf)
                             .contentShape(Rectangle())
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.dim)
                 } else {
                     LeaderCatchGalleryCell(row: row, rank: i + 1,
                                            value: value(row), isSelf: isSelf)
                 }
             }
         }
+        .padding(.horizontal, DS.gutter)
     }
 
     private func value(_ row: CommunityService.LeaderRow) -> String {
         switch metric {
         case .count: return "\(row.catchCount ?? 0) fish"
-        case .weight: return row.weightKg.map { Units.weight(kg: $0, imperial: imperial) } ?? "—"
-        case .length: return row.lengthCm.map { Units.length(cm: $0, imperial: imperial) } ?? "—"
+        case .weight: return row.weightKg.map { Units.weight(kg: $0, imperial: imperial) } ?? "Not weighed"
+        case .length: return row.lengthCm.map { Units.length(cm: $0, imperial: imperial) } ?? "Not measured"
         }
     }
 
-    private func myStandingFooter(_ mine: (rank: Int, row: CommunityService.LeaderRow)) -> some View {
-        HStack(spacing: 10) {
-            Text("#\(mine.rank)")
-                .font(.subheadline.bold().monospacedDigit())
-                .foregroundStyle(.secondary)
-            AnglerAvatar(image: svc.myAvatar, size: 30)
-            Text("You").font(.subheadline.bold())
-            Spacer()
-            Text(value(mine.row))
-                .font(.subheadline.bold())
-                .foregroundStyle(CurrentsTheme.accent)
+    // MARK: Pinned you
+
+    /// Where you stand, pinned above the tab bar (at the end of the page at
+    /// accessibility sizes): your place in the list when you're on it,
+    /// otherwise the standing the service worked out for you.
+    /// In the top three you're already at the top of the board (the podium
+    /// or the first catch cells), so nothing is pinned.
+    private var pinnedStanding: (rank: Int, row: CommunityService.LeaderRow, onBoard: Bool)? {
+        guard !rows.isEmpty else { return nil }
+        if let i = rows.firstIndex(where: { $0.friendCode == svc.friendCode }) {
+            guard i >= 3 else { return nil }
+            return (i + 1, rows[i], true)
         }
-        .padding(.horizontal, 14).padding(.vertical, 10)
-        .background(CurrentsTheme.accent.opacity(0.10),
-                    in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        if let mine = myStanding { return (mine.rank, mine.row, false) }
+        return nil
+    }
+
+    /// Your place as a row: on glass while it floats over the board, on a
+    /// card once it ends the page. At accessibility sizes the value moves
+    /// under your place rather than squeezing it into a column.
+    @ViewBuilder
+    private func pinnedRow(_ mine: (rank: Int, row: CommunityService.LeaderRow, onBoard: Bool),
+                           floating: Bool) -> some View {
+        let stacked = typeSize.isAccessibilitySize
+        let shape = RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous)
+        let row = HStack(alignment: stacked ? .top : .center, spacing: DS.Space.s3) {
+            Text("\(mine.rank)")
+                .font(.headline.monospacedDigit())
+                .foregroundStyle(Color.dsText2)
+                .frame(minWidth: 22)
+                .contentTransition(.numericText())
+            AnglerAvatar(image: svc.myAvatar, size: 36)
+            VStack(alignment: .leading, spacing: 1) {
+                Text("You").font(.body.weight(.medium))
+                Text(mine.rank == 1 ? "On top"
+                     : mine.onBoard ? "\(eventOrdinal(mine.rank)) of \(rows.count)"
+                     : eventOrdinal(mine.rank))
+                    .font(.subheadline)
+                    .foregroundStyle(Color.dsText2)
+                if stacked {
+                    Text(value(mine.row))
+                        .font(.headline.monospacedDigit())
+                        .contentTransition(.numericText())
+                }
+            }
+            if !stacked {
+                Spacer()
+                Text(value(mine.row))
+                    .font(.headline.monospacedDigit())
+                    .contentTransition(.numericText())
+            }
+        }
+        .foregroundStyle(Color.dsText)
+        .padding(.horizontal, DS.Space.s4)
+        .padding(.vertical, DS.Space.s3)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        Group {
+            if floating {
+                row.glassEffect(.regular, in: shape)
+            } else {
+                row.background(Color.dsFill, in: shape)
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Your place: \(eventOrdinal(mine.rank)), \(value(mine.row))")
     }
 
     // MARK: Data
 
     /// My own catches from the local database, so I always appear regardless
     /// of CloudKit sync state.
-    private func myLocalRows() -> [CommunityService.LeaderRow] {
-        let local = (try? appState.catchRepository.fetchAll(limit: 100000)) ?? []
+    private func myLocalRows() async -> [CommunityService.LeaderRow] {
+        let local: [CatchDetail]
+        if let cached = localCatches {
+            local = cached
+        } else {
+            local = (try? await appState.catchRepository.fetchAllInBackground(limit: 100000)) ?? []
+            localCatches = local
+        }
+        return CrewBoardData.myRows(local)
+    }
+
+    private func reload() async {
+        let requested = metric
+        if rows.isEmpty { loading = true }
+        // The board is exactly the crew's roster.
+        let among = await CrewBoardData.memberCodes(code)
+        let myRows = await myLocalRows()
+        let result = await svc.board(metric: requested, myRows: myRows, among: among)
+        // A newer metric was picked while this one loaded; its reload wins.
+        guard requested == metric else { return }
+        withAnimation(reduceMotion ? nil : DS.Motion.softSpring) {
+            rows = result.rows
+            myStanding = result.mine
+        }
+        let codes = Set(result.rows.map(\.friendCode))
+        avatars.merge(await CrewBoardData.avatars(for: codes)) { _, new in new }
+        let othersToCheck = codes.filter { $0 != svc.friendCode }
+        catchAccess = await svc.catchAccess(for: Array(othersToCheck))
+        loading = false
+    }
+}
+
+// MARK: - Shared loading
+
+/// What the crew page's podium and the crew leaderboard both need.
+@MainActor
+enum CrewBoardData {
+    /// The crew's member codes, cache first.
+    static func memberCodes(_ code: String) async -> Set<String> {
+        let svc = CommunityService.shared
+        var members = svc.cachedCrewMembers(code).map(\.id)
+        if members.isEmpty {
+            members = await svc.crewMembers(code: code).map(\.id)
+        }
+        return Set(members)
+    }
+
+    /// My own catches as board rows, so I always appear regardless of
+    /// CloudKit sync state.
+    static func myRows(_ local: [CatchDetail]) -> [CommunityService.LeaderRow] {
+        let svc = CommunityService.shared
         return local.map {
             CommunityService.LeaderRow(
                 id: "me-\($0.catchRecord.id)",
@@ -273,37 +358,24 @@ struct LeaderboardView: View {
         }
     }
 
-    private func reload() async {
-        if rows.isEmpty { loading = true }
-        var among: Set<String>? = nil
-        if scope != "friends" {
-            // Crew scope: the board is exactly that crew's roster.
-            var members = svc.cachedCrewMembers(scope).map(\.id)
-            if members.isEmpty {
-                members = await svc.crewMembers(code: scope).map(\.id)
-            }
-            among = Set(members)
+    /// Faces for a set of anglers: cache first, then one batched refresh.
+    static func avatars(for codes: Set<String>) async -> [String: UIImage] {
+        let svc = CommunityService.shared
+        var out: [String: UIImage] = [:]
+        for p in svc.cachedProfiles(for: Array(codes)) {
+            if let a = p.avatar { out[p.id] = a }
         }
-        let result = await svc.board(metric: metric, myRows: myLocalRows(), among: among)
-        rows = result.rows
-        myStanding = result.mine
-        let codes = Set(result.rows.map(\.friendCode))
-        // Faces: cache-first, then one batched refresh.
-        for p in svc.cachedProfiles(for: Array(codes)) where p.avatar != nil {
-            avatars[p.id] = p.avatar
+        if let a = svc.myAvatar { out[svc.friendCode] = a }
+        let others = codes.filter { $0 != svc.friendCode }
+        for (code, p) in await svc.profiles(for: Array(others)) {
+            if let a = p.avatar { out[code] = a }
         }
-        if let a = svc.myAvatar { avatars[svc.friendCode] = a }
-        let othersToCheck = codes.filter { $0 != svc.friendCode }
-        catchAccess = await svc.catchAccess(for: Array(othersToCheck))
-        for (code, p) in await svc.profiles(for: Array(othersToCheck)) where p.avatar != nil {
-            avatars[code] = p.avatar
-        }
-        loading = false
+        return out
     }
 }
 
-/// A leaderboard catch as a gallery card: photo (or species art), rank medal
-/// top-left, value + species + angler on the bottom scrim.
+/// A leaderboard catch as a gallery card: photo (or species art on its art
+/// colour), rank top-left, value, species and angler under it.
 private struct LeaderCatchGalleryCell: View {
     let row: CommunityService.LeaderRow
     let rank: Int
@@ -312,75 +384,79 @@ private struct LeaderCatchGalleryCell: View {
 
     @Environment(AppState.self) private var appState
     @Environment(\.displayScale) private var displayScale
+    @Environment(\.colorScheme) private var scheme
     @State private var photo: UIImage?
     @State private var species: Species?
 
     var body: some View {
-        Color.clear
-            .frame(height: 190)
-            .overlay {
-                if let photo {
-                    Image(uiImage: photo).resizable().scaledToFill()
-                } else {
-                    ZStack {
-                        CurrentsTheme.accent.opacity(0.10)
-                        if let species {
-                            SpeciesArtworkView(species: species, caught: true, size: 64)
-                        } else {
-                            Image(systemName: "fish.fill")
-                                .font(.system(size: 30))
-                                .foregroundStyle(CurrentsTheme.accent.opacity(0.5))
+        VStack(alignment: .leading, spacing: DS.Space.s2) {
+            Color.clear
+                .aspectRatio(1, contentMode: .fit)
+                .overlay {
+                    if let photo {
+                        Image(uiImage: photo).resizable().scaledToFill()
+                    } else if let species {
+                        ZStack {
+                            species.artTint.opacity(DS.thumbTintOpacity(scheme))
+                            SpeciesArtworkView(species: species, caught: true, size: 72)
+                        }
+                    } else {
+                        ZStack {
+                            Color.dsFill
+                            Image(systemName: "fish")
+                                .font(.title)
+                                .foregroundStyle(Color.dsText3)
                         }
                     }
                 }
-            }
-            .overlay(alignment: .topLeading) {
-                Text(rank == 1 ? "🥇" : rank == 2 ? "🥈" : rank == 3 ? "🥉" : "#\(rank)")
-                    .font(rank <= 3 ? .title3 : .caption.bold())
-                    .foregroundStyle(.white)
-                    .padding(rank <= 3 ? 4 : 7)
-                    .background(rank <= 3 ? AnyShapeStyle(.clear)
-                                          : AnyShapeStyle(.black.opacity(0.45)),
-                                in: Circle())
-                    .padding(6)
-            }
-            .overlay(alignment: .bottomLeading) {
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(value)
-                        .font(.footnote.bold())
-                    Text("\(row.species) · \(isSelf ? "You" : row.anglerName)")
-                        .font(.system(size: 10))
-                        .opacity(0.85)
-                        .lineLimit(1)
+                .overlay(alignment: .topLeading) {
+                    Text("\(rank)")
+                        .font(.subheadline.weight(.bold).monospacedDigit())
+                        .foregroundStyle(rank == 2 ? Color.dsText : rank <= 3 ? Color.black : Color.white)
+                        .frame(minWidth: 28, minHeight: 28)
+                        .background(rank == 1 ? Color.dsScoreFair
+                                    : rank == 2 ? Color.dsFill2 // ui-lint: allow, silver medal
+                                    : rank == 3 ? Color.dsScoreLow
+                                    : Color.black.opacity(0.5),
+                                    in: Circle())
+                        .padding(DS.Space.s2)
+                        .accessibilityHidden(true)
                 }
-                .foregroundStyle(photo == nil ? AnyShapeStyle(.primary) : AnyShapeStyle(.white))
-                .padding(8)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background {
-                    if photo != nil {
-                        LinearGradient(colors: [.clear, .black.opacity(0.72)],
-                                       startPoint: .top, endPoint: .bottom)
+                .clipShape(RoundedRectangle(cornerRadius: DS.Radius.thumb, style: .continuous))
+                .overlay {
+                    if isSelf {
+                        RoundedRectangle(cornerRadius: DS.Radius.thumb, style: .continuous)
+                            .strokeBorder(DS.accent, lineWidth: 2)
                     }
                 }
+            VStack(alignment: .leading, spacing: 1) {
+                Text(value)
+                    .font(.headline.monospacedDigit())
+                    .foregroundStyle(Color.dsText)
+                Text(row.species)
+                    .font(.subheadline)
+                    .foregroundStyle(Color.dsText)
+                    .lineLimit(1)
+                Text(isSelf ? "You" : row.anglerName)
+                    .font(.footnote)
+                    .foregroundStyle(Color.dsText2)
+                    .lineLimit(1)
             }
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .overlay {
-                if isSelf {
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .strokeBorder(CurrentsTheme.accent.opacity(0.7), lineWidth: 1.5)
-                }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(eventOrdinal(rank)), \(value), \(row.species), \(isSelf ? "you" : row.anglerName)")
+        .task(id: row.id) {
+            let px = 240 * displayScale
+            if let path = row.localPhotoPath {
+                let scale = displayScale
+                photo = await Task.detached { PhotoManager.thumbnail(path, maxPixel: px, scale: scale) }.value
+            } else if row.hasRemotePhoto {
+                // Same cell size as a local photo, not the full image.
+                photo = await CommunityService.shared.catchPhoto(recordName: row.id, maxPixel: px)
             }
-            .task(id: row.id) {
-                if let path = row.localPhotoPath {
-                    let px = 240 * displayScale
-                    let scale = displayScale
-                    photo = await Task.detached { PhotoManager.thumbnail(path, maxPixel: px, scale: scale) }.value
-                } else if row.hasRemotePhoto {
-                    photo = await CommunityService.shared.catchPhoto(recordName: row.id)
-                }
-                if photo == nil {
-                    species = (try? appState.speciesRepository.fetchByCommonName(row.species)) ?? nil
-                }
+            if photo == nil {
+                species = (try? appState.speciesRepository.fetchByCommonName(row.species)) ?? nil
             }
+        }
     }
 }

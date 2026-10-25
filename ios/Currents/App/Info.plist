@@ -39,8 +39,13 @@
 	<string>Currents uses your location to tag catches and find nearby fishing spots.</string>
 	<key>UIBackgroundModes</key>
 	<array>
+		<string>fetch</string>
 		<string>location</string>
 		<string>remote-notification</string>
+	</array>
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>com.aidanmcconnon.currents.refresh</string>
 	</array>
 	<key>NSCameraUsageDescription</key>
 	<string>Take photos of your catches for logging and fish identification.</string>

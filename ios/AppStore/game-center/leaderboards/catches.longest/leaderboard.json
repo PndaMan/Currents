@@ -1,0 +1,12 @@
+{
+  "reference_name": "Longest fish",
+  "vendor_identifier": "catches.longest",
+  "formatter": "DECIMAL_POINT_1_PLACE",
+  "submission_type": "BEST_SCORE",
+  "sort": "DESC",
+  "name": "Longest fish",
+  "description": "Your longest logged catch, in centimetres.",
+  "suffix": " cm",
+  "suffix_singular": " cm",
+  "art": {"icon": "ruler", "color": "#64D2FF"}
+}

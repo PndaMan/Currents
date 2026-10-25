@@ -10,63 +10,126 @@ struct SessionLiveActivity: Widget {
         ActivityConfiguration(for: SessionActivityAttributes.self) { context in
             // Lock Screen / banner — tapping opens the live session to log a catch.
             LockScreenView(context: context)
-                .activityBackgroundTint(Color.black.opacity(0.5))
+                .activityBackgroundTint(WidgetTheme.activityBackground)
                 .activitySystemActionForegroundColor(.white)
                 .widgetURL(URL(string: "currents://session"))
         } dynamicIsland: { context in
             DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
-                    Label {
-                        Text(context.state.startDate, style: .timer).monospacedDigit()
-                    } icon: {
-                        Image(systemName: "timer")
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("Fishing for")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                        Text(context.state.startDate, style: .timer)
+                            .font(.title3.bold())
+                            .monospacedDigit()
+                            .lineLimit(1)
                     }
-                    .font(.caption)
+                    .padding(.leading, 4)
                 }
                 DynamicIslandExpandedRegion(.trailing) {
-                    Label("\(context.state.catchCount)", systemImage: "fish.fill").font(.caption)
+                    VStack(alignment: .trailing, spacing: 1) {
+                        Text("Catches")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                        Text("\(context.state.catchCount)")
+                            .font(.title3.bold())
+                            .monospacedDigit()
+                    }
+                    .padding(.trailing, 4)
                 }
                 DynamicIslandExpandedRegion(.bottom) {
-                    HStack {
-                        Text(context.attributes.sessionName).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                    HStack(spacing: 8) {
+                        Label(context.attributes.sessionName, systemImage: "figure.fishing")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
                         Spacer()
-                        Text("Bite \(context.state.biteScore)").font(.caption2.bold())
                         if let limit = context.state.catchLimitText {
-                            Text("· \(limit)").font(.caption2).foregroundStyle(.secondary)
+                            Text(limit)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
                         }
+                        Text("Bite \(context.state.biteScore)")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(WidgetTheme.scoreColor(context.state.biteScore))
                     }
+                    .padding(.horizontal, 4)
                 }
             } compactLeading: {
                 Image(systemName: "figure.fishing")
+                    .foregroundStyle(WidgetTheme.scoreColor(context.state.biteScore))
+                    .accessibilityLabel("Fishing session")
             } compactTrailing: {
-                Text(context.state.startDate, style: .timer).monospacedDigit().frame(maxWidth: 44)
+                Text(context.state.startDate, style: .timer)
+                    .monospacedDigit()
+                    .frame(maxWidth: 44)
             } minimal: {
                 Image(systemName: "figure.fishing")
+                    .foregroundStyle(WidgetTheme.scoreColor(context.state.biteScore))
+                    .accessibilityLabel("Fishing session")
             }
         }
     }
 }
 
+/// Lock screen card, laid out like the tournament card in the mockup: name and
+/// bite score on top, the big numbers in the middle, the bag limit below.
 private struct LockScreenView: View {
     let context: ActivityViewContext<SessionActivityAttributes>
 
+    private var state: SessionActivityAttributes.ContentState { context.state }
+
     var body: some View {
-        HStack(spacing: 14) {
-            VStack(alignment: .leading, spacing: 4) {
-                Label(context.attributes.sessionName, systemImage: "figure.fishing")
-                    .font(.subheadline.bold()).lineLimit(1)
-                Text(context.state.startDate, style: .timer)
-                    .font(.system(.title2, design: .rounded).bold()).monospacedDigit()
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Label {
+                    Text(context.attributes.sessionName).lineLimit(1)
+                } icon: {
+                    Image(systemName: "figure.fishing")
+                        .foregroundStyle(WidgetTheme.scoreColor(state.biteScore))
+                }
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(.white)
+                Spacer()
+                Text("Bite \(state.biteScore)")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(WidgetTheme.scoreColor(state.biteScore))
             }
-            Spacer()
-            VStack(alignment: .trailing, spacing: 4) {
-                Label("\(context.state.catchCount)", systemImage: "fish.fill").font(.headline)
-                Text("Bite \(context.state.biteScore)").font(.caption.bold()).foregroundStyle(.teal)
-                if let limit = context.state.catchLimitText {
-                    Text(limit).font(.caption2).foregroundStyle(.secondary)
+            HStack(alignment: .lastTextBaseline) {
+                VStack(alignment: .leading, spacing: 0) {
+                    Text("Fishing for")
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(0.6))
+                    Text(state.startDate, style: .timer)
+                        .font(.system(size: 30, weight: .bold))
+                        .monospacedDigit()
+                        .lineLimit(1)
+                }
+                // A timer Text claims the full width, so it takes the free
+                // space here instead of a Spacer.
+                .frame(maxWidth: .infinity, alignment: .leading)
+                VStack(alignment: .trailing, spacing: 0) {
+                    Text("Catches")
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(0.6))
+                    Text("\(state.catchCount)")
+                        .font(.system(size: 30, weight: .bold))
+                        .monospacedDigit()
                 }
             }
+            .foregroundStyle(.white)
+            .padding(.top, 10)
+            if let limit = state.catchLimitText {
+                Label(limit, systemImage: "scalemass")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.white.opacity(0.7))
+                    .lineLimit(1)
+                    .padding(.top, 8)
+            }
         }
-        .padding()
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
     }
 }

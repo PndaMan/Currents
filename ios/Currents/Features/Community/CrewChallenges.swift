@@ -47,7 +47,7 @@ enum CrewChallengeEngine {
         let end = currentWeek(now: now).end
         let days = max(0, Int(end.timeIntervalSince(now) / 86_400))
         switch days {
-        case 0: return "Last day — resets tonight"
+        case 0: return "Resets tonight"
         case 1: return "1 day left"
         default: return "\(days) days left"
         }
@@ -114,7 +114,7 @@ enum CrewChallengeEngine {
                           progress: weekPosts.count),
             CrewChallenge(id: "variety", title: "Species safari",
                           detail: "Land \(clamp(members + 1, 2, 8)) different species",
-                          icon: "sparkles",
+                          icon: "square.grid.2x2.fill",
                           target: clamp(members + 1, 2, 8),
                           progress: Set(weekPosts.map { $0.species.lowercased() }).count)
         ]
@@ -133,8 +133,8 @@ enum CrewChallengeEngine {
         if let target = speciesHistory.randomElement(using: &rng) {
             let n = clamp(members / 2, 1, 4)
             pool.append(
-                CrewChallenge(id: "target", title: "Target: \(target)",
-                              detail: "Land \(n) \(target)\(n == 1 ? "" : "s") — a crew favourite",
+                CrewChallenge(id: "target", title: "Crew favourite",
+                              detail: "Land \(n) \(target.lowercased())",
                               icon: "scope",
                               target: n,
                               progress: weekPosts.filter { $0.species.caseInsensitiveCompare(target) == .orderedSame }.count))
@@ -149,13 +149,13 @@ enum CrewChallengeEngine {
                           progress: weekPosts.contains { ($0.weightKg ?? 0) >= tier } ? 1 : 0))
         pool.append(
             CrewChallenge(id: "dawn", title: "Dawn patrol",
-                          detail: "\(clamp(members, 2, 6)) fish landed before 8 AM",
+                          detail: "\(clamp(members, 2, 6)) fish landed before \(ForecastFormat.hour(8, use24: ForecastFormat.use24))",
                           icon: "sunrise.fill",
                           target: clamp(members, 2, 6),
                           progress: weekPosts.filter { hour($0.caughtAt) < 8 }.count))
         pool.append(
             CrewChallenge(id: "night", title: "Night shift",
-                          detail: "\(clamp(members, 2, 6)) fish landed after 8 PM",
+                          detail: "\(clamp(members, 2, 6)) fish landed after \(ForecastFormat.hour(20, use24: ForecastFormat.use24))",
                           icon: "moon.stars.fill",
                           target: clamp(members, 2, 6),
                           progress: weekPosts.filter { hour($0.caughtAt) >= 20 }.count))
@@ -176,39 +176,59 @@ enum CrewChallengeEngine {
     }
 }
 
-// MARK: - Row
+// MARK: - Card
 
-/// The week's crew challenge as an ordinary list row, so it sits in the crew
-/// page's grouped sections looking like it was born there — no floating card.
+/// The week's crew challenge as a Luma card: title and countdown, what to do,
+/// a progress bar and the tally.
 struct CrewChallengeRow: View {
     let challenge: CrewChallenge
+    var weekLabel: String = CrewChallengeEngine.weekLabel()
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var shown = false
+
+    private var tint: Color { challenge.done ? .dsScoreGood : DS.accent }
+    private var remaining: Int { max(0, challenge.target - challenge.progress) }
 
     var body: some View {
-        HStack(spacing: 12) {
-            ZStack {
-                Circle()
-                    .fill(challenge.done ? Color.green.opacity(0.15)
-                                         : CurrentsTheme.accent.opacity(0.12))
-                    .frame(width: 38, height: 38)
-                Image(systemName: challenge.done ? "checkmark" : challenge.icon)
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(challenge.done ? .green : CurrentsTheme.accent)
-            }
-            VStack(alignment: .leading, spacing: 4) {
-                HStack {
-                    Text(challenge.title).font(.subheadline.bold())
-                    Spacer()
-                    Text(challenge.done ? "Done!"
-                         : "\(min(challenge.progress, challenge.target))/\(challenge.target)")
-                        .font(.caption.bold().monospacedDigit())
-                        .foregroundStyle(challenge.done ? .green : .secondary)
+        VStack(alignment: .leading, spacing: DS.Space.s2) {
+            HStack(spacing: DS.Space.s3) {
+                ThumbView(systemImage: challenge.done ? "checkmark" : challenge.icon, tint: tint, size: 40)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(challenge.title)
+                        .font(.headline)
+                        .foregroundStyle(.dsText)
+                    Text(weekLabel)
+                        .font(.footnote)
+                        .foregroundStyle(.dsText2)
                 }
-                Text(challenge.detail)
-                    .font(.caption).foregroundStyle(.secondary)
-                ProgressView(value: challenge.fraction)
-                    .tint(challenge.done ? .green : CurrentsTheme.accent)
+                Spacer(minLength: 0)
             }
+            Text(challenge.detail)
+                .font(.subheadline)
+                .foregroundStyle(.dsText2)
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(Color.dsFill2)
+                    Capsule().fill(tint)
+                        .frame(width: max(8, geo.size.width * (shown ? challenge.fraction : 0)))
+                }
+            }
+            .frame(height: 8)
+            .padding(.top, DS.Space.s1)
+            HStack {
+                Text("\(min(challenge.progress, challenge.target)) of \(challenge.target)")
+                    .monospacedDigit()
+                Spacer()
+                Text(challenge.done ? "Done" : "\(remaining) to go")
+            }
+            .font(.footnote)
+            .foregroundStyle(.dsText2)
         }
-        .padding(.vertical, 2)
+        .padding(DS.Space.s4)
+        .background(Color.dsFill, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
+        .accessibilityElement(children: .combine)
+        .onAppear {
+            if reduceMotion { shown = true } else { withAnimation(DS.Motion.softSpring.delay(0.15)) { shown = true } }
+        }
     }
 }

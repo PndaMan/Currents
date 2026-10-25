@@ -1,0 +1,11 @@
+{
+  "reference_name": "Leviathan",
+  "vendor_identifier": "badge.leviathan",
+  "points": 50,
+  "show_before_earned": true,
+  "repeatable": false,
+  "rarity": "mythic",
+  "name": "Leviathan",
+  "before_earned_description": "Land a fish weighing 50 kg (110 lb) or more.",
+  "after_earned_description": "Landed a fish of 50 kg (110.2 lb) or more."
+}

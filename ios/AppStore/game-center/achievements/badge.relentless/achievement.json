@@ -1,0 +1,11 @@
+{
+  "reference_name": "Relentless",
+  "vendor_identifier": "badge.relentless",
+  "points": 20,
+  "show_before_earned": true,
+  "repeatable": false,
+  "rarity": "epic",
+  "name": "Relentless",
+  "before_earned_description": "Keep a weekly fishing streak alive for 8 weeks.",
+  "after_earned_description": "Fished 8 weeks in a row."
+}

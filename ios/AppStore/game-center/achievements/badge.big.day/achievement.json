@@ -1,0 +1,11 @@
+{
+  "reference_name": "Big Day",
+  "vendor_identifier": "badge.big.day",
+  "points": 20,
+  "show_before_earned": true,
+  "repeatable": false,
+  "rarity": "epic",
+  "name": "Big Day",
+  "before_earned_description": "Log 8 catches in a single day.",
+  "after_earned_description": "Logged 8 catches in a single day."
+}

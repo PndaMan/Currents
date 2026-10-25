@@ -1,0 +1,20 @@
+{
+  "reference_name": "Summer season 2026-27 (southern hemisphere)",
+  "badge": "New Season",
+  "purpose": "Keep active users informed",
+  "priority": "Normal",
+  "deep_link": "currents://map",
+  "territories": ["ZAF", "AUS", "NZL", "ARG", "CHL", "URY", "PRY", "BRA", "BOL", "PER", "BWA", "NAM", "MOZ", "ZWE", "ZMB", "MWI", "AGO", "SWZ", "MDG", "MUS", "FJI", "PNG"],
+  "schedule": {
+    "rule": "fixed",
+    "note": "1 to 31 December, the first December on or after --start, published a week before (late November). For the northern spring, copy the folder with March dates and northern territories.",
+    "start": "12-01",
+    "end": "12-31",
+    "publish_days_before": 7
+  },
+  "media": {
+    "captures": ["01_today", "02_explore"],
+    "headline": "Summer bite season",
+    "subline": "Best windows, what to throw and what is biting near you"
+  }
+}

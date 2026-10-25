@@ -2,10 +2,11 @@ import Foundation
 import GRDB
 
 /// Cached fish species observation from iNaturalist or GBIF.
-/// Stores which fish have been observed near a geohash cell (precision 3).
+/// Stores which fish have been observed near a geohash cell, keyed at
+/// `INaturalistService.cellPrecision` (5).
 struct ObservedSpeciesCache: Codable, Identifiable, Sendable {
     var id: Int64?
-    var geohashCell: String       // geohash precision-3 for the query area
+    var geohashCell: String       // geohash at INaturalistService.cellPrecision for the query area
     var scientificName: String
     var commonName: String?
     var observationCount: Int

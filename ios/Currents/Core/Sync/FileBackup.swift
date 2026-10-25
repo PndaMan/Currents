@@ -49,14 +49,21 @@ actor FileBackup {
         }
         defer { url.stopAccessingSecurityScopedResource() }
 
+        // Validate it's a real SQLite database by trying to open it, and
+        // check for our catch table to verify it's a Currents backup.
+        let sourceQueue: DatabaseQueue
+        let isCurrentsBackup: Bool
         do {
-            // Validate it's a real SQLite database by trying to open it
-            let sourceQueue = try DatabaseQueue(path: url.path)
-            _ = try sourceQueue.read { db in
-                // Check for our catch table to verify it's a Currents backup
+            sourceQueue = try DatabaseQueue(path: url.path)
+            isCurrentsBackup = try sourceQueue.read { db in
                 try db.tableExists("catch")
             }
+        } catch {
+            throw BackupError.importFailed(error)
+        }
+        guard isCurrentsBackup else { throw BackupError.invalidFile }
 
+        do {
             // Restore by backing up from source to our live database
             try sourceQueue.backup(to: db.db)
         } catch {
@@ -162,6 +169,19 @@ enum AutoBackup {
         return t > 0 ? Date(timeIntervalSince1970: t) : nil
     }
 
+    /// When the last automatic backup failed. Cleared by the next backup
+    /// that succeeds, automatic or manual.
+    static var lastFailure: Date? {
+        let t = UserDefaults.standard.double(forKey: failedAtKey)
+        return t > 0 ? Date(timeIntervalSince1970: t) : nil
+    }
+
+    static func clearFailure() {
+        UserDefaults.standard.removeObject(forKey: failedAtKey)
+    }
+
+    private static let failedAtKey = "lastAutoBackupFailedAt"
+
     static func runIfDue(db: AppDatabase, force: Bool = false) {
         guard isEnabled || force else { return }
         if !force, let last = lastRun, Date().timeIntervalSince(last) < 20 * 3600 {
@@ -174,8 +194,10 @@ enum AutoBackup {
                     try? await CloudBackup.shared.backup(db: db)
                 }
                 UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: "lastAutoBackupAt")
+                AutoBackup.clearFailure()
             } catch {
                 print("[Currents] Automatic backup failed: \(error)")
+                UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: AutoBackup.failedAtKey)
             }
         }
     }

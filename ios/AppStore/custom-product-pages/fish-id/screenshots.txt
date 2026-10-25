@@ -1,0 +1,6 @@
+03_identify
+05_catch
+07_fishdex
+01_bite
+02_nearby
+04_forecast

@@ -1,0 +1,11 @@
+{
+  "reference_name": "Diversified",
+  "vendor_identifier": "badge.diversified",
+  "points": 15,
+  "show_before_earned": true,
+  "repeatable": false,
+  "rarity": "rare",
+  "name": "Diversified",
+  "before_earned_description": "Catch 10 different species.",
+  "after_earned_description": "Caught 10 different species."
+}

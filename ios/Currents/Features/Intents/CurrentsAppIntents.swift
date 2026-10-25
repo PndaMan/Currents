@@ -72,9 +72,9 @@ struct CheckBiteScoreIntent: AppIntent {
             coordinate: coord,
             currentPressureHpa: weather?.pressureHpa,
             pressureChange6h: weather?.pressureChange6h,
-            waterTempC: weather?.waterTempC,
-            windSpeedKmh: weather?.windSpeedKmh,
-            windDirection: weather?.windDirectionDeg,
+            waterTempC: weather?.measured?.waterTempC,
+            windSpeedKmh: weather?.measured?.windSpeedKmh,
+            windDirection: weather?.measured?.windDirectionDeg,
             species: nil,
             isInSpawningZone: false
         )

@@ -37,6 +37,73 @@ struct ForecastEngine {
         let timeOfDay: Double
         let wind: Double
         let solunar: Double
+        /// Points each factor could add, out of 100, once the share of any
+        /// factor without data has gone to the others. Zero means not counted.
+        let weights: FactorWeights
+    }
+
+    struct FactorWeights: Sendable {
+        let pressure: Double
+        let pressureTrend: Double
+        let tide: Double
+        let moon: Double
+        let temperature: Double
+        let season: Double
+        let timeOfDay: Double
+        let wind: Double
+        let solunar: Double
+    }
+
+    // MARK: - Species traits
+
+    /// What a targeted species changes beyond its temperature range, read
+    /// from its record. With no target, or a record too thin to trust, every
+    /// factor keeps its general weight, so the untargeted score never moves.
+    struct SpeciesTraits: Sendable, Equatable {
+        enum Tide: Sendable, Equatable {
+            /// General weight: nothing targeted, or the habitat is not known.
+            case general
+            /// Saltwater and estuary fish: moving water brings their food.
+            case heavier
+            /// Freshwater fish never see a tide, so it is left out.
+            case ignored
+        }
+
+        let tide: Tide
+        /// Catfish, eels and burbot do most of their feeding after dark.
+        let feedsAtNight: Bool
+
+        static let untargeted = SpeciesTraits(tide: .general, feedsAtNight: false)
+
+        /// Catfish, freshwater eel and burbot families.
+        static let nightFeedingFamilies: Set<String> = [
+            "Ictaluridae", "Siluridae", "Clariidae", "Ariidae", "Pimelodidae",
+            "Anguillidae", "Lotidae",
+        ]
+
+        init(tide: Tide, feedsAtNight: Bool) {
+            self.tide = tide
+            self.feedsAtNight = feedsAtNight
+        }
+
+        init(_ species: Species?) {
+            guard let species else {
+                self = .untargeted
+                return
+            }
+            switch species.habitat {
+            case .marine, .brackish:
+                tide = .heavier
+            case .freshwater where species.family != nil:
+                // The seed marks every species without a curated record as
+                // freshwater (reef fish included), so only trust it when the
+                // record is curated, which is when the family is known.
+                tide = .ignored
+            default:
+                tide = .general
+            }
+            feedsAtNight = species.family.map { Self.nightFeedingFamilies.contains($0) } ?? false
+        }
     }
 
     // MARK: - Full forecast with per-hour breakdown
@@ -216,6 +283,7 @@ struct ForecastEngine {
         isInSpawningZone: Bool
     ) -> InstantResult {
         var reasons: [String] = []
+        let traits = SpeciesTraits(species)
 
         // Each factor returns (score: 0-1, weight, hasData: Bool).
         // Factors without data get weight 0; their weight is redistributed
@@ -230,21 +298,21 @@ struct ForecastEngine {
             // Below 1010 or above 1035 is bad.
             if p >= 1018 && p <= 1028 {
                 wPressure = 1.0
-                reasons.append("Ideal pressure (\(Int(p)) hPa)")
+                reasons.append("Pressure is ideal at \(Units.pressure(hpa: p))")
             } else if p >= 1013 && p < 1018 {
                 wPressure = 0.65
             } else if p > 1028 && p <= 1035 {
                 wPressure = 0.55
-                reasons.append("High pressure (\(Int(p)) hPa) — fish may be deep")
+                reasons.append("High pressure at \(Units.pressure(hpa: p)) can push fish deep")
             } else if p >= 1005 && p < 1013 {
                 wPressure = 0.3
-                reasons.append("Low pressure (\(Int(p)) hPa)")
+                reasons.append("Low pressure at \(Units.pressure(hpa: p))")
             } else if p > 1035 {
                 wPressure = 0.2
-                reasons.append("Very high pressure (\(Int(p)) hPa) — sluggish bite")
+                reasons.append("Very high pressure at \(Units.pressure(hpa: p)) slows the bite")
             } else {
                 wPressure = 0.1
-                reasons.append("Storm-level pressure (\(Int(p)) hPa)")
+                reasons.append("Storm-level pressure at \(Units.pressure(hpa: p))")
             }
         } else {
             havePressure = false
@@ -260,22 +328,22 @@ struct ForecastEngine {
             havePressureTrend = true
             if delta < -6 {
                 wPressureTrend = 1.0
-                reasons.append("Pressure crashing — fish in a feeding frenzy")
+                reasons.append("Pressure is crashing, so fish feed hard")
             } else if delta < -3 {
                 wPressureTrend = 0.9
-                reasons.append("Pressure dropping — aggressive feeding")
+                reasons.append("Dropping pressure gets fish feeding")
             } else if delta < -1 {
                 wPressureTrend = 0.7
-                reasons.append("Pressure falling — fish active")
+                reasons.append("Falling pressure keeps fish active")
             } else if delta >= -1 && delta <= 1 {
                 wPressureTrend = 0.3
                 // Stable = below average, not above
             } else if delta > 1 && delta <= 3 {
                 wPressureTrend = 0.15
-                reasons.append("Pressure rising — bite shutting down")
+                reasons.append("Rising pressure is shutting the bite down")
             } else {
                 wPressureTrend = 0.05
-                reasons.append("Pressure spiking — fish lockjaw")
+                reasons.append("Pressure is spiking and fish go quiet")
             }
         } else {
             havePressureTrend = false
@@ -283,16 +351,18 @@ struct ForecastEngine {
         }
 
         // === Tide ===
+        // Left out entirely for a targeted freshwater species.
+        let countsTide = traits.tide != .ignored
         let wTide: Double
         switch tidePhase {
         case .nearHighOrLow:
             wTide = 1.0
-            reasons.append("Tide change — peak feeding period")
+            if countsTide { reasons.append("Tide change brings peak feeding") }
         case .moving:
             wTide = 0.55
         case .slack:
             wTide = 0.1
-            reasons.append("Slack tide — dead water")
+            if countsTide { reasons.append("Slack tide means dead water") }
         }
 
         // === Moon Phase ===
@@ -300,14 +370,14 @@ struct ForecastEngine {
         switch solunar.moonPhase {
         case .new, .full:
             wMoon = 1.0
-            reasons.append("\(solunar.moonPhase.displayName) — strongest solunar pull")
+            reasons.append("\(solunar.moonPhase.displayName) gives the strongest pull")
         case .waxingGibbous, .waningGibbous:
             wMoon = 0.65
         case .waxingCrescent, .waningCrescent:
             wMoon = 0.4
         case .firstQuarter, .lastQuarter:
             wMoon = 0.2
-            reasons.append("Quarter moon — weakest solunar influence")
+            reasons.append("Quarter moon gives the weakest pull")
         }
 
         // === Solunar Feeding Window ===
@@ -319,10 +389,10 @@ struct ForecastEngine {
         let nearMajor = solunar.majorPeriods.contains { abs(date.timeIntervalSince($0.peak)) < 5400 }
         if inMajor {
             wSolunar = 1.0
-            reasons.append("Major solunar period — prime feeding window")
+            reasons.append("Inside a major solunar period")
         } else if inMinor {
             wSolunar = 0.7
-            reasons.append("Minor solunar period — elevated activity")
+            reasons.append("Inside a minor solunar period")
         } else if nearMajor {
             wSolunar = 0.4
         } else {
@@ -334,14 +404,17 @@ struct ForecastEngine {
         let wTimeOfDay: Double
         if solunar.dawnGoldenHour.contains(date) {
             wTimeOfDay = 1.0
-            reasons.append("Dawn golden hour — prime time")
+            reasons.append("Dawn golden hour brings fish up")
         } else if solunar.duskGoldenHour.contains(date) {
             wTimeOfDay = 0.95
-            reasons.append("Dusk golden hour — evening bite")
+            reasons.append("Dusk golden hour starts the evening bite")
         } else {
             let isNight = date < solunar.sunrise.addingTimeInterval(-1800) ||
                           date > solunar.sunset.addingTimeInterval(1800)
-            if isNight {
+            if isNight && traits.feedsAtNight {
+                wTimeOfDay = 0.8
+                if let species { reasons.append("After dark is feeding time for \(species.commonName)") }
+            } else if isNight {
                 wTimeOfDay = 0.15
             } else {
                 // Daytime but not golden hour — score varies.
@@ -353,7 +426,7 @@ struct ForecastEngine {
                 case 7...8:   wTimeOfDay = 0.65  // post-dawn
                 case 9:       wTimeOfDay = 0.45
                 case 10...14: wTimeOfDay = 0.2   // midday slump
-                    reasons.append("Midday — fish holding deep, low activity")
+                    reasons.append("Midday sun keeps fish deep and slow")
                 case 15:      wTimeOfDay = 0.35
                 case 16...17: wTimeOfDay = 0.55  // pre-dusk buildup
                 default:      wTimeOfDay = 0.3
@@ -369,22 +442,22 @@ struct ForecastEngine {
             switch wind {
             case 0..<3:
                 wWind = 0.25
-                reasons.append("Dead calm — fish line-shy, tough topwater")
+                reasons.append("Dead calm makes fish line-shy")
             case 3..<8:
                 wWind = 0.7
-                reasons.append("Light breeze — slight chop, good visibility")
+                reasons.append("A light breeze puts a slight chop on the water")
             case 8..<20:
                 wWind = 1.0
-                reasons.append("Moderate wind — ideal chop breaking up the surface")
+                reasons.append("A moderate wind gives an ideal chop")
             case 20..<30:
                 wWind = 0.5
-                reasons.append("Windy — fish the wind-blown bank")
+                reasons.append("Windy, so fish the wind-blown bank")
             case 30..<45:
                 wWind = 0.2
-                reasons.append("Strong wind (\(Int(wind)) km/h) — difficult casting")
+                reasons.append("Strong wind at \(Units.speed(kmh: wind)) makes casting hard")
             default:
                 wWind = 0.05
-                reasons.append("Gale (\(Int(wind)) km/h) — dangerous conditions")
+                reasons.append("Gale-force wind at \(Units.speed(kmh: wind)) is dangerous")
             }
         } else {
             haveWind = false
@@ -401,11 +474,11 @@ struct ForecastEngine {
             // Gaussian drop-off: within range = great, 2× range = terrible
             wTemp = exp(-(diff * diff) / (2.0 * range * range))
             if diff <= range * 0.5 {
-                reasons.append("Water \(String(format: "%.0f°C", temp)) — ideal range for \(species.commonName)")
+                reasons.append("Water at \(Units.temperature(temp)) is ideal for \(species.commonName)")
             } else if diff <= range {
-                reasons.append("Water \(String(format: "%.0f°C", temp)) — marginal for \(species.commonName)")
+                reasons.append("Water at \(Units.temperature(temp)) is marginal for \(species.commonName)")
             } else {
-                reasons.append("Water \(String(format: "%.0f°C", temp)) — outside comfort for \(species.commonName)")
+                reasons.append("Water at \(Units.temperature(temp)) is outside the comfort range for \(species.commonName)")
             }
         } else if let temp = waterTempC {
             haveTemp = true
@@ -415,16 +488,16 @@ struct ForecastEngine {
                 wTemp = 0.85
             } else if temp >= 10 && temp < 15 {
                 wTemp = 0.5
-                reasons.append("Water \(String(format: "%.0f°C", temp)) — cool, slower metabolism")
+                reasons.append("Cool water at \(Units.temperature(temp)) slows fish down")
             } else if temp > 25 && temp <= 30 {
                 wTemp = 0.55
-                reasons.append("Water \(String(format: "%.0f°C", temp)) — warm, fish go deep")
+                reasons.append("Warm water at \(Units.temperature(temp)) sends fish deep")
             } else if temp > 30 {
                 wTemp = 0.2
-                reasons.append("Water \(String(format: "%.0f°C", temp)) — too warm, low oxygen")
+                reasons.append("Water at \(Units.temperature(temp)) is too warm and low in oxygen")
             } else {
                 wTemp = 0.25
-                reasons.append("Water \(String(format: "%.0f°C", temp)) — cold, fish lethargic")
+                reasons.append("Cold water at \(Units.temperature(temp)) makes fish sluggish")
             }
         } else {
             haveTemp = false
@@ -435,7 +508,7 @@ struct ForecastEngine {
         let wSeason: Double
         if isInSpawningZone {
             wSeason = 1.0
-            reasons.append("Active spawning zone — aggressive territorial fish")
+            reasons.append("Spawning fish here are aggressive and territorial")
         } else {
             wSeason = 0.3
         }
@@ -451,7 +524,7 @@ struct ForecastEngine {
         let factors: [Factor] = [
             Factor(value: wPressure,      baseWeight: 10, hasData: havePressure),
             Factor(value: wPressureTrend, baseWeight: 18, hasData: havePressureTrend),
-            Factor(value: wTide,          baseWeight: 12, hasData: true),  // always computed
+            Factor(value: wTide,          baseWeight: traits.tide == .heavier ? 18 : 12, hasData: countsTide),
             Factor(value: wMoon,          baseWeight: 8,  hasData: true),
             Factor(value: wSolunar,       baseWeight: 18, hasData: true),
             Factor(value: wTimeOfDay,     baseWeight: 16, hasData: true),
@@ -460,13 +533,16 @@ struct ForecastEngine {
             Factor(value: wSeason,        baseWeight: 4,  hasData: true),
         ]
 
-        let totalBaseWeight = factors.reduce(0.0) { $0 + $1.baseWeight }
+        // Weights are scaled to add up to 100, so a heavier tide takes its
+        // share from the others. Untargeted, the base weights already add up
+        // to 100 and the scale is unchanged.
         let availableWeight = factors.filter(\.hasData).reduce(0.0) { $0 + $1.baseWeight }
-        let scale = availableWeight > 0 ? totalBaseWeight / availableWeight : 1.0
+        let scale = availableWeight > 0 ? 100 / availableWeight : 1.0
+        // Same order as `factors`.
+        let effective = factors.map { $0.hasData ? $0.baseWeight * scale : 0 }
 
         var rawSum = 0.0
-        for f in factors {
-            let w = f.hasData ? f.baseWeight * scale : 0
+        for (f, w) in zip(factors, effective) {
             rawSum += f.value * w
         }
         // rawSum is in 0...100 but clusters around 40-60 in practice.
@@ -477,7 +553,7 @@ struct ForecastEngine {
         let score = min(100, max(0, Int(stretched * 100)))
 
         if reasons.isEmpty {
-            reasons.append("Average conditions — worth a cast")
+            reasons.append("Average conditions, still worth a cast")
         }
 
         return InstantResult(
@@ -492,7 +568,18 @@ struct ForecastEngine {
                 season: wSeason,
                 timeOfDay: wTimeOfDay,
                 wind: wWind,
-                solunar: wSolunar
+                solunar: wSolunar,
+                weights: FactorWeights(
+                    pressure: effective[0],
+                    pressureTrend: effective[1],
+                    tide: effective[2],
+                    moon: effective[3],
+                    temperature: effective[7],
+                    season: effective[8],
+                    timeOfDay: effective[5],
+                    wind: effective[6],
+                    solunar: effective[4]
+                )
             )
         )
     }
@@ -551,27 +638,28 @@ enum MoonPhase: Int, Sendable, CaseIterable {
 
     var displayName: String {
         switch self {
-        case .new: "New Moon"
-        case .waxingCrescent: "Waxing Crescent"
-        case .firstQuarter: "First Quarter"
-        case .waxingGibbous: "Waxing Gibbous"
-        case .full: "Full Moon"
-        case .waningGibbous: "Waning Gibbous"
-        case .lastQuarter: "Last Quarter"
-        case .waningCrescent: "Waning Crescent"
+        case .new: "New moon"
+        case .waxingCrescent: "Waxing crescent"
+        case .firstQuarter: "First quarter"
+        case .waxingGibbous: "Waxing gibbous"
+        case .full: "Full moon"
+        case .waningGibbous: "Waning gibbous"
+        case .lastQuarter: "Last quarter"
+        case .waningCrescent: "Waning crescent"
         }
     }
 
+    /// The SF Symbol for the phase.
     var symbolName: String {
         switch self {
-        case .new: "moon.new"
-        case .waxingCrescent: "moon.waxing.crescent"
-        case .firstQuarter: "moon.first.quarter"
-        case .waxingGibbous: "moon.waxing.gibbous"
-        case .full: "moon.full"
-        case .waningGibbous: "moon.waning.gibbous"
-        case .lastQuarter: "moon.last.quarter"
-        case .waningCrescent: "moon.waning.crescent"
+        case .new: "moonphase.new.moon"
+        case .waxingCrescent: "moonphase.waxing.crescent"
+        case .firstQuarter: "moonphase.first.quarter"
+        case .waxingGibbous: "moonphase.waxing.gibbous"
+        case .full: "moonphase.full.moon"
+        case .waningGibbous: "moonphase.waning.gibbous"
+        case .lastQuarter: "moonphase.last.quarter"
+        case .waningCrescent: "moonphase.waning.crescent"
         }
     }
 

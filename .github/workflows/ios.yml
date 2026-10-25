@@ -1,14 +1,40 @@
 name: iOS Build & Test
 
+# Each run compiles the app as few times as it can (macOS minutes bill at 10x):
+#   pull request     test
+#   push to master   test, then testflight (its archive also makes the IPA)
+#   manual run       sideload, or testflight with its box ticked; test runs
+#                    first only with the tests box ticked
+
 on:
   push:
     branches: [master]
-    # Docs/Pages-only changes don't need an app build (or a TestFlight upload).
+    # Docs and notes don't feed the app build, and the generators under ml/,
+    # tiles/ and scripts/ only matter once their output is committed under ios/.
     paths-ignore:
       - "docs/**"
+      - "**.md"
+      - "ml/**"
+      - "tiles/**"
+      - "scripts/**"
   pull_request:
     branches: [master]
+    paths-ignore:
+      - "docs/**"
+      - "**.md"
+      - "ml/**"
+      - "tiles/**"
+      - "scripts/**"
   workflow_dispatch:
+    inputs:
+      testflight:
+        description: "Also upload this build to TestFlight"
+        type: boolean
+        default: false
+      tests:
+        description: "Run the unit tests on a simulator"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -22,8 +48,12 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build-and-test:
+  test:
+    name: Build & Test
+    # Pull requests, pushes to master, and manual runs with the tests box ticked.
+    if: github.event_name != 'workflow_dispatch' || inputs.tests
     runs-on: macos-15
+    timeout-minutes: 25
     defaults:
       run:
         working-directory: ios
@@ -32,11 +62,13 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Select Xcode
+        id: xcode
         run: |
           XCODE_PATH=$(ls -d /Applications/Xcode*.app 2>/dev/null | sort -V | tail -1)
           sudo xcode-select -s "$XCODE_PATH"
           xcodebuild -version
           swift --version
+          echo "build=$(xcodebuild -version | awk '/Build version/ {print $3}')" >> "$GITHUB_OUTPUT"
 
       - name: Install XcodeGen
         run: brew install xcodegen
@@ -46,7 +78,29 @@ jobs:
           xcodegen generate
           echo "--- Verifying resources in project ---"
           grep -c "species_seed" Currents.xcodeproj/project.pbxproj || echo "WARNING: species_seed not found in project!"
-          grep -c "gear_catalog_seed" Currents.xcodeproj/project.pbxproj || echo "WARNING: gear_catalog_seed not found in project!"
+
+      # No Package.resolved is committed (XcodeGen regenerates the project each
+      # run), so nothing pins versions, and the cache action's default SwiftPM key
+      # (a hash of Package.resolved) can't work: key on project.yml's packages.
+      - name: Key the package cache
+        id: spm-key
+        run: |
+          echo "hash=$(awk '/^[^ #]/{p=($0 ~ /^packages:/)} p' project.yml | shasum -a 256 | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
+      # DerivedData from this job's newest successful run, with source mtimes
+      # restored so the build is incremental, plus the SwiftPM checkouts. Each
+      # job has its own key prefix (test: Debug simulator, sideload: Release
+      # device, archive: Release archive) so they don't overwrite each other, and
+      # the Xcode build is in the key so a new Xcode starts clean.
+      - name: Restore build cache
+        uses: irgaly/xcode-cache@v1.9.2
+        with:
+          key: deriveddata-test-${{ steps.xcode.outputs.build }}-${{ github.sha }}
+          restore-keys: deriveddata-test-${{ steps.xcode.outputs.build }}-
+          deriveddata-directory: ios/DerivedData
+          sourcepackages-directory: ios/.spm-cache
+          swiftpm-cache-key: spm-${{ steps.spm-key.outputs.hash }}
+          swiftpm-cache-restore-keys: spm-
 
       - name: Resolve packages
         run: |
@@ -79,8 +133,9 @@ jobs:
               print(runtimes[-1]['identifier'])
           ")
           if [ -z "$RUNTIME" ]; then
-            echo "No iOS 26 runtime found, skipping tests"
-            echo "SKIP_TESTS=true" >> $GITHUB_ENV
+            echo "No iOS 26 runtime found: building for the generic simulator, skipping tests"
+            echo "SKIP_TESTS=true" >> "$GITHUB_ENV"
+            echo "DESTINATION=generic/platform=iOS Simulator" >> "$GITHUB_ENV"
             exit 0
           fi
           echo "Using runtime: $RUNTIME"
@@ -89,40 +144,36 @@ jobs:
           DEVICE_TYPE="com.apple.CoreSimulator.SimDeviceType.iPhone-16-Pro"
           echo "Using device type: $DEVICE_TYPE"
 
-          # Create and boot the simulator
+          # Create and boot the simulator. The build targets this one device,
+          # so it compiles only its architecture (arm64).
           UDID=$(xcrun simctl create "CI-iPhone" "$DEVICE_TYPE" "$RUNTIME")
           echo "Created simulator: $UDID"
-          echo "SIM_UDID=$UDID" >> $GITHUB_ENV
+          echo "DESTINATION=platform=iOS Simulator,id=$UDID" >> "$GITHUB_ENV"
           xcrun simctl boot "$UDID" || true
 
-      - name: Build
+      - name: Build for testing
+        id: build
         run: |
           set -o pipefail
-          xcodebuild build \
-            -project Currents.xcodeproj \
-            -scheme Currents \
-            -destination "generic/platform=iOS Simulator" \
-            -derivedDataPath DerivedData \
-            -clonedSourcePackagesDirPath .spm-cache \
-            CODE_SIGN_IDENTITY="" \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_ALLOWED=NO \
-            2>&1 | tee build.log
-
-      - name: Test
-        if: env.SKIP_TESTS != 'true'
-        run: |
-          set -o pipefail
-          xcodebuild test \
+          # Report every compile error in one run instead of stopping at the first.
+          defaults write com.apple.dt.Xcode IDEBuildingContinueBuildingAfterErrors -bool YES
+          # project.yml defines no schemes, so Xcode autocreates one per target.
+          # CurrentsTests depends on Currents, so its scheme builds the app and
+          # the test bundle hosted in it in one pass.
+          xcodebuild build-for-testing \
+            -showBuildTimingSummary \
             -project Currents.xcodeproj \
             -scheme CurrentsTests \
-            -destination "platform=iOS Simulator,id=$SIM_UDID" \
+            -destination "$DESTINATION" \
             -derivedDataPath DerivedData \
             -clonedSourcePackagesDirPath .spm-cache \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO \
-            2>&1 | tee test.log
+            COMPILER_INDEX_STORE_ENABLE=NO \
+            DEBUG_INFORMATION_FORMAT=dwarf \
+            OTHER_SWIFT_FLAGS='$(inherited) -continue-building-after-errors' \
+            2>&1 | tee build.log
 
       - name: Package .app for Appetize
         run: |
@@ -152,60 +203,22 @@ jobs:
           path: Currents-simulator.zip
           retention-days: 30
 
-      - name: Build unsigned IPA (for sideloading)
+      - name: Test
+        id: test
+        if: env.SKIP_TESTS != 'true'
         run: |
           set -o pipefail
-          xcodebuild build \
+          xcodebuild test-without-building \
             -project Currents.xcodeproj \
-            -scheme Currents \
-            -configuration Release \
-            -destination "generic/platform=iOS" \
-            -derivedDataPath DerivedData-Device \
+            -scheme CurrentsTests \
+            -destination "$DESTINATION" \
+            -derivedDataPath DerivedData \
             -clonedSourcePackagesDirPath .spm-cache \
-            CODE_SIGN_IDENTITY="" \
-            CODE_SIGN_STYLE=Manual \
-            PROVISIONING_PROFILE_SPECIFIER="" \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_ALLOWED=NO \
-            2>&1 | tee device-build.log
+            2>&1 | tee test.log
 
-          # Package as IPA
-          PRODUCTS_DIR="DerivedData-Device/Build/Products/Release-iphoneos"
-          APP_PATH="$PRODUCTS_DIR/Currents.app"
-
-          if [ ! -d "$APP_PATH" ]; then
-            echo "Device .app not found, searching:"
-            find DerivedData-Device -name "*.app" -type d 2>/dev/null
-            exit 1
-          fi
-
-          echo "Device .app contents:"
-          ls -laR "$APP_PATH/"
-          echo "Device .app size: $(du -sh "$APP_PATH" | cut -f1)"
-
-          # Fakesign with ldid for sideloading (TrollStore/Sideloader compatible)
-          if command -v ldid &>/dev/null; then
-            echo "Signing with ldid..."
-            ldid -S"$GITHUB_WORKSPACE/ios/Currents/App/Currents.entitlements" "$APP_PATH/Currents"
-          else
-            echo "ldid not found, installing..."
-            brew install ldid
-            ldid -S"$GITHUB_WORKSPACE/ios/Currents/App/Currents.entitlements" "$APP_PATH/Currents"
-          fi
-
-          # Create IPA structure: Payload/Currents.app
-          mkdir -p Payload
-          cp -R "$APP_PATH" Payload/
-          cd "$(dirname Payload)" || true
-          zip -r "$GITHUB_WORKSPACE/Currents.ipa" Payload
-          rm -rf Payload
-
-      - name: Upload IPA artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: Currents-IPA
-          path: Currents.ipa
-          retention-days: 90
+      # Drop old build logs and test results so they don't pile up in the cache.
+      - name: Trim build cache
+        run: rm -rf DerivedData/Logs
 
       - name: Upload build logs
         if: always()
@@ -218,31 +231,125 @@ jobs:
 
       - name: Summary
         if: always()
+        env:
+          BUILD_OUTCOME: ${{ steps.build.outcome }}
+          TEST_OUTCOME: ${{ steps.test.outcome }}
         run: |
-          echo "## Build Results" >> $GITHUB_STEP_SUMMARY
-          if grep -q "BUILD SUCCEEDED" build.log 2>/dev/null; then
-            echo "Build: passed" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "Build: **FAILED**" >> $GITHUB_STEP_SUMMARY
-            echo '```' >> $GITHUB_STEP_SUMMARY
-            grep -E "error:" build.log 2>/dev/null | head -20 >> $GITHUB_STEP_SUMMARY
-            echo '```' >> $GITHUB_STEP_SUMMARY
-          fi
-          if grep -q "TEST SUCCEEDED" test.log 2>/dev/null; then
-            echo "Tests: passed" >> $GITHUB_STEP_SUMMARY
-          elif [ -f test.log ]; then
-            echo "Tests: check logs" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "Tests: skipped (no simulator runtime)" >> $GITHUB_STEP_SUMMARY
-          fi
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Download **Currents-simulator** artifact to test on [Appetize.io](https://appetize.io)" >> $GITHUB_STEP_SUMMARY
+          {
+            echo "## Build Results"
+            if [ "$BUILD_OUTCOME" = success ]; then
+              echo "Build: passed"
+            else
+              echo "Build: **FAILED**"
+              echo '```'
+              grep -E "error:" build.log 2>/dev/null | awk '!seen[$0]++' | head -20
+              echo '```'
+            fi
+            if [ "$TEST_OUTCOME" = success ]; then
+              echo "Tests: passed"
+            elif [ "$TEST_OUTCOME" = failure ]; then
+              echo "Tests: **FAILED** (test.log in the build-logs artifact)"
+            elif [ "$SKIP_TESTS" = true ]; then
+              echo "Tests: skipped (no simulator runtime)"
+            else
+              echo "Tests: not run"
+            fi
+            echo ""
+            if [ "$BUILD_OUTCOME" = success ]; then
+              echo "Download **Currents-simulator** artifact to test on [Appetize.io](https://appetize.io)"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  sideload:
+    name: Sideload IPA
+    # Manual runs that don't go to TestFlight (the testflight job makes the IPA
+    # from its archive). Waits for test when the tests box is ticked.
+    needs: test
+    if: ${{ !cancelled() && needs.test.result != 'failure' && github.event_name == 'workflow_dispatch' && !inputs.testflight }}
+    runs-on: macos-15
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: ios
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: |
+          XCODE_PATH=$(ls -d /Applications/Xcode*.app 2>/dev/null | sort -V | tail -1)
+          sudo xcode-select -s "$XCODE_PATH"
+          xcodebuild -version
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode Project
+        run: xcodegen generate
+
+      - name: Key the package cache
+        id: spm-key
+        run: |
+          echo "hash=$(awk '/^[^ #]/{p=($0 ~ /^packages:/)} p' project.yml | shasum -a 256 | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Swift packages
+        uses: actions/cache@v4
+        with:
+          path: ios/.spm-cache
+          key: spm-${{ runner.os }}-${{ steps.spm-key.outputs.hash }}
+          restore-keys: spm-${{ runner.os }}-
+
+      - name: Resolve packages
+        run: |
+          xcodebuild -resolvePackageDependencies \
+            -project Currents.xcodeproj \
+            -scheme Currents \
+            -clonedSourcePackagesDirPath .spm-cache
+
+      - name: Build unsigned Release app
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -showBuildTimingSummary \
+            -project Currents.xcodeproj \
+            -scheme Currents \
+            -configuration Release \
+            -destination "generic/platform=iOS" \
+            -derivedDataPath DerivedData-Device \
+            -clonedSourcePackagesDirPath .spm-cache \
+            CURRENT_PROJECT_VERSION=${{ github.run_number }} \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGN_STYLE=Manual \
+            PROVISIONING_PROFILE_SPECIFIER="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            COMPILER_INDEX_STORE_ENABLE=NO \
+            DEBUG_INFORMATION_FORMAT=dwarf \
+            2>&1 | tee device-build.log
+
+      - name: Package IPA
+        run: |
+          bash "$GITHUB_WORKSPACE/ci/sideload_ipa.sh" \
+            DerivedData-Device/Build/Products/Release-iphoneos/Currents.app \
+            Currents/App/Currents.entitlements \
+            "$GITHUB_WORKSPACE/Currents.ipa"
+          echo "Download **Currents-IPA** to sideload this build." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Currents-IPA
+          path: Currents.ipa
+          retention-days: 90
 
   testflight:
     name: Archive & Upload to TestFlight
-    needs: build-and-test
+    needs: test
     runs-on: macos-15
-    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    timeout-minutes: 30
+    # Every push to master, or a manual run of any branch with the TestFlight box
+    # ticked. Waits for test, and still runs when test was skipped.
+    if: ${{ !cancelled() && needs.test.result != 'failure' && ((github.event_name == 'push' && github.ref == 'refs/heads/master') || (github.event_name == 'workflow_dispatch' && inputs.testflight)) }}
     defaults:
       run:
         working-directory: ios
@@ -480,6 +587,18 @@ jobs:
             echo
           fi
 
+          # Game Center, for the com.apple.developer.game-center entitlement.
+          if ! echo "$CAPS" | grep -q '"GAME_CENTER"'; then
+            echo "Enabling GAME_CENTER capability on the App ID..."
+            curl -s -X POST \
+              -H "Authorization: Bearer $JWT" \
+              -H "Content-Type: application/json" \
+              "https://api.appstoreconnect.apple.com/v1/bundleIdCapabilities" \
+              -d "{\"data\": {\"type\": \"bundleIdCapabilities\", \"attributes\": {\"capabilityType\": \"GAME_CENTER\"}, \"relationships\": {\"bundleId\": {\"data\": {\"id\": \"$BUNDLE_ID_RESOURCE\", \"type\": \"bundleIds\"}}}}}" \
+              | head -c 400 || true
+            echo
+          fi
+
           # Get the freshly-created Distribution cert ID
           DIST_CERT_ID=$(curl -s -H "Authorization: Bearer $JWT" \
             "https://api.appstoreconnect.apple.com/v1/certificates?filter%5BcertificateType%5D=DISTRIBUTION" \
@@ -573,7 +692,9 @@ jobs:
           python3 "$GITHUB_WORKSPACE/ci/provision_extensions.py" \
             --main "com.aidanmcconnon.currents=$PROFILE_NAME" \
             --ext  "com.aidanmcconnon.currents.widgets=Currents Widgets AppStore Manual" \
-            --ext  "com.aidanmcconnon.currents.watchkitapp=Currents Watch AppStore Manual"
+            --ext  "com.aidanmcconnon.currents.watchkitapp=Currents Watch AppStore Manual" \
+            --capability "com.aidanmcconnon.currents.watchkitapp=GAME_CENTER" \
+            --entitlements "com.aidanmcconnon.currents.watchkitapp=CurrentsWatch/CurrentsWatch.entitlements"
 
       - name: Align entitlements with provisioning profile
         run: |
@@ -619,10 +740,32 @@ jobs:
               print('Enable: developer.apple.com > Identifiers > com.aidanmcconnon.currents')
               print('  > tick Push Notifications > Save. Next master build enables push.')
 
+          # Game Center: the same, so a profile minted before the capability
+          # reached the App ID still archives.
+          if 'com.apple.developer.game-center' in ents:
+              print('Profile carries Game Center - keeping the entitlement.')
+          elif 'com.apple.developer.game-center' in app:
+              del app['com.apple.developer.game-center']
+              changed = True
+              print('WARNING: profile has NO Game Center capability - archiving WITHOUT it.')
+              print('Enable: make appstore-gamecenter APPLY=1, or tick Game Center on the App ID.')
+
           if changed:
               with open(ent_path, 'wb') as f:
                   plistlib.dump(app, f)
           PYSCRIPT
+
+      - name: Key the package cache
+        id: spm-key
+        run: |
+          echo "hash=$(awk '/^[^ #]/{p=($0 ~ /^packages:/)} p' project.yml | shasum -a 256 | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Swift packages
+        uses: actions/cache@v4
+        with:
+          path: ios/.spm-cache
+          key: spm-${{ runner.os }}-${{ steps.spm-key.outputs.hash }}
+          restore-keys: spm-${{ runner.os }}-
 
       - name: Resolve packages
         run: |
@@ -632,9 +775,11 @@ jobs:
             -clonedSourcePackagesDirPath .spm-cache
 
       - name: Archive
+        id: archive
         run: |
           set -o pipefail
           xcodebuild archive \
+            -showBuildTimingSummary \
             -project Currents.xcodeproj \
             -scheme Currents \
             -configuration Release \
@@ -645,6 +790,7 @@ jobs:
             CODE_SIGN_STYLE=Manual \
             DEVELOPMENT_TEAM=DBC26UPRGK \
             CODE_SIGN_IDENTITY="Apple Distribution" \
+            COMPILER_INDEX_STORE_ENABLE=NO \
             2>&1 | tee archive.log
 
       - name: Create ExportOptions.plist
@@ -683,6 +829,28 @@ jobs:
             -authenticationKeyIssuerID ${{ secrets.ASC_ISSUER_ID }} \
             2>&1 | tee export.log
 
+      # The sideload IPA comes from the app this archive built, so it costs no
+      # second compile. It's made even when the upload fails. Align entitlements
+      # may have stripped iCloud from the working copy, so fakesign with the
+      # committed entitlements, as the sideload job does.
+      - name: Package sideload IPA from the archive
+        if: ${{ !cancelled() && steps.archive.outcome == 'success' }}
+        run: |
+          git show HEAD:ios/Currents/App/Currents.entitlements > "$RUNNER_TEMP/Currents.entitlements"
+          bash "$GITHUB_WORKSPACE/ci/sideload_ipa.sh" \
+            "$RUNNER_TEMP/Currents.xcarchive/Products/Applications/Currents.app" \
+            "$RUNNER_TEMP/Currents.entitlements" \
+            "$GITHUB_WORKSPACE/Currents.ipa"
+          echo "Download **Currents-IPA** to sideload this build." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload IPA artifact
+        if: ${{ !cancelled() && steps.archive.outcome == 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: Currents-IPA
+          path: Currents.ipa
+          retention-days: 90
+
       - name: Cleanup keychain
         if: always()
         run: |
@@ -700,8 +868,10 @@ jobs:
 
   release-ipa:
     name: Create Release
-    needs: build-and-test
+    # On master the IPA comes from the testflight job's archive.
+    needs: testflight
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     if: github.event_name == 'push' && github.ref == 'refs/heads/master'
     permissions:
       contents: write

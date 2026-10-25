@@ -27,12 +27,34 @@ final class ObservedSpeciesRepository: ObservableObject {
     }
 
     /// Get fish species near a coordinate. Checks cache first, then queries iNaturalist + GBIF.
+    /// `freshwater` keeps only species the guide records as freshwater or
+    /// brackish, for a dam, lake or river. A fish with no guide record is
+    /// left out too: most are sea fish recorded on the coast nearby. The
+    /// cache keeps every record either way.
     func fishNear(
+        latitude: Double,
+        longitude: Double,
+        speciesRepository: SpeciesRepository,
+        freshwater: Bool = false
+    ) async -> [FishResult] {
+        let results = await cachedOrFetched(latitude: latitude, longitude: longitude,
+                                            speciesRepository: speciesRepository)
+        guard freshwater else { return results }
+        return results.filter { fish in
+            guard let habitat = fish.localSpecies?.habitat else { return false }
+            return habitat == .freshwater || habitat == .brackish
+        }
+    }
+
+    private func cachedOrFetched(
         latitude: Double,
         longitude: Double,
         speciesRepository: SpeciesRepository
     ) async -> [FishResult] {
-        let cell = Geohash.encode(latitude: latitude, longitude: longitude, precision: 3)
+        // Keyed at the query's own cell size, so each water gets its own
+        // records. Rows kept under the old precision-3 keys are not read.
+        let cell = Geohash.encode(latitude: latitude, longitude: longitude,
+                                  precision: INaturalistService.cellPrecision)
 
         // Check cache first
         let cached = try? fetchCached(geohashCell: cell)

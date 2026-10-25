@@ -8,89 +8,107 @@ struct AlertSettingsView: View {
     @AppStorage("alertThreshold") private var alertThreshold = 75.0
     @AppStorage("primeWindowAlerts") private var primeWindowAlerts = false
     @AppStorage("lowStockAlerts") private var lowStockAlerts = true
+    /// Read by `NotificationManager.scheduleColdStreakNudge`.
+    @AppStorage("coldStreakNudges") private var coldStreakNudges = true
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     @State private var permissionStatus: UNAuthorizationStatus = .notDetermined
     @State private var spots: [Spot] = []
+    @State private var spotAlerts: [String: SpotAlert] = [:]
     @State private var spotScores: [String: Int] = [:]
     @State private var isLoadingScores = false
     @State private var busyPush = false
     @State private var pushTick = 0   // forces the diagnostics rows to re-read
+    /// TestFlight or Xcode: shows the alert preview, which App Store users never see.
+    @State private var isTestBuild = false
 
     private var svc: CommunityService { .shared }
 
-    private var permissionLabel: String {
+    /// Crew pushes need the phone registered and both subscription sets made.
+    private var crewAlertsWorking: Bool {
+        svc.apnsRegistered && svc.pushSubscriptionsCreated && svc.eventSubscriptionsSynced
+    }
+
+    private var allowed: Bool {
         switch permissionStatus {
-        case .authorized, .provisional, .ephemeral: return "Allowed"
-        case .denied: return "Denied — enable in iOS Settings"
-        case .notDetermined: return "Not set"
-        @unknown default: return "Unknown"
+        case .authorized, .provisional, .ephemeral: return true
+        default: return false
+        }
+    }
+
+    private var permissionTitle: String {
+        switch permissionStatus {
+        case .authorized, .provisional, .ephemeral: return "Allowed for Currents"
+        case .denied: return "Turned off for Currents"
+        default: return "Not set up yet"
+        }
+    }
+
+    private var permissionDetail: String {
+        switch permissionStatus {
+        case .authorized, .provisional, .ephemeral: return "Banners, sounds and the Lock Screen"
+        case .denied: return "Turn notifications on in the Settings app to get alerts"
+        default: return "Allow notifications to get bite alerts"
         }
     }
 
     var body: some View {
-        Form {
-            // MARK: - Alerts Toggle
-            Section {
-                Toggle("Bite Alerts", isOn: $alertsEnabled)
-                    .tint(CurrentsTheme.accent)
-
-                if alertsEnabled && permissionStatus != .authorized {
-                    Button {
-                        Haptics.tap()
-                        Task {
-                            let granted = await NotificationManager.shared.requestPermission()
-                            permissionStatus = granted ? .authorized : .denied
-                        }
-                    } label: {
-                        HStack(spacing: 10) {
-                            Image(systemName: "bell.badge")
-                                .foregroundStyle(CurrentsTheme.accent)
-                            Text("Grant Notification Permission")
-                            Spacer()
-                            if permissionStatus == .denied {
-                                Text("Denied")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                    }
-                }
-                Toggle("Prime-Window Heads-Up", isOn: $primeWindowAlerts)
-                    .tint(CurrentsTheme.accent)
-                    .disabled(permissionStatus != .authorized)
-                    .onChange(of: primeWindowAlerts) { _, _ in
-                        Task { await reschedulePrimeWindows() }
-                    }
-                Toggle("Low Tackle-Box Stock", isOn: $lowStockAlerts)
-                    .tint(CurrentsTheme.accent)
-            } header: {
-                Text("Notifications")
-            } footer: {
-                Text("Bite Alerts notify you when a spot is firing right now. Prime-Window Heads-Up looks ahead and pings you ~45 minutes before the best feeding window at your spots over the next day. Low Tackle-Box Stock reminds you to restock line, lures, bait and hooks when they run low. All processing happens on-device.")
+        TodayPage("Notifications", subtitle: "Only what you turn on.") {
+            permissionNotice
+            CardSection("Bite") {
+                CardToggleRow("Bite window opens", subtitle: "A saved spot reaches your score",
+                              systemImage: "fish.fill", tint: .blue, isOn: $alertsEnabled)
+                    .onChange(of: alertsEnabled) { _, on in alertTypeChanged(on) }
+                CardToggleRow("Heads-up", subtitle: "45 minutes before that window",
+                              systemImage: "alarm.fill", tint: .orange, isOn: $primeWindowAlerts)
+                    .onChange(of: primeWindowAlerts) { _, on in alertTypeChanged(on) }
+                CardToggleRow("Slow bite nudge", subtitle: "45 minutes in a session with no catch",
+                              systemImage: "timer", tint: .cyan, isOn: $coldStreakNudges)
             }
+            thresholdSection
+            spotsSection
+            CardSection("Kit", note: "Licence reminders start a month before expiry.") {
+                CardToggleRow("Low tackle box stock", subtitle: "An item hits its reminder level",
+                              systemImage: "shippingbox.fill", tint: .orange, isOn: $lowStockAlerts)
+            }
+            if svc.joined {
+                crewSection
+            }
+            if isTestBuild {
+                diagnostics
+            }
+        }
+        .task {
+            isTestBuild = await BuildChannel.isTesting()
+            permissionStatus = await NotificationManager.shared.checkPermissionStatus()
+            spots = (try? appState.spotRepository.fetchAll()) ?? []
+            spotAlerts = (try? appState.spotRepository.alerts()) ?? [:]
+            await loadScores()
+        }
+        .onAppear {
+            // Back from a spot's page with changed choices.
+            spotAlerts = (try? appState.spotRepository.alerts()) ?? [:]
+        }
+    }
 
-            // MARK: - Push diagnostics
-            Section {
-                LabeledContent("Permission") {
-                    Text(permissionLabel).foregroundStyle(permissionStatus == .authorized ? .green : .orange)
+    // MARK: - Crew
+
+    /// Friend requests and trip invites arrive by push. When that has stopped
+    /// working, one button sets it up again.
+    private var crewSection: some View {
+        CardSection("Crew") {
+            HStack(spacing: 14) {
+                TintIcon(systemImage: "person.2.fill", tint: .blue)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Friend requests and invites")
+                        .foregroundStyle(.dsText)
+                    Text(crewAlertsWorking ? "On" : "Not arriving on this phone")
+                        .font(.subheadline)
+                        .foregroundStyle(crewAlertsWorking ? Color.dsText2 : Color.dsScoreLow)
                 }
-                Button {
-                    Haptics.tap()
-                    Task { await NotificationManager.shared.sendTestNotification() }
-                } label: {
-                    Label("Send test notification", systemImage: "bell.badge.fill")
-                }
-                if svc.joined {
-                    LabeledContent("Push delivery (APNs)") {
-                        Text(svc.apnsRegistered ? "Registered" : "Not registered")
-                            .foregroundStyle(svc.apnsRegistered ? .green : .orange)
-                    }
-                    LabeledContent("Community alerts") {
-                        Text(svc.pushSubscriptionsCreated ? "On" : "Off")
-                            .foregroundStyle(svc.pushSubscriptionsCreated ? .green : .orange)
-                    }
+                Spacer(minLength: 8)
+                if !crewAlertsWorking {
                     Button {
-                        Haptics.tap()
                         busyPush = true
                         Task {
                             await svc.forcePushReenable()
@@ -98,142 +116,219 @@ struct AlertSettingsView: View {
                             pushTick += 1
                         }
                     } label: {
-                        HStack {
-                            if busyPush { ProgressView() }
-                            Label("Re-enable community notifications", systemImage: "arrow.clockwise")
+                        if busyPush {
+                            ProgressView()
+                        } else {
+                            Text("Turn on")
                         }
                     }
-                    .disabled(busyPush)
-                    LabeledContent("Crew & trip alerts") {
-                        Text(svc.eventSubscriptionsSynced ? "On" : "Off")
-                            .foregroundStyle(svc.eventSubscriptionsSynced ? .green : .orange)
-                    }
-                    if let e = svc.pushSubsError {
-                        Text("Subscription error: \(e)").font(.caption).foregroundStyle(.orange)
-                    }
-                    if let e = svc.eventSubsError {
-                        Text("Crew alerts error: \(e)").font(.caption).foregroundStyle(.orange)
-                    }
-                    if !svc.apnsRegistered, let e = svc.apnsRegisterError {
-                        Text("APNs error: \(e)").font(.caption).foregroundStyle(.orange)
+                    .buttonStyle(TonalButtonStyle(fullWidth: false))
+                    .disabled(busyPush || !allowed)
+                }
+            }
+            .padding(.horizontal, DS.Space.s4)
+            .padding(.vertical, 10)
+            .accessibilityElement(children: .contain)
+        }
+        .id(pushTick)
+    }
+
+    // MARK: - Sections
+
+    private var permissionNotice: some View {
+        PFNotice(systemImage: allowed ? "bell.badge.fill" : "bell.slash.fill",
+                 tint: allowed ? .dsScoreGood : .dsScoreLow,
+                 title: permissionTitle, message: permissionDetail) {
+            if permissionStatus == .notDetermined {
+                Button("Allow") {
+                    Task {
+                        let granted = await NotificationManager.shared.requestPermission()
+                        permissionStatus = granted ? .authorized : .denied
                     }
                 }
-            } header: {
-                Text("Push diagnostics")
-            } footer: {
-                Text("“Send test notification” fires a local alert in a few seconds — if it appears, notifications work on this device. Community push (friend requests, trip invites) also needs Push delivery = Registered and Community alerts = On. If APNs shows Not registered, the build lacks the push entitlement (enable Push Notifications on the App ID and ship a new build). If Community alerts stays Off, the CloudKit schema/indexes aren't deployed to this environment yet.")
+                .buttonStyle(TonalButtonStyle(fullWidth: false))
+            } else if let url = URL(string: UIApplication.openSettingsURLString) {
+                Link("Change", destination: url)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(DS.ink(DS.accent))
             }
+        }
+    }
 
-            // MARK: - Threshold Slider
-            Section {
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        Text("Minimum Score")
-                        Spacer()
-                        Text("\(Int(alertThreshold))")
-                            .font(.body.bold())
-                            .monospacedDigit()
-                            .foregroundStyle(CurrentsTheme.scoreColor(Int(alertThreshold)))
-                    }
-
-                    Slider(value: $alertThreshold, in: 50...95, step: 5)
-                        .tint(CurrentsTheme.accent)
-
-                    HStack {
-                        Text("50")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                        Spacer()
-                        Text("95")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
+    /// The default score, led by the gauge a spot's own score row uses, then
+    /// the slider. No ring: a ring reads as a bite score now.
+    private var thresholdSection: some View {
+        CardSection("Default score", note: "Each spot can set its own.") {
+            VStack(alignment: .leading, spacing: DS.Space.s3) {
+                HStack(spacing: 14) {
+                    TintIcon(systemImage: "gauge.with.dots.needle.67percent",
+                             tint: DS.scoreColor(Int(alertThreshold)))
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Alert at \(Int(alertThreshold)) or more")
+                            .font(.body.weight(.medium))
+                            .foregroundStyle(.dsText)
+                            .contentTransition(.numericText())
+                        Text("Lower means more alerts")
+                            .font(.subheadline)
+                            .foregroundStyle(.dsText2)
                     }
                 }
-            } header: {
-                Text("Alert Threshold")
-            } footer: {
-                Text("You will only be notified when a spot's bite score reaches this value or higher. Lower values mean more alerts.")
+                Slider(value: $alertThreshold, in: 50...95, step: 5, onEditingChanged: { editing in
+                    if !editing { Task { await reschedule() } }
+                })
+                .accessibilityLabel("Alert threshold")
+                .accessibilityValue("\(Int(alertThreshold))")
             }
+            .padding(DS.Space.s4)
+            .haptic(.selection, trigger: alertThreshold)
+        }
+    }
 
-            // MARK: - Spot Scores
-            Section {
-                if spots.isEmpty {
-                    ContentUnavailableView("No saved spots", systemImage: "mappin.slash",
-                        description: Text("Save a spot to get bite-score alerts for it."))
-                } else if isLoadingScores {
-                    HStack(spacing: 8) {
+    private var spotsSection: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            SectionTitle("Spots", detail: spots.isEmpty ? nil : "\(spots.count)")
+                .overlay(alignment: .trailing) {
+                    if isLoadingScores {
                         ProgressView()
-                        Text("Checking conditions...")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                } else {
-                    ForEach(spots) { spot in
-                        spotRow(spot)
+                            .controlSize(.small)
+                            .padding(.trailing, DS.gutter)
+                            .padding(.bottom, DS.Space.s2)
                     }
                 }
-            } header: {
-                Text("Your Spots")
-            } footer: {
-                if !spots.isEmpty {
-                    Text("Current bite scores for each of your saved spots. Spots at or above your threshold will trigger alerts.")
+            if spots.isEmpty {
+                InlineEmpty(systemImage: "mappin.slash", text: "Save a spot to get bite alerts for it.")
+            } else {
+                CardGroup(separatorInset: 74) {
+                    ForEach(spots) { spot in
+                        NavigationLink {
+                            SpotAlertsView(spot: spot)
+                        } label: {
+                            spotRow(spot)
+                        }
+                        .buttonStyle(.dsCardRow)
+                    }
                 }
             }
         }
-        .navigationTitle("Bite Alerts")
-        .sensoryFeedback(.selection, trigger: alertsEnabled)
-        .sensoryFeedback(.selection, trigger: primeWindowAlerts)
-        .sensoryFeedback(.selection, trigger: lowStockAlerts)
-        .task {
-            permissionStatus = await NotificationManager.shared.checkPermissionStatus()
-            spots = (try? appState.spotRepository.fetchAll()) ?? []
-            await loadScores()
-            await reschedulePrimeWindows()
+    }
+
+    // MARK: - Testing
+
+    /// TestFlight and Xcode only: the test sends, and why crew alerts aren't
+    /// arriving when they aren't.
+    private var diagnostics: some View {
+        CardSection("Testing", note: "Only shows in TestFlight builds.") {
+            Button {
+                Haptics.tap()
+                Task { await NotificationManager.shared.sendTestNotification() }
+                ToastCenter.shared.show("Test notification on its way", style: .info, haptic: false)
+            } label: {
+                CardRow("Send a test notification", systemImage: "paperplane.fill", tint: .indigo)
+            }
+            .buttonStyle(.dsCardRow)
+            Button {
+                Haptics.tap()
+                Task { await NotificationManager.shared.sendEveryAlertPreview(spotName: spots.first?.name) }
+                ToastCenter.shared.show("Eight sample alerts over the next 40 seconds. Lock your phone to see them.",
+                                        style: .info, haptic: false)
+            } label: {
+                CardRow("Preview every alert", subtitle: "Eight samples, 5 seconds apart",
+                        systemImage: "bell.badge.fill", tint: .orange)
+            }
+            .buttonStyle(.dsCardRow)
+            if svc.joined {
+                CardRow("Push delivery",
+                        subtitle: svc.apnsRegistered ? nil : (svc.apnsRegisterError ?? "No answer from Apple yet"),
+                        systemImage: "antenna.radiowaves.left.and.right", tint: .blue,
+                        value: svc.apnsRegistered ? "Registered" : "Not registered",
+                        valueTint: svc.apnsRegistered ? .dsScoreGood : .dsScoreLow)
+                CardRow("Friend requests and invites",
+                        subtitle: svc.pushSubscriptionsCreated ? nil : (svc.pushSubsError ?? "Not set up yet"),
+                        systemImage: "person.2.fill", tint: .teal,
+                        value: svc.pushSubscriptionsCreated ? "On" : "Off",
+                        valueTint: svc.pushSubscriptionsCreated ? .dsScoreGood : .dsScoreLow)
+                CardRow("Crew posts and trips",
+                        subtitle: svc.eventSubscriptionsSynced ? nil : (svc.eventSubsError ?? "Not set up yet"),
+                        systemImage: "figure.fishing", tint: .green,
+                        value: svc.eventSubscriptionsSynced ? "On" : "Off",
+                        valueTint: svc.eventSubscriptionsSynced ? .dsScoreGood : .dsScoreLow)
+            }
+        }
+        .id(pushTick)
+    }
+
+    private func reschedule() async {
+        await BackgroundRefresh.rescheduleAlerts(appState: appState)
+    }
+
+    /// Turning an alert type on asks for permission the first time, then
+    /// plans the alerts. Turning one off clears what it had scheduled.
+    private func alertTypeChanged(_ on: Bool) {
+        Task {
+            if on, permissionStatus == .notDetermined {
+                let granted = await NotificationManager.shared.requestPermission()
+                permissionStatus = granted ? .authorized : .denied
+            }
+            await reschedule()
         }
     }
 
-    private func reschedulePrimeWindows() async {
-        guard primeWindowAlerts, permissionStatus == .authorized else { return }
-        await NotificationManager.shared.schedulePrimeWindowAlerts(
-            spots: spots, using: WeatherService.shared
-        )
-    }
-
-    // MARK: - Spot Row
+    // MARK: - Spot row
 
     private func spotRow(_ spot: Spot) -> some View {
-        HStack(spacing: 12) {
+        let choice = spotAlerts[spot.id] ?? .defaults(for: spot.id)
+        let threshold = choice.threshold ?? Int(alertThreshold)
+        return HStack(spacing: 14) {
+            PlaceSnapshotThumb(spot: spot, size: 44)
             VStack(alignment: .leading, spacing: 2) {
                 Text(spot.name)
-                    .font(.body.bold())
-
-                Text(String(format: "%.3f, %.3f", spot.latitude, spot.longitude))
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.dsText)
+                    .lineLimit(typeSize.isAccessibilitySize ? 3 : 2)
+                Text(rowStatus(choice, threshold: threshold, score: spotScores[spot.id]))
+                    .font(.subheadline)
+                    .foregroundStyle(.dsText2)
+                    .lineLimit(typeSize.isAccessibilitySize ? 4 : 2)
             }
-
-            Spacer()
-
-            if let score = spotScores[spot.id] {
-                HStack(spacing: 6) {
-                    if score >= Int(alertThreshold) {
-                        Image(systemName: "bell.fill")
-                            .font(.caption)
-                            .foregroundStyle(CurrentsTheme.accent)
-                    }
-
-                    ScoreGauge(score: score, label: "", size: 36)
-                }
-            } else {
-                Text("--")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+            Spacer(minLength: 8)
+            // The subtitle says "now 77", so the ring reads as the score now
+            // and not as the alert threshold. A spot that sends nothing
+            // shows no score.
+            if let score = spotScores[spot.id], Self.sends(choice, bite: alertsEnabled, headsUp: primeWindowAlerts) {
+                ScoreRing(score: score, size: 36)
+                    .accessibilityHidden(true)
             }
+            Image(systemName: "chevron.right")
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(.dsText3)
         }
-        .glassCard()
-        .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
-        .listRowBackground(Color.clear)
-        .listRowSeparator(.hidden)
+        .padding(.horizontal, DS.Space.s4)
+        .padding(.vertical, 10)
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
+    }
+
+    /// The second line of a spot row: what that spot will send, with the
+    /// score now. A type switched off above sends nothing at any spot, as
+    /// `NotificationManager.rescheduleBiteAlerts` plans it.
+    private func rowStatus(_ choice: SpotAlert, threshold: Int, score: Int?) -> String {
+        let status = Self.status(choice, threshold: threshold, bite: alertsEnabled, headsUp: primeWindowAlerts)
+        guard let score, Self.sends(choice, bite: alertsEnabled, headsUp: primeWindowAlerts) else { return status }
+        return "\(status), now \(score)"
+    }
+
+    /// True when the spot will send something.
+    private static func sends(_ choice: SpotAlert, bite: Bool, headsUp: Bool) -> Bool {
+        choice.enabled && ((bite && choice.biteAlerts) || (headsUp && choice.headsUp))
+    }
+
+    private static func status(_ choice: SpotAlert, threshold: Int, bite: Bool, headsUp: Bool) -> String {
+        guard choice.enabled else { return "Off" }
+        switch (bite && choice.biteAlerts, headsUp && choice.headsUp) {
+        case (false, false): return "Off"
+        case (false, true): return "Heads-up only, at \(threshold) or more"
+        case (true, false): return "Window opens only, at \(threshold) or more"
+        case (true, true): return "At \(threshold) or more"
+        }
     }
 
     // MARK: - Score Loading
@@ -254,9 +349,9 @@ struct AlertSettingsView: View {
                     coordinate: coordinate,
                     currentPressureHpa: weather.pressureHpa,
                     pressureChange6h: weather.pressureChange6h,
-                    waterTempC: weather.waterTempC,
-                    windSpeedKmh: weather.windSpeedKmh,
-                    windDirection: weather.windDirectionDeg,
+                    waterTempC: weather.measured?.waterTempC,
+                    windSpeedKmh: weather.measured?.windSpeedKmh,
+                    windDirection: weather.measured?.windDirectionDeg,
                     species: nil,
                     isInSpawningZone: false
                 )
@@ -273,5 +368,4 @@ struct AlertSettingsView: View {
         AlertSettingsView()
     }
     .environment(AppState())
-    .preferredColorScheme(.dark)
 }

@@ -13,7 +13,7 @@ actor WeatherService {
         let pressureHpa: Double
         let pressureChange6h: Double
         let temperatureC: Double
-        let waterTempC: Double? // estimated from air temp for freshwater
+        let waterTempC: Double? // estimated from recent air temperature, see waterEstimates
         let windSpeedKmh: Double
         let windDirectionDeg: Double
         let cloudCoverPct: Int
@@ -27,6 +27,19 @@ actor WeatherService {
         /// value, but a real local trend. Optional so older cached JSON (which
         /// predates this field) still decodes.
         var pressureIsEstimated: Bool?
+        /// True when nothing was ever fetched for this place and only the
+        /// barometer is real: temperature, wind, cloud and sky are
+        /// placeholders that must not be shown as a reading. Optional so
+        /// older cached JSON still decodes.
+        var isEstimate: Bool?
+
+        /// Shorthand for `isEstimate == true`.
+        var isEstimated: Bool { isEstimate == true }
+
+        /// The reading when it is real, nil for an offline estimate. Take
+        /// temperature, water, wind and cloud from here; pressure is real
+        /// either way.
+        var measured: WeatherData? { isEstimated ? nil : self }
     }
 
     struct HourlyForecast: Sendable {
@@ -85,29 +98,56 @@ actor WeatherService {
         "\(Int(coordinate.latitude * 100))_\(Int(coordinate.longitude * 100))"
     }
 
+    /// How long a weather request may wait before the saved weather is used
+    /// instead. Signal at the water is often weak, and the default is 60 s.
+    private static let requestTimeout: TimeInterval = 10
+
+    private static func request(_ url: URL) -> URLRequest {
+        var request = URLRequest(url: url)
+        request.timeoutInterval = requestTimeout
+        return request
+    }
+
+    /// The weather saved on the phone for a coordinate, without touching the
+    /// network: the last current reading and the last outlook. Lets a page
+    /// draw straight away while a fresh fetch runs.
+    func saved(for coordinate: CLLocationCoordinate2D) -> (current: WeatherData?, days: [WeatherData]) {
+        loadDiskIfNeeded()
+        let key = Self.cacheKey(coordinate)
+        return (cache[key]?.data, dailyCache[key]?.days ?? [])
+    }
+
     /// Fetch current weather for a coordinate. Returns cached data if <30 min
     /// old; when the network is down, the last data ever fetched (any age,
     /// persisted across launches) is returned instead of nothing.
     func current(for coordinate: CLLocationCoordinate2D, force: Bool = false) async -> WeatherData? {
+        await currentReading(for: coordinate, force: force).data
+    }
+
+    /// Current weather, and whether it is live: true when it came from the
+    /// weather service just now or from a reading under 30 minutes old;
+    /// false when the service could not be reached and saved or estimated
+    /// weather came back instead.
+    func currentReading(for coordinate: CLLocationCoordinate2D, force: Bool = false) async -> (data: WeatherData?, isLive: Bool) {
         loadDiskIfNeeded()
         let key = Self.cacheKey(coordinate)
 
         // Return cache if fresh (skipped on a manual refresh).
         if !force, let cached = cache[key], Date.now.timeIntervalSince(cached.fetchedAt) < 1800 {
-            return cached.data
+            return (cached.data, true)
         }
 
         // Try fetching from Open-Meteo
-        let urlString = "https://api.open-meteo.com/v1/forecast?latitude=\(coordinate.latitude)&longitude=\(coordinate.longitude)&current=temperature_2m,relative_humidity_2m,pressure_msl,surface_pressure,wind_speed_10m,wind_direction_10m,cloud_cover,precipitation,weather_code,uv_index&hourly=pressure_msl&forecast_hours=7&timezone=auto"
+        let urlString = "https://api.open-meteo.com/v1/forecast?latitude=\(coordinate.latitude)&longitude=\(coordinate.longitude)&current=temperature_2m,relative_humidity_2m,pressure_msl,surface_pressure,wind_speed_10m,wind_direction_10m,cloud_cover,precipitation,weather_code,uv_index&hourly=pressure_msl&past_hours=6&forecast_hours=1&daily=temperature_2m_mean&timezone=auto"
 
-        guard let url = URL(string: urlString) else { return cache[key]?.data }
+        guard let url = URL(string: urlString) else { return (cache[key]?.data, false) }
 
         do {
-            let (data, _) = try await URLSession.shared.data(from: url)
+            let (data, _) = try await URLSession.shared.data(for: Self.request(url))
             let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
 
             guard let current = json?["current"] as? [String: Any] else {
-                return cache[key]?.data
+                return (cache[key]?.data, false)
             }
 
             let pressureNow = current["pressure_msl"] as? Double ?? current["surface_pressure"] as? Double ?? 1013.25
@@ -120,16 +160,12 @@ actor WeatherService {
             let uvIndex = current["uv_index"] as? Double ?? 0
             let weatherCode = current["weather_code"] as? Int ?? 0
 
-            // Compute 6h pressure change from hourly data
-            var pressureChange6h = 0.0
-            if let hourly = json?["hourly"] as? [String: Any],
-               let pressures = hourly["pressure_msl"] as? [Double],
-               pressures.count >= 7 {
-                pressureChange6h = pressures.last! - pressures.first!
-            }
+            let pressureChange6h = Self.pressureChange6h(hourly: json?["hourly"] as? [String: Any]) ?? 0
 
-            // Estimate water temp from air temp (rough freshwater heuristic)
-            let waterTemp = tempC - 2.0
+            // Water comes from the days' mean air temperature, on the same
+            // basis as the outlook, so today matches its first day.
+            let dailyMeans = (json?["daily"] as? [String: Any])?["temperature_2m_mean"] as? [Double] ?? []
+            let waterTemp = Self.waterEstimates(dailyMeanAirC: dailyMeans.isEmpty ? [tempC] : dailyMeans).first
 
             let weather = WeatherData(
                 pressureHpa: pressureNow,
@@ -148,12 +184,12 @@ actor WeatherService {
 
             cache[key] = (data: weather, fetchedAt: .now)
             persistToDisk()
-            return weather
+            return (weather, true)
         } catch {
             // Offline: prefer the last cached reading, but if its pressure is
             // stale, overlay a live on-device barometer reading so the bite
             // forecast still reflects the current local pressure trend.
-            return Self.withBarometerFallback(cache[key]?.data)
+            return (Self.withBarometerFallback(cache[key]?.data), false)
         }
     }
 
@@ -179,7 +215,8 @@ actor WeatherService {
                 pressureIsEstimated: true
             )
         }
-        // No cache at all — pressure-only reading (temps/wind unknown).
+        // No cache at all: a pressure-only reading. The other fields are
+        // placeholders, flagged by `isEstimate` so no page shows them.
         return WeatherData(
             pressureHpa: snap.pressureHpa,
             pressureChange6h: snap.change6h,
@@ -193,7 +230,8 @@ actor WeatherService {
             humidity: 50,
             uvIndex: 0,
             fetchedAt: Date(timeIntervalSince1970: UserDefaults.standard.double(forKey: BarometerService.updatedKey)),
-            pressureIsEstimated: true
+            pressureIsEstimated: true,
+            isEstimate: true
         )
     }
 
@@ -213,7 +251,7 @@ actor WeatherService {
         guard let url = URL(string: urlString) else { return dailyCache[key]?.days ?? [] }
 
         do {
-            let (data, _) = try await URLSession.shared.data(from: url)
+            let (data, _) = try await URLSession.shared.data(for: Self.request(url))
             let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
             guard let hourly = json?["hourly"] as? [String: Any],
                   let times = hourly["time"] as? [String],
@@ -231,6 +269,13 @@ actor WeatherService {
 
             let n = [times.count, temps.count, pressures.count, winds.count, windDirs.count,
                      precips.count, clouds.count, humidities.count, codes.count, uvs.count].min() ?? 0
+            // Each day's mean air temperature, the basis of its water estimate.
+            let meanAir = stride(from: 0, to: n, by: 24).map { start -> Double in
+                let hours = start..<min(start + 24, n)
+                return hours.map { temps[$0] }.reduce(0, +) / Double(hours.count)
+            }
+            let water = Self.waterEstimates(dailyMeanAirC: meanAir)
+
             var days: [WeatherData] = []
             var day = 0
             while true {
@@ -253,7 +298,7 @@ actor WeatherService {
                     pressureHpa: pressures[midday],
                     pressureChange6h: trend,
                     temperatureC: temps[midday],
-                    waterTempC: temps[midday] - 2.0,
+                    waterTempC: day < water.count ? water[day] : nil,
                     windSpeedKmh: meanWind,
                     windDirectionDeg: windDirs[midday],
                     cloudCoverPct: clouds[midday],
@@ -276,17 +321,45 @@ actor WeatherService {
         }
     }
 
-    /// Fetch hourly forecast for 48 hours
+    /// The pressure change over the last six hours, from the hourly
+    /// `pressure_msl` series requested as `past_hours=6&forecast_hours=1`:
+    /// seven values running from six hours ago to this hour. Now minus six
+    /// hours ago; nil when the series is short.
+    nonisolated static func pressureChange6h(hourly: [String: Any]?) -> Double? {
+        guard let pressures = hourly?["pressure_msl"] as? [Double], pressures.count >= 7,
+              let now = pressures.last else { return nil }
+        return now - pressures[pressures.count - 7]
+    }
+
+    /// Water lags air: a 5-day running mean of daily mean air temperature, seeded from the first day, moving at most 1 °C a day, never below 0 °C.
+    nonisolated static func waterEstimates(dailyMeanAirC: [Double]) -> [Double] {
+        let weight = 1 - exp(-1.0 / 5)
+        var estimates: [Double] = []
+        for air in dailyMeanAirC {
+            guard let last = estimates.last else {
+                estimates.append(max(0, air))
+                continue
+            }
+            let step = min(1, max(-1, (air - last) * weight))
+            estimates.append(max(0, last + step))
+        }
+        return estimates
+    }
+
+    /// Fetch hourly forecast for 48 hours. Times come back as Unix seconds:
+    /// with `timezone=auto` the default ISO strings are local wall-clock
+    /// times with no offset and no seconds, which an ISO 8601 parser reads as
+    /// UTC (shifting every hour by the offset) or rejects.
     func hourlyForecast(for coordinate: CLLocationCoordinate2D) async -> HourlyForecast? {
-        let urlString = "https://api.open-meteo.com/v1/forecast?latitude=\(coordinate.latitude)&longitude=\(coordinate.longitude)&hourly=temperature_2m,pressure_msl,wind_speed_10m,wind_direction_10m,precipitation,cloud_cover&forecast_days=2&timezone=auto"
+        let urlString = "https://api.open-meteo.com/v1/forecast?latitude=\(coordinate.latitude)&longitude=\(coordinate.longitude)&hourly=temperature_2m,pressure_msl,wind_speed_10m,wind_direction_10m,precipitation,cloud_cover&forecast_days=2&timezone=auto&timeformat=unixtime"
 
         guard let url = URL(string: urlString) else { return nil }
 
         do {
-            let (data, _) = try await URLSession.shared.data(from: url)
+            let (data, _) = try await URLSession.shared.data(for: Self.request(url))
             let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
             guard let hourly = json?["hourly"] as? [String: Any],
-                  let times = hourly["time"] as? [String],
+                  let times = hourly["time"] as? [NSNumber],
                   let temps = hourly["temperature_2m"] as? [Double],
                   let pressures = hourly["pressure_msl"] as? [Double],
                   let winds = hourly["wind_speed_10m"] as? [Double],
@@ -296,14 +369,12 @@ actor WeatherService {
                 return nil
             }
 
-            let formatter = ISO8601DateFormatter()
-            formatter.formatOptions = [.withFullDate, .withTime, .withDashSeparatorInDate, .withColonSeparatorInTime]
-
+            let n = [times.count, temps.count, pressures.count, winds.count,
+                     windDirs.count, precips.count, clouds.count].min() ?? 0
             var points: [HourlyPoint] = []
-            for i in 0..<min(times.count, temps.count) {
-                guard let date = formatter.date(from: times[i]) else { continue }
+            for i in 0..<n {
                 points.append(HourlyPoint(
-                    date: date,
+                    date: Date(timeIntervalSince1970: times[i].doubleValue),
                     temperatureC: temps[i],
                     pressureHpa: pressures[i],
                     windSpeedKmh: winds[i],
@@ -314,6 +385,57 @@ actor WeatherService {
             }
 
             return HourlyForecast(hours: points)
+        } catch {
+            return nil
+        }
+    }
+
+    /// The weather at one past hour.
+    struct PastHour: Sendable {
+        let temperatureC: Double?
+        let windSpeedKmh: Double?
+        let windDirectionDeg: Double?
+        let pressureHpa: Double?
+        let condition: String?
+    }
+
+    /// The weather at a past hour, from Open-Meteo's historical forecast
+    /// archive (2022 on, up to the present hour). For catches whose weather
+    /// wasn't saved when they were logged. Nil offline or out of range.
+    func pastHour(at date: Date, for coordinate: CLLocationCoordinate2D) async -> PastHour? {
+        let day = DateFormatter()
+        day.calendar = Calendar(identifier: .gregorian)
+        day.locale = Locale(identifier: "en_US_POSIX")
+        day.timeZone = TimeZone(identifier: "UTC")
+        day.dateFormat = "yyyy-MM-dd"
+        let start = day.string(from: date.addingTimeInterval(-3600))
+        let end = day.string(from: date.addingTimeInterval(3600))
+        let urlString = "https://historical-forecast-api.open-meteo.com/v1/forecast?latitude=\(coordinate.latitude)&longitude=\(coordinate.longitude)&start_date=\(start)&end_date=\(end)&hourly=temperature_2m,pressure_msl,wind_speed_10m,wind_direction_10m,weather_code&timezone=GMT&timeformat=unixtime"
+        guard let url = URL(string: urlString) else { return nil }
+
+        do {
+            var request = URLRequest(url: url)
+            request.timeoutInterval = 15
+            let (data, _) = try await URLSession.shared.data(for: request)
+            let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+            guard let hourly = json?["hourly"] as? [String: Any],
+                  let times = hourly["time"] as? [NSNumber], !times.isEmpty else { return nil }
+            // Hours can be null (the archive has gaps), so read each value alone.
+            func value(_ key: String, _ i: Int) -> Double? {
+                guard let list = hourly[key] as? [Any], i < list.count else { return nil }
+                return (list[i] as? NSNumber)?.doubleValue
+            }
+            let target = date.timeIntervalSince1970
+            guard let i = times.indices.min(by: {
+                abs(times[$0].doubleValue - target) < abs(times[$1].doubleValue - target)
+            }), abs(times[i].doubleValue - target) <= 5400 else { return nil }
+            let hour = PastHour(temperatureC: value("temperature_2m", i),
+                                windSpeedKmh: value("wind_speed_10m", i),
+                                windDirectionDeg: value("wind_direction_10m", i),
+                                pressureHpa: value("pressure_msl", i),
+                                condition: value("weather_code", i).map { weatherCondition(code: Int($0)) })
+            guard hour.temperatureC != nil || hour.windSpeedKmh != nil || hour.pressureHpa != nil else { return nil }
+            return hour
         } catch {
             return nil
         }

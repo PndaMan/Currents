@@ -5,14 +5,46 @@ struct CurrentsApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var appState = AppState()
     @AppStorage("selectedTheme") private var selectedTheme = ThemeOption.ocean.rawValue
+    /// System, light or dark, chosen in Settings > Appearance.
+    @AppStorage("appearanceMode") private var appearanceMode = AppearanceMode.dark.rawValue
     @Environment(\.scenePhase) private var scenePhase
+    /// The opening animation plays once per launch. Screenshot mode skips it
+    /// unless CI asks to record it (`SCREENSHOT_PLAY_LAUNCH=1`).
+    @State private var showsLaunch = !ScreenshotSupport.isActive || ScreenshotSupport.playsLaunch
+    /// The app waits a touch large behind the opening animation and settles
+    /// to full size as the fish opens onto it.
+    @State private var contentScale: CGFloat =
+        !ScreenshotSupport.isActive || ScreenshotSupport.playsLaunch ? 1.04 : 1
 
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .scaleEffect(contentScale)
+                .overlay {
+                    if showsLaunch {
+                        LaunchAnimation(onReveal: { animated in
+                            // Reduce Motion: no zoom, so the app is simply at
+                            // full size by the time the overlay fades.
+                            withAnimation(animated ? Animation.easeOut(duration: 0.7) : nil) {
+                                contentScale = 1
+                            }
+                        }, onFinish: {
+                            showsLaunch = false
+                            contentScale = 1
+                            // Screenshot mode plays it only to record it, and
+                            // keeps launch alerts out of the captures.
+                            if !ScreenshotSupport.isActive {
+                                appState.launchFinished = true
+                            }
+                        })
+                    }
+                }
                 .environment(appState)
-                .preferredColorScheme(.dark)
+                .preferredColorScheme((AppearanceMode(rawValue: appearanceMode) ?? .dark).colorScheme)
                 .tint(ThemeOption(rawValue: selectedTheme)?.primary ?? .blue)
+                // Finishes tips left unfinished (an approved Ask to Buy, a
+                // purchase cut off by a crash). StoreKit wants this at launch.
+                .task { TipJar.shared.startListening() }
         }
         .onChange(of: scenePhase) { _, phase in
             // Check for group-trip invites on foreground; fires a local
@@ -24,7 +56,7 @@ struct CurrentsApp: App {
             // joined, but the unsigned simulator build has no iCloud
             // entitlement — any CloudKit op is an uncatchable crash.
             if phase == .active, UserDefaults.standard.bool(forKey: "communityJoined"),
-               !ScreenshotSupport.isActive {
+               !ScreenshotSupport.isActive, CrewCloud.buildHasCloudKit {
                 Task {
                     // Ensure APNs registration + CloudKit push subscriptions are
                     // in place, then reconcile the in-app lists.
@@ -33,19 +65,30 @@ struct CurrentsApp: App {
                     await CommunityService.shared.refreshFriendRequests()
                 }
             }
+            // Bite alerts follow the latest weather each time the app opens.
+            if phase == .active, !ScreenshotSupport.isActive {
+                Task { await BackgroundRefresh.rescheduleAlerts(appState: appState) }
+            }
             // Daily automatic backup, kicked off when the app is backgrounded.
             if phase == .background {
                 AutoBackup.runIfDue(db: appState.db)
-                // Refresh look-ahead prime-window alerts for saved spots.
-                if UserDefaults.standard.bool(forKey: "primeWindowAlerts") {
-                    let spots = (try? appState.spotRepository.fetchAll()) ?? []
-                    Task {
-                        await NotificationManager.shared.schedulePrimeWindowAlerts(
-                            spots: spots, using: WeatherService.shared
-                        )
-                    }
+                BackgroundRefresh.schedule()
+                // Re-plan the bite alerts on the way out. Asking for extra
+                // time keeps the app awake until the plan is saved.
+                let app = UIApplication.shared
+                var token = UIBackgroundTaskIdentifier.invalid
+                token = app.beginBackgroundTask(withName: "Bite alerts") { app.endBackgroundTask(token) }
+                let started = token
+                Task {
+                    await BackgroundRefresh.rescheduleAlerts(appState: appState)
+                    app.endBackgroundTask(started)
                 }
             }
+        }
+        // Background app refresh: fresh weather for the widget and the alerts
+        // while the app is closed.
+        .backgroundTask(.appRefresh(BackgroundRefresh.taskIdentifier)) {
+            await BackgroundRefresh.run()
         }
     }
 }

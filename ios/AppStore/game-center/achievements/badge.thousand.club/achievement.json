@@ -1,0 +1,11 @@
+{
+  "reference_name": "Thousand Club",
+  "vendor_identifier": "badge.thousand.club",
+  "points": 50,
+  "show_before_earned": true,
+  "repeatable": false,
+  "rarity": "mythic",
+  "name": "Thousand Club",
+  "before_earned_description": "Log 1,000 catches. A life on the water.",
+  "after_earned_description": "Logged 1,000 catches."
+}
