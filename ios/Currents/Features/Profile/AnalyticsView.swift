@@ -349,11 +349,12 @@ struct AnalyticsView: View {
                 .padding(.top, DS.Space.s8)
             Chart(hourCounts, id: \.hour) { item in
                 // The hour is a number, so there is no band for a width ratio
-                // to take a share of: the bar is drawn from its own start to
-                // its own end, centred on the hour.
-                BarMark(xStart: .value("From", Double(item.hour) - 0.38),
-                        xEnd: .value("To", Double(item.hour) + 0.38),
-                        y: .value("Catches", item.count))
+                // to take a share of: the bar is a rectangle from its own
+                // start to its own end, centred on the hour, up from zero.
+                RectangleMark(xStart: .value("From", Double(item.hour) - 0.38),
+                              xEnd: .value("To", Double(item.hour) + 0.38),
+                              yStart: .value("Base", 0),
+                              yEnd: .value("Catches", item.count))
                     .foregroundStyle(hourColor(item.hour))
             }
             .chartXScale(domain: -0.5...23.5)

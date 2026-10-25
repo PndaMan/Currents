@@ -1174,11 +1174,13 @@ struct SessionBiteChart: View {
                 Chart {
                     ForEach(hours) { h in
                         // The hour is a number, so there is no band for a width
-                        // ratio to take a share of: each bar is drawn from its
-                        // own start to its own end, centred on the hour.
-                        BarMark(xStart: .value("From", Double(h.hour) - 0.38),
-                                xEnd: .value("To", Double(h.hour) + 0.38),
-                                y: .value("Score", h.score))
+                        // ratio to take a share of: each bar is a rectangle
+                        // from its own start to its own end, centred on the
+                        // hour, up from zero.
+                        RectangleMark(xStart: .value("From", Double(h.hour) - 0.38),
+                                      xEnd: .value("To", Double(h.hour) + 0.38),
+                                      yStart: .value("Base", 0),
+                                      yEnd: .value("Score", h.score))
                             .foregroundStyle(DS.scoreColor(h.score))
                         if catchHours.contains(h.hour) {
                             PointMark(x: .value("Hour", Double(h.hour)), y: .value("Score", h.score + 8))
