@@ -391,7 +391,7 @@ struct RampListView: View {
                         }
                         .buttonStyle(.dsRow)
                     }
-                    ExploreFootnote("From OpenStreetMap. Fees and access change, so check at the gate.")
+                    ExploreFootnote("From OpenStreetMap, town names from GeoNames. Fees and access change, so check at the gate.")
                 }
             }
             .padding(.bottom, 40)

@@ -115,7 +115,9 @@ struct RampDetailSheet: View {
                     KVRow("Location", ExploreFormat.coords(ramp.coordinate), divider: false)
                 }
                 .padding(.top, DS.Space.s4)
-                ExploreFootnote("From OpenStreetMap. Check access and fees at the gate.")
+                ExploreFootnote(BoatRampService.shared.isNamedAfterTown(ramp)
+                    ? "From OpenStreetMap, town name from GeoNames. Check access and fees at the gate."
+                    : "From OpenStreetMap. Check access and fees at the gate.")
             }
             .padding(.bottom, DS.Space.s6)
             .pageWidth()
