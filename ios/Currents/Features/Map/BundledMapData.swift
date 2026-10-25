@@ -146,15 +146,15 @@ enum BundledMapData {
     // MARK: Town names
 
     /// A populated place from the GeoNames gazetteer, stored as
-    /// [name, lat, lon] or, for a town, [name, lat, lon, 1]
-    /// (scripts/geonames_gazetteer.py).
+    /// [name, lat, lon] or, with a tier, [name, lat, lon, 1] or
+    /// [name, lat, lon, 2] (scripts/geonames_gazetteer.py).
     private struct NamedPlace: Decodable {
         let name: String
         let lat: Double
         let lon: Double
-        /// A town, as against a section, farm or hamlet. A row without the
-        /// fourth value is not one.
-        let isTown: Bool
+        /// 2 for a town, 1 for a named place that is no town, 0 for a
+        /// section, farm or hamlet. A row without the fourth value is 0.
+        let tier: Int
 
         init(from decoder: Decoder) throws {
             var row = try decoder.unkeyedContainer()
@@ -162,9 +162,9 @@ enum BundledMapData {
             lat = try row.decode(Double.self)
             lon = try row.decode(Double.self)
             if row.isAtEnd {
-                isTown = false
+                tier = 0
             } else {
-                isTown = try row.decode(Int.self) > 0
+                tier = try row.decode(Int.self)
             }
         }
     }
@@ -191,11 +191,17 @@ enum BundledMapData {
     /// preference to a nearer section, farm or hamlet.
     static let townMarginMetres = 5_000.0
 
-    /// The bundled town within 5 km of a point, else the nearest place of any
-    /// kind within 10 km, and the side of it the point is on, measured from
-    /// its centre: "East side". Nil outside the bundled country or far from
-    /// any place. A town wins over a nearer point that no angler uses, such
-    /// as a farm beside Hout Bay.
+    /// How close the nearest place may lie, when it is a named place or a
+    /// town, for a ramp to take its name ahead of a town further off: Strand,
+    /// not Somerset West.
+    static let namedMarginMetres = 1_500.0
+
+    /// The nearest place of any kind within 10 km when it is a named place
+    /// or a town within 1.5 km, else the nearest town within 5 km, else that
+    /// nearest place, and the side of it the point is on, measured from its
+    /// centre: "East side". Nil outside the bundled country or far from any
+    /// place. A town wins over a nearer farm or hamlet no angler uses, such
+    /// as a farm beside Hout Bay, but not over a named place close by.
     static func place(near coordinate: CLLocationCoordinate2D) -> (name: String, side: String)? {
         let latIndex = Int((coordinate.latitude / 0.5).rounded(.down))
         let lonIndex = Int((coordinate.longitude / 0.5).rounded(.down))
@@ -208,14 +214,22 @@ enum BundledMapData {
                     if distance <= placeMarginMetres, distance < (nearest?.distance ?? .infinity) {
                         nearest = (place, distance)
                     }
-                    if place.isTown, distance <= townMarginMetres, distance < (nearestTown?.distance ?? .infinity) {
+                    if place.tier >= 2, distance <= townMarginMetres, distance < (nearestTown?.distance ?? .infinity) {
                         nearestTown = (place, distance)
                     }
                 }
             }
         }
-        guard let place = (nearestTown ?? nearest)?.place else { return nil }
-        return (place.name, compassPoint(of: coordinate, fromLatitude: place.lat, longitude: place.lon) + " side")
+        guard let closest = nearest else { return nil }
+        let chosen: NamedPlace
+        if closest.place.tier >= 1, closest.distance <= namedMarginMetres {
+            chosen = closest.place
+        } else if let town = nearestTown {
+            chosen = town.place
+        } else {
+            chosen = closest.place
+        }
+        return (chosen.name, compassPoint(of: coordinate, fromLatitude: chosen.lat, longitude: chosen.lon) + " side")
     }
 
     /// Decodes the bundled water and town names off the main thread, so

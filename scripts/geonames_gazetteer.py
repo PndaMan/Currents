@@ -10,23 +10,28 @@ no water to take a name from, so the app names it after the nearest
 populated place within 10 km instead ("Ramp near Hout Bay"). This script
 writes those places to ios/Currents/Resources/Data/gazetteer_za.json:
 
-    {"source": "...", "places": [[name, lat, lon], [name, lat, lon, 1], ...]}
+    {"source": "...", "places": [[name, lat, lon], [name, lat, lon, 1], [name, lat, lon, 2], ...]}
 
 Places are GeoNames feature class P (cities, towns, villages, and sections
 such as Hout Bay or Muizenberg), with coordinates to 4 decimals (about
-10 m). A fourth value of 1 marks a town, which the app prefers within 5 km
-over a nearer section, farm or hamlet; a row without it is not a town. A
-place is a town when it is
+10 m). A fourth value is the place's tier; a row without it is tier 0.
 
-    a capital or administrative seat (PPLC, PPLA, PPLA2 to PPLA5), or
-    a PPL with a population of 1000 or more, or
-    a PPL with two or more alternate names, which GeoNames records for
-    places people write about (Hout Bay, Kommetjie, Gordon's Bay) and not
-    for the farm and hamlet points that sit beside them (An-de-Waterkant,
-    Weltevreder)
+    2, a town, which the app prefers within 5 km over a nearer section,
+       farm or hamlet. A place is a town when it is
+           a capital or administrative seat (PPLC, PPLA, PPLA2 to PPLA5), or
+           a PPL with a population of 1000 or more, or
+           a PPL with two or more alternate names, which GeoNames records
+           for places people write about (Hout Bay, Kommetjie, Gordon's
+           Bay) and not for the farm and hamlet points that sit beside
+           them (An-de-Waterkant, Weltevreder)
+    1, a named place, which the app uses when it is the nearest place and
+       within 1.5 km, ahead of a town further off. A PPL (not a PPLX
+       section) with one alternate name that is not a town: Strand,
+       Redhouse
+    0, the rest
 
 Population is 0 for most places in the dump, so it cannot do the job alone.
-Sections (PPLX), localities (PPLL) and farms (PPLF) are never towns.
+Sections (PPLX), localities (PPLL) and farms (PPLF) are never above tier 0.
 
 Left out:
 
@@ -80,6 +85,9 @@ SAME_NAME_M = 2_000
 VARIANT_NAME_M = 5_000
 TOWN_POPULATION = 1_000
 TOWN_ALTERNATES = 2
+NAMED_ALTERNATES = 1
+
+TIER_TOWN, TIER_NAMED, TIER_OTHER = 2, 1, 0
 
 LEFT_OUT_CODES = {"PPLH", "PPLQ", "PPLW", "PPLCH"}
 TOWN_CODES = {"PPLC", "PPLA", "PPLA2", "PPLA3", "PPLA4", "PPLA5"}
@@ -140,13 +148,18 @@ def clean(name: str) -> str:
     return re.sub(r"\s*\(\d+\)$", "", " ".join(name.split()))
 
 
-def is_town(code: str, population: int, alternates: int) -> bool:
-    """Whether a place is a town an angler would name a ramp after. Population
-    is 0 for most places in the dump, so a PPL also counts when GeoNames holds
-    several names for it."""
+def place_tier(code: str, population: int, alternates: int) -> int:
+    """TIER_TOWN for a town an angler would name a ramp after, TIER_NAMED for a
+    PPL that GeoNames holds a name for but that is no town, else TIER_OTHER.
+    Population is 0 for most places in the dump, so a PPL also counts as a
+    town when GeoNames holds several names for it."""
     if code in TOWN_CODES:
-        return True
-    return code == "PPL" and (population >= TOWN_POPULATION or alternates >= TOWN_ALTERNATES)
+        return TIER_TOWN
+    if code != "PPL":
+        return TIER_OTHER
+    if population >= TOWN_POPULATION or alternates >= TOWN_ALTERNATES:
+        return TIER_TOWN
+    return TIER_NAMED if alternates >= NAMED_ALTERNATES else TIER_OTHER
 
 
 def fold_key(name: str) -> str:
@@ -165,14 +178,14 @@ def populated(rows: list[list[str]]) -> list[dict]:
         if not name or name.endswith(" Location"):
             continue
         population = int(r[POPULATION] or 0)
-        town = is_town(r[CODE], population, len([a for a in r[ALTERNATES].split(",") if a.strip()]))
+        tier = place_tier(r[CODE], population, len([a for a in r[ALTERNATES].split(",") if a.strip()]))
         places.append({
             "name": name,
             "lat": round(float(r[LAT]), 4),
             "lon": round(float(r[LON]), 4),
-            "tier": 1 if town else 0,
-            # Towns first, then the bigger feature codes and populations.
-            "rank": (0 if town else 1, CODE_RANK.get(r[CODE], 9), -population),
+            "tier": tier,
+            # Higher tiers first, then the bigger feature codes and populations.
+            "rank": (-tier, CODE_RANK.get(r[CODE], 9), -population),
         })
     return places
 
@@ -191,8 +204,9 @@ def drop_repeats(places: list[dict]) -> list[dict]:
 
 
 def encode(source: str, places: list[dict]) -> str:
-    """Towns carry a fourth value of 1; the rest have three, which the app reads as tier 0."""
-    rows = [[p["name"], p["lat"], p["lon"], *([1] if p["tier"] else [])]
+    """Towns carry a fourth value of 2 and named places 1; the rest have three,
+    which the app reads as tier 0."""
+    rows = [[p["name"], p["lat"], p["lon"], *([p["tier"]] if p["tier"] else [])]
             for p in sorted(places, key=lambda p: (p["name"], p["lat"], p["lon"]))]
     return json.dumps({"source": source, "places": rows}, ensure_ascii=False, separators=(",", ":")) + "\n"
 
@@ -223,7 +237,9 @@ def main() -> None:
         text = encode(source, places)
 
     size = len(text.encode("utf-8"))
-    print(f"{len(places)} places, {sum(p['tier'] for p in places)} of them towns, {size / 1000:.0f} KB.")
+    towns = sum(p["tier"] == TIER_TOWN for p in places)
+    named = sum(p["tier"] == TIER_NAMED for p in places)
+    print(f"{len(places)} places, {towns} of them towns and {named} named, {size / 1000:.0f} KB.")
     if size > MAX_BYTES * 1.05:
         sys.exit("Still too big; nothing written.")
     if args.dry_run:
