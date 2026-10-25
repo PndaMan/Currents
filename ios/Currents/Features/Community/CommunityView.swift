@@ -153,10 +153,14 @@ struct CommunityView: View {
                 // Maintenance in the background: publish history, heal grants and
                 // spot shares, and rebuild membership from the server once per
                 // launch (a reinstall used to show zero crews or trips while the
-                // server still counted and pushed to this angler).
+                // server still counted and pushed to this angler). Then the
+                // streak, so friends see a current run; an empty read
+                // publishes nothing, so a log that failed to load never wipes it.
+                let streakStats: CommunityService.MyStats? = myCatches.isEmpty ? nil : stats
                 Task {
                     await syncCatches()
                     await svc.reconcileMemberships()
+                    if let streakStats { await svc.publishStreakIfChanged(streakStats) }
                 }
             }
             // Light poll while the tab is open; fills the gaps CloudKit
@@ -678,12 +682,16 @@ struct CommunityView: View {
     private func computeStatsFrom(_ catches: [CatchDetail]) -> CommunityService.MyStats {
         let species = Dictionary(grouping: catches, by: { $0.species?.commonName ?? "" })
         let fav = species.filter { !$0.key.isEmpty }.max { $0.value.count < $1.value.count }?.key ?? ""
+        let streak = StreakStats(catches: catches)
         return .init(
             totalCatches: catches.count,
             speciesCount: species.keys.filter { !$0.isEmpty }.count,
             bestWeightKg: catches.compactMap { $0.catchRecord.weightKg }.max() ?? 0,
             bestLengthCm: catches.compactMap { $0.catchRecord.lengthCm }.max() ?? 0,
-            favoriteSpecies: fav
+            favoriteSpecies: fav,
+            currentStreak: streak.current,
+            longestStreak: streak.best,
+            streakWeek: streak.weeks.max()
         )
     }
 }
@@ -728,6 +736,12 @@ struct MyProfileView: View {
                 if !best.isEmpty {
                     AnglerStatsLine(best)
                         .padding(.top, DS.Space.s4)
+                }
+                let streak = AnglerStatsLine.streakItems(current: stats.currentStreak ?? 0,
+                                                         longest: stats.longestStreak ?? 0)
+                if !streak.isEmpty {
+                    AnglerStatsLine(streak)
+                        .padding(.top, best.isEmpty ? DS.Space.s4 : DS.Space.s2)
                 }
                 actions
                     .padding(.top, DS.Space.s5)
@@ -1009,6 +1023,22 @@ private struct AnglerStatsLine: View {
             let p = Units.lengthParts(cm: bestLengthCm, imperial: imperial)
             out.append(Item(label: "Longest", systemImage: "ruler", tint: CrewTint.length,
                             value: p.0, unit: p.1))
+        }
+        return out
+    }
+
+    /// The weekly streak and the longest streak, each once there is one, in
+    /// the flame and colour of Logbook's Streak card. A row of their own, so
+    /// "Longest streak" always has half the width.
+    static func streakItems(current: Int, longest: Int) -> [Item] {
+        var out: [Item] = []
+        if current > 0 {
+            out.append(Item(label: "Streak", systemImage: "flame.fill", tint: .dsScoreLow,
+                            value: "\(current)", unit: current == 1 ? "week" : "weeks"))
+        }
+        if longest > 0 {
+            out.append(Item(label: "Longest streak", systemImage: "flame.fill", tint: .dsScoreLow,
+                            value: "\(longest)", unit: longest == 1 ? "week" : "weeks"))
         }
         return out
     }
@@ -1581,6 +1611,8 @@ struct FriendProfileView: View {
     /// Own catches with full local detail, for the real achievements card when
     /// the profile being viewed is yours.
     @State private var ownDetails: [CatchDetail] = []
+    /// Your streak from the local log, when the profile is yours.
+    @State private var ownStreak: StreakStats?
     @AppStorage("units") private var units = "metric"
     @ObservedObject private var connection = CrewConnection.shared
     /// Their name's large title line, which grows with the text size. The
@@ -1647,6 +1679,7 @@ struct FriendProfileView: View {
             // profile from the published record (or built locally).
             catchAccess = true
             ownDetails = (try? await appState.catchRepository.fetchAllInBackground(limit: 2000)) ?? []
+            if !ownDetails.isEmpty { ownStreak = StreakStats(catches: ownDetails) }
             catches = ownLocalRows()
             if let fresh = await svc.fetchProfile(code: code) { profile = fresh }
             if profile == nil { profile = ownFallbackProfile() }
@@ -1742,6 +1775,15 @@ struct FriendProfileView: View {
             if !best.isEmpty {
                 AnglerStatsLine(best)
                     .padding(.top, DS.Space.s4)
+            }
+            // Yours from the log; anyone else's as last published, the
+            // current run only while it is still alive.
+            let streak = AnglerStatsLine.streakItems(
+                current: isSelf ? (ownStreak?.current ?? p.liveStreak) : p.liveStreak,
+                longest: isSelf ? max(ownStreak?.best ?? 0, p.longestStreak) : p.longestStreak)
+            if !streak.isEmpty {
+                AnglerStatsLine(streak)
+                    .padding(.top, best.isEmpty ? DS.Space.s4 : DS.Space.s2)
             }
         } else if profileLoading {
             FishLoader(message: "Loading profile")

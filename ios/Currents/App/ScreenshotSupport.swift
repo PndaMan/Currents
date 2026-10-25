@@ -807,7 +807,11 @@ enum ScreenshotSupport {
                 bestWeightKg: [14.2, 9.8, 12.6, 2.4, 11.1][i], bestLengthCm: [118, 101, 86, 56, 108][i],
                 favoriteSpecies: ["Dusky Kob", "Yellowtail Kingfish", "Common Carp",
                                   "Brown Trout", "African Sharptooth Catfish"][i],
-                title: mate.title)
+                title: mate.title,
+                // Lauren last published a run that has since lapsed, so her
+                // page shows only her longest.
+                currentStreak: [6, 3, 9, 4, 2][i], longestStreak: [11, 8, 14, 5, 9][i],
+                streakWeek: i == 3 ? Date(timeIntervalSinceNow: -40 * 86_400) : Date.now)
             svc.seedScreenshotProfile(profile, avatarData: avatar?.jpegData(compressionQuality: 0.8))
         }
 

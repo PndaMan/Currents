@@ -291,6 +291,26 @@ final class CommunityService: ObservableObject {
         var favoriteSpecies: String
         /// Flair earned from achievements ("Species Master"), shown under the name.
         var title: String = ""
+        /// The weekly streak and longest streak as last published, in weeks.
+        /// 0 for a profile that never published them.
+        var currentStreak: Int = 0
+        var longestStreak: Int = 0
+        /// The start of the latest week fished when the streak was published.
+        var streakWeek: Date? = nil
+
+        /// The current streak as friends see it: the published run while its
+        /// latest week is this week or last week, else 0, so a run that lapsed
+        /// after the angler last published doesn't show for ever.
+        var liveStreak: Int {
+            guard currentStreak > 0, let streakWeek else { return 0 }
+            let cal = BadgeDefinition.weekCalendar
+            // Read at midweek: the publisher's Monday can start hours apart
+            // from ours in another time zone.
+            let week = BadgeDefinition.weekStart(of: streakWeek.addingTimeInterval(3.5 * 86_400), calendar: cal)
+            let thisWeek = BadgeDefinition.weekStart(of: .now, calendar: cal)
+            let lastWeek = BadgeDefinition.adjacentWeek(-1, to: thisWeek, calendar: cal)
+            return week == thisWeek || week == lastWeek ? currentStreak : 0
+        }
     }
 
     struct LeaderRow: Identifiable {
@@ -400,7 +420,22 @@ final class CommunityService: ObservableObject {
 
     // MARK: - My profile
 
-    struct MyStats { var totalCatches: Int; var speciesCount: Int; var bestWeightKg: Double; var bestLengthCm: Double; var favoriteSpecies: String }
+    struct MyStats {
+        var totalCatches: Int
+        var speciesCount: Int
+        var bestWeightKg: Double
+        var bestLengthCm: Double
+        var favoriteSpecies: String
+        /// The weekly streak and longest streak in weeks, and the start of the
+        /// latest week fished. Nil when the caller didn't work them out; the
+        /// published values then stay as they are.
+        var currentStreak: Int? = nil
+        var longestStreak: Int? = nil
+        var streakWeek: Date? = nil
+
+        /// True when the streak fields are filled in, so they publish.
+        var hasStreak: Bool { currentStreak != nil && longestStreak != nil }
+    }
 
     var myName: String { UserDefaults.standard.string(forKey: "communityName") ?? "Angler \(friendCode)" }
     var myBio: String { UserDefaults.standard.string(forKey: "communityBio") ?? "" }
@@ -478,7 +513,41 @@ final class CommunityService: ObservableObject {
     private func saveMyProfile(stats: MyStats?) async -> Bool {
         if ScreenshotSupport.isActive { return true }
         let id = CKRecord.ID(recordName: "profile-\(friendCode)")
-        let record = (try? await db.record(for: id)) ?? CKRecord(recordType: profileType, recordID: id)
+        let withStreak = stats?.hasStreak == true
+        let fetched = try? await db.record(for: id)
+        var record = profileRecord(fetched, id: id, stats: stats, streak: withStreak)
+        if withStreak {
+            do {
+                _ = try await db.save(record)
+                return true
+            } catch {
+                // No connection or no account: a save without the streak
+                // fails the same way.
+                if Self.isConnectionError(error) { return false }
+                // Production rejects a field its schema doesn't declare until
+                // the schema deploys, so a profile save never breaks on the
+                // streak fields: save the rest without them.
+                print("[Currents] Profile save failed (\(error.localizedDescription)); retrying without the streak fields")
+            }
+            // Built again on a fresh fetch, so the streak fields were never
+            // set on the record that goes up.
+            let refetched = try? await db.record(for: id)
+            record = profileRecord(refetched, id: id, stats: stats, streak: false)
+        }
+        if (try? await db.save(record)) == nil {
+            // Production rejects undeclared fields until the schema import
+            // deploys `title` — retry without it so profile saves never break.
+            record["title"] = nil
+            do { _ = try await db.save(record) } catch { return false }
+        }
+        return true
+    }
+
+    /// The profile record to save: the fetched one, or a new record, with
+    /// your profile written on it. The streak fields go in only when
+    /// `streak` is set and the stats hold them.
+    private func profileRecord(_ fetched: CKRecord?, id: CKRecord.ID, stats: MyStats?, streak: Bool) -> CKRecord {
+        let record = fetched ?? CKRecord(recordType: profileType, recordID: id)
         record["displayName"] = myName as CKRecordValue
         record["friendCode"] = friendCode as CKRecordValue
         record["bio"] = myBio as CKRecordValue
@@ -491,19 +560,65 @@ final class CommunityService: ObservableObject {
             record["bestWeightKg"] = stats.bestWeightKg as CKRecordValue
             record["bestLengthCm"] = stats.bestLengthCm as CKRecordValue
             record["favoriteSpecies"] = stats.favoriteSpecies as CKRecordValue
+            if streak { Self.setStreak(stats, on: record) }
         }
         if FileManager.default.fileExists(atPath: avatarURL.path) {
             record["avatar"] = CKAsset(fileURL: avatarURL)
         }
         record["title"] = myTitle as CKRecordValue
         record["updatedAt"] = Date() as CKRecordValue
-        if (try? await db.save(record)) == nil {
-            // Production rejects undeclared fields until the schema import
-            // deploys `title` — retry without it so profile saves never break.
-            record["title"] = nil
-            do { _ = try await db.save(record) } catch { return false }
+        return record
+    }
+
+    /// The streak fields of the profile record (`AnglerProfile`):
+    /// `currentStreak` and `longestStreak` (INT64, weeks) and `streakWeek`
+    /// (TIMESTAMP, the start of the latest week fished).
+    private static func setStreak(_ stats: MyStats, on record: CKRecord) {
+        if let current = stats.currentStreak { record["currentStreak"] = current as CKRecordValue }
+        if let longest = stats.longestStreak { record["longestStreak"] = longest as CKRecordValue }
+        if let week = stats.streakWeek { record["streakWeek"] = week as CKRecordValue }
+    }
+
+    /// Errors that say nothing about the record: no network, no iCloud
+    /// account, or the server asking to wait.
+    private static func isConnectionError(_ error: Error) -> Bool {
+        guard let code = (error as? CKError)?.code else { return false }
+        switch code {
+        case .networkUnavailable, .networkFailure, .notAuthenticated, .serviceUnavailable,
+             .requestRateLimited, .zoneBusy:
+            return true
+        default:
+            return false
         }
-        return true
+    }
+
+    /// Publishes the streak to your profile record when it changed since the
+    /// last publish, so friends see a current run without you editing your
+    /// profile. Only the streak fields are written, onto the saved record; a
+    /// profile that was never saved waits for joining to save it.
+    func publishStreakIfChanged(_ stats: MyStats) async {
+        guard cloudAllowed, stats.hasStreak else { return }
+        let key = "publishedStreakFingerprint"
+        let fingerprint = [
+            stats.currentStreak.map { "\($0)" } ?? "",
+            stats.longestStreak.map { "\($0)" } ?? "",
+            stats.streakWeek.map { "\(Int($0.timeIntervalSince1970))" } ?? "",
+        ].joined(separator: ",")
+        guard UserDefaults.standard.string(forKey: key) != fingerprint else { return }
+        let id = CKRecord.ID(recordName: "profile-\(friendCode)")
+        guard let record = try? await db.record(for: id) else { return }
+        Self.setStreak(stats, on: record)
+        record["updatedAt"] = Date() as CKRecordValue
+        do {
+            _ = try await db.save(record)
+        } catch {
+            if Self.isConnectionError(error) { return }
+            // Most likely the streak fields aren't in the production schema
+            // yet. Remembered as done, so this isn't retried on every visit;
+            // the next change to the streak tries again.
+            print("[Currents] Streak publish failed: \(error.localizedDescription)")
+        }
+        UserDefaults.standard.set(fingerprint, forKey: key)
     }
 
     func fetchProfile(code: String) async -> Profile? {
@@ -569,6 +684,9 @@ final class CommunityService: ObservableObject {
         var bestWeightKg, bestLengthCm: Double
         var favoriteSpecies: String
         var title: String?
+        // Optional so caches written before the streak still decode.
+        var currentStreak, longestStreak: Int?
+        var streakWeek: Date?
         var avatarData: Data?
 
         /// `avatarData` is the avatar's stored bytes, passed in rather than
@@ -580,6 +698,9 @@ final class CommunityService: ObservableObject {
             bestWeightKg = p.bestWeightKg; bestLengthCm = p.bestLengthCm
             favoriteSpecies = p.favoriteSpecies
             title = p.title
+            currentStreak = p.currentStreak
+            longestStreak = p.longestStreak
+            streakWeek = p.streakWeek
             self.avatarData = avatarData
         }
 
@@ -588,7 +709,9 @@ final class CommunityService: ObservableObject {
                     avatar: avatarData.flatMap(UIImage.init(data:)), memberSince: memberSince,
                     totalCatches: totalCatches, speciesCount: speciesCount,
                     bestWeightKg: bestWeightKg, bestLengthCm: bestLengthCm,
-                    favoriteSpecies: favoriteSpecies, title: title ?? "")
+                    favoriteSpecies: favoriteSpecies, title: title ?? "",
+                    currentStreak: currentStreak ?? 0, longestStreak: longestStreak ?? 0,
+                    streakWeek: streakWeek)
         }
     }
 
@@ -671,7 +794,10 @@ final class CommunityService: ObservableObject {
             bestWeightKg: r["bestWeightKg"] as? Double ?? 0,
             bestLengthCm: r["bestLengthCm"] as? Double ?? 0,
             favoriteSpecies: r["favoriteSpecies"] as? String ?? "",
-            title: r["title"] as? String ?? ""
+            title: r["title"] as? String ?? "",
+            currentStreak: r["currentStreak"] as? Int ?? 0,
+            longestStreak: r["longestStreak"] as? Int ?? 0,
+            streakWeek: r["streakWeek"] as? Date
         )
     }
 
@@ -1362,8 +1488,22 @@ final class CommunityService: ObservableObject {
             speciesCount: Set(Self.demoCatchSeeds.map(\.species)).count,
             bestWeightKg: Self.demoCatchSeeds.compactMap(\.weightKg).max() ?? 0,
             bestLengthCm: Self.demoCatchSeeds.compactMap(\.lengthCm).max() ?? 0,
-            favoriteSpecies: "Largemouth Bass"
+            favoriteSpecies: "Largemouth Bass",
+            currentStreak: Self.demoStreakWeeks,
+            longestStreak: Self.demoStreakWeeks,
+            streakWeek: BadgeDefinition.weekStart(of: .now, calendar: BadgeDefinition.weekCalendar)
         )
+    }
+
+    /// The demo angler's catches fall 3.2 days apart up to today (see
+    /// `demoCatchRows`), so no week is missed: the streak is every week they
+    /// span.
+    private static var demoStreakWeeks: Int {
+        let cal = BadgeDefinition.weekCalendar
+        let weeks = Set(demoCatchSeeds.indices.map {
+            BadgeDefinition.weekStart(of: Date().addingTimeInterval(-Double($0) * 3.2 * 24 * 3600), calendar: cal)
+        })
+        return weeks.count
     }
 
     private func demoLeaderCatches() -> [LeaderRow] {
