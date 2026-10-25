@@ -516,8 +516,13 @@ enum KnotImageStore {
         // Two drawings side by side on a plate six times wider than tall:
         // the tied knot on its hook, on the right.
         "improved_jam.jpeg": ThumbCrop(rect: CGRect(x: 0.644, y: 0, width: 0.264, height: 1), weight: 1),
-        // Three steps in pale pencil: the finished knot, the third.
-        "turle.jpeg": ThumbCrop(rect: CGRect(x: 0.730, y: 0.276, width: 0.210, height: 0.540), weight: 1)
+        // Three steps in pale pencil: the finished knot, the third. The top
+        // edge sits below where the second step's line runs into the corner.
+        "turle.jpeg": ThumbCrop(rect: CGRect(x: 0.730, y: 0.310, width: 0.210, height: 0.506), weight: 1),
+        // A tall plate, mostly line: the fly on its hook at the foot, from
+        // just below the letter A at the knot. The line, rules and letters
+        // above shrink the fly to a speck.
+        "pennell_jam.jpeg": ThumbCrop(rect: CGRect(x: 0.050, y: 0.665, width: 0.910, height: 0.335), weight: 1)
     ]
 
     /// The line art trimmed to its ink, for thumbnails. The blank paper round
