@@ -207,7 +207,9 @@ struct BiteSnapshot {
     init(_ f: ForecastEngine.ForecastResult) {
         now = f.score
         hourly = f.hourlyScores.sorted { $0.hour < $1.hour }
-        day = max(f.score, hourly.map(\.score).max() ?? f.score)
+        // The day's hourly peak, as the forecast pages show it, so the ring,
+        // the pins and the windows agree.
+        day = hourly.map(\.score).max() ?? f.score
         windows = BiteWindows.best(from: f.hourlyScores)
         reasons = f.reasons
     }
