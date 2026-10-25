@@ -8,11 +8,13 @@ struct CurrentsApp: App {
     /// System, light or dark, chosen in Settings > Appearance.
     @AppStorage("appearanceMode") private var appearanceMode = AppearanceMode.dark.rawValue
     @Environment(\.scenePhase) private var scenePhase
-    /// The opening animation plays once per launch, never in screenshot mode.
-    @State private var showsLaunch = !ScreenshotSupport.isActive
+    /// The opening animation plays once per launch. Screenshot mode skips it
+    /// unless CI asks to record it (`SCREENSHOT_PLAY_LAUNCH=1`).
+    @State private var showsLaunch = !ScreenshotSupport.isActive || ScreenshotSupport.playsLaunch
     /// The app waits a touch large behind the opening animation and settles
     /// to full size as the fish opens onto it.
-    @State private var contentScale: CGFloat = ScreenshotSupport.isActive ? 1 : 1.04
+    @State private var contentScale: CGFloat =
+        !ScreenshotSupport.isActive || ScreenshotSupport.playsLaunch ? 1.04 : 1
 
     var body: some Scene {
         WindowGroup {
@@ -29,7 +31,11 @@ struct CurrentsApp: App {
                         }, onFinish: {
                             showsLaunch = false
                             contentScale = 1
-                            appState.launchFinished = true
+                            // Screenshot mode plays it only to record it, and
+                            // keeps launch alerts out of the captures.
+                            if !ScreenshotSupport.isActive {
+                                appState.launchFinished = true
+                            }
                         })
                     }
                 }

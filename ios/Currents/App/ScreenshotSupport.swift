@@ -25,6 +25,12 @@ enum ScreenshotSupport {
             || CommandLine.arguments.contains("-screenshotMode")
     }
 
+    /// Screenshot mode skips the opening animation. Launching with
+    /// `SCREENSHOT_PLAY_LAUNCH=1` plays it anyway, so CI can record it.
+    static var playsLaunch: Bool {
+        ProcessInfo.processInfo.environment["SCREENSHOT_PLAY_LAUNCH"] == "1"
+    }
+
     /// A coastal spot (Kogel Bay, South Africa) the map centres on in
     /// screenshot mode, matching the seeded demo spots.
     static let demoCoordinate = CLLocationCoordinate2D(latitude: -34.235, longitude: 18.848)
