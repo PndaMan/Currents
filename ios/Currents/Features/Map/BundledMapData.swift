@@ -146,17 +146,26 @@ enum BundledMapData {
     // MARK: Town names
 
     /// A populated place from the GeoNames gazetteer, stored as
-    /// [name, lat, lon] (scripts/geonames_gazetteer.py).
+    /// [name, lat, lon] or, for a town, [name, lat, lon, 1]
+    /// (scripts/geonames_gazetteer.py).
     private struct NamedPlace: Decodable {
         let name: String
         let lat: Double
         let lon: Double
+        /// A town, as against a section, farm or hamlet. A row without the
+        /// fourth value is not one.
+        let isTown: Bool
 
         init(from decoder: Decoder) throws {
             var row = try decoder.unkeyedContainer()
             name = try row.decode(String.self)
             lat = try row.decode(Double.self)
             lon = try row.decode(Double.self)
+            if row.isAtEnd {
+                isTown = false
+            } else {
+                isTown = try row.decode(Int.self) > 0
+            }
         }
     }
 
@@ -175,27 +184,37 @@ enum BundledMapData {
         return Dictionary(grouping: file.places) { tileKey(latitude: $0.lat, longitude: $0.lon) }
     }()
 
-    /// How far from a town a ramp may lie and still be named after it.
+    /// How far from any place a ramp may lie and still be named after it.
     static let placeMarginMetres = 10_000.0
 
-    /// The nearest bundled town or suburb within 10 km of a point, and the
-    /// side of it the point is on, measured from the town's centre: "East
-    /// side". Nil outside the bundled country or far from any town.
+    /// How far from a town a ramp may lie and still be named after it in
+    /// preference to a nearer section, farm or hamlet.
+    static let townMarginMetres = 5_000.0
+
+    /// The bundled town within 5 km of a point, else the nearest place of any
+    /// kind within 10 km, and the side of it the point is on, measured from
+    /// its centre: "East side". Nil outside the bundled country or far from
+    /// any place. A town wins over a nearer point that no angler uses, such
+    /// as a farm beside Hout Bay.
     static func place(near coordinate: CLLocationCoordinate2D) -> (name: String, side: String)? {
         let latIndex = Int((coordinate.latitude / 0.5).rounded(.down))
         let lonIndex = Int((coordinate.longitude / 0.5).rounded(.down))
-        var best: (place: NamedPlace, distance: Double)?
+        var nearest: (place: NamedPlace, distance: Double)?
+        var nearestTown: (place: NamedPlace, distance: Double)?
         for dLat in -1...1 {
             for dLon in -1...1 {
                 for place in placesByTile["\(latIndex + dLat)_\(lonIndex + dLon)"] ?? [] {
                     let distance = metres(coordinate.latitude, coordinate.longitude, place.lat, place.lon)
-                    if distance <= placeMarginMetres, distance < (best?.distance ?? .infinity) {
-                        best = (place, distance)
+                    if distance <= placeMarginMetres, distance < (nearest?.distance ?? .infinity) {
+                        nearest = (place, distance)
+                    }
+                    if place.isTown, distance <= townMarginMetres, distance < (nearestTown?.distance ?? .infinity) {
+                        nearestTown = (place, distance)
                     }
                 }
             }
         }
-        guard let place = best?.place else { return nil }
+        guard let place = (nearestTown ?? nearest)?.place else { return nil }
         return (place.name, compassPoint(of: coordinate, fromLatitude: place.lat, longitude: place.lon) + " side")
     }
 
