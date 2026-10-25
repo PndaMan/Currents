@@ -1801,8 +1801,7 @@ struct CrewPostSheet: View {
                             .padding(.bottom, DS.Space.s5)
                     }
                     PageHero(label: post.caughtAt.formatted(.relative(presentation: .named)),
-                             value: CrewText.catchTitle(species: post.species, lengthCm: post.lengthCm,
-                                                        weightKg: post.weightKg),
+                             value: post.species,
                              callout: post.tripName.isEmpty ? crew?.name : "On \(post.tripName)") {
                         if !post.hasPhoto { hero }
                     }
@@ -1823,9 +1822,7 @@ struct CrewPostSheet: View {
             }
             .dsScreenBackground()
             // The catch's name fades into the bar once the hero scrolls away.
-            .eventPageTitle(CrewText.catchTitle(species: post.species, lengthCm: post.lengthCm,
-                                                weightKg: post.weightKg),
-                            threshold: titleThreshold)
+            .eventPageTitle(post.species, threshold: titleThreshold)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) { moreMenu }
                 ToolbarItem(placement: .confirmationAction) { SheetDoneButton() }
