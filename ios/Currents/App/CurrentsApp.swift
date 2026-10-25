@@ -10,14 +10,25 @@ struct CurrentsApp: App {
     @Environment(\.scenePhase) private var scenePhase
     /// The opening animation plays once per launch, never in screenshot mode.
     @State private var showsLaunch = !ScreenshotSupport.isActive
+    /// The app waits a touch large behind the opening animation and settles
+    /// to full size as the fish opens onto it.
+    @State private var contentScale: CGFloat = ScreenshotSupport.isActive ? 1 : 1.04
 
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .scaleEffect(contentScale)
                 .overlay {
                     if showsLaunch {
-                        LaunchAnimation(onReveal: { _ in }, onFinish: {
+                        LaunchAnimation(onReveal: { animated in
+                            // Reduce Motion: no zoom, so the app is simply at
+                            // full size by the time the overlay fades.
+                            withAnimation(animated ? Animation.easeOut(duration: 0.7) : nil) {
+                                contentScale = 1
+                            }
+                        }, onFinish: {
                             showsLaunch = false
+                            contentScale = 1
                             appState.launchFinished = true
                         })
                     }
