@@ -57,7 +57,7 @@ struct CrewsListPage: View {
             .pageWidth()
         }
         .detailTint(nil)
-        .eventPageTitle("Your crews")
+        .eventPageTitle("Your crews", threshold: nil)
         .sheet(item: $setup) { mode in CrewSetupView(joining: mode == .join) }
         .task(id: svc.myCrews.map(\.code)) { await loadCrewState() }
     }
@@ -1150,7 +1150,7 @@ private struct CrewCatchesPage: View {
             .pageWidth()
         }
         .detailTint(tint)
-        .eventPageTitle("Catches")
+        .eventPageTitle("Catches", threshold: nil)
         .sheet(item: $openedPost) { post in
             CrewPostSheet(post: post, crew: crew) { await reload() }
         }

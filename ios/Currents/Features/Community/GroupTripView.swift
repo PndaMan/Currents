@@ -66,7 +66,7 @@ struct GroupTripSetupView: View {
         ScrollView { content }
         .scrollDismissesKeyboard(.interactively)
         .detailTint(nil)
-        .eventPageTitle("Group trip")
+        .eventPageTitle("Group trip", threshold: nil)
         .sheet(isPresented: $showingPlanner) {
             // Planning only schedules the trip locally. You start it (going
             // live + sharing to the crew) from the list when it's time.

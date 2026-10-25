@@ -692,6 +692,10 @@ struct MyProfileView: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var svc = CommunityService.shared
     @AppStorage("units") private var units = "metric"
+    /// Your name's large title line, which grows with the text size. The
+    /// inline title waits for the avatar and the space around it (112
+    /// points) and this line to go under the bar: 160 points at the default.
+    @ScaledMetric(relativeTo: .largeTitle) private var nameLine: CGFloat = 48
     private var imperial: Bool { units == "imperial" }
 
     @State private var showingEdit = false
@@ -740,7 +744,7 @@ struct MyProfileView: View {
         }
         // Anglers have no colour of their own, so the page stays plain.
         .detailTint(nil)
-        .eventPageTitle(svc.myName)
+        .eventPageTitle(svc.myName, threshold: 112 + nameLine)
         .task(id: catches.count) { catchRows = AnglerCatchRows.ownRows(catches) }
         .sheet(isPresented: $showingEdit) { ProfileEditView(stats: stats) }
         .confirmationDialog("Turn off Crew?", isPresented: $confirmLeave, titleVisibility: .visible) {
@@ -1542,6 +1546,10 @@ struct FriendProfileView: View {
     @State private var ownDetails: [CatchDetail] = []
     @AppStorage("units") private var units = "metric"
     @ObservedObject private var connection = CrewConnection.shared
+    /// Their name's large title line, which grows with the text size. The
+    /// inline title waits for the avatar and the space around it (112
+    /// points) and this line to go under the bar: 160 points at the default.
+    @ScaledMetric(relativeTo: .largeTitle) private var nameLine: CGFloat = 48
     private var imperial: Bool { units == "imperial" }
 
     /// Viewing yourself (from a crew roster or leaderboard): it's your own
@@ -1577,7 +1585,7 @@ struct FriendProfileView: View {
         }
         // Anglers have no colour of their own, so the page stays plain.
         .detailTint(nil)
-        .eventPageTitle(displayName)
+        .eventPageTitle(displayName, threshold: 112 + nameLine)
         .sheet(isPresented: $showingSettings) { friendSettingsSheet }
         .sheet(item: $selectedSpot) { s in
             NavigationStack { SharedSpotDetailView(spot: s, friendName: profile?.name ?? "a friend") }

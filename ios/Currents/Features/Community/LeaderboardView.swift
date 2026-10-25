@@ -13,6 +13,10 @@ struct CrewLeaderboardView: View {
     @Environment(\.dynamicTypeSize) private var typeSize
     @StateObject private var svc = CommunityService.shared
     @AppStorage("units") private var units = "metric"
+    /// The header's over line and large title, which grow with the text
+    /// size. The crew badge and the space around it (80 points) sit above
+    /// them, so the inline title waits for both: 143 points at the default.
+    @ScaledMetric(relativeTo: .largeTitle) private var titleBlock: CGFloat = 63
     private var imperial: Bool { units == "imperial" }
 
     @State private var metric: CommunityService.Metric = .count
@@ -74,7 +78,7 @@ struct CrewLeaderboardView: View {
             .pageWidth()
         }
         .detailTint(tint)
-        .eventPageTitle("Leaderboard")
+        .eventPageTitle("Leaderboard", threshold: 80 + titleBlock)
         .safeAreaInset(edge: .bottom) {
             if !typeSize.isAccessibilitySize, let pinned = pinnedStanding {
                 pinnedRow(pinned, floating: true)

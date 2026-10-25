@@ -1577,7 +1577,7 @@ struct TournamentHistoryView: View {
         }
         .dsPlainList()
         .detailTint(nil)
-        .eventPageTitle("Tournaments")
+        .eventPageTitle("Tournaments", threshold: nil)
         .confirmationDialog("Delete this tournament?",
                             isPresented: Binding(get: { tournamentToDelete != nil },
                                                  set: { if !$0 { tournamentToDelete = nil } }),

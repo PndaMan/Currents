@@ -79,6 +79,10 @@ struct CrewFriendsPage: View {
     /// Coalesces a burst of revision bumps into one reload.
     @State private var reloadGen = 0
     @ObservedObject private var connection = CrewConnection.shared
+    /// The header's over line and large title, which grow with the text
+    /// size. With friends, their faces and the space around them (72
+    /// points) sit above, so the inline title waits for both.
+    @ScaledMetric(relativeTo: .largeTitle) private var titleBlock: CGFloat = 63
 
     private var filtered: [CommunityService.Profile] {
         let q = query.trimmingCharacters(in: .whitespaces)
@@ -125,7 +129,7 @@ struct CrewFriendsPage: View {
         }
         .scrollDismissesKeyboard(.interactively)
         .detailTint(nil)
-        .eventPageTitle("Friends")
+        .eventPageTitle("Friends", threshold: friends.isEmpty ? nil : 72 + titleBlock)
         .sheet(isPresented: $showingAdd, onDismiss: { Task { await load() } }) {
             CrewAddFriendSheet()
         }
@@ -308,7 +312,7 @@ struct CrewRequestsPage: View {
             .pageWidth()
         }
         .detailTint(nil)
-        .eventPageTitle("Requests")
+        .eventPageTitle("Requests", threshold: nil)
         .navigationDestination(item: $openedTrip) { trip in
             GroupTripView(tripId: svc.tripId(forGroupCode: trip.code), tripName: trip.name, initialCode: trip.code)
         }

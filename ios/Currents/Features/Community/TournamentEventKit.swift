@@ -62,11 +62,12 @@ struct EventLiveTag: View {
 
 private struct EventPageTitle: ViewModifier {
     let title: String
+    var threshold: CGFloat? = 110
     @State private var showsTitle = false
 
     func body(content: Content) -> some View {
         content
-            .pageTitleTracking($showsTitle, threshold: 110)
+            .pageTitleTracking($showsTitle, threshold: threshold)
             // A firm edge under the bar once the page scrolls, so rows never
             // read through the title (Luma's bar turns solid at this point).
             .detailScrollEdge()
@@ -108,9 +109,11 @@ private struct EventSheetTitle: ViewModifier {
 
 extension View {
     /// Luma's pushed-page title: hidden while the large title block is on
-    /// screen, faded into the bar once it scrolls away.
-    func eventPageTitle(_ title: String) -> some View {
-        modifier(EventPageTitle(title: title))
+    /// screen, faded into the bar once it scrolls away. `threshold` is the
+    /// scroll, in points, at which that block has gone; pass nil when a
+    /// `DetailHeader` is at the top, to follow its measured height.
+    func eventPageTitle(_ title: String, threshold: CGFloat? = 110) -> some View {
+        modifier(EventPageTitle(title: title, threshold: threshold))
     }
 
     /// Title and close button for a sheet's root, inside its NavigationStack.
