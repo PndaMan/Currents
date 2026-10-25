@@ -236,10 +236,10 @@ jobs:
             shot "$SCREEN" "${NAME:-$SCREEN}" "${SETTLE:-7}"
           done
 
-          # Log catch from the Add menu: the camera shows the demo bass,
+          # Log catch from the Add menu: the camera shows the demo trout,
           # takes it by itself, and the species is identified on the phone.
           if [ "$HAVE_AXE" = 1 ]; then
-            launch today bass-06.jpg
+            launch today trout-01.jpg
             sleep 5
             axe tap --label "Add" --wait-timeout 4 --udid "$UDID" >/dev/null 2>&1 \
               || axe tap -x 220 -y 903 --udid "$UDID" >/dev/null
