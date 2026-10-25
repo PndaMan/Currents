@@ -61,7 +61,7 @@ stripped and two were cropped to remove a logo.
 | trout-01.jpg | https://www.pexels.com/photo/hands-holding-fish-3098642/ | Maël BALLAND | Pexels License |
 | trout-02.jpg | https://www.pexels.com/photo/close-up-of-brown-trout-in-hand-in-river-water-37096316/ | Patagonia Savage | Pexels License |
 | trout-04.jpg | https://www.pexels.com/photo/fisherman-holding-a-brown-trout-above-net-in-river-35437559/ | Giant Asparagus | Pexels License |
-| trout-05.jpg | https://www.pexels.com/photo/a-person-holding-a-brooke-trout-14438493/ | Juan Vargas | Pexels License |
+| brook-trout-01.jpg | https://www.pexels.com/photo/a-person-holding-a-brooke-trout-14438493/ | Juan Vargas | Pexels License |
 | carp-01.jpg | https://www.pexels.com/photo/a-person-holding-a-fish-5537866/ | Thirdman | Pexels License |
 | carp-02.jpg | https://www.pexels.com/photo/a-fish-in-a-net-10462564/ | Vladimír Sládek | Pexels License |
 | catfish-01.jpg | https://www.pexels.com/photo/close-up-of-a-person-holding-a-catfish-19040471/ | juliane Monari | Pexels License |

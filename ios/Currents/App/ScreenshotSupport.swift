@@ -441,7 +441,7 @@ enum ScreenshotSupport {
     private static let species: [DemoSpecies] = [
         .init(name: "Largemouth Bass", photos: ["bass"], lengthCm: 32...54, k: 1.76e-5, spots: [1, 2], loadout: 0),
         .init(name: "Common Carp", photos: ["carp"], lengthCm: 48...82, k: 1.75e-5, spots: [2, 5], loadout: 2),
-        .init(name: "Rainbow Trout", photos: ["trout"], lengthCm: 30...52, k: 1.2e-5, spots: [4], loadout: 3),
+        .init(name: "Brown Trout", photos: ["trout"], lengthCm: 30...52, k: 1.2e-5, spots: [4], loadout: 3),
         .init(name: "Dusky Kob", photos: ["kob", "drum"], lengthCm: 62...112, k: 9.0e-6, spots: [3, 0], loadout: 1),
         .init(name: "Yellowtail Kingfish", photos: ["yellowtail", "drum"], lengthCm: 70...98, k: 1.1e-5, spots: [0], loadout: 1),
         .init(name: "Nile Tilapia", photos: ["tilapia", "perch"], lengthCm: 26...40, k: 1.87e-5, spots: [5], loadout: 0),
@@ -759,7 +759,7 @@ enum ScreenshotSupport {
                 totalCatches: [148, 96, 212, 61, 87][i], speciesCount: [14, 9, 11, 7, 6][i],
                 bestWeightKg: [14.2, 9.8, 12.6, 2.4, 11.1][i], bestLengthCm: [118, 101, 86, 56, 108][i],
                 favoriteSpecies: ["Dusky Kob", "Yellowtail Kingfish", "Common Carp",
-                                  "Rainbow Trout", "African Sharptooth Catfish"][i],
+                                  "Brown Trout", "African Sharptooth Catfish"][i],
                 title: mate.title)
             svc.seedScreenshotProfile(profile, avatarData: avatar?.jpegData(compressionQuality: 0.8))
         }
@@ -812,7 +812,7 @@ enum ScreenshotSupport {
         ("REEF07", "Dusky Kob", 11.2, 108, 5, "Estuary on the push of the tide. Finally."),
         ("TIDE22", "Yellowtail Kingfish", 7.4, 86, 9, "Birds working off the point all morning"),
         ("KLIP31", "Common Carp", 8.6, 74, 22, "Sunset session at the dam"),
-        ("VLEI18", "Rainbow Trout", 1.6, 48, 30, "Cold start, worth it"),
+        ("VLEI18", "Brown Trout", 1.6, 48, 30, "Cold start, worth it"),
         ("BREE09", "African Sharptooth Catfish", 9.8, 96, 46, "Night shift on the river"),
         ("KOGEL1", "Leervis (Garrick)", 9.1, 94, 60, "Released after a quick photo"),
         ("TIDE22", "Largemouth Bass", 2.2, 47, 75, ""),
@@ -868,7 +868,7 @@ enum ScreenshotSupport {
         ("TIDE22", "Largemouth Bass", 2.2, 47, 3),
         ("KLIP31", "Common Carp", 8.6, 74, 1), ("KLIP31", "Common Carp", 12.6, 86, 24),
         ("KLIP31", "Nile Tilapia", 1.1, 38, 5),
-        ("VLEI18", "Rainbow Trout", 1.6, 48, 1.3), ("VLEI18", "Rainbow Trout", 2.4, 56, 15),
+        ("VLEI18", "Brown Trout", 1.6, 48, 1.3), ("VLEI18", "Brown Trout", 2.4, 56, 15),
         ("BREE09", "African Sharptooth Catfish", 9.8, 96, 2), ("BREE09", "African Sharptooth Catfish", 11.1, 108, 41),
     ]
 
@@ -961,7 +961,7 @@ enum ScreenshotSupport {
                      fish: [(String, String, Double, Double, Double)])] = [
             ("TEAMA1", "Weed edge", ["KOGEL1", "VLEI18"], [
                 ("KOGEL1", "Largemouth Bass", 2.9, 52, 1.5), ("KOGEL1", "Largemouth Bass", 1.4, 41, 20),
-                ("VLEI18", "Rainbow Trout", 1.6, 48, 6), ("KOGEL1", "Common Carp", 6.2, 68, 26),
+                ("VLEI18", "Brown Trout", 1.6, 48, 6), ("KOGEL1", "Common Carp", 6.2, 68, 26),
             ]),
             ("TEAMB2", "Estuary rats", ["REEF07", "BREE09"], [
                 ("REEF07", "Dusky Kob", 11.2, 108, 5), ("BREE09", "African Sharptooth Catfish", 9.8, 96, 22),
