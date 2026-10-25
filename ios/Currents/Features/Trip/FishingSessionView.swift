@@ -1191,13 +1191,43 @@ struct SessionBiteChart: View {
         })
     }
 
+    /// The best saved bite score of the catches in each clock hour. The bar
+    /// for that hour shows it, so a fish never sits on a bar that disagrees
+    /// with its own catch page.
+    private var catchScores: [HourKey: Int] {
+        let cal = Calendar.current
+        var scores: [HourKey: Int] = [:]
+        for c in catches {
+            guard let score = c.catchRecord.forecastScoreAtCapture else { continue }
+            let caught: Date = c.catchRecord.caughtAt
+            let key = HourKey(day: cal.startOfDay(for: caught), hour: cal.component(.hour, from: caught))
+            scores[key] = max(scores[key] ?? 0, score)
+        }
+        return scores
+    }
+
+    /// The bars as drawn: the forecast, with a catch hour showing its catch.
+    private var shown: [HourScore] {
+        let saved = catchScores
+        return hours.map { h in
+            guard let score = saved[HourKey(day: h.day, hour: h.hour)] else { return h }
+            return HourScore(index: h.index, day: h.day, hour: h.hour, score: score)
+        }
+    }
+
+    /// A bar is lit, in its score colour, when a catch came in that hour or
+    /// the score is 50 or more; any other hour is the quiet grey, as on Today.
+    private func isLit(_ h: HourScore) -> Bool {
+        catchHours.contains(HourKey(day: h.day, hour: h.hour)) || h.score >= 50
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if !hours.isEmpty, let peak = hours.max(by: { $0.score < $1.score }) {
+            if !hours.isEmpty, let peak = shown.max(by: { $0.score < $1.score }) {
                 SectionTitle("Bite score during the session")
                     .padding(.top, DS.Space.s8)
                 Chart {
-                    ForEach(hours) { h in
+                    ForEach(shown) { h in
                         // The position is a number, so there is no band for a
                         // width ratio to take a share of: each bar is a
                         // rectangle from its own start to its own end,
@@ -1206,7 +1236,8 @@ struct SessionBiteChart: View {
                                       xEnd: .value("To", Double(h.index) + 0.38),
                                       yStart: .value("Base", 0),
                                       yEnd: .value("Score", h.score))
-                            .foregroundStyle(DS.scoreColor(h.score))
+                            .foregroundStyle(isLit(h) ? DS.scoreColor(h.score) : Color.dsFill2)
+                            .cornerRadius(4) // ui-lint: allow, chart bar, not a card
                         if catchHours.contains(HourKey(day: h.day, hour: h.hour)) {
                             PointMark(x: .value("Position", Double(h.index)), y: .value("Score", h.score + 8))
                                 .symbol {
@@ -1235,7 +1266,7 @@ struct SessionBiteChart: View {
                 .frame(height: 150)
                 .padding(.horizontal, DS.gutter)
                 .accessibilityLabel("Bite score by hour")
-                .accessibilityValue(hours.map { "\(hourLabel($0.hour)) \($0.score)" }.joined(separator: ", "))
+                .accessibilityValue(shown.map { "\(hourLabel($0.hour)) \($0.score)" }.joined(separator: ", "))
                 SectionFootnote("Peaked at \(peak.score) around \(hourLabel(peak.hour)). Fish marks the hours you caught.")
             }
             // Always in the tree, so the chart is worked out even while
@@ -1325,10 +1356,13 @@ struct SessionBiteChart: View {
         return hourLabel(bar.hour)
     }
 
-    /// Half a step either side of the first and last bar.
+    /// At least ten bars' worth of width, so a short session's bars stay
+    /// about as narrow as Today's, centred in the chart.
     private var xDomain: ClosedRange<Double> {
-        let count = max(hours.count, 1)
-        return -0.5...(Double(count) - 0.5)
+        let count = Double(max(hours.count, 1))
+        let span = max(count, 10)
+        let pad = (span - count) / 2
+        return (-0.5 - pad)...(count - 0.5 + pad)
     }
 
     private func hourLabel(_ hour: Int) -> String {
