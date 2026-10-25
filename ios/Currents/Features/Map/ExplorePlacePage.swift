@@ -362,29 +362,47 @@ struct ExplorePlacePage: View {
         }
     }
 
+    /// Equal-width tiles inside the gutter, stacked at accessibility sizes
+    /// where a third of the width would squash them, as Stats lays out its
+    /// totals.
+    private var tileRow: AnyLayout {
+        typeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(spacing: 10))
+            : AnyLayout(HStackLayout(spacing: 10))
+    }
+
+    /// A species name short enough for a third-width footnote: "Leervis"
+    /// for "Leervis (Garrick)", and "Bass" for "Largemouth Bass". Whole at
+    /// accessibility sizes, where the footnote wraps.
+    private func tileName(_ name: String) -> String {
+        let plain = name.range(of: " (").map { String(name[..<$0.lowerBound]) } ?? name
+        guard !typeSize.isAccessibilitySize, plain.count > 12,
+              let last = plain.split(separator: " ").last else { return plain }
+        return String(last)
+    }
+
     private var catchStats: some View {
         let released = catches.filter { $0.catchRecord.released }.count
-        // Every tile in the row has a footnote; Best names the fish.
+        // Every tile in the row has a footnote; Heaviest names the fish.
         let heaviest = catches
             .filter { $0.catchRecord.weightKg != nil }
             .max { ($0.catchRecord.weightKg ?? 0) < ($1.catchRecord.weightKg ?? 0) }
         let species = Set(catches.compactMap { $0.species?.id }).count
-        return ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 10) {
-                StatTile("Caught", systemImage: "fish", value: "\(catches.count)",
-                         footnote: "\(species) species")
-                if let heaviest, let best = heaviest.catchRecord.weightKg {
-                    let parts = Units.weightParts(kg: best)
-                    StatTile("Best", systemImage: "trophy", tint: .dsScoreFair, value: parts.0, unit: parts.1,
-                             footnote: heaviest.species?.commonName
-                                ?? ExploreFormat.shortDate(heaviest.catchRecord.caughtAt))
-                }
-                StatTile("Released", systemImage: "arrow.uturn.backward", tint: .dsScoreGood,
-                         value: "\(Int((Double(released) / Double(max(catches.count, 1)) * 100).rounded()))",
-                         unit: "%", footnote: "\(released) of \(catches.count)")
+        return tileRow {
+            StatTile("Caught", systemImage: "fish.fill", tint: DS.accent, value: "\(catches.count)",
+                     footnote: "\(species) species", width: nil)
+            if let heaviest, let best = heaviest.catchRecord.weightKg {
+                let parts = Units.weightParts(kg: best)
+                StatTile("Heaviest", systemImage: "trophy.fill", tint: .dsScoreFair, value: parts.0, unit: parts.1,
+                         footnote: heaviest.species.map { tileName($0.commonName) }
+                            ?? ExploreFormat.shortDate(heaviest.catchRecord.caughtAt),
+                         width: nil)
             }
-            .padding(.horizontal, DS.gutter)
+            StatTile("Released", systemImage: "arrow.uturn.backward", tint: .dsScoreLow,
+                     value: "\(Int((Double(released) / Double(max(catches.count, 1)) * 100).rounded()))",
+                     unit: "%", footnote: "\(released) of \(catches.count)", width: nil)
         }
+        .padding(.horizontal, DS.gutter)
         .padding(.bottom, DS.Space.s2)
     }
 
