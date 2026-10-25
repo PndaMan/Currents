@@ -140,4 +140,31 @@ final class DatabaseTests: XCTestCase {
         let countAfter = try db.db.read { db in try Catch.fetchCount(db) }
         XCTAssertEqual(countAfter, 0)
     }
+
+    @MainActor
+    func testNewSpotStartsWithAlertsOff() throws {
+        let repository = SpotRepository(db: db)
+        var spot = Spot(name: "Jetty", latitude: -34.1, longitude: 18.4)
+        try repository.save(&spot)
+        XCTAssertEqual(try repository.alert(for: spot.id), .off(for: spot.id))
+
+        // Saving the spot again keeps what the angler chose.
+        var on = SpotAlert.off(for: spot.id)
+        on.enabled = true
+        on.threshold = 80
+        try repository.saveAlert(on)
+        spot.name = "North jetty"
+        try repository.save(&spot)
+        XCTAssertEqual(try repository.alert(for: spot.id), on)
+    }
+
+    @MainActor
+    func testSpotWithoutAlertRowKeepsSending() throws {
+        // Spots saved before new ones started off have no row.
+        var spot = Spot(name: "Old pier", latitude: -34.0, longitude: 18.5)
+        try db.db.write { db in try spot.save(db) }
+        let choice = try SpotRepository(db: db).alert(for: spot.id)
+        XCTAssertTrue(choice.enabled)
+        XCTAssertTrue(choice.biteAlerts)
+    }
 }
