@@ -10,7 +10,7 @@ name: Preview Footage
 # on-device species ID are the app's own. A gesture that misses is logged as
 # a warning and never fails the run; its clip is still recorded.
 #
-# Manual only. Download "preview-footage": one MP4 per take at the device's
+# Manual, or a footage-* tag. Download "preview-footage": one MP4 per take at the device's
 # native 1320x2868 (light, then the key takes again in dark), stills/ with a
 # PNG per screen for scripts/store_art.py, and gestures.log with each
 # gesture's time from the start of its clip. Cut the video with
@@ -19,6 +19,10 @@ name: Preview Footage
 
 on:
   workflow_dispatch:
+  # A footage-* tag runs it from a branch, before this file is on master
+  # (GitHub only offers manual runs of workflows on the default branch).
+  push:
+    tags: ['footage-*']
 
 permissions:
   contents: read
