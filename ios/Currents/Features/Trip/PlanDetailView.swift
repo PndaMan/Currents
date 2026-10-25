@@ -155,7 +155,8 @@ struct PlanDetailView: View {
             let shownHour = selectedHour ?? plannedHour
             let bestHour = forecast.hourlyScores.max { $0.score < $1.score }?.hour ?? plannedHour
             VStack(alignment: .leading, spacing: 8) {
-                hourReadout(forecast, hour: shownHour, planned: window.contains(shownHour))
+                hourReadout(forecast, hour: shownHour, planned: window.contains(shownHour),
+                            time: shownHour == plannedHour ? date : nil)
                 BiteBars(hourly: forecast.hourlyScores, windows: windows,
                          currentHour: cal.isDateInToday(date) ? cal.component(.hour, from: .now) : nil,
                          selected: Binding(get: { shownHour }, set: { selectedHour = $0 }),
@@ -178,7 +179,7 @@ struct PlanDetailView: View {
                 // best of the planned hours rather than a second "Your hours".
                 ConditionTile("Your hours", systemImage: "clock", iconTint: DS.accent,
                               value: "\(PlanRowOutlook.hoursBest(forecast, from: plannedHour))", unit: "best",
-                              footnote: "\(ForecastFormat.hour(window.lowerBound, use24: use24)) to \(ForecastFormat.hour(window.upperBound + 1, use24: use24))") {
+                              footnote: "\(ForecastFormat.time(date, use24: use24)) to \(ForecastFormat.hour(window.upperBound + 1, use24: use24))") {
                     Color.clear
                 }
                 .frame(maxHeight: .infinity)
@@ -219,10 +220,13 @@ struct PlanDetailView: View {
     }
 
     /// The tapped hour (or the planned start) with its score, above the bars.
-    private func hourReadout(_ f: ForecastEngine.ForecastResult, hour: Int, planned: Bool) -> some View {
+    /// `time` is the planned start, shown in place of the bare hour so a
+    /// 05:30 plan reads 05:30 here as it does in the header.
+    private func hourReadout(_ f: ForecastEngine.ForecastResult, hour: Int, planned: Bool,
+                             time: Date? = nil) -> some View {
         let score = f.hourlyScores.first { $0.hour == hour }?.score ?? f.score
         return HStack(alignment: .firstTextBaseline, spacing: 6) {
-            Text(ForecastFormat.hour(hour, use24: use24))
+            Text(time.map { ForecastFormat.time($0, use24: use24) } ?? ForecastFormat.hour(hour, use24: use24))
                 .font(.headline)
                 .monospacedDigit()
                 .foregroundStyle(.dsText)
