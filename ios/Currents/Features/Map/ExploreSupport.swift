@@ -116,11 +116,12 @@ enum ExploreFormat {
 
     /// A ramp's kind and distance, leaving the kind out when the name
     /// already says it (an unnamed ramp is called by its kind, or by its
-    /// kind and its water, "Ramp at Theewaterskloof Dam"). Pass the side of
-    /// the water from `BoatRampService.side(of:)` to tell apart places that
-    /// share a name: "Southeast shore, 22 km away".
+    /// kind and its water or town, "Ramp at Theewaterskloof Dam", "Ramp
+    /// near Hout Bay"). Pass the side from `BoatRampService.side(of:)` to
+    /// tell apart places that share a name: "Southeast shore, 22 km away".
     static func rampLine(_ ramp: BoatRamp, distance: String?, side: String? = nil) -> String {
         let saysKind = ramp.name == ramp.kind.label || ramp.name.hasPrefix(ramp.kind.waterNamePrefix)
+            || ramp.name.hasPrefix(ramp.kind.placeNamePrefix)
         let kind = saysKind ? nil : ramp.kind.label
         return [side, kind, distance].compactMap { $0 }.joined(separator: ", ")
     }

@@ -4,10 +4,11 @@ import GRDB
 
 /// Water bodies and public fishing access bundled with the app, extracted
 /// from OpenStreetMap (Resources/Data/explore_water_za.json and
-/// explore_places_za.json). Explore draws these with no network at all, so the
-/// map has pins offline, on a sideloaded build and when the public Overpass
-/// servers are too busy to answer. Overpass still tops up anywhere outside
-/// the bundled tiles.
+/// explore_places_za.json), and the GeoNames towns that name ramps away
+/// from water (gazetteer_za.json). Explore draws these with no network at
+/// all, so the map has pins offline, on a sideloaded build and when the
+/// public Overpass servers are too busy to answer. Overpass still tops up
+/// anywhere outside the bundled tiles.
 enum BundledMapData {
     /// Bump when the bundled water file changes so existing installs import it again.
     static let waterVersion = 2
@@ -127,12 +128,84 @@ enum BundledMapData {
 
     /// The eight-point side of a water a point is on, from the water's centre.
     private static func side(of coordinate: CLLocationCoordinate2D, from water: NamedWater) -> String {
-        let east = (coordinate.longitude - water.lon) * cos(water.lat * .pi / 180)
-        let north = coordinate.latitude - water.lat
+        compassPoint(of: coordinate, fromLatitude: water.lat, longitude: water.lon)
+            + (water.isRiver ? " side" : " shore")
+    }
+
+    /// The eight-point direction of a point from another: "Northeast".
+    private static func compassPoint(of coordinate: CLLocationCoordinate2D,
+                                     fromLatitude lat: Double, longitude lon: Double) -> String {
+        let east = (coordinate.longitude - lon) * cos(lat * .pi / 180)
+        let north = coordinate.latitude - lat
         let degrees = (atan2(east, north) * 180 / .pi + 360).truncatingRemainder(dividingBy: 360)
         let names = ["North", "Northeast", "East", "Southeast", "South", "Southwest", "West", "Northwest"]
         let index = Int((degrees + 22.5) / 45) % 8
-        return names[index] + (water.isRiver ? " side" : " shore")
+        return names[index]
+    }
+
+    // MARK: Town names
+
+    /// A populated place from the GeoNames gazetteer, stored as
+    /// [name, lat, lon] (scripts/geonames_gazetteer.py).
+    private struct NamedPlace: Decodable {
+        let name: String
+        let lat: Double
+        let lon: Double
+
+        init(from decoder: Decoder) throws {
+            var row = try decoder.unkeyedContainer()
+            name = try row.decode(String.self)
+            lat = try row.decode(Double.self)
+            lon = try row.decode(Double.self)
+        }
+    }
+
+    private struct GazetteerFile: Decodable {
+        let places: [NamedPlace]
+    }
+
+    /// The gazetteer by half-degree tile. Decoded once, on first use, which
+    /// `loadNames()` makes happen off the main thread.
+    private static let placesByTile: [String: [NamedPlace]] = {
+        guard let url = resource("gazetteer_za"),
+              let data = try? Data(contentsOf: url),
+              let file = try? JSONDecoder().decode(GazetteerFile.self, from: data) else {
+            return [:]
+        }
+        return Dictionary(grouping: file.places) { tileKey(latitude: $0.lat, longitude: $0.lon) }
+    }()
+
+    /// How far from a town a ramp may lie and still be named after it.
+    static let placeMarginMetres = 10_000.0
+
+    /// The nearest bundled town or suburb within 10 km of a point, and the
+    /// side of it the point is on, measured from the town's centre: "East
+    /// side". Nil outside the bundled country or far from any town.
+    static func place(near coordinate: CLLocationCoordinate2D) -> (name: String, side: String)? {
+        let latIndex = Int((coordinate.latitude / 0.5).rounded(.down))
+        let lonIndex = Int((coordinate.longitude / 0.5).rounded(.down))
+        var best: (place: NamedPlace, distance: Double)?
+        for dLat in -1...1 {
+            for dLon in -1...1 {
+                for place in placesByTile["\(latIndex + dLat)_\(lonIndex + dLon)"] ?? [] {
+                    let distance = metres(coordinate.latitude, coordinate.longitude, place.lat, place.lon)
+                    if distance <= placeMarginMetres, distance < (best?.distance ?? .infinity) {
+                        best = (place, distance)
+                    }
+                }
+            }
+        }
+        guard let place = best?.place else { return nil }
+        return (place.name, compassPoint(of: coordinate, fromLatitude: place.lat, longitude: place.lon) + " side")
+    }
+
+    /// Decodes the bundled water and town names off the main thread, so
+    /// naming ramps on the main actor never waits on a file.
+    static func loadNames() async {
+        await Task.detached(priority: .userInitiated) {
+            _ = watersByTile.count
+            _ = placesByTile.count
+        }.value
     }
 
     /// Distance in metres, flat-earth, which is plenty at these ranges.

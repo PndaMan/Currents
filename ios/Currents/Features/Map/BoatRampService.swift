@@ -28,6 +28,14 @@ struct BoatRamp: Identifiable, Equatable, Codable {
             case .access: "Fishing access at "
             }
         }
+        /// How an unnamed place away from water, named after the nearest
+        /// town, starts, as in "Ramp near Hout Bay".
+        var placeNamePrefix: String {
+            switch self {
+            case .ramp:   "Ramp near "
+            case .access: "Fishing access near "
+            }
+        }
     }
 
     let id: String           // OSM type/id, e.g. "node/123"
@@ -49,6 +57,7 @@ final class BoatRampService: ObservableObject {
 
     private var loadedTiles = Set<String>()
     private var inFlight = Set<String>()
+    private var namesLoaded = false
 
     private var cacheDir: URL {
         let base = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
@@ -63,6 +72,10 @@ final class BoatRampService: ObservableObject {
         // A whole country's ramps is thousands of pins — only bother once the
         // map is zoomed to a fishable area.
         guard latSpan < 2.5 else { return }
+        if !namesLoaded {
+            await BundledMapData.loadNames()
+            namesLoaded = true
+        }
         let half = 0.5
         let latIndex = (center.latitude / half).rounded(.down)
         let lonIndex = (center.longitude / half).rounded(.down)
@@ -136,28 +149,37 @@ final class BoatRampService: ObservableObject {
     /// launch site mapped lane by lane, or as a point and an outline.
     static let sameSiteMetres = 200.0
 
-    /// Places whose name was made from the water they are on, so a merge
-    /// still prefers a place OpenStreetMap names.
+    /// Places whose name was made from the water they are on or the town
+    /// they are near, so a merge still prefers a place OpenStreetMap names.
     private var madeNames = Set<String>()
-    /// The side of its water each place with a made name is on.
+    /// The places among those named after a town, from GeoNames.
+    private var townNames = Set<String>()
+    /// The side of its water or town each place with a made name is on.
     private var sides: [String: String] = [:]
     /// Made names that more than one place has, "Ramp at Sandvlei".
     private var sharedNames = Set<String>()
 
-    /// The side of its water a place is on, "Southeast shore", when another
-    /// place has the same made name; nil when its name already tells it apart.
+    /// The side of its water a place is on, "Southeast shore", or of its
+    /// town, "East side", when another place has the same made name; nil
+    /// when its name already tells it apart.
     func side(of place: BoatRamp) -> String? {
         guard sharedNames.contains(place.name) else { return nil }
         return sides[place.id]
+    }
+
+    /// True when the place's name was made from a GeoNames town.
+    func isNamedAfterTown(_ place: BoatRamp) -> Bool {
+        townNames.contains(place.id)
     }
 
     /// Adds a tile's places. A place within 50 m of one of the same kind is
     /// the same place: the one with a name in OpenStreetMap is kept, else the
     /// outline (a way) over the point (a node), else the one already here.
     /// An unnamed place is then named after the water it is on, when it is
-    /// on bundled water: "Ramp at Theewaterskloof Dam". Places with the same
-    /// made name within 200 m of each other are one site, and the first is
-    /// kept. Those still sharing a name are told apart by their side.
+    /// on bundled water: "Ramp at Theewaterskloof Dam", else after the
+    /// nearest bundled town within 10 km: "Ramp near Hout Bay". Places with
+    /// the same made name within 200 m of each other are one site, and the
+    /// first is kept. Those still sharing a name are told apart by their side.
     private func merge(_ new: [BoatRamp], tile: String) {
         loadedTiles.insert(tile)
         var list = ramps
@@ -195,11 +217,19 @@ final class BoatRampService: ObservableObject {
         }
         for index in touched where list[index].name == list[index].kind.label {
             let place = list[index]
-            guard let water = BundledMapData.water(near: place.coordinate) else { continue }
-            list[index] = BoatRamp(id: place.id, name: place.kind.waterNamePrefix + water.name,
+            let made: (name: String, side: String)
+            if let water = BundledMapData.water(near: place.coordinate) {
+                made = (place.kind.waterNamePrefix + water.name, water.side)
+            } else if let town = BundledMapData.place(near: place.coordinate) {
+                made = (place.kind.placeNamePrefix + town.name, town.side)
+                townNames.insert(place.id)
+            } else {
+                continue
+            }
+            list[index] = BoatRamp(id: place.id, name: made.name,
                                    kind: place.kind, lat: place.lat, lon: place.lon)
             madeNames.insert(place.id)
-            sides[place.id] = water.side
+            sides[place.id] = made.side
         }
         var sites: [String: [BoatRamp]] = [:]
         list = list.filter { place in
