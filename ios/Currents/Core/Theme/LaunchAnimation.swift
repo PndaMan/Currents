@@ -27,6 +27,8 @@ struct LaunchAnimation: View {
     @State private var exitAt: Date? = nil
     /// True from the moment it opens, so taps and VoiceOver reach the app.
     @State private var opening = false
+    /// 1, or slower for a CI recording (ScreenshotSupport.launchPace).
+    private let pace = ScreenshotSupport.launchPace
 
     init(onReveal: @escaping (Bool) -> Void, onFinish: @escaping () -> Void) {
         self.onReveal = onReveal
@@ -70,7 +72,7 @@ struct LaunchAnimation: View {
         guard start == nil else { return }
         let now = Date()
         start = now
-        exitAt = now.addingTimeInterval(reduceMotion ? LaunchArt.stillHold : LaunchArt.openAt)
+        exitAt = now.addingTimeInterval((reduceMotion ? LaunchArt.stillHold : LaunchArt.openAt) * pace)
     }
 
     /// A tap goes straight to the opening.
@@ -83,7 +85,7 @@ struct LaunchAnimation: View {
     /// `exitAt`, which cancels this run and starts a new one from the tap.
     private func run() async {
         guard let at = exitAt else { return }
-        let length = reduceMotion ? LaunchArt.fade : LaunchArt.zoom
+        let length = (reduceMotion ? LaunchArt.fade : LaunchArt.zoom) * pace
         do {
             try await Task.sleep(for: .seconds(max(0, at.timeIntervalSinceNow)))
             opening = true
@@ -98,9 +100,9 @@ struct LaunchAnimation: View {
 
     private func pose(at date: Date) -> LaunchPose {
         var exitTime = reduceMotion ? LaunchArt.stillHold : LaunchArt.openAt
-        if let start, let exitAt { exitTime = exitAt.timeIntervalSince(start) }
-        let time = start.map { date.timeIntervalSince($0) } ?? 0
-        let sinceExit = exitAt.map { date.timeIntervalSince($0) } ?? -1
+        if let start, let exitAt { exitTime = exitAt.timeIntervalSince(start) / pace }
+        let time = start.map { date.timeIntervalSince($0) / pace } ?? 0
+        let sinceExit = exitAt.map { date.timeIntervalSince($0) / pace } ?? -1
         return LaunchPose(time: time, sinceExit: sinceExit, exitTime: exitTime, still: reduceMotion)
     }
 }

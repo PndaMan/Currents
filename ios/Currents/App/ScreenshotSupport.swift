@@ -31,6 +31,16 @@ enum ScreenshotSupport {
         ProcessInfo.processInfo.environment["SCREENSHOT_PLAY_LAUNCH"] == "1"
     }
 
+    /// How many times slower the opening animation plays. CI's simulator
+    /// drops most frames at launch, so `SCREENSHOT_LAUNCH_PACE=4` lets a
+    /// recording catch every stage. 1 everywhere else.
+    static var launchPace: Double {
+        guard isActive,
+              let raw = ProcessInfo.processInfo.environment["SCREENSHOT_LAUNCH_PACE"],
+              let pace = Double(raw), pace >= 1 else { return 1 }
+        return pace
+    }
+
     /// A coastal spot (Kogel Bay, South Africa) the map centres on in
     /// screenshot mode, matching the seeded demo spots.
     static let demoCoordinate = CLLocationCoordinate2D(latitude: -34.235, longitude: 18.848)
