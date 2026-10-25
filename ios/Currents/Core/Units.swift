@@ -24,17 +24,12 @@ enum Units {
 
     // MARK: Length (stored cm) — fish sizes
 
+    /// A fish length, rounded as `lengthParts` rounds it so the two agree:
+    /// "99.5 cm", "52 cm", or "20.5 in" in imperial (anglers measure fish in
+    /// inches, not feet).
     static func length(cm: Double, imperial: Bool = isImperial) -> String {
-        if imperial {
-            let inches = cm / 2.54
-            if inches >= 12 {
-                let ft = Int(inches / 12)
-                let rem = Int((inches.truncatingRemainder(dividingBy: 12)).rounded())
-                return rem == 0 ? "\(ft) ft" : "\(ft)′ \(rem)″"
-            }
-            return "\(round(inches, 1)) in"
-        }
-        return "\(round(cm, cm < 100 ? 0 : 1)) cm"
+        let (value, unit) = lengthParts(cm: cm, imperial: imperial)
+        return "\(value) \(unit)"
     }
 
     // MARK: Weight (stored kg or g)
