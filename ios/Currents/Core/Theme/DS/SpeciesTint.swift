@@ -2,17 +2,21 @@ import SwiftUI
 import UIKit
 
 /// The art colour of a species: the alpha-weighted average of its bundled
-/// artwork, cached per species. Falls back to the rarity colour when a
-/// species has no art yet. Drives thumbnail backgrounds and detail tints.
+/// artwork, cached per species. A species with no art yet takes `standIn`.
+/// Drives thumbnail backgrounds and detail tints.
 enum SpeciesTint {
     private static let cache = NSCache<NSNumber, UIColor>()
+
+    /// One quiet hue for every species without art, the way a lure without
+    /// art takes one hue. The rarity colour would read as a meaning it lacks.
+    static var standIn: Color { .teal }
 
     static func color(for species: Species) -> Color {
         let key = NSNumber(value: species.id)
         if let cached = cache.object(forKey: key) { return Color(uiColor: cached) }
         guard let image = UIImage(named: species.artworkAssetName),
               let average = averageColor(of: image) else {
-            return species.rarity.color
+            return standIn
         }
         cache.setObject(average, forKey: key)
         return Color(uiColor: average)
