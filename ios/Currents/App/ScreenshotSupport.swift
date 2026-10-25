@@ -442,12 +442,12 @@ enum ScreenshotSupport {
         .init(name: "Largemouth Bass", photos: ["bass"], lengthCm: 32...54, k: 1.76e-5, spots: [1, 2], loadout: 0),
         .init(name: "Common Carp", photos: ["carp"], lengthCm: 48...82, k: 1.75e-5, spots: [2, 5], loadout: 2),
         .init(name: "Brown Trout", photos: ["trout"], lengthCm: 30...52, k: 1.2e-5, spots: [4], loadout: 3),
-        .init(name: "Dusky Kob", photos: ["kob", "drum"], lengthCm: 62...112, k: 9.0e-6, spots: [3, 0], loadout: 1),
-        .init(name: "Yellowtail Kingfish", photos: ["yellowtail", "drum"], lengthCm: 70...98, k: 1.1e-5, spots: [0], loadout: 1),
-        .init(name: "Nile Tilapia", photos: ["tilapia", "perch"], lengthCm: 26...40, k: 1.87e-5, spots: [5], loadout: 0),
+        // No photo of a Dusky Kob, Leervis or Galjoen is bundled, and another
+        // fish would be wrong data, so these show the species artwork instead.
+        .init(name: "Dusky Kob", photos: ["kob"], lengthCm: 62...112, k: 9.0e-6, spots: [3, 0], loadout: 1),
+        .init(name: "Yellowtail Kingfish", photos: ["yellowtail"], lengthCm: 70...98, k: 1.1e-5, spots: [0], loadout: 1),
+        .init(name: "Nile Tilapia", photos: ["tilapia"], lengthCm: 26...40, k: 1.87e-5, spots: [5], loadout: 0),
         .init(name: "African Sharptooth Catfish", photos: ["catfish"], lengthCm: 60...104, k: 9.6e-6, spots: [5, 2], loadout: 2),
-        // No photo of a Leervis or a Galjoen is bundled, and another fish
-        // would be wrong data, so these show the species artwork instead.
         .init(name: "Leervis (Garrick)", photos: ["garrick"], lengthCm: 72...104, k: 1.1e-5, spots: [3], loadout: 1),
         .init(name: "Galjoen", photos: ["galjoen"], lengthCm: 30...48, k: 2.3e-5, spots: [0], loadout: 1),
     ]
