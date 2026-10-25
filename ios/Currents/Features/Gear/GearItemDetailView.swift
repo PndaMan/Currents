@@ -89,7 +89,6 @@ struct GearItemDetailView: View {
     @State private var catches: [CatchDetail] = []
     @State private var editing: OwnedGear?
     @State private var confirmDelete = false
-    @State private var titleShown = false
     @State private var didLoad = false
 
     var body: some View {
@@ -105,8 +104,7 @@ struct GearItemDetailView: View {
             }
         }
         .detailTint(item?.category.tint)
-        .pfTrackScroll($titleShown, threshold: 200)
-        .pfScrollTitle(item?.name ?? "Gear", shown: titleShown)
+        .pageTitleFade(item?.name ?? "Gear", threshold: 200)
         .task { load() }
         .sheet(item: $editing, onDismiss: load) { gear in
             EditOwnedGearSheet(gear: gear)
@@ -313,7 +311,6 @@ struct GearEffectivenessView: View {
     @Environment(AppState.self) private var appState
     @State private var catches: [CatchDetail] = []
     @State private var didLoad = false
-    @State private var titleShown = false
     @Environment(\.dynamicTypeSize) private var typeSize
 
     private var withGear: [CatchDetail] { catches.filter { $0.gearLoadout != nil } }
@@ -345,8 +342,7 @@ struct GearEffectivenessView: View {
             .pageWidth()
         }
         .detailTint(nil)
-        .pfTrackScroll($titleShown, threshold: 60)
-        .pfScrollTitle("Gear effectiveness", shown: titleShown)
+        .pageTitleFade("Gear effectiveness")
         .task {
             catches = (try? appState.catchRepository.fetchAll(limit: 10000)) ?? []
             didLoad = true

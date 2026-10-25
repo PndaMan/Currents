@@ -8,7 +8,6 @@ struct KnotLibraryView: View {
     private let catalog = KnotCatalog.shared
     @State private var search = ""
     @State private var category: KnotEntry.Category?
-    @State private var titleShown = false
     @AppStorage("favouriteKnots") private var favouritesRaw = ""
 
     private var favourites: Set<String> {
@@ -63,8 +62,7 @@ struct KnotLibraryView: View {
         }
         .scrollDismissesKeyboard(.interactively)
         .detailTint(nil)
-        .pfTrackScroll($titleShown, threshold: 60)
-        .pfScrollTitle("Knots", shown: titleShown)
+        .pageTitleFade("Knots")
         .navigationDestination(for: KnotRoute.self) { route in
             if let knot = catalog.entry(id: route.id) {
                 KnotDetailView(knot: knot)
@@ -167,7 +165,6 @@ struct KnotDetailView: View {
     @AppStorage("favouriteKnots") private var favouritesRaw = ""
     @State private var stepping: Int?
     @State private var showsDiagram = false
-    @State private var titleShown = false
     @Environment(\.dynamicTypeSize) private var typeSize
 
     /// Half height leaves no room for a step at accessibility sizes.
@@ -245,8 +242,7 @@ struct KnotDetailView: View {
             .pageWidth()
         }
         .detailTint(nil)
-        .pfTrackScroll($titleShown, threshold: 100)
-        .pfScrollTitle(knot.name, shown: titleShown)
+        .pageTitleFade(knot.name)
         .sheet(isPresented: Binding(get: { stepping != nil }, set: { if !$0 { stepping = nil } })) {
             KnotStepSheet(knot: knot, step: stepping ?? 0)
                 .dsSheet(stepDetents)

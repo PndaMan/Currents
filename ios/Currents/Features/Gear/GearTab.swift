@@ -25,7 +25,6 @@ struct GearTab: View {
     @State private var filter: GearFilter = .all
     @State private var didLoad = false
     @State private var loadFailed = false
-    @State private var titleShown = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private enum PresetFollowUp {
@@ -55,8 +54,7 @@ struct GearTab: View {
     var body: some View {
         withSheets(withConfirmations(page))
             .detailTint(nil)
-            .pfTrackScroll($titleShown, threshold: 60)
-            .pfScrollTitle("Tackle box", shown: titleShown)
+            .pageTitleFade("Tackle box")
             .navigationDestination(for: GearItemRoute.self) { route in
                 GearItemDetailView(itemID: route.id)
             }
@@ -1662,7 +1660,6 @@ struct GearOptionList: View {
     @Binding var selection: String
     @Environment(\.dismiss) private var dismiss
     @State private var query = ""
-    @State private var titleShown = false
 
     private var typed: String { query.trimmingCharacters(in: .whitespaces) }
 
@@ -1712,8 +1709,7 @@ struct GearOptionList: View {
         .scrollDismissesKeyboard(.interactively)
         .detailScrollEdge()
         .dsScreenBackground()
-        .pfTrackScroll($titleShown, threshold: 60)
-        .pfScrollTitle(title, shown: titleShown)
+        .pageTitleFade(title)
     }
 
     private func row(_ text: String, value: String, selected: Bool) -> some View {
