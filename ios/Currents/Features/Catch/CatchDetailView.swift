@@ -137,7 +137,7 @@ struct CatchDetailView: View {
     private var facts: [CatchFact] {
         var list: [CatchFact] = []
         if isPersonalBest {
-            list.append(CatchFact(systemImage: "trophy.fill", text: "Personal best", tint: DS.accent))
+            list.append(CatchFact(systemImage: "trophy.fill", text: "Personal best", tint: DS.ink(.dsScoreFair)))
         }
         if record.released {
             list.append(CatchFact(systemImage: "arrow.uturn.backward", text: "Released"))
@@ -487,14 +487,21 @@ struct CatchDetailView: View {
             SectionTitle("Gear", detail: gearSetName)
                 .padding(.top, DS.Space.s8)
             // One card, as the tackle box lists the same rod and reel: the
-            // lure with its art, then each item on its category's tile.
+            // lure with its art, then each item drawn as the tackle box draws it.
             CardGroup {
                 if let lureName {
-                    GearLureRow(name: lureName, detail: lureDetail)
+                    GearItemRow(title: lureName, subtitle: lureDetail ?? "Lure") {
+                        LureThumb(name: lureName, size: 34)
+                    }
                 }
                 ForEach(rows) { row in
-                    CardRow(row.title, subtitle: row.subtitle, systemImage: row.systemImage,
-                            tint: row.tint, value: row.value)
+                    GearItemRow(title: row.title, subtitle: row.subtitle, value: row.value) {
+                        if let category = row.category {
+                            GearThumbnail(photoPath: nil, category: category, size: 34)
+                        } else {
+                            TintIcon(systemImage: row.systemImage, tint: row.tint)
+                        }
+                    }
                 }
             }
         }
@@ -521,20 +528,21 @@ struct CatchDetailView: View {
         var rows: [GearLine] = []
         if let rod = g.rod, !rod.isEmpty {
             rows.append(GearLine(title: "Rod", subtitle: rod, systemImage: OwnedGear.Category.rod.icon,
-                                 tint: OwnedGear.Category.rod.tint))
+                                 tint: OwnedGear.Category.rod.tint, category: .rod))
         }
         if let reel = g.reel, !reel.isEmpty {
             rows.append(GearLine(title: "Reel", subtitle: reel, systemImage: OwnedGear.Category.reel.icon,
-                                 tint: OwnedGear.Category.reel.tint))
+                                 tint: OwnedGear.Category.reel.tint, category: .reel))
         }
         if let line = g.lineLb {
             rows.append(GearLine(title: "Line",
                                  subtitle: g.leaderLb.map { "\(PresetSheet.number($0)) lb leader" },
                                  systemImage: OwnedGear.Category.line.icon, tint: OwnedGear.Category.line.tint,
-                                 value: "\(PresetSheet.number(line)) lb"))
+                                 value: "\(PresetSheet.number(line)) lb", category: .line))
         } else if let leader = g.leaderLb {
             rows.append(GearLine(title: "Leader", systemImage: OwnedGear.Category.line.icon,
-                                 tint: OwnedGear.Category.line.tint, value: "\(PresetSheet.number(leader)) lb"))
+                                 tint: OwnedGear.Category.line.tint, value: "\(PresetSheet.number(leader)) lb",
+                                 category: .line))
         }
         if let technique = g.technique, !technique.isEmpty {
             rows.append(GearLine(title: "Technique", subtitle: FishingTechniques.label(for: technique),
@@ -857,31 +865,46 @@ private struct GearLine: Identifiable {
     let systemImage: String
     let tint: Color
     var value: String? = nil
+    /// Set for gear, which draws as the tackle box draws it (the reel is its
+    /// own shape there); nil for the technique, which has only a symbol.
+    var category: OwnedGear.Category? = nil
     var id: String { title }
 }
 
-/// The lure leading the gear card: its art in the icon slot, then its name
-/// and colour and weight, on CardRow's spacing.
-private struct GearLureRow: View {
-    let name: String
-    let detail: String?
+/// A row of the gear card: art or a tile in the icon slot, then the title and
+/// its line under it, and a value on the right, on CardRow's spacing.
+private struct GearItemRow<Leading: View>: View {
+    let title: String
+    let subtitle: String?
+    var value: String? = nil
+    @ViewBuilder let leading: () -> Leading
     @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
         HStack(alignment: typeSize.isAccessibilitySize ? .top : .center, spacing: 14) {
-            LureThumb(name: name, size: 34)
+            leading()
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
-                Text(name)
+                Text(title)
                     .font(.body)
                     .foregroundStyle(.dsText)
                     .lineLimit(typeSize.isAccessibilitySize ? nil : 2)
-                Text(detail ?? "Lure")
-                    .font(.subheadline)
-                    .foregroundStyle(.dsText2)
-                    .lineLimit(typeSize.isAccessibilitySize ? nil : 2)
+                if let subtitle, !subtitle.isEmpty {
+                    Text(subtitle)
+                        .font(.subheadline)
+                        .foregroundStyle(.dsText2)
+                        .lineLimit(typeSize.isAccessibilitySize ? nil : 2)
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            if let value, !value.isEmpty {
+                Text(value)
+                    .font(.body)
+                    .foregroundStyle(.dsText2)
+                    .monospacedDigit()
+                    .multilineTextAlignment(.trailing)
+                    .lineLimit(typeSize.isAccessibilitySize ? 2 : 1)
+            }
         }
         .padding(.horizontal, DS.Space.s4)
         .padding(.vertical, 10)
