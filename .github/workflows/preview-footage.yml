@@ -10,6 +10,11 @@ name: Preview Footage
 # on-device species ID are the app's own. A gesture that misses is logged as
 # a warning and never fails the run; its clip is still recorded.
 #
+# Records only some takes when given their names, space separated: the
+# "takes" input on a manual run, or the message of an annotated footage-* tag
+# (git tag -a footage-4 -m "add-flow-light explore-pin-light"). Empty
+# records every take.
+#
 # Manual, or a footage-* tag. Download "preview-footage": one MP4 per take at the device's
 # native 1320x2868 (light, then the key takes again in dark), stills/ with a
 # PNG per screen for scripts/store_art.py, and gestures.log with each
@@ -19,6 +24,11 @@ name: Preview Footage
 
 on:
   workflow_dispatch:
+    inputs:
+      takes:
+        description: Takes to record, space separated (empty records all)
+        required: false
+        default: ''
   # A footage-* tag runs it from a branch, before this file is on master
   # (GitHub only offers manual runs of workflows on the default branch).
   push:
@@ -190,7 +200,21 @@ jobs:
           ls "$DATA/Library/Caches/MLModels"
 
       - name: Record clips
+        env:
+          INPUT_TAKES: ${{ inputs.takes }}
         run: |
+          # The takes to record: the manual input, else the tag's message.
+          # Checkout makes the tag lightweight, so fetch the annotated one.
+          TAKES="${INPUT_TAKES:-}"
+          if [ -z "$TAKES" ] && [ "${GITHUB_REF_TYPE:-}" = tag ]; then
+            git fetch --depth=1 --force origin "+refs/tags/$GITHUB_REF_NAME:refs/tags/$GITHUB_REF_NAME" >/dev/null 2>&1 || true
+            if [ "$(git cat-file -t "$GITHUB_REF_NAME" 2>/dev/null)" = tag ]; then
+              TAKES=$(git tag -l --format='%(contents:subject)' "$GITHUB_REF_NAME")
+            fi
+          fi
+          echo "Takes: ${TAKES:-all}"
+          want() { [ -z "$TAKES" ] || [[ " $TAKES " == *" $1 "* ]]; }
+
           OUT=footage
           LOG="$OUT/gestures.log"
           mkdir -p "$OUT/stills"
@@ -211,6 +235,7 @@ jobs:
             SIMCTL_CHILD_SCREENSHOT_SCREEN="$1" \
             SIMCTL_CHILD_SCREENSHOT_PHOTO="${2:-}" \
             SIMCTL_CHILD_SCREENSHOT_PLAY_LAUNCH="$PLAY_LAUNCH" \
+            SIMCTL_CHILD_SCREENSHOT_LAUNCH_PACE="${LAUNCH_PACE:-1}" \
               xcrun simctl launch "$UDID" "$BUNDLE_ID" -appearanceMode "$APPEARANCE" >/dev/null \
               || echo "::warning::${CLIP:-warm-up}: launch of $1 failed"
           }
@@ -310,173 +335,231 @@ jobs:
             fi
           }
 
-          # Points on the 440x956 screen, measured on the ui-review captures.
-          # The tab bar's centre item (Add) is at 220,903.
+          # The first recording of a session keeps a single frame, so make a
+          # throwaway one before the takes.
+          xcrun simctl io "$UDID" recordVideo --codec=h264 --force "$RUNNER_TEMP/primer.mp4" >/dev/null 2>&1 &
+          PRIMER=$!
+          sleep 3
+          kill -INT "$PRIMER" 2>/dev/null || true
+          wait "$PRIMER" 2>/dev/null || true
 
-          # The opening animation: the fish fills with water and opens into
-          # Today.
-          PLAY_LAUNCH=1
-          start launch-light today
-          sleep 6
-          stop
-          PLAY_LAUNCH=""
+          # Points on the 440x956 screen, measured on the captures. AXe is
+          # slow here: each command takes about 3 seconds (8 with --label or
+          # --id), a tap is held long enough to count as a long press, and a
+          # drag rests before it moves, so the map, which drops a spot on a
+          # long press, gets taps on pins only and never drags. The tab
+          # bar's Add item is at 220,904.
+
+          # The opening animation at its real pace, then four times slower,
+          # so the recording catches every stage even when the simulator
+          # drops frames at launch.
+          if want launch-light; then
+            PLAY_LAUNCH=1
+            start launch-light today
+            sleep 10
+            stop
+            LAUNCH_PACE=4
+            start launch-slow-light today
+            sleep 15
+            stop
+            PLAY_LAUNCH=""
+            LAUNCH_PACE=""
+          fi
 
           # Today settles, then two slow scrolls down the page.
-          start today-light today
-          sleep 6
-          still today
-          if [ "$HAVE_AXE" = 1 ]; then axe describe-ui --udid "$UDID" > "$OUT/today-ui.json" 2>/dev/null || true; fi
-          scroll 780 380; sleep 2.5
-          scroll 780 380; sleep 2.5
-          stop
+          if want today-light; then
+            start today-light today
+            sleep 6
+            still today
+            scroll 780 380; sleep 2.5
+            scroll 780 380; sleep 2.5
+            stop
+          fi
 
           # The hero flow: Add in the tab bar, the menu springs up, Log catch.
-          # The camera shows the demo fish for 3 seconds, takes it, and the
+          # The camera shows the demo trout for 3 seconds, takes it, and the
           # species is identified on the phone.
-          start add-flow-light today bass-06.jpg
-          sleep 4
-          tap_on --label "Add" 220 903
-          sleep 1.5
-          still add-menu
-          if [ "$HAVE_AXE" = 1 ]; then axe describe-ui --udid "$UDID" > "$OUT/add-menu-ui.json" 2>/dev/null || true; fi
-          sleep 1
-          tap_on --id add-menu-log-catch 115 640
-          sleep 2.5
-          still log-catch-camera
-          sleep 8.5
-          still log-catch-id
-          if [ "$HAVE_AXE" = 1 ]; then axe describe-ui --udid "$UDID" > "$OUT/log-catch-ui.json" 2>/dev/null || true; fi
-          sleep 1
-          scroll 780 420; sleep 3
-          stop
+          if want add-flow-light; then
+            start add-flow-light today trout-01.jpg
+            sleep 5
+            ax tap -x 220 -y 904
+            sleep 2
+            still add-menu
+            ax tap -x 123 -y 658
+            sleep 2.5
+            still log-catch-camera
+            sleep 8.5
+            still log-catch-id
+            sleep 3
+            stop
+          fi
 
           # The same from Today's own Log catch button, and a second species.
-          start log-catch-light today bass-06.jpg
-          sleep 5
-          tap_on --label "Log catch" 220 540
-          sleep 14
-          stop
+          if want log-catch-light; then
+            start log-catch-light today bass-06.jpg
+            sleep 5
+            ax tap -x 220 -y 539
+            sleep 14
+            stop
+          fi
 
-          start log-catch-trout-light log-catch trout-01.jpg
-          sleep 15
-          still log-catch-id-trout
-          stop
+          if want log-catch-trout-light; then
+            start log-catch-trout-light log-catch trout-01.jpg
+            sleep 15
+            still log-catch-id-trout
+            stop
+          fi
 
-          # The day's forecast: scrub across the hourly bars, then scroll.
-          start forecast-day-light forecast-day
-          sleep 5
-          still forecast-day
-          ax drag --start-x 40 --start-y 610 --end-x 410 --end-y 610 --duration 3 --steps 150; sleep 2
-          scroll 800 400; sleep 2.5
-          stop
+          # The day's forecast: tap the evening bar, then midday. The bars are
+          # buttons (no scrub), and a drag from the edge would swipe back.
+          # Bar centres sit at x = 16 + (hour + 0.5) * 17.
+          if want forecast-day-light; then
+            start forecast-day-light forecast-day
+            sleep 5
+            still forecast-day
+            ax tap -x 330 -y 630; sleep 3
+            still forecast-day-hour
+            ax tap -x 228 -y 630; sleep 3
+            stop
+          fi
 
-          start forecast-week-light forecast-week
-          sleep 5
-          still forecast-week
-          scroll 800 400; sleep 2.5
-          stop
+          if want forecast-week-light; then
+            start forecast-week-light forecast-week
+            sleep 5
+            still forecast-week
+            scroll 800 400; sleep 2.5
+            stop
+          fi
 
-          # Explore: the map loads, open the Kogel Bay Reef pin, scroll its page.
-          start explore-pin-light explore
-          sleep 9
-          still explore
-          ax tap -x 190 -y 380; sleep 4
-          still spot-sheet
-          scroll 820 420; sleep 3
-          stop
+          # Explore: the map loads, tap the Kogel Bay Reef pin, scroll its page.
+          if want explore-pin-light; then
+            start explore-pin-light explore
+            sleep 9
+            still explore
+            ax tap -x 188 -y 377; sleep 4
+            still spot-sheet
+            scroll 820 420; sleep 3
+            stop
+          fi
 
-          # Explore: pan the map slowly, then open "Biting near you".
-          start explore-pan-light explore
-          sleep 9
-          ax drag --start-x 300 --start-y 640 --end-x 200 --end-y 470 --duration 2 --steps 120; sleep 1.5
-          ax drag --start-x 200 --start-y 470 --end-x 250 --end-y 600 --duration 1.6 --steps 100; sleep 1.5
-          ax tap -x 220 -y 823; sleep 4
-          still explore-near
-          stop
+          # Explore: "Biting near you" opens by itself after 2 seconds
+          # (screen explore-near), no gesture needed.
+          if want explore-near-light; then
+            start explore-near-light explore-near
+            sleep 12
+            still explore-near
+            stop
+          fi
 
           # The hero catch: swipe its photos, then scroll the page.
-          start catch-light catch
-          sleep 5
-          still catch
-          ax drag --start-x 360 --start-y 260 --end-x 80 --end-y 260 --duration 0.5 --steps 30; sleep 2
-          scroll 820 420; sleep 2.5
-          stop
+          if want catch-light; then
+            start catch-light catch
+            sleep 5
+            still catch
+            ax drag --start-x 360 --start-y 260 --end-x 80 --end-y 260 --duration 0.5 --steps 30; sleep 2
+            scroll 820 420; sleep 2.5
+            stop
+          fi
 
           # A week's streak kept: the streak moment plays over Today.
-          start streak-moment-light streak-moment
-          sleep 3
-          still streak-moment-start
-          sleep 4
-          still streak-moment
-          sleep 3
-          stop
+          if want streak-moment-light; then
+            start streak-moment-light streak-moment
+            sleep 3
+            still streak-moment-start
+            sleep 4
+            still streak-moment
+            sleep 3
+            stop
+          fi
 
-          start fishdex-light fishdex
-          sleep 5
-          still fishdex
-          scroll 820 360 2.2; sleep 2
-          stop
+          if want fishdex-light; then
+            start fishdex-light fishdex
+            sleep 5
+            still fishdex
+            scroll 820 360 2.2; sleep 2
+            stop
+          fi
 
-          start lures-light lures
-          sleep 5
-          still lures
-          scroll 820 400 1.8; sleep 2.5
-          stop
+          if want lures-light; then
+            start lures-light lures
+            sleep 5
+            still lures
+            scroll 820 400 1.8; sleep 2.5
+            stop
+          fi
 
-          start leaderboard-light leaderboard
-          sleep 6
-          still leaderboard
-          stop
+          if want leaderboard-light; then
+            start leaderboard-light leaderboard
+            sleep 6
+            still leaderboard
+            stop
+          fi
 
           # Stills only.
-          for s in streak stats profile spot species session; do shot "$s"; done
+          if want shots; then
+            for s in streak stats profile spot species session; do shot "$s"; done
+          fi
 
           # The dark pass: the key takes again, and the stills a dark slide
           # needs.
           APPEARANCE=dark
           xcrun simctl ui "$UDID" appearance dark
 
-          PLAY_LAUNCH=1
-          start launch-dark today
-          sleep 6
-          stop
-          PLAY_LAUNCH=""
+          if want launch-dark; then
+            PLAY_LAUNCH=1
+            start launch-dark today
+            sleep 10
+            stop
+            PLAY_LAUNCH=""
+          fi
 
-          start today-dark today
-          sleep 6
-          still today-dark
-          scroll 780 380; sleep 2.5
-          stop
+          if want today-dark; then
+            start today-dark today
+            sleep 6
+            still today-dark
+            scroll 780 380; sleep 2.5
+            stop
+          fi
 
-          start add-flow-dark today bass-06.jpg
-          sleep 4
-          tap_on --label "Add" 220 903
-          sleep 2.5
-          still add-menu-dark
-          tap_on --id add-menu-log-catch 115 640
-          sleep 11
-          still log-catch-id-dark
-          stop
+          if want add-flow-dark; then
+            start add-flow-dark today trout-01.jpg
+            sleep 5
+            ax tap -x 220 -y 904
+            sleep 2
+            still add-menu-dark
+            ax tap -x 123 -y 658
+            sleep 11
+            still log-catch-id-dark
+            stop
+          fi
 
-          start forecast-day-dark forecast-day
-          sleep 5
-          ax drag --start-x 40 --start-y 610 --end-x 410 --end-y 610 --duration 3 --steps 150; sleep 2
-          stop
+          if want forecast-day-dark; then
+            start forecast-day-dark forecast-day
+            sleep 5
+            ax tap -x 330 -y 630; sleep 3
+            stop
+          fi
 
-          start explore-pin-dark explore
-          sleep 9
-          still explore-dark
-          ax tap -x 190 -y 380; sleep 4
-          stop
+          if want explore-pin-dark; then
+            start explore-pin-dark explore
+            sleep 9
+            still explore-dark
+            ax tap -x 188 -y 377; sleep 4
+            stop
+          fi
 
-          start streak-moment-dark streak-moment
-          sleep 7
-          still streak-moment-dark
-          sleep 3
-          stop
+          if want streak-moment-dark; then
+            start streak-moment-dark streak-moment
+            sleep 7
+            still streak-moment-dark
+            sleep 3
+            stop
+          fi
 
-          shot fishdex fishdex-dark
-          shot catch catch-dark
+          if want shots-dark; then
+            shot fishdex fishdex-dark
+            shot catch catch-dark
+          fi
 
           ls -la "$OUT" "$OUT/stills"
           cat "$LOG"
