@@ -373,13 +373,21 @@ struct ExplorePlacePage: View {
             : AnyLayout(HStackLayout(spacing: 10))
     }
 
+    /// Long names anglers shorten to the first word, because the last word
+    /// alone names another fish: a kingfish here is a giant or bluefin.
+    private static let firstWordNames: Set<String> = ["Yellowtail Kingfish"]
+
     /// A species name short enough for a third-width footnote: "Leervis"
-    /// for "Leervis (Garrick)", and "Bass" for "Largemouth Bass". Whole at
-    /// accessibility sizes, where the footnote wraps.
+    /// for "Leervis (Garrick)", "Bass" for "Largemouth Bass" and "Yellowtail"
+    /// for "Yellowtail Kingfish". Whole at accessibility sizes, where the
+    /// footnote wraps.
     private func tileName(_ name: String) -> String {
         let plain = name.range(of: " (").map { String(name[..<$0.lowerBound]) } ?? name
         guard !typeSize.isAccessibilitySize, plain.count > 12,
               let last = plain.split(separator: " ").last else { return plain }
+        if Self.firstWordNames.contains(plain), let first = plain.split(separator: " ").first {
+            return String(first)
+        }
         return String(last)
     }
 
