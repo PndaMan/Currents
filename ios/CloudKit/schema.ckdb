@@ -16,6 +16,12 @@ DEFINE SCHEMA
         -- A flair title picked from earned achievements ("Species Master"),
         -- shown under the angler's name on profiles.
         title           STRING,
+        -- The weekly fishing streak and the longest one, in weeks, and the
+        -- start of the latest week fished. A friend's page shows the
+        -- current run only while streakWeek is this week or last.
+        currentStreak   INT64,
+        longestStreak   INT64,
+        streakWeek      TIMESTAMP,
         updatedAt       TIMESTAMP,
         "___createTime" TIMESTAMP,
         "___createdBy"  REFERENCE,
