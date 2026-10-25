@@ -333,7 +333,7 @@ struct LogCatchCameraView: View {
 
     private var shutterOpacity: Double {
         if demoPhoto != nil { return 1 }
-        switch camera.status {
+        return switch camera.status {
         case .running: 1
         case .starting: 0.4
         case .denied, .unavailable: 0
