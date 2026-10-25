@@ -478,10 +478,11 @@ struct EventRankRow: View {
                     .foregroundStyle(Color.dsText)
                     .lineLimit(typeSize.isAccessibilitySize ? 3 : 1)
                 if let subtitle, !subtitle.isEmpty {
+                    // Two lines, as ArtRow's subtitle, so a figure is never cut.
                     Text(subtitle)
                         .font(.subheadline)
                         .foregroundStyle(Color.dsText2)
-                        .lineLimit(typeSize.isAccessibilitySize ? 3 : 1)
+                        .lineLimit(typeSize.isAccessibilitySize ? nil : 2)
                 }
             }
             Spacer(minLength: DS.Space.s2)

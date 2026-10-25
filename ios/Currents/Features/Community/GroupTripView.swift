@@ -1442,13 +1442,19 @@ struct GroupTripView: View {
         var count: Int
         var bestKg: Double?
         var bestCm: Double?
-        var bestSpecies: String?
         var species: Set<String>
-        /// Species keep the capitalisation of the species list.
+        /// One short fact that leads with the number. The row's value already
+        /// gives the fish count, and the catch rows below name the species.
         func subtitle(imperial: Bool) -> String {
-            guard let bestSpecies else { return "No fish yet" }
-            if let bestKg { return "Biggest \(bestSpecies), \(Units.weight(kg: bestKg, imperial: imperial))" }
-            if let bestCm { return "Biggest \(bestSpecies), \(Units.length(cm: bestCm, imperial: imperial))" }
+            guard count > 0 else { return "No fish yet" }
+            if let bestKg {
+                let p = Units.weightParts(kg: bestKg, imperial: imperial)
+                return "Biggest \(p.0) \(p.1)"
+            }
+            if let bestCm {
+                let p = Units.lengthParts(cm: bestCm, imperial: imperial)
+                return "Biggest \(p.0) \(p.1)"
+            }
             return "\(species.count) species"
         }
     }
@@ -1457,21 +1463,14 @@ struct GroupTripView: View {
     private func standings() -> [MemberStat] {
         var byCode: [String: MemberStat] = [:]
         for m in members {
-            byCode[m.id] = MemberStat(code: m.id, name: m.name, count: 0, bestKg: nil, bestCm: nil, bestSpecies: nil, species: [])
+            byCode[m.id] = MemberStat(code: m.id, name: m.name, count: 0, bestKg: nil, bestCm: nil, species: [])
         }
         for c in feed {
-            var s = byCode[c.friendCode] ?? MemberStat(code: c.friendCode, name: c.anglerName, count: 0, bestKg: nil, bestCm: nil, bestSpecies: nil, species: [])
+            var s = byCode[c.friendCode] ?? MemberStat(code: c.friendCode, name: c.anglerName, count: 0, bestKg: nil, bestCm: nil, species: [])
             s.count += 1
             s.species.insert(c.species)
-            if let w = c.weightKg, w > (s.bestKg ?? 0) {
-                s.bestKg = w
-                s.bestSpecies = c.species
-            }
-            if let l = c.lengthCm, l > (s.bestCm ?? 0) {
-                s.bestCm = l
-                if s.bestKg == nil { s.bestSpecies = c.species }
-            }
-            if s.bestSpecies == nil { s.bestSpecies = c.species }
+            if let w = c.weightKg, w > (s.bestKg ?? 0) { s.bestKg = w }
+            if let l = c.lengthCm, l > (s.bestCm ?? 0) { s.bestCm = l }
             byCode[c.friendCode] = s
         }
         return byCode.values.sorted {
