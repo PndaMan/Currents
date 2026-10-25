@@ -251,7 +251,7 @@ struct ConditionReading {
             var unit: String?
             var meaning = none
             if let w {
-                icon = WeatherIcon(condition: w.condition).systemName
+                icon = ForecastFormat.weatherSymbol(cloud: w.cloudCoverPct, precipMm: w.precipMm, night: day.isDarkNow)
                 value = "\(w.cloudCoverPct)%"
                 unit = "cloud"
                 meaning = ConditionText.skyMeaning(day, use24: use24)
@@ -363,12 +363,15 @@ enum ConditionText {
         return "Steady until midnight"
     }
 
-    static func windMeaning(_ kmh: Double) -> String {
+    /// `freshwater` is false for the coast and reefs, which have no bank to
+    /// fish; nil when the place does not say.
+    static func windMeaning(_ kmh: Double, freshwater: Bool? = nil) -> String {
+        let coast = freshwater == false
         switch kmh {
-        case ..<6: "Calm. Fish light and quiet"
-        case ..<20: "A ripple helps. Fish the windward bank"
-        case ..<35: "Fresh. Find a sheltered bank"
-        default: "Strong. Stay off open water"
+        case ..<6: return "Calm. Fish light and quiet"
+        case ..<20: return coast ? "A ripple helps. Fish the side the wind blows onto" : "A ripple helps. Fish the windward bank"
+        case ..<35: return coast ? "Fresh. Find a sheltered spot" : "Fresh. Find a sheltered bank"
+        default: return "Strong. Stay off open water"
         }
     }
 
@@ -429,8 +432,14 @@ enum ConditionText {
         }
         if w.precipMm >= 5 { return "Heavy rain. Water will colour" }
         if w.cloudCoverPct >= 70 { return "Overcast. Fish roam and feed longer" }
+        if day.isDarkNow { return nightSkyMeaning(cloud: w.cloudCoverPct) }
         if w.cloudCoverPct <= 25 { return "Bright. Fish hold deep or in shade" }
         return "Some cloud. Good light for fishing"
+    }
+
+    /// The sky line once the sun is down and the sky is not overcast.
+    nonisolated static func nightSkyMeaning(cloud: Int) -> String {
+        cloud <= 25 ? "Clear night. Fish move shallow to feed" : "Some cloud. Fish move shallow to feed"
     }
 
     // Data helpers.
@@ -761,7 +770,9 @@ struct ConditionPageModel {
         }
         if let w {
             figures.append(ConditionFigure(label: "Humidity", icon: "humidity", value: "\(w.humidity)%"))
-            figures.append(ConditionFigure(label: "Sky", icon: WeatherIcon(condition: w.condition).systemName,
+            figures.append(ConditionFigure(label: "Sky",
+                                           icon: ForecastFormat.weatherSymbol(cloud: w.cloudCoverPct, precipMm: w.precipMm,
+                                                                              night: day.isDarkNow),
                                            value: ForecastFormat.condition(w.condition)))
         }
 
@@ -995,6 +1006,8 @@ struct ConditionPageModel {
             footnote = "Light rain dims the surface and often starts a bite, while heavy rain colours the water."
         } else if w.cloudCoverPct >= 70 {
             footnote = "Cloud takes away the bright light prey hide in, so fish roam and the bite spreads through the day."
+        } else if day.isDarkNow {
+            footnote = "With no sun on the water, fish move shallow to feed, so work the shallows and the edges."
         } else if w.cloudCoverPct <= 25 {
             footnote = "Bright sun pushes fish deep or under cover, so fish shade, weed edges and structure."
         } else {

@@ -17,6 +17,12 @@ struct ExploreConditions: View {
     @ScaledMetric(relativeTo: .body) private var visualHeight: CGFloat = 36
     let weather: WeatherService.WeatherData?
     var isLoading = false
+    /// Where the place is, for whether the sun is up there. Nil stands in
+    /// the angler's own position, or Cape Town while location is off.
+    var coordinate: CLLocationCoordinate2D? = nil
+    /// Fresh or salt water, for the wind line: the coast and reefs have no
+    /// bank to fish. Nil when the place does not say.
+    var freshwater: Bool? = nil
     @State private var target: Species?
 
     var body: some View {
@@ -44,6 +50,10 @@ struct ExploreConditions: View {
         let m = w.measured
         let imperial = units == "imperial"
         let none = "No weather offline"
+        let night: Bool = SolunarEngine.isNight(
+            at: .now,
+            coordinate: coordinate ?? appState.locationManager.currentLocation?.coordinate ?? ForecastStore.fallbackCoordinate
+        )
         let pair = typeSize.isAccessibilitySize
             ? AnyLayout(VStackLayout(spacing: 10))
             : AnyLayout(HStackLayout(alignment: .top, spacing: 10))
@@ -60,11 +70,11 @@ struct ExploreConditions: View {
                     }
                     .frame(maxHeight: .infinity)
                 } else {
-                    ConditionTile("Sky", systemImage: WeatherIcon(condition: m?.condition ?? "").systemName,
+                    ConditionTile("Sky", systemImage: skyIcon(m, night: night),
                                   iconTint: ForecastCondition.sky.tint,
                                   value: m.map { "\($0.cloudCoverPct)" } ?? ConditionText.missing,
                                   unit: "% cloud",
-                                  footnote: m.map { Self.skyMeaning($0) } ?? none) {
+                                  footnote: m.map { Self.skyMeaning($0, night: night) } ?? none) {
                         visual {
                             if let m {
                                 RangeBar(domain: 0...100, value: Double(m.cloudCoverPct), tint: ForecastCondition.sky.tint)
@@ -90,7 +100,7 @@ struct ExploreConditions: View {
                 ConditionTile("Wind", systemImage: "wind", iconTint: ForecastCondition.wind.tint,
                               value: speed.value,
                               unit: m.map { speed.unit + " " + ForecastFormat.compass($0.windDirectionDeg) } ?? speed.unit,
-                              footnote: m.map { ConditionText.windMeaning($0.windSpeedKmh) } ?? none) {
+                              footnote: m.map { ConditionText.windMeaning($0.windSpeedKmh, freshwater: freshwater) } ?? none) {
                     visual {
                         if let m {
                             CompassDial(degrees: m.windDirectionDeg, size: 36, tint: ForecastCondition.wind.ink)
@@ -124,10 +134,17 @@ struct ExploreConditions: View {
             .frame(maxHeight: .infinity, alignment: .bottom)
     }
 
+    /// The sky symbol, a moon once the sun is down, as the hour strip draws it.
+    private func skyIcon(_ w: WeatherService.WeatherData?, night: Bool) -> String {
+        guard let w else { return "cloud.fill" }
+        return ForecastFormat.weatherSymbol(cloud: w.cloudCoverPct, precipMm: w.precipMm, night: night)
+    }
+
     /// Today's sky line, from the reading alone (there is no hourly here).
-    private static func skyMeaning(_ w: WeatherService.WeatherData) -> String {
+    private static func skyMeaning(_ w: WeatherService.WeatherData, night: Bool) -> String {
         if w.precipMm >= 5 { return "Heavy rain. Water will colour" }
         if w.cloudCoverPct >= 70 { return "Overcast. Fish roam and feed longer" }
+        if night { return ConditionText.nightSkyMeaning(cloud: w.cloudCoverPct) }
         if w.cloudCoverPct <= 25 { return "Bright. Fish hold deep or in shade" }
         return "Some cloud. Good light for fishing"
     }
