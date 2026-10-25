@@ -693,7 +693,9 @@ jobs:
           python3 "$GITHUB_WORKSPACE/ci/provision_extensions.py" \
             --main "com.aidanmcconnon.currents=$PROFILE_NAME" \
             --ext  "com.aidanmcconnon.currents.widgets=Currents Widgets AppStore Manual" \
-            --ext  "com.aidanmcconnon.currents.watchkitapp=Currents Watch AppStore Manual"
+            --ext  "com.aidanmcconnon.currents.watchkitapp=Currents Watch AppStore Manual" \
+            --capability "com.aidanmcconnon.currents.watchkitapp=GAME_CENTER" \
+            --entitlements "com.aidanmcconnon.currents.watchkitapp=CurrentsWatch/CurrentsWatch.entitlements"
 
       - name: Align entitlements with provisioning profile
         run: |

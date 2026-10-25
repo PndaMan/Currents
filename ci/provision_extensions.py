@@ -9,7 +9,10 @@ For each extension bundle id it: looks up (or registers) the bundle id,
 deletes any existing App Store profile with the target name, creates a new one
 bound to the Distribution cert, and installs it into the runner's Provisioning
 Profiles directory. App Groups / other capabilities come from the App ID as
-configured in the portal, so the minted profile carries them automatically.
+configured in the portal, so the minted profile carries them automatically;
+--capability turns one on first when the App ID lacks it. --entitlements names
+a bundle's entitlements file, from which the Game Center key is dropped when
+the minted profile doesn't grant it, so the archive still signs.
 
 Writes every bundleId=profileName pair (including the main app) to
 /tmp/ext_profiles so the ExportOptions step can build the full map.
@@ -18,7 +21,9 @@ Usage:
     python3 ci/provision_extensions.py \
         --main "com.aidanmcconnon.currents=Currents AppStore Manual" \
         --ext  "com.aidanmcconnon.currents.widgets=Currents Widgets AppStore Manual" \
-        --ext  "com.aidanmcconnon.currents.watchkitapp=Currents Watch AppStore Manual"
+        --ext  "com.aidanmcconnon.currents.watchkitapp=Currents Watch AppStore Manual" \
+        --capability "com.aidanmcconnon.currents.watchkitapp=GAME_CENTER" \
+        --entitlements "com.aidanmcconnon.currents.watchkitapp=CurrentsWatch/CurrentsWatch.entitlements"
 """
 from __future__ import annotations
 
@@ -69,8 +74,40 @@ def delete_profiles_named(name: str, jwt: str) -> None:
             api("DELETE", f"/profiles/{p['id']}", jwt)
 
 
-def create_and_install(bundle_id: str, profile_name: str, cert_id: str, jwt: str) -> None:
+def ensure_capabilities(resource: str, bundle_id: str, caps: list[str], jwt: str) -> None:
+    res = api("GET", f"/bundleIds/{resource}/bundleIdCapabilities", jwt)
+    have = {c["attributes"]["capabilityType"] for c in res.get("data", [])}
+    for cap in caps:
+        if cap in have:
+            continue
+        print(f"Enabling {cap} on {bundle_id}...")
+        api("POST", "/bundleIdCapabilities", jwt, {
+            "data": {
+                "type": "bundleIdCapabilities",
+                "attributes": {"capabilityType": cap},
+                "relationships": {"bundleId": {"data": {"id": resource, "type": "bundleIds"}}},
+            }
+        })
+
+
+def align_entitlements(path: str, granted: dict) -> None:
+    # The same rule ios.yml applies to the main app's Game Center key.
+    key = "com.apple.developer.game-center"
+    with open(path, "rb") as f:
+        ents = plistlib.load(f)
+    if key in ents and key not in granted:
+        del ents[key]
+        with open(path, "wb") as f:
+            plistlib.dump(ents, f)
+        print(f"WARNING: profile has NO Game Center capability - archiving {path} WITHOUT it.")
+    elif key in ents:
+        print(f"Profile carries Game Center - keeping it in {path}.")
+
+
+def create_and_install(bundle_id: str, profile_name: str, cert_id: str, jwt: str,
+                       caps: list[str], entitlements: str | None) -> None:
     resource = bundle_resource_id(bundle_id, jwt)
+    ensure_capabilities(resource, bundle_id, caps, jwt)
     delete_profiles_named(profile_name, jwt)
     res = api("POST", "/profiles", jwt, {
         "data": {
@@ -88,7 +125,10 @@ def create_and_install(bundle_id: str, profile_name: str, cert_id: str, jwt: str
         f.write(content)
     decoded = subprocess.run(["security", "cms", "-D", "-i", tmp],
                              capture_output=True, check=True).stdout
-    uuid = plistlib.loads(decoded)["UUID"]
+    profile = plistlib.loads(decoded)
+    uuid = profile["UUID"]
+    if entitlements:
+        align_entitlements(entitlements, profile.get("Entitlements", {}))
     dest = os.path.expanduser("~/Library/MobileDevice/Provisioning Profiles")
     os.makedirs(dest, exist_ok=True)
     with open(f"{dest}/{uuid}.mobileprovision", "wb") as f:
@@ -100,7 +140,17 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--main", required=True, help="bundleId=ProfileName for the main app (already installed)")
     ap.add_argument("--ext", action="append", default=[], help="bundleId=ProfileName per extension")
+    ap.add_argument("--capability", action="append", default=[],
+                    help="bundleId=CAPABILITY_TYPE to turn on before minting that extension's profile")
+    ap.add_argument("--entitlements", action="append", default=[],
+                    help="bundleId=path/to.entitlements to align with that extension's profile")
     args = ap.parse_args()
+
+    caps: dict[str, list[str]] = {}
+    for pair in args.capability:
+        bundle_id, _, cap = pair.partition("=")
+        caps.setdefault(bundle_id, []).append(cap)
+    entitlements = dict(pair.partition("=")[::2] for pair in args.entitlements)
 
     jwt = open("/tmp/asc_jwt.txt").read().strip()
 
@@ -115,7 +165,8 @@ def main() -> None:
         for pair in pairs:
             bundle_id, _, profile_name = pair.partition("=")
             if pair != args.main:
-                create_and_install(bundle_id, profile_name, cert_id, jwt)
+                create_and_install(bundle_id, profile_name, cert_id, jwt,
+                                   caps.get(bundle_id, []), entitlements.get(bundle_id))
             out.write(f"{bundle_id}={profile_name}\n")
     print("Wrote /tmp/ext_profiles")
 
