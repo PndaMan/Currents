@@ -147,7 +147,8 @@ struct ExplorePlacePage: View {
                     ExploreThrowSection(weather: weather,
                                         caught: speciesHere.map { $0.species },
                                         inWater: allSpeciesWithBaits,
-                                        freshwater: freshwater)
+                                        freshwater: freshwater,
+                                        coordinate: coord)
                 }
 
                 if savedSpot != nil {

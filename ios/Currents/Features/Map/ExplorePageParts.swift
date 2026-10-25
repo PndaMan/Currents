@@ -167,6 +167,8 @@ struct ExploreThrowSection: View {
     /// Fresh or salt water; nil when the place does not say.
     var freshwater: Bool? = nil
     var limit = 3
+    /// The place, for its day or night and golden hour.
+    var coordinate: CLLocationCoordinate2D? = nil
 
     @State private var ownedGear: [OwnedGear] = []
     @State private var history: [CatchDetail] = []
@@ -255,12 +257,11 @@ struct ExploreThrowSection: View {
     }
 
     private var footnote: String {
-        let temp = measured?.waterTempC.map { "\(Units.temperature($0)) " } ?? ""
-        var line = "Picked for \(temp)\(clarity.label.lowercased()) water"
-        if let w = weather {
-            line += w.pressureChange6h <= -1 ? " and falling pressure" : w.pressureChange6h >= 1 ? " and rising pressure" : " and steady pressure"
-        }
-        return line + "."
+        let now = Date.now
+        let day = coordinate.map { SolunarEngine.compute(date: now, coordinate: $0) }
+        let night = day?.isNight(at: now) ?? false
+        let twilight = day.map { $0.dawnGoldenHour.contains(now) || $0.duskGoldenHour.contains(now) } ?? false
+        return ThrowText.why(measured, clarity: clarity, night: night, twilight: twilight)
     }
 }
 
