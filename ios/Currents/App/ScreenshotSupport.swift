@@ -446,8 +446,10 @@ enum ScreenshotSupport {
         .init(name: "Yellowtail Kingfish", photos: ["yellowtail", "drum"], lengthCm: 70...98, k: 1.1e-5, spots: [0], loadout: 1),
         .init(name: "Nile Tilapia", photos: ["tilapia", "perch"], lengthCm: 26...40, k: 1.87e-5, spots: [5], loadout: 0),
         .init(name: "African Sharptooth Catfish", photos: ["catfish"], lengthCm: 60...104, k: 9.6e-6, spots: [5, 2], loadout: 2),
-        .init(name: "Leervis (Garrick)", photos: ["garrick", "drum", "yellowtail"], lengthCm: 72...104, k: 1.1e-5, spots: [3], loadout: 1),
-        .init(name: "Galjoen", photos: ["galjoen", "drum"], lengthCm: 30...48, k: 2.3e-5, spots: [0], loadout: 1),
+        // No photo of a Leervis or a Galjoen is bundled, and another fish
+        // would be wrong data, so these show the species artwork instead.
+        .init(name: "Leervis (Garrick)", photos: ["garrick"], lengthCm: 72...104, k: 1.1e-5, spots: [3], loadout: 1),
+        .init(name: "Galjoen", photos: ["galjoen"], lengthCm: 30...48, k: 2.3e-5, spots: [0], loadout: 1),
     ]
 
     private static func speciesNamed(_ name: String) -> DemoSpecies? {
@@ -478,6 +480,7 @@ enum ScreenshotSupport {
         let spots = seedSpots(appState, picker: picker)
         let loadouts = seedGear(appState)
         seedCatches(appState, allSpecies: allSpecies, spots: spots, loadouts: loadouts, picker: picker)
+        seedSharedCatchIds(appState)
         seedLicences(appState)
         if let bass = allSpecies.first(where: { $0.commonName == "Largemouth Bass" }) {
             UserDefaults.standard.set(Int(bass.id), forKey: "targetSpeciesId")
@@ -663,6 +666,15 @@ enum ScreenshotSupport {
                             plannedDate: at, plannedLatitude: spot.latitude, plannedLongitude: spot.longitude)
             try? appState.tripRepository.save(&plan)
         }
+    }
+
+    /// The catches the sync has sent to the shared board, as it records them
+    /// once a catch is up. Your own Crew profile lists these, and friends see
+    /// the same set.
+    @MainActor
+    private static func seedSharedCatchIds(_ appState: AppState) {
+        let all = (try? appState.catchRepository.fetchAll(limit: 100_000)) ?? []
+        UserDefaults.standard.set(all.map { $0.catchRecord.id }, forKey: "publishedCatchIds")
     }
 
     /// Two licences for the wallet: one valid for months, one that runs out
