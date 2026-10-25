@@ -283,7 +283,9 @@ struct ForecastWeekPage: View {
                 Text(ForecastFormat.grade(d.peakScore))
                     .font(.body.weight(.semibold))
                     .foregroundStyle(.dsText)
-                if let w = d.weather, !w.isEstimated {
+                // Every row shows its day's midday sample; today's live
+                // reading stays on the Air tile.
+                if let w = (d.offset == 0 ? (store.outlook.first ?? d.weather) : d.weather), !w.isEstimated {
                     weather(w)
                 }
                 // The row's number is the day's peak; once today's has
