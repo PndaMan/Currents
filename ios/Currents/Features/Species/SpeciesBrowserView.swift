@@ -244,7 +244,7 @@ struct SpeciesBrowserView: View {
         water = year
         caughtIds = (try? appState.speciesRepository.caughtSpeciesIds()) ?? []
         spotSpeciesIds = speciesAtSpots()
-        nearbySpeciesIds = place.map { speciesNear($0) } ?? []
+        nearbySpeciesIds = speciesNear(place)
         recompute()
         loaded = true
     }

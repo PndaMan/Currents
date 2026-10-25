@@ -68,16 +68,17 @@ enum SpeciesSeason {
     static var currentMonth: Int { Calendar.current.component(.month, from: .now) }
 
     /// The place the forecast is for, chosen as Today chooses it: the saved
-    /// spot Today is set to, else the phone's location. Nil when neither is
-    /// known. Read on every call, so a fix that arrives later counts.
+    /// spot Today is set to, else the phone's location, else Today's fallback
+    /// place, so the water matches Today with location off. Read on every
+    /// call, so a fix that arrives later counts.
     @MainActor
-    static func forecastCoordinate(_ appState: AppState) -> CLLocationCoordinate2D? {
+    static func forecastCoordinate(_ appState: AppState) -> CLLocationCoordinate2D {
         let spotId = UserDefaults.standard.string(forKey: "todaySpotId") ?? ""
         if !spotId.isEmpty,
            let spot = ((try? appState.spotRepository.fetchAll()) ?? []).first(where: { $0.id == spotId }) {
             return CLLocationCoordinate2D(latitude: spot.latitude, longitude: spot.longitude)
         }
-        return appState.locationManager.currentLocation?.coordinate
+        return appState.locationManager.currentLocation?.coordinate ?? ForecastStore.fallbackCoordinate
     }
 
     /// Whether a place is south of the equator, falling back to the time
@@ -103,7 +104,7 @@ enum SpeciesSeason {
     /// it never goes to the network.
     @MainActor
     static func waterYear(_ appState: AppState) async -> WaterYear {
-        guard let place = forecastCoordinate(appState) else { return waterYear(latitude: nil) }
+        let place = forecastCoordinate(appState)
         let saved = await WeatherService.shared.saved(for: place)
         // Today's weather is the current reading, else the first outlook
         // day. An offline estimate carries no water reading, as on Today.
