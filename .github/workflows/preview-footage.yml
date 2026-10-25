@@ -291,11 +291,21 @@ jobs:
             wait "$1" 2>/dev/null || true
           }
 
-          # The recorder runs seconds behind the screen here and drops what it
-          # hasn't written when stopped, so give each take a tail.
+          # The recorder runs behind the screen here, by half a minute on a
+          # slow runner, and drops what it hasn't written when stopped. So
+          # give each take a tail, then wait (up to a minute) until the file
+          # has stopped growing for four seconds before stopping it.
           stop() {
             sleep 6
             mark "stop"
+            local size last=-1
+            for _ in $(seq 1 30); do
+              size=$(stat -f %z "$OUT/$CLIP.mp4" 2>/dev/null || echo 0)
+              if [ "$size" = "$last" ]; then break; fi
+              last=$size
+              sleep 2
+            done
+            mark "stop settled"
             halt "$REC" "$CLIP"
             if [ -s "$OUT/$CLIP.mp4" ]; then
               echo "Recorded $CLIP ($(du -h "$OUT/$CLIP.mp4" | cut -f1))"
