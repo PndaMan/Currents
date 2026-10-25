@@ -61,6 +61,9 @@ struct MapTab: View {
     @State private var flyToCoordinate: CLLocationCoordinate2D?
     @State private var weather: WeatherService.WeatherData?
     @State private var nearBite: BiteSnapshot?
+    /// True when `nearBite` is Cape Town's, the place Today falls back to,
+    /// because location was off when it loaded.
+    @State private var nearBiteInCapeTown = false
     @State private var inspector: InspectTarget?
     @State private var spotScores: [String: Int] = [:]
     @State private var waterbodies: [Waterbody] = []
@@ -406,6 +409,12 @@ struct MapTab: View {
             if let loc {
                 appState.mapManager.maintainOfflineCache(around: loc.coordinate)
                 downloadFishArea(around: loc.coordinate)
+                // The bar showed Cape Town until the position came in.
+                if nearBiteInCapeTown {
+                    nearBiteInCapeTown = false
+                    nearBite = nil
+                    Task { await loadNearBite() }
+                }
             }
         }
     }
@@ -1078,10 +1087,11 @@ struct MapTab: View {
     private var nearYouCapsule: some View {
         Button {
             afterClosingPlace {
-                if let coord = userCoordinate {
+                // Opens the place the score is for.
+                if !showsCapeTown, let coord = userCoordinate {
                     inspector = InspectTarget(coord: coord, isUserLocation: true)
-                } else if let coord = lastMapCenter {
-                    inspector = InspectTarget(coord: coord)
+                } else {
+                    inspector = InspectTarget(coord: ForecastStore.fallbackCoordinate, title: "Cape Town")
                 }
             }
         } label: {
@@ -1093,7 +1103,7 @@ struct MapTab: View {
                         .overlay(ProgressView().controlSize(.small))
                 }
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(userCoordinate == nil ? "Biting here" : "Biting near you")
+                    Text(showsCapeTown ? "Biting in Cape Town" : "Biting near you")
                         .font(.headline)
                         .foregroundStyle(.dsText)
                     Text(nearSubtitle)
@@ -1115,7 +1125,15 @@ struct MapTab: View {
         .buttonStyle(.dim)
         .padding(.horizontal, DS.Space.s4)
         .padding(.bottom, DS.Space.s3)
-        .accessibilityHint("Shows the bite, conditions and water near you")
+        .accessibilityHint(showsCapeTown
+            ? "Shows the bite, conditions and water in Cape Town"
+            : "Shows the bite, conditions and water near you")
+    }
+
+    /// Without location the bar's score is Cape Town's, as on Today, not the
+    /// map's, so the bar names it.
+    private var showsCapeTown: Bool {
+        nearBite == nil ? userCoordinate == nil : nearBiteInCapeTown
     }
 
     /// About this place only, beside its own score: the grade and the window.
@@ -1355,6 +1373,16 @@ struct MapTab: View {
         }
     }
 
+    /// Bite and weather where the angler is, or in Cape Town without
+    /// location (also feeds the wind overlay).
+    private func loadNearBite() async {
+        let located = userCoordinate
+        let (bite, w) = await BiteSnapshot.load(at: located ?? ForecastStore.fallbackCoordinate)
+        nearBite = bite
+        weather = w
+        nearBiteInCapeTown = located == nil
+    }
+
     private func loadData() async {
         spots = (try? appState.spotRepository.fetchAll()) ?? []
         catches = (try? appState.catchRepository.fetchAll(limit: 200)) ?? []
@@ -1380,17 +1408,14 @@ struct MapTab: View {
         if !ScreenshotSupport.isActive {
             await BundledMapData.importWaterIfNeeded(into: appState.db)
         }
-        let coord = userCoordinate ?? CLLocationCoordinate2D(latitude: -33.9, longitude: 18.4)
+        let coord = userCoordinate ?? ForecastStore.fallbackCoordinate
         let region = lastRegion ?? MKCoordinateRegion(
             center: coord,
             span: MKCoordinateSpan(latitudeDelta: currentLatSpan, longitudeDelta: currentLatSpan)
         )
         await loadWaterbodies(region: region)
 
-        // Bite and weather where the angler is (also feeds the wind overlay).
-        let (bite, w) = await BiteSnapshot.load(at: coord)
-        nearBite = bite
-        weather = w
+        await loadNearBite()
 
         // Each spot's best hour today, as the spots list and the place page show it
         for spot in spots {
