@@ -187,13 +187,37 @@ enum SpeciesSeason {
 
     /// "Peak November to March": the run of months scoring 80 or more that
     /// holds `month` (1 to 12), else the run holding the year's best score.
-    /// Nil when nothing peaks.
+    /// Two runs are both named ("Peak March to July and September to
+    /// January"), and nine or more months say "Good most of the year, slower
+    /// in February and August". Nil when nothing peaks.
     static func peakText(_ scores: [Int], month: Int? = nil) -> String? {
+        let runs = peakRuns(scores)
+        guard !runs.isEmpty else { return nil }
+        let peakMonths = runs.reduce(0) { $0 + $1.length }
+        if peakMonths == 12 { return "Good all year" }
+        if peakMonths >= 9 {
+            let slow = (0..<12).filter { scores[$0] < peakScore }.map { fullMonths[$0] }
+            return "Good most of the year, slower in \(andList(slow))"
+        }
+        if runs.count == 2 {
+            let named = runs.sorted { $0.start < $1.start }.map { runName($0) }
+            return "Peak " + named.joined(separator: " and ")
+        }
         guard let run = peakRun(scores, month: month) else { return nil }
-        if run.length == 12 { return "Good all year" }
+        if run.length == 1 { return "Peak in \(fullMonths[run.start])" }
+        return "Peak \(runName(run))"
+    }
+
+    /// "March" for one month, "November to March" for a run.
+    private static func runName(_ run: (start: Int, length: Int)) -> String {
         let first = run.start, last = (run.start + run.length - 1) % 12
-        if run.length == 1 { return "Peak in \(fullMonths[first])" }
-        return "Peak \(fullMonths[first]) to \(fullMonths[last])"
+        return run.length == 1 ? fullMonths[first] : "\(fullMonths[first]) to \(fullMonths[last])"
+    }
+
+    /// "February", "February and August", "February, March and August".
+    private static func andList(_ items: [String]) -> String {
+        guard let last = items.last, items.count > 1 else { return items.first ?? "" }
+        return items.dropLast().joined(separator: ", ") + " and " + last
     }
 
     /// "Nov to Mar", the same peak in short month names, captioning the

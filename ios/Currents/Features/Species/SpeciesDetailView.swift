@@ -351,7 +351,7 @@ struct SpeciesDetailView: View {
             SeasonChart(scores: seasonScores,
                         inSeason: (1...12).map { SpeciesSeason.isInSeason(species, month: $0, water: water) },
                         tint: tint)
-            SectionFootnote(SpeciesSeason.peakText(seasonScores, month: month).map { "\($0), estimated from typical water temperatures." }
+            SectionFootnote(SpeciesSeason.peakText(seasonScores, month: month).map { "\($0). Estimated from typical water temperatures." }
                         ?? "Estimated from typical water temperatures.")
         }
     }
