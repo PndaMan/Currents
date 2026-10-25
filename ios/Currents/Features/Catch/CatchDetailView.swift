@@ -873,16 +873,23 @@ private struct GearLine: Identifiable {
 
 /// A row of the gear card: art or a tile in the icon slot, then the title and
 /// its line under it, and a value on the right, on CardRow's spacing.
-private struct GearItemRow<Leading: View>: View {
+struct GearItemRow<Leading: View>: View {
     let title: String
     let subtitle: String?
     var value: String? = nil
-    @ViewBuilder let leading: () -> Leading
+    private let leading: Leading
     @Environment(\.dynamicTypeSize) private var typeSize
+
+    init(title: String, subtitle: String?, value: String? = nil, @ViewBuilder leading: () -> Leading) {
+        self.title = title
+        self.subtitle = subtitle
+        self.value = value
+        self.leading = leading()
+    }
 
     var body: some View {
         HStack(alignment: typeSize.isAccessibilitySize ? .top : .center, spacing: 14) {
-            leading()
+            leading
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
