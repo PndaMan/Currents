@@ -1163,44 +1163,54 @@ struct SessionBiteChart: View {
     }
 
     var body: some View {
-        Group {
+        VStack(alignment: .leading, spacing: 0) {
             if hours.count > 1, let peak = hours.max(by: { $0.score < $1.score }) {
-                VStack(alignment: .leading, spacing: 0) {
-                    SectionTitle("Bite score during the session")
-                        .padding(.top, DS.Space.s8)
-                    Chart {
-                        ForEach(hours) { h in
-                            BarMark(x: .value("Hour", h.hour), y: .value("Score", h.score), width: .ratio(0.7))
-                                .foregroundStyle(DS.scoreColor(h.score))
-                            if catchHours.contains(h.hour) {
-                                PointMark(x: .value("Hour", h.hour), y: .value("Score", h.score + 8))
-                                    .symbol {
-                                        Image(systemName: "fish.fill")
-                                            .font(.caption2)
-                                            .foregroundStyle(.dsText)
-                                    }
-                            }
+                SectionTitle("Bite score during the session")
+                    .padding(.top, DS.Space.s8)
+                Chart {
+                    ForEach(hours) { h in
+                        // The hour is a number, so there is no band for a width
+                        // ratio to take a share of: each bar is drawn from its
+                        // own start to its own end, centred on the hour.
+                        BarMark(xStart: .value("From", Double(h.hour) - 0.38),
+                                xEnd: .value("To", Double(h.hour) + 0.38),
+                                y: .value("Score", h.score))
+                            .foregroundStyle(DS.scoreColor(h.score))
+                        if catchHours.contains(h.hour) {
+                            PointMark(x: .value("Hour", Double(h.hour)), y: .value("Score", h.score + 8))
+                                .symbol {
+                                    Image(systemName: "fish.fill")
+                                        .font(.caption2)
+                                        .foregroundStyle(.dsText)
+                                }
                         }
                     }
-                    .chartYScale(domain: 0...110)
-                    .chartYAxis(.hidden)
-                    .chartXAxis {
-                        // Every third hour from the start, so the labels never crowd.
-                        AxisMarks(values: axisHours) { value in
-                            AxisValueLabel {
-                                if let h = value.as(Int.self) { Text(hourLabel(h)) }
-                            }
-                        }
-                    }
-                    .frame(height: 150)
-                    .padding(.horizontal, DS.gutter)
-                    .accessibilityLabel("Bite score by hour")
-                    .accessibilityValue(hours.map { "\(hourLabel($0.hour)) \($0.score)" }.joined(separator: ", "))
-                    SectionFootnote("Peaked at \(peak.score) around \(hourLabel(peak.hour)). Fish marks the hours you caught.")
                 }
+                .chartXScale(domain: xDomain)
+                .chartYScale(domain: 0...110)
+                .chartYAxis(.hidden)
+                .chartXAxis {
+                    // Every third hour from the start, so the labels never crowd.
+                    AxisMarks(values: axisHours) { value in
+                        AxisValueLabel {
+                            if let h = value.as(Double.self) { Text(hourLabel(Int(h))) }
+                        }
+                    }
+                }
+                .frame(height: 150)
+                .padding(.horizontal, DS.gutter)
+                .accessibilityLabel("Bite score by hour")
+                .accessibilityValue(hours.map { "\(hourLabel($0.hour)) \($0.score)" }.joined(separator: ", "))
+                SectionFootnote("Peaked at \(peak.score) around \(hourLabel(peak.hour)). Fish marks the hours you caught.")
             }
+            // Always in the tree, so the chart is worked out even while
+            // there is nothing to draw yet: a task on a branch that is not
+            // there never runs.
+            Color.clear
+                .frame(height: 0)
+                .accessibilityHidden(true)
+                .task(id: originKey) { compute() }
         }
-        .task(id: originKey) { compute() }
     }
 
     /// Where the bite is worked out: where the track starts, else the
@@ -1242,9 +1252,16 @@ struct SessionBiteChart: View {
             .map { HourScore(hour: $0.hour, score: $0.score) }
     }
 
-    private var axisHours: [Int] {
+    private var axisHours: [Double] {
         guard let first = hours.first?.hour else { return [] }
-        return hours.map(\.hour).filter { ($0 - first) % 3 == 0 }
+        return hours.map(\.hour).filter { ($0 - first) % 3 == 0 }.map(Double.init)
+    }
+
+    /// Half an hour either side of the first and last bar.
+    private var xDomain: ClosedRange<Double> {
+        let first = Double(hours.first?.hour ?? 0)
+        let last = Double(hours.last?.hour ?? 23)
+        return (first - 0.5)...(last + 0.5)
     }
 
     private func hourLabel(_ hour: Int) -> String {
