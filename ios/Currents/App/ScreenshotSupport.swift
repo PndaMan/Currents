@@ -630,7 +630,9 @@ enum ScreenshotSupport {
                         lengthCm: length,
                         weightKg: weight,
                         released: s.loadout != 1 || rng.next() < 0.6,
-                        forecastScoreAtCapture: isHero ? 88 : rng.int(58...93),
+                        // Replaced below by the engine's score; the draw stays
+                        // so the rest of the demo data comes out the same.
+                        forecastScoreAtCapture: isHero ? nil : rng.int(58...93),
                         gearLoadoutId: loadouts[s.loadout].id,
                         tripId: trip.id,
                         notes: isHero ? notes[0] : (rng.next() < 0.4 ? notes[rng.int(1...4)] : nil),
@@ -638,6 +640,16 @@ enum ScreenshotSupport {
                         waterClarity: s.loadout == 1 ? .stained : .clear,
                         depthM: (rng.pick(0.8...6) * 10).rounded() / 10
                     )
+                    // The score the app stores when a fish is logged, without
+                    // the weather the demo has none of, so the session chart
+                    // and the catch page agree.
+                    record.forecastScoreAtCapture = ForecastEngine.forecast(
+                        date: record.caughtAt,
+                        coordinate: CLLocationCoordinate2D(latitude: record.latitude, longitude: record.longitude),
+                        currentPressureHpa: nil, pressureChange6h: nil,
+                        waterTempC: nil, windSpeedKmh: nil, windDirection: nil,
+                        species: speciesRow, isInSpawningZone: false
+                    ).score
                     // Photos: the hero gets three so the pager shows, a few
                     // others get two, and the app's artwork stands in when
                     // the demo photos are missing.
