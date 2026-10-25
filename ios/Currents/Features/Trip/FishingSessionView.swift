@@ -200,12 +200,14 @@ struct SessionsView: View {
     }
 }
 
-/// The best bite in a plan's hours and the day's best window, for the plan's
+/// The best bite in a plan's hours and the hour it comes, for the plan's
 /// pin or else where you are now. Moon, sun, tide and season only: live
 /// weather is not known days ahead. The plan page rings the same score.
 struct PlanRowOutlook {
     let score: Int
-    let best: BiteWindows.Window?
+    /// The hour of that score, within the plan's hours. Nil when the forecast
+    /// has no hourly scores.
+    let bestHour: Int?
 
     /// A plan's hours: the start hour and the three after it.
     static func hours(from hour: Int) -> ClosedRange<Int> {
@@ -227,13 +229,14 @@ struct PlanRowOutlook {
             currentPressureHpa: nil, pressureChange6h: nil, waterTempC: nil,
             windSpeedKmh: nil, windDirection: nil, species: nil, isInSpawningZone: false
         )
-        return PlanRowOutlook(score: hoursBest(f, from: hour),
-                              best: BiteWindows.best(from: f.hourlyScores).max { $0.peakScore < $1.peakScore })
+        let window = hours(from: hour)
+        let top = f.hourlyScores.filter { window.contains($0.hour) }.max { $0.score < $1.score }
+        return PlanRowOutlook(score: hoursBest(f, from: hour), bestHour: top?.hour)
     }
 }
 
 /// A plan in a list, as on the Logbook's Plans pane: a date thumb, the time
-/// and day over the name, the best window, and the best bite in its hours.
+/// and day over the name, the best hour of the plan's hours, and the bite then.
 /// The caller wraps it in the link to the plan.
 struct PlannedRow: View {
     let trip: Trip
@@ -244,9 +247,10 @@ struct PlannedRow: View {
 
     private var subtitle: String {
         guard let outlook else { return "Turn on location to see the bite" }
-        guard let best = outlook.best else { return "No strong windows that day" }
-        // The grade word, not a bare number beside the ring's own score.
-        return "\(ForecastFormat.grade(best.peakScore)) from \(ForecastFormat.hour(best.startHour, use24: use24))"
+        guard let hour = outlook.bestHour else { return "No forecast for these hours" }
+        // The planned hours, as the ring beside it scores them, not the day's
+        // best window. The grade word, not a bare number beside the ring's own score.
+        return "\(ForecastFormat.grade(outlook.score)) at \(ForecastFormat.hour(hour, use24: use24))"
     }
 
     /// "Tomorrow, 05:30": the day, then the time, in Today's order.
