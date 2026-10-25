@@ -423,7 +423,8 @@ struct CrewSection<Content: View>: View {
 /// A row for something with a time attached: a tournament, a live trip, a
 /// planned trip. Live rows get the red dot and label; `endsAt` shows the
 /// time left, updated each minute. At accessibility sizes the row aligns to
-/// the top and the pill moves under the text.
+/// the top and the pill moves under the text. A row that opens a page passes
+/// `chevron`, drawn as ArtRow does whenever no pill takes the trailing edge.
 struct CrewEventRow<Leading: View>: View {
     var isLive = false
     var over: String? = nil
@@ -431,6 +432,7 @@ struct CrewEventRow<Leading: View>: View {
     var subtitle: String? = nil
     var endsAt: Date? = nil
     var pill: String? = nil
+    var chevron = false
     @ViewBuilder var leading: () -> Leading
     @Environment(\.dynamicTypeSize) private var typeSize
     @AppStorage("use24HourTime") private var use24 = true
@@ -484,6 +486,11 @@ struct CrewEventRow<Leading: View>: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             if !stacked, let pill { CrewPill(text: pill) }
+            if chevron, pill == nil {
+                Image(systemName: "chevron.right")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.dsText3)
+            }
         }
         .padding(.horizontal, DS.gutter)
         .padding(.vertical, 10)

@@ -349,7 +349,8 @@ struct CommunityView: View {
                          over: item.crew.name,
                          title: item.tournament.name,
                          endsAt: item.tournament.endsAt,
-                         pill: item.rank.map { CrewText.ordinal($0) }) {
+                         pill: item.rank.map { CrewText.ordinal($0) },
+                         chevron: true) {
                 ThumbView(systemImage: "trophy.fill", tint: CrewTint.trophy)
             }
         }
@@ -365,7 +366,8 @@ struct CommunityView: View {
         return NavigationLink(value: CrewRoute.trip(code: item.trip.id, name: item.trip.name)) {
             CrewEventRow(isLive: true, over: item.crew.name, title: item.trip.name,
                          subtitle: subtitle,
-                         pill: amIn ? nil : "Join") {
+                         pill: amIn ? nil : "Join",
+                         chevron: true) {
                 ThumbView(systemImage: "dot.radiowaves.left.and.right", tint: CrewTint.live)
             }
         }
@@ -403,7 +405,8 @@ struct CommunityView: View {
         return NavigationLink(value: CrewRoute.trip(code: g.code, name: g.name)) {
             CrewEventRow(over: ended ? "Ended" : host,
                          title: g.name,
-                         subtitle: g.teamName.map { "Tournament team \($0)" } ?? "Trip code \(g.code)") {
+                         subtitle: g.teamName.map { "Tournament team \($0)" } ?? "Trip code \(g.code)",
+                         chevron: true) {
                 ThumbView(systemImage: g.teamName != nil ? "trophy.fill" : "person.3.fill",
                           tint: g.teamName != nil ? CrewTint.trophy : CrewTint.people)
             }

@@ -603,7 +603,8 @@ struct CrewDetailView: View {
                          title: trip.name,
                          // The Join pill already says it is open.
                          subtitle: amIn ? "You're in" : nil,
-                         pill: amIn ? nil : "Join") {
+                         pill: amIn ? nil : "Join",
+                         chevron: true) {
                 ThumbView(systemImage: "dot.radiowaves.left.and.right", tint: CrewTint.live)
             }
         }
@@ -620,7 +621,8 @@ struct CrewDetailView: View {
                          subtitle: t.isEnded ? t.winnerTeam.map { "\($0) won" } : leaderLine,
                          endsAt: t.isEnded ? nil : t.endsAt,
                          pill: t.isEnded ? nil : CrewLive(tournament: t, standings: standings)
-                            .myRank(svc.friendCode).map { CrewText.ordinal($0) }) {
+                            .myRank(svc.friendCode).map { CrewText.ordinal($0) },
+                         chevron: true) {
                 ThumbView(systemImage: "trophy.fill", tint: .dsScoreFair)
             }
         }
