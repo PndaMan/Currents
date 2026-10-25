@@ -27,6 +27,8 @@ enum Haptics {
     /// The celebration card's moments, each with its own pattern.
     enum Moment: Hashable {
         case firstCatch, newSpecies, personalBest, achievement, tournamentResult
+        /// The weekly streak moment: the flame lights, then the count rolls on.
+        case streak
     }
 
     /// `@AppStorage(Haptics.enabledKey)` in settings; on unless turned off.
@@ -200,7 +202,8 @@ private final class HapticPlayer {
 
 /// Timed to the celebration card: it springs in over 0.56 s (DS.Motion.spring,
 /// overshooting at about 0.22 s) while the confetti launches at 0 and peaks
-/// between 0.2 and 0.75 s. Each moment is under a second and feels distinct.
+/// between 0.2 and 0.75 s. Each card moment is under a second and feels
+/// distinct. The streak moment is longer, timed to its own motion.
 private struct CelebrationPattern {
     /// (time, intensity, sharpness) taps.
     var taps: [(Double, Float, Float)] = []
@@ -237,6 +240,14 @@ private struct CelebrationPattern {
             taps = [(0, 0.7, 0.5), (0.16, 0.7, 0.5), (0.32, 0.7, 0.5), (0.5, 1, 0.35)]
             swells = [(0.5, 0.4, 0.8, 0.2)]
             duration = 0.9
+        case .streak:
+            // Timed to StreakMomentView: a soft whoomp as the flame lights
+            // (0.3 s), light ticks as the week markers land, then a heavy
+            // hit as the number rolls on and this week pops in (1.35 s).
+            taps = [(0.3, 0.9, 0.4), (0.8, 0.3, 0.8), (0.92, 0.3, 0.8),
+                    (1.04, 0.3, 0.8), (1.35, 1, 0.55)]
+            swells = [(0.3, 0.45, 0.6, 0.2), (1.35, 0.35, 0.7, 0.15)]
+            duration = 1.7
         }
     }
 

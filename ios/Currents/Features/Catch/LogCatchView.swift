@@ -2129,10 +2129,24 @@ struct LogCatchView: View {
             }
         }
 
-        if let celebration {
-            // The celebration plays over the screen underneath once the
-            // composer closes.
-            CelebrationCenter.shared.show(celebration)
+        // The streak moment, when this catch is the first of the week and the
+        // week extends a run. Judged on the log after the save; the log
+        // before is the same without this catch.
+        let log = (try? await appState.catchRepository.fetchAllInBackground(limit: 100_000)) ?? []
+        let streakMoment = StreakMomentJudge.judge(savedCatchId: catchId, log: log)
+
+        if celebration != nil || streakMoment != nil {
+            // Both play over the screen underneath once the composer closes.
+            // A new species or personal best card comes first; the streak
+            // moment waits until it is dismissed.
+            if let celebration { CelebrationCenter.shared.show(celebration) }
+            if var streakMoment {
+                // On its own it waits for the composer to slide away, so the
+                // flame lights in view. Queued behind a card, the wait is the
+                // card's fade instead.
+                streakMoment.startDelay = DS.Motion.slow
+                CelebrationCenter.shared.show(streakMoment)
+            }
         } else {
             ToastCenter.shared.show(savedMessage(name: crewName, lengthCm: catchRecord.lengthCm, crews: shareCrews),
                                     icon: "checkmark.circle.fill")

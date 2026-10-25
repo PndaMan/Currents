@@ -1,7 +1,9 @@
 import SwiftUI
 
 /// Confetti moments for catches that deserve more than a toast: the first
-/// time a species is landed, and personal bests. Detection always runs
+/// time a species is landed, and personal bests. A catch that extends the
+/// weekly streak gets the full-screen streak moment (`streak`, see
+/// StreakCelebration.swift), after any card. Detection always runs
 /// against the CURRENT catch log — delete a fish and re-log it and it's a
 /// "first" again, because it genuinely is the only one in the log.
 struct Celebration: Equatable, Identifiable {
@@ -21,6 +23,11 @@ struct Celebration: Equatable, Identifiable {
     var primaryLink: URL? = nil
     /// Which haptic pattern plays with the card.
     var moment: Haptics.Moment = .newSpecies
+    /// Set for the streak moment, which plays full screen instead of the card.
+    var streak: StreakMoment? = nil
+    /// Seconds the streak moment waits before it starts: while the composer
+    /// slides away, or while the card before it fades out.
+    var startDelay: Double = 0
 
     static func == (lhs: Celebration, rhs: Celebration) -> Bool { lhs.id == rhs.id }
 }
@@ -69,24 +76,48 @@ enum CelebrationJudge {
 /// sheet dismisses — the overlay lives at the root, so it plays over whatever
 /// screen is underneath. The card stays until the angler dismisses it;
 /// observe `current` becoming nil to follow up (the rate prompt does).
+/// Celebrations fired while one is on screen wait their turn, so a personal
+/// best's card and the streak moment never show at once.
 @MainActor
 final class CelebrationCenter: ObservableObject {
     static let shared = CelebrationCenter()
     @Published var current: Celebration?
+    /// Waiting for the one on screen to be dismissed, oldest first.
+    private var queue: [Celebration] = []
 
     func show(_ celebration: Celebration) {
+        guard current == nil else {
+            queue.append(celebration)
+            return
+        }
+        present(celebration)
+    }
+
+    func dismiss() {
+        guard !queue.isEmpty else {
+            withAnimation(.easeOut(duration: DS.Motion.med)) { current = nil }
+            return
+        }
+        // Straight on to the next, so `current` never reads nil in between
+        // (the rate prompt waits for nil). The next one waits while this
+        // card fades out.
+        var next = queue.removeFirst()
+        next.startDelay = DS.Motion.med
+        present(next)
+    }
+
+    private func present(_ celebration: Celebration) {
         // Callers show the card after saving, so a log holding one catch
         // means this new species is the angler's first fish ever.
         var moment = celebration.moment
         if moment == .newSpecies, (try? AppState.shared?.catchRepository.totalCount()) == 1 {
             moment = .firstCatch
         }
-        Haptics.celebrate(moment)
-        withAnimation(DS.Motion.spring) { current = celebration }
-    }
-
-    func dismiss() {
-        withAnimation(.easeOut(duration: DS.Motion.med)) { current = nil }
+        // The streak moment plays its own haptics, in step with its motion.
+        if celebration.streak == nil { Haptics.celebrate(moment) }
+        // A streak moment that waits fades its layer in; the card springs.
+        let animation = celebration.startDelay > 0 ? Animation.easeOut(duration: DS.Motion.med) : DS.Motion.spring
+        withAnimation(animation) { current = celebration }
     }
 }
 
@@ -242,31 +273,45 @@ private struct CelebrationHost: ViewModifier {
     func body(content: Content) -> some View {
         content.overlay {
             if let celebration = center.current {
-                ZStack {
-                    Color.dsScrim
-                        .ignoresSafeArea()
-                        .onTapGesture { center.dismiss() }
-                        .accessibilityHidden(true)
-                    // At the largest text sizes the card can outgrow the
-                    // screen; it scrolls then instead of clipping its buttons.
-                    ViewThatFits(in: .vertical) {
-                        card(celebration)
-                        ScrollView {
-                            card(celebration)
-                                .padding(.vertical, DS.Space.s6)
-                        }
-                        .scrollBounceBehavior(.basedOnSize)
-                    }
-                    .transition(.scale(scale: 0.7).combined(with: .opacity))
-                    if !reduceMotion {
-                        ConfettiBurst(pieces: pieces, start: burstStart)
-                    }
+                if let streak = celebration.streak {
+                    StreakMomentView(celebration: celebration, moment: streak,
+                                     startDelay: celebration.startDelay,
+                                     onDone: { center.dismiss() })
+                        .id(celebration.id)
+                        .transition(.opacity)
+                } else {
+                    cardLayer(celebration)
                 }
-                .transition(.opacity)
-                .onAppear { prepare(celebration) }
-                .onChange(of: celebration.id) { _, _ in prepare(celebration) }
             }
         }
+        // Screenshot mode's "streak-moment" screen plays it over Today.
+        .task { await ScreenshotSupport.playStreakMomentIfAsked() }
+    }
+
+    private func cardLayer(_ celebration: Celebration) -> some View {
+        ZStack {
+            Color.dsScrim
+                .ignoresSafeArea()
+                .onTapGesture { center.dismiss() }
+                .accessibilityHidden(true)
+            // At the largest text sizes the card can outgrow the
+            // screen; it scrolls then instead of clipping its buttons.
+            ViewThatFits(in: .vertical) {
+                card(celebration)
+                ScrollView {
+                    card(celebration)
+                        .padding(.vertical, DS.Space.s6)
+                }
+                .scrollBounceBehavior(.basedOnSize)
+            }
+            .transition(.scale(scale: 0.7).combined(with: .opacity))
+            if !reduceMotion {
+                ConfettiBurst(pieces: pieces, start: burstStart)
+            }
+        }
+        .transition(.opacity)
+        .onAppear { prepare(celebration) }
+        .onChange(of: celebration.id) { _, _ in prepare(celebration) }
     }
 
     private func card(_ celebration: Celebration) -> some View {

@@ -106,6 +106,11 @@ enum ScreenshotSupport {
         // Review set: Today with the tab bar's Add menu open over it.
         case addMenu = "add-menu"
 
+        // The streak moment over Today, played with the demo log's streak
+        // as after a save that keeps the weekly run going (see
+        // `playStreakMomentIfAsked`). Animated, so it is for recordings.
+        case streakMoment = "streak-moment"
+
         var tab: ContentView.Tab {
             switch self {
             case .today, .lures, .forecastDay, .forecastWeek,
@@ -114,7 +119,7 @@ enum ScreenshotSupport {
                  .target, .targetSpecies,
                  .settings, .settingsAppearance, .settingsUnits, .settingsNotifications,
                  .settingsPrivacy, .settingsWidgets, .settingsStorage, .settingsAbout,
-                 .settingsKnots, .tips, .addMenu:
+                 .settingsKnots, .tips, .addMenu, .streakMoment:
                 .today
             case .explore, .exploreNear, .spotPage, .waterbodyPage, .speciesPage,
                  .spots, .waters, .ramps, .speciesGuide, .regulations, .offlineMaps:
@@ -192,9 +197,10 @@ enum ScreenshotSupport {
         guard let screen = Self.screen, let appState = AppState.shared else { return nil }
         var path = NavigationPath()
         switch screen {
-        // Tab roots, the log-catch sheet, which `launchURL` opens, and the
-        // Add menu, which `opensAddMenu` opens.
-        case .today, .logbook, .crew, .exploreNear, .explore, .logCatch, .addMenu:
+        // Tab roots, the log-catch sheet, which `launchURL` opens, the Add
+        // menu, which `opensAddMenu` opens, and the streak moment, which the
+        // celebration host plays over Today.
+        case .today, .logbook, .crew, .exploreNear, .explore, .logCatch, .addMenu, .streakMoment:
             return nil
 
         // App Store set.
@@ -276,6 +282,28 @@ enum ScreenshotSupport {
 
     /// True for the screen that opens the tab bar's Add menu over its tab.
     static var opensAddMenu: Bool { screen == .addMenu }
+
+    @MainActor private static var playedStreakMoment = false
+
+    /// The "streak-moment" screen: once Today is up, the streak moment plays
+    /// with the demo log's real streak, as it does after a save that makes
+    /// this week count. The celebration host calls this as it appears; any
+    /// other screen returns straight away.
+    @MainActor
+    static func playStreakMomentIfAsked() async {
+        guard screen == .streakMoment, !playedStreakMoment, let appState = AppState.shared else { return }
+        playedStreakMoment = true
+        // Today draws first, as it would under the closing composer.
+        guard (try? await Task.sleep(for: .milliseconds(900))) != nil else {
+            playedStreakMoment = false
+            return
+        }
+        let log = (try? await appState.catchRepository.fetchAllInBackground(limit: 100_000)) ?? []
+        // The demo log fishes every week, so this is its real run; the
+        // moment needs at least two weeks.
+        let weeks = max(BadgeDefinition.streakWeeks(from: log), 2)
+        CelebrationCenter.shared.show(StreakMomentJudge.celebration(weeks: weeks, log: log))
+    }
 
     /// Where a scrolling page opens for the review run's scrolled shots:
     /// `-uiReviewScroll center` opens it at the middle and
