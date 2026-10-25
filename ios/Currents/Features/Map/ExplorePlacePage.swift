@@ -539,7 +539,8 @@ struct ExplorePlacePage: View {
         }
     }
 
-    /// Species with bait data: curated ones first, then recorded ones.
+    /// Species with a real bait record, not the stand-in list: curated ones
+    /// first, then recorded ones.
     private var allSpeciesWithBaits: [Species] {
         var result = seedSpecies
         for fish in observedFish {
@@ -547,7 +548,7 @@ struct ExplorePlacePage: View {
                 result.append(local)
             }
         }
-        return result.filter { !$0.parsedBaits.isEmpty }
+        return result.filter { LureEngine.hasBaitRecord($0) }
     }
 
     /// Baits the species here take, the ones most species share first.
