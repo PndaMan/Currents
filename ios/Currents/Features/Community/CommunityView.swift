@@ -356,13 +356,15 @@ struct CommunityView: View {
         .buttonStyle(.dsRow)
     }
 
-    /// The same pill as on the crew page: Join until you're in the trip.
+    /// The same pill as on the crew page: Join until you're in the trip. A
+    /// trip you're in says so here, since it is no longer listed twice.
     private func liveTripRow(_ item: LiveTrip) -> some View {
         let amIn = svc.myGroups.contains { $0.code == item.trip.id }
+        let subtitle = item.trip.hostCode == svc.friendCode ? "You're hosting"
+            : amIn ? "You're in" : "Hosted by \(item.trip.hostName)"
         return NavigationLink(value: CrewRoute.trip(code: item.trip.id, name: item.trip.name)) {
             CrewEventRow(isLive: true, over: item.crew.name, title: item.trip.name,
-                         subtitle: item.trip.hostCode == svc.friendCode
-                            ? "You're hosting" : "Hosted by \(item.trip.hostName)",
+                         subtitle: subtitle,
                          pill: amIn ? nil : "Join") {
                 ThumbView(systemImage: "dot.radiowaves.left.and.right", tint: CrewTint.live)
             }
@@ -372,13 +374,16 @@ struct CommunityView: View {
 
     // MARK: Group trips
 
-    /// Trips still running first, ended ones after them.
+    /// Trips still running first, ended ones after them. A trip that
+    /// Happening now already lists stays out, so it is never shown twice.
     private var sortedGroups: [CommunityService.GroupRef] {
-        svc.myGroups.filter { $0.endedAt == nil } + svc.myGroups.filter { $0.endedAt != nil }
+        let listedLive = Set(liveTrips.map { $0.trip.id })
+        let groups = svc.myGroups.filter { !listedLive.contains($0.code) }
+        return groups.filter { $0.endedAt == nil } + groups.filter { $0.endedAt != nil }
     }
 
     private var groupTrips: some View {
-        CrewSection(title: "Group trips", detail: countDetail(svc.myGroups.count)) {
+        CrewSection(title: "Group trips", detail: countDetail(sortedGroups.count)) {
             ForEach(sortedGroups) { g in
                 groupRow(g)
             }
