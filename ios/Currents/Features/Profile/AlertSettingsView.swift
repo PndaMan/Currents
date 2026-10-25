@@ -318,10 +318,11 @@ struct AlertSettingsView: View {
 
     /// True when the spot will send something.
     private static func sends(_ choice: SpotAlert, bite: Bool, headsUp: Bool) -> Bool {
-        (bite && choice.biteAlerts) || (headsUp && choice.headsUp)
+        choice.enabled && ((bite && choice.biteAlerts) || (headsUp && choice.headsUp))
     }
 
     private static func status(_ choice: SpotAlert, threshold: Int, bite: Bool, headsUp: Bool) -> String {
+        guard choice.enabled else { return "Off" }
         switch (bite && choice.biteAlerts, headsUp && choice.headsUp) {
         case (false, false): return "Off"
         case (false, true): return "Heads-up only, at \(threshold) or more"

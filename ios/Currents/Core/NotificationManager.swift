@@ -109,8 +109,8 @@ final class NotificationManager: @unchecked Sendable {
 
         let wanted: [WantedSpot] = spots.compactMap { spot in
             let choice = alerts[spot.id] ?? .defaults(for: spot.id)
-            let bite = biteOn && choice.biteAlerts
-            let headsUp = headsUpOn && choice.headsUp
+            let bite = biteOn && choice.enabled && choice.biteAlerts
+            let headsUp = headsUpOn && choice.enabled && choice.headsUp
             guard bite || headsUp else { return nil }
             return WantedSpot(spot: spot, bite: bite, headsUp: headsUp,
                               threshold: choice.threshold ?? fallback)

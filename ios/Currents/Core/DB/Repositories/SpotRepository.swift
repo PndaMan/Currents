@@ -9,9 +9,15 @@ final class SpotRepository: ObservableObject {
         self.db = db
     }
 
+    /// Saves a new or changed spot. A new one gets its alert row switched
+    /// off in the same write, so every way of adding a spot starts quiet.
     func save(_ spot: inout Spot) throws {
         try db.db.write { db in
+            let isNew = try !spot.exists(db)
             try spot.save(db)
+            if isNew {
+                try SpotAlert.off(for: spot.id).save(db)
+            }
         }
         CloudSyncEngine.shared.spotChanged(spot.id)
     }

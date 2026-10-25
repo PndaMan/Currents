@@ -428,6 +428,14 @@ final class AppDatabase: Sendable {
             }
         }
 
+        migrator.registerMigration("v25_spot_alert_switch") { db in
+            // A spot's own on and off switch. Rows stored before it keep
+            // sending, so the column starts on; new spots are saved off.
+            try db.alter(table: "spotAlert") { t in
+                t.add(column: "enabled", .boolean).notNull().defaults(to: true)
+            }
+        }
+
         return migrator
     }
 }
