@@ -78,7 +78,7 @@ appstore-art: ## Render screenshots, event images, header video and (with FOOTAG
 	@test -n "$(STILLS)" || { echo "usage: make appstore-art STILLS=<captures folder> [FOOTAGE=<clips folder>]"; exit 2; }
 	uv run scripts/store_art.py --shots $(STILLS) --out $(STORE_ART)
 	uv run scripts/render_banner.py
-	$(if $(FOOTAGE),uv run scripts/render_preview.py --footage $(FOOTAGE) --out $(STORE_ART)/preview.mp4,)
+	$(if $(FOOTAGE),cd ios/AppStore/preview && bun install --frozen-lockfile && bun render.ts --stills $(abspath $(STILLS)) --footage $(abspath $(FOOTAGE)) --out $(abspath $(STORE_ART))/preview.mp4,)
 
 appstore-images: ## Replace every App Store image from STORE_ART, text untouched; dry run unless APPLY=1
 	$(ASC_ENV) uv run scripts/asc.py events --images-only --art $(STORE_ART) $(APPLY_FLAG)

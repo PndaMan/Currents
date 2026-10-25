@@ -18,8 +18,8 @@ name: Preview Footage
 # Manual, or a footage-* tag. Download "preview-footage": one MP4 per take at the device's
 # native 1320x2868 (light, then the key takes again in dark), stills/ with a
 # PNG per screen for scripts/store_art.py, and gestures.log with each
-# gesture's time from the start of its clip. Cut the video with
-# scripts/render_preview.py. About 15 minutes with a warm build cache: the
+# gesture's time from the start of its clip. Render the video with
+# ios/AppStore/preview/render.ts. About 15 minutes with a warm build cache: the
 # setup is the same as ui-review.yml and shares its cache.
 
 on:

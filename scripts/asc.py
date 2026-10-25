@@ -1482,7 +1482,7 @@ def cmd_media(api: Client, args) -> int:
         if not job.file.is_file():
             print(f"No {job.label} at {job.file}; skipping it")
     if not jobs:
-        print("Nothing to place. Render the art with scripts/store_art.py and the preview with scripts/render_preview.py.")
+        print("Nothing to place. Render the art with scripts/store_art.py and the preview with ios/AppStore/preview/render.ts.")
         return 1
     if not api.online:
         print("No credentials: App Store Connect can't be read, so nothing can be checked or planned.")

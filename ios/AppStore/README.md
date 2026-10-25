@@ -7,7 +7,8 @@ ios/AppStore/
 ├── README.md                     this file: research, what each field is for, where to paste it
 ├── captions.json                 headline above each framed screenshot (scripts/frame_screenshots.py)
 ├── store-art.json                the listing screenshots and the header and search results art (scripts/store_art.py)
-├── preview.json                  the app preview's scenes and timings (scripts/render_preview.py)
+├── preview.json                  the app preview's poster frame (scripts/asc.py)
+├── preview/                      the app preview, a Remotion project (render.ts)
 ├── fonts/                        Inter Display for the store art (OFL)
 ├── store-photos/                 licensed photos behind the store art; see docs/CONTENT_RIGHTS.md
 ├── demo-photos/                  licensed photos seeded into the simulator for captures; never shipped
@@ -25,7 +26,7 @@ The text files use the `fastlane deliver` layout and are uploaded by the make ta
 
 The screenshots workflow (`.github/workflows/screenshots.yml`) captures eight phone screens and the watch, frames them with the captions, renders the in-app event media, and publishes all of it to the `app-store-screenshots` branch: `raw/`, `framed/`, `watch.png` and `events/`. The custom product pages use `framed/`. It also captures the light screens `store-art.json` needs into `stills/`, with Log catch driven through the Add menu, and composes the listing set into `store/`: `6.9/` and `6.3/` screenshots and `creative/` header, search results and universal art. `make appstore-screenshots` uploads `store/6.9` when the branch has it.
 
-The preview video is cut from real footage. `.github/workflows/preview-footage.yml` records each take in the simulator (manual, or a `footage-*` tag), then `uv run scripts/render_preview.py --footage <downloaded folder> --out ios/build/appstore-media/preview.mp4` renders the scenes in `preview.json` at 886x1920, 30 fps, with a silent stereo track, as Apple requires. The title cards sit on the same lake scenes as the screenshots. The recorder only writes a frame when the screen changes, so the times in `preview.json` are what was on screen at that moment; `--sheet <folder>` writes contact sheets to check the cut.
+The preview video is motion design over real captures: a title card that acts out each line, then the app doing it. `ios/AppStore/preview` is a Remotion project (React, rendered frame by frame). Each app shot is built from full-size captures, the stills from the screenshots workflow plus two moments taken from the takes `.github/workflows/preview-footage.yml` records, so rows rise in one at a time, the score ring draws, bars grow, menus spring open and the camera pushes in, all at a steady 30 fps the recorder cannot give. `bun install`, then `bun render.ts [--stills <folder>] [--footage <folder>] [--music <file>]` gathers the captures into `public/`, renders, and encodes `ios/build/appstore-media/preview.mp4` at 886x1920, 30 fps, H.264 with a stereo AAC track (silent unless `--music`), as Apple requires. `bunx remotion studio` opens the composition to scrub it frame by frame. The poster frame App Store Connect shows before it plays is `poster` in `preview.json`.
 
 Every slide, event image and the header share one set of lake scenes, `scenes` in `store-art.json`, drawn by `scripts/scenes.py` (hills, a ridge of pines, open water with a boat, reeds in front) at different times of day. The product page header is that scene as a 30 second loop with the Currents mark over it: `uv run scripts/render_banner.py` writes `creative/header.mp4` and its first frame, `header-poster.png`. Each layer drifts at its own speed and moves a whole number of repeats in the loop, so it never jumps.
 
