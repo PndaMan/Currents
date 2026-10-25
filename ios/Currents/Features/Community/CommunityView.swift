@@ -705,8 +705,9 @@ struct MyProfileView: View {
 
     @State private var showingEdit = false
     @State private var confirmLeave = false
-    /// `catches` as Crew catch rows, built once per change of the log.
-    @State private var catchRows: [CommunityService.LeaderRow] = []
+    /// The catches of `catches` that have gone to the shared board, as Crew
+    /// catch rows. Nil until built, once per change of the log.
+    @State private var catchRows: [CommunityService.LeaderRow]?
 
     var body: some View {
         ScrollView {
@@ -727,12 +728,15 @@ struct MyProfileView: View {
                 }
                 actions
                     .padding(.top, DS.Space.s5)
-                // The same list a friend's page shows, from your own log.
-                CrewSection(title: "Catches", detail: catches.isEmpty ? nil : "\(catches.count)") {
+                // What a friend's page shows of you: the header counts the whole
+                // log, and this lists only the catches that have been shared.
+                CrewSection(title: "Shared catches", detail: sharedCount) {
                     if catches.isEmpty {
                         InlineEmpty(systemImage: "fish", text: "No catches yet. Log one and it shows here.")
+                    } else if let rows = catchRows, rows.isEmpty {
+                        InlineEmpty(systemImage: "fish", text: "No catches shared yet.")
                     } else {
-                        AnglerCatchRows(rows: catchRows)
+                        AnglerCatchRows(rows: catchRows ?? [])
                     }
                 }
                 CrewSection(title: "Badges") {
@@ -750,7 +754,7 @@ struct MyProfileView: View {
         // Anglers have no colour of their own, so the page stays plain.
         .detailTint(nil)
         .eventPageTitle(svc.myName, threshold: 112 + nameLine)
-        .task(id: catches.count) { catchRows = AnglerCatchRows.ownRows(catches) }
+        .task(id: "\(catches.count)-\(svc.revision)") { catchRows = AnglerCatchRows.sharedRows(catches) }
         .sheet(isPresented: $showingEdit) { ProfileEditView(stats: stats) }
         .confirmationDialog("Turn off Crew?", isPresented: $confirmLeave, titleVisibility: .visible) {
             Button("Turn off Crew", role: .destructive) {
@@ -762,6 +766,11 @@ struct MyProfileView: View {
         } message: {
             Text("Nothing new is shared and notifications stop. What you've already shared stays until you delete it.")
         }
+    }
+
+    private var sharedCount: String? {
+        guard let rows = catchRows, !rows.isEmpty else { return nil }
+        return "\(rows.count)"
     }
 
     private var actions: some View {
@@ -1044,6 +1053,13 @@ private struct AnglerCatchRows: View {
                 .padding(.top, DS.Space.s2)
             }
         }
+    }
+
+    /// Your logged catches that the sync has sent to the shared board, which
+    /// is what friends can open, as Crew catch rows in the order given.
+    @MainActor static func sharedRows(_ details: [CatchDetail]) -> [CommunityService.LeaderRow] {
+        let sent = Set(UserDefaults.standard.stringArray(forKey: "publishedCatchIds") ?? [])
+        return ownRows(details.filter { sent.contains($0.catchRecord.id) })
     }
 
     /// Your logged catches as Crew catch rows, in the order given.
