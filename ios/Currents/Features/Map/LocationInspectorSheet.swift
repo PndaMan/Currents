@@ -31,6 +31,7 @@ struct LocationInspectorSheet: View {
     /// Recorded fish that are not in the species guide, so have no art or
     /// bite of their own.
     @State private var unlistedFish = 0
+    @State private var unnotedFish = 0
     @State private var isLoading = true
     @State private var isLoadingFish = true
     @State private var isLoadingWater = true
@@ -158,7 +159,7 @@ struct LocationInspectorSheet: View {
         if weather != nil {
             section {
                 SectionTitle("Conditions")
-                ExploreConditions(weather: weather)
+                ExploreConditions(weather: weather, coordinate: coordinate)
             }
         }
 
@@ -251,6 +252,9 @@ struct LocationInspectorSheet: View {
     }
 
     private var bitingEmptyText: String {
+        if unnotedFish > 0 {
+            return "Fish have been recorded near here, but the species guide has no bait notes for them yet."
+        }
         if unlistedFish > 0 {
             return "Fish have been recorded near here, but none of them are in the species guide yet."
         }
@@ -315,6 +319,8 @@ struct LocationInspectorSheet: View {
         let fish = await fishTask
         biting = bitingFish(from: fish, weather: w)
         unlistedFish = Set(fish.filter { $0.localSpecies == nil }.map(\.scientificName)).count
+        // Guide species left out of the list for having no bait notes yet.
+        unnotedFish = Set(fish.compactMap { $0.localSpecies?.id }).count - biting.count
         isLoadingFish = false
 
         await topUp
@@ -336,12 +342,16 @@ struct LocationInspectorSheet: View {
     /// Each recorded fish in the species guide, with its own bite now and the
     /// reason for it, best bite first, then most records, then by name, so
     /// the order holds from one opening to the next. Two sources naming the
-    /// same species count once.
+    /// same species count once. A fish whose only bait list is the seed's
+    /// stand-in one is left out, as in the Target list and the fish menu,
+    /// unless the angler has caught it.
     private func bitingFish(from fish: [ObservedSpeciesRepository.FishResult],
                             weather w: WeatherService.WeatherData?) -> [BitingFish] {
+        let caught = Set(((try? appState.catchRepository.speciesCounts()) ?? []).map { $0.speciesId })
         var records: [Int64: (species: Species, count: Int)] = [:]
         for result in fish {
-            guard let sp = result.localSpecies else { continue }
+            guard let sp = result.localSpecies,
+                  LureEngine.hasBaitRecord(sp) || caught.contains(sp.id) else { continue }
             let count = max(records[sp.id]?.count ?? 0, result.observationCount)
             records[sp.id] = (sp, count)
         }
