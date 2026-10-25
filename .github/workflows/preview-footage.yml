@@ -227,6 +227,7 @@ jobs:
           # Light first: the store screenshots and the preview use the light
           # look. A shorter dark pass follows.
           APPEARANCE=light
+          echo "$(date -u +%T) Light appearance"
           xcrun simctl ui "$UDID" appearance light
           PLAY_LAUNCH=""
           launch() { # launch <screen> [photo]
@@ -243,7 +244,9 @@ jobs:
           # Warm-up: seeds the demo data and fills the forecast cache. If the
           # model step failed, a Log catch launch makes the app download the
           # model; wait for it so the recorded takes are identified.
+          echo "$(date -u +%T) Warm-up launch"
           launch today
+          echo "$(date -u +%T) Warm-up launched"
           sleep 20
           if [ ! -d "$MODEL" ]; then
             echo "::warning::Model not installed by the runner; letting the app download it"
