@@ -250,7 +250,11 @@ struct PlannedRow: View {
         guard let hour = outlook.bestHour else { return "No forecast for these hours" }
         // The planned hours, as the ring beside it scores them, not the day's
         // best window. The grade word, not a bare number beside the ring's own score.
-        return "\(ForecastFormat.grade(outlook.score)) at \(ForecastFormat.hour(hour, use24: use24))"
+        // When the best hour is the one the plan starts in, name the planned
+        // time: the hour itself begins before a 05:30 plan does.
+        let startsInBestHour = hour == Calendar.current.component(.hour, from: date)
+        let when = startsInBestHour ? ForecastFormat.time(date, use24: use24) : ForecastFormat.hour(hour, use24: use24)
+        return "\(ForecastFormat.grade(outlook.score)) at \(when)"
     }
 
     /// "Tomorrow, 05:30": the day, then the time, in Today's order.
