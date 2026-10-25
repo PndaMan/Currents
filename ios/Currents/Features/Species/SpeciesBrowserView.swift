@@ -214,12 +214,12 @@ struct SpeciesBrowserView: View {
     }
 
     /// Habitat and comfort band. A fish whose common name another shares
-    /// gets its scientific name in place of the habitat, so the row keeps
-    /// two facts and one line.
+    /// shows only its scientific name, which tells them apart; with the
+    /// comfort band as well the row wraps to a second line.
     private func rowSubtitle(_ sp: Species) -> String {
-        let first: String? = repeatedNames.contains(sp) ? sp.scientificName : SpeciesSeason.habitatName(sp.habitat)
+        if repeatedNames.contains(sp) { return sp.scientificName }
         let comfort = SpeciesSeason.comfortText(sp, imperial: Units.isImperial)
-        return [first, comfort].compactMap { $0 }.joined(separator: ", ")
+        return [SpeciesSeason.habitatName(sp.habitat), comfort].compactMap { $0 }.joined(separator: ", ")
     }
 
     // MARK: - Data
@@ -305,12 +305,13 @@ struct SpeciesBrowserView: View {
         let sorted: [Species]
         switch sortOrder {
         case .match:
-            // Fish known near the angler lead, best scoring first, then
-            // the rest of the world's fish by score.
+            // Caught fish and spot fish lead, then fish only on record
+            // nearby, then the rest of the world's fish; each group by score.
             sorted = result.sorted {
                 let rankA = localRank($0), rankB = localRank($1)
-                let localA = rankA < 3, localB = rankB < 3
-                if localA != localB { return localA }
+                // Ranks 0 and 1 share the first group.
+                let groupA = max(rankA - 1, 0), groupB = max(rankB - 1, 0)
+                if groupA != groupB { return groupA < groupB }
                 let a = score($0), b = score($1)
                 if a != b { return a > b }
                 if rankA != rankB { return rankA < rankB }
