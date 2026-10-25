@@ -5,8 +5,9 @@
 """Compose the App Store screenshots from the simulator captures.
 
 Reads ios/AppStore/store-art.json and the raw captures (1320x2868 PNGs named
-after their screen). Each slide is a field of the brand colour or a
-full-bleed photo with layers drawn on it in order: headline text, the
+after their screen). Each slide is a field of the brand colour, a layered
+lake scene (scripts/scenes.py, as in the header) or a full-bleed photo
+with layers drawn on it in order: headline text, the
 capture inside a drawn iPhone, pieces of a capture lifted onto white plates,
 the app's own fish and lure art, and stickers. A slide with "span": 2 is
 drawn as one wide picture and cut into two screenshots, so a phone can
@@ -19,7 +20,11 @@ Writes <out>/6.9/NN_name.png (1320x2868) and <out>/6.3/NN_name.png
 "creative" entries are the product page Header, Search Results and
 Universal art, drawn the same way at their own sizes into
 <out>/creative/<name>.png; keep what matters inside each one's "safe" box,
-which is all some devices show.
+which is all some devices show. The "events" entries are each in-app
+event's card (16:9) and details page (9:16), written to
+<out>/events/<slug>/event-card.png and event-details.png. Apple draws the
+event's name and badge over these and adds its own gradient, so they carry
+no text, logo, border or shade.
 """
 
 from __future__ import annotations
@@ -27,9 +32,13 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import sys
 from pathlib import Path
 
 from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont, ImageOps
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import scenes  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 ASSETS = ROOT / "ios/Currents/Resources/Assets.xcassets"
@@ -248,6 +257,8 @@ def draw_slide(spec: dict, theme: dict, shots: Path) -> Image.Image:
         if spec.get("blur"):
             # Out of focus behind the phone, the way a camera sees it.
             canvas = canvas.filter(ImageFilter.GaussianBlur(spec["blur"]))
+    elif "scene" in spec:
+        canvas = scenes.Scene(spec["scene"], theme, size).frame(0)
     else:
         canvas = Image.new("RGBA", size, color(theme, spec.get("field", "field")) + (255,))
 
@@ -344,6 +355,12 @@ def main() -> None:
 
     config = json.loads(args.config.read_text())
     theme = config["theme"]
+    # A slide's "scene" can name one of the shared "scenes".
+    named = config.get("scenes", {})
+    for spec in [*config.get("creative", []), *config["slides"],
+                 *(e[k] for e in config.get("events", []) for k in ("card", "details"))]:
+        if isinstance(spec.get("scene"), str):
+            spec["scene"] = named[spec["scene"]]
     for d in ("6.9", "6.3"):
         (args.out / d).mkdir(parents=True, exist_ok=True)
     have = {p.stem for p in args.shots.glob("*.png")}
@@ -358,6 +375,20 @@ def main() -> None:
         (args.out / "creative").mkdir(parents=True, exist_ok=True)
         draw_slide(spec, theme, args.shots).save(args.out / "creative" / f"{spec['name']}.png", optimize=True)
         print(f"wrote creative/{spec['name']}.png")
+
+    for event in config.get("events", []):
+        if args.only and event["slug"] not in args.only:
+            continue
+        for kind, filename in (("card", "event-card.png"), ("details", "event-details.png")):
+            spec = event[kind]
+            missing = {l["screen"] for l in spec["layers"] if "screen" in l} - have
+            if missing:
+                print(f"skip events/{event['slug']}/{filename}: no capture for {', '.join(sorted(missing))}")
+                continue
+            folder = args.out / "events" / event["slug"]
+            folder.mkdir(parents=True, exist_ok=True)
+            draw_slide(spec, theme, args.shots).save(folder / filename, optimize=True)
+            print(f"wrote events/{event['slug']}/{filename}")
 
     number = 0
     for spec in config["slides"]:

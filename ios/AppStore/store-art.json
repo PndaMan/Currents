@@ -1,14 +1,5 @@
 {
-  "theme": {
-    "field": "#4CC8FF",
-    "pale": "#DDF4FF",
-    "navy": "#08243F",
-    "sun": "#FFD84D",
-    "ink": "#06121F",
-    "white": "#FFFFFF",
-    "sticker": "#FFD84D",
-    "device": "light"
-  },
+  "theme": {"field": "#4CC8FF", "pale": "#DDF4FF", "navy": "#08243F", "sun": "#FFD84D", "ink": "#06121F", "white": "#FFFFFF", "sticker": "#FFD84D", "device": "light"},
   "creative": [
     {
       "name": "header",
@@ -48,18 +39,116 @@
       ]
     }
   ],
+  "banner": {
+    "size": [3840, 1646],
+    "loop": 30,
+    "fps": 30,
+    "scene": {
+      "sky_top": "#B4E8FF",
+      "sky": "field",
+      "sky_to": 0.5,
+      "deep": "navy",
+      "layers": [
+        {"kind": "hills", "y": 0.33, "amp": 0.05, "period": 1280, "speed": 1, "shade": 0.1},
+        {"kind": "pines", "y": 0.5, "amp": 0.025, "height": 0.2, "period": 1920, "speed": 1, "density": 1.5, "shade": 0.22},
+        {
+          "kind": "water",
+          "y": 0.575,
+          "amp": 0.004,
+          "period": 1280,
+          "speed": 2,
+          "shade": 0.34,
+          "ripples": {"count": 9, "depth": 0.3, "length": 150, "thick": 6, "light": 0.28}
+        },
+        {"kind": "boat", "y": 0.81, "size": 112, "at": 0.96, "sunk": 8, "period": 2560, "speed": 1, "shade": 0.64},
+        {"kind": "pines", "y": 0.95, "amp": 0.02, "height": 0.46, "period": 2400, "speed": 2, "density": 0.2, "shade": 0.55, "group": 3},
+        {"kind": "reeds", "y": 1.02, "height": 0.22, "period": 1800, "speed": 3, "density": 0.6, "shade": 0.74, "cattails": 0.1}
+      ]
+    },
+    "lockup": {"text": "Currents", "size": 270, "weight": "Bold", "tracking": 0.01, "mark": 340, "gap": 60, "center": [1920, 823], "color": "white"}
+  },
+  "events": [
+    {
+      "slug": "crews-and-tournaments",
+      "card": {
+        "size": [3840, 2160],
+        "layers": [
+          {"type": "phone", "screen": "profile", "center": [2290, 1080], "scale": 0.56, "angle": 6},
+          {"type": "phone", "screen": "leaderboard", "center": [1550, 1140], "scale": 0.58, "angle": -5}
+        ],
+        "scene": "event-day"
+      },
+      "details": {
+        "size": [2160, 3840],
+        "layers": [
+          {"type": "phone", "screen": "profile", "center": [1500, 1640], "scale": 0.86, "angle": 7},
+          {"type": "phone", "screen": "leaderboard", "center": [880, 2020], "scale": 0.94, "angle": -5}
+        ],
+        "scene": "event-day"
+      }
+    },
+    {
+      "slug": "summer-bite-season",
+      "card": {
+        "size": [3840, 2160],
+        "layers": [
+          {"type": "phone", "screen": "forecast-week", "center": [2290, 1080], "scale": 0.56, "angle": 6},
+          {"type": "phone", "screen": "today", "center": [1550, 1140], "scale": 0.58, "angle": -5}
+        ],
+        "scene": "event-golden"
+      },
+      "details": {
+        "size": [2160, 3840],
+        "layers": [
+          {"type": "phone", "screen": "forecast-week", "center": [1500, 1640], "scale": 0.86, "angle": 7},
+          {"type": "phone", "screen": "today", "center": [880, 2020], "scale": 0.94, "angle": -5}
+        ],
+        "scene": "event-golden"
+      }
+    },
+    {
+      "slug": "fill-your-fishdex",
+      "card": {
+        "size": [3840, 2160],
+        "layers": [
+          {"type": "art", "name": "fish_11", "width": 880, "center": [880, 900], "angle": -8},
+          {"type": "art", "name": "fish_17", "width": 880, "center": [2960, 1260], "angle": 8, "flip": true},
+          {"type": "phone", "screen": "fishdex-dark", "center": [1920, 1120], "scale": 0.6, "angle": 0, "finish": "dark"}
+        ],
+        "scene": "event-night"
+      },
+      "details": {
+        "size": [2160, 3840],
+        "layers": [
+          {"type": "art", "name": "fish_11", "width": 820, "center": [720, 380], "angle": -10},
+          {"type": "art", "name": "fish_17", "width": 700, "center": [1100, 760], "angle": 8, "flip": true},
+          {"type": "phone", "screen": "fishdex-dark", "center": [1080, 2330], "scale": 0.94, "angle": 0, "finish": "dark"}
+        ],
+        "scene": "event-night"
+      }
+    }
+  ],
   "slides": [
     {
       "names": ["bite", "nearby"],
       "span": 2,
-      "field": "field",
       "layers": [
         {"type": "phone", "screen": "explore", "center": [1930, 1150], "scale": 0.86, "angle": -9},
         {"type": "logo", "at": [96, 150], "height": 96},
-        {"type": "text", "lines": ["Know when", "they bite."], "size": 204, "at": [92, 1800], "leading": 0.98},
-        {"type": "facts", "at": [100, 2440], "size": 104, "items": [["1,589", "species to identify"], ["Offline", "maps and logbook"]]},
-        {"type": "text", "lines": ["See what's biting", "near you"], "size": 104, "weight": "Bold", "align": "center", "at": [1980, 2590], "leading": 1.06}
-      ]
+        {"type": "text", "lines": ["Know when", "they bite."], "size": 204, "at": [92, 1800], "leading": 0.98, "color": "white"},
+        {
+          "type": "facts",
+          "at": [100, 2440],
+          "size": 104,
+          "items": [
+            ["1,589", "species to identify"],
+            ["Offline", "maps and logbook"]
+          ],
+          "color": "white"
+        },
+        {"type": "text", "lines": ["See what's biting", "near you"], "size": 104, "weight": "Bold", "align": "center", "at": [1980, 2590], "leading": 1.06, "color": "white"}
+      ],
+      "scene": "day"
     },
     {
       "name": "identify",
@@ -69,19 +158,31 @@
         {"type": "shade", "edge": "top", "size": 1100, "opacity": 0.6},
         {"type": "text", "lines": ["Snap a fish.", "Know the species."], "size": 140, "align": "center", "at": [660, 200], "color": "white", "leading": 1.04},
         {"type": "phone", "screen": "log-catch-camera", "center": [660, 1980], "scale": 0.7, "angle": 0, "finish": "dark"},
-        {"type": "card", "screen": "log-catch-id", "box": [30, 1385, 720, 300], "erase": [[650, 1520, 75, 52]], "pad": 0, "radius": 60, "center": [720, 1560], "scale": 1.08, "angle": -3}
+        {
+          "type": "card",
+          "screen": "log-catch-id",
+          "box": [30, 1385, 720, 300],
+          "erase": [
+            [650, 1520, 75, 52]
+          ],
+          "pad": 0,
+          "radius": 60,
+          "center": [720, 1560],
+          "scale": 1.08,
+          "angle": -3
+        }
       ],
       "blur": 14
     },
     {
       "name": "forecast",
-      "field": "pale",
       "layers": [
         {"type": "text", "lines": ["Plan the week", "around the bite."], "size": 140, "align": "center", "at": [660, 200], "leading": 1.04},
         {"type": "card", "screen": "forecast-week", "box": [60, 714, 1200, 256], "pad": 30, "radius": 70, "center": [650, 840], "scale": 0.94, "angle": -2},
         {"type": "card", "screen": "forecast-day", "box": [40, 1525, 1240, 560], "pad": 30, "radius": 70, "center": [680, 1530], "scale": 0.94, "angle": 1.5},
         {"type": "card", "screen": "forecast-week", "box": [60, 1086, 1200, 732], "pad": 30, "radius": 70, "center": [640, 2370], "scale": 0.94, "angle": -1.5}
-      ]
+      ],
+      "scene": "dawn"
     },
     {
       "name": "catch",
@@ -96,39 +197,272 @@
     },
     {
       "name": "lures",
-      "field": "sun",
       "layers": [
         {"type": "text", "lines": ["Know what", "to throw."], "size": 150, "at": [90, 200], "leading": 1.02},
         {"type": "phone", "screen": "lures", "center": [860, 1920], "scale": 0.76, "angle": 4},
         {"type": "art", "name": "lure_spinnerbait", "width": 300, "center": [170, 1250], "angle": -18},
         {"type": "art", "name": "lure_crankbait", "width": 260, "center": [150, 2050], "angle": 14}
-      ]
+      ],
+      "scene": "golden"
     },
     {
       "name": "fishdex",
-      "field": "navy",
       "layers": [
         {"type": "text", "lines": ["Collect all", "1,589 species."], "size": 140, "align": "center", "at": [660, 200], "color": "white", "leading": 1.04},
         {"type": "phone", "screen": "fishdex-dark", "center": [660, 1990], "scale": 0.78, "angle": 0, "finish": "dark"}
-      ]
+      ],
+      "scene": "night"
     },
     {
       "name": "streak",
-      "field": "field",
       "layers": [
-        {"type": "text", "lines": ["Keep your", "streak alive."], "size": 140, "align": "center", "at": [660, 200], "leading": 1.04},
+        {"type": "text", "lines": ["Keep your", "streak alive."], "size": 140, "align": "center", "at": [660, 200], "leading": 1.04, "color": "white"},
         {"type": "phone", "screen": "streak", "center": [660, 1990], "scale": 0.78, "angle": 0},
         {"type": "pop", "box": [30, 960, 1260, 320], "lift": 1.16, "radius": 56, "pad": 20, "turn": -3}
-      ]
+      ],
+      "scene": "dusk"
     },
     {
       "name": "crew",
-      "field": "sun",
       "layers": [
         {"type": "text", "lines": ["Fish with", "your crew."], "size": 150, "align": "center", "at": [660, 200], "leading": 1.02},
         {"type": "phone", "screen": "profile", "center": [890, 1930], "scale": 0.6, "angle": 6},
         {"type": "phone", "screen": "leaderboard", "center": [450, 2080], "scale": 0.64, "angle": -5}
+      ],
+      "scene": "crew"
+    }
+  ],
+  "scenes": {
+    "day": {
+      "sky": "field",
+      "base": "field",
+      "deep": "navy",
+      "seed": 7,
+      "sky_top": "#B4E8FF",
+      "sky_to": 0.34,
+      "layers": [
+        {"kind": "hills", "y": 0.3, "amp": 0.022, "period": 1320, "speed": 1, "shade": 0.1, "seed": 8},
+        {"kind": "pines", "y": 0.36, "amp": 0.01, "height": 0.07, "period": 1980, "speed": 1, "density": 1.5, "shade": 0.22, "seed": 9},
+        {
+          "kind": "water",
+          "y": 0.39,
+          "amp": 0.002,
+          "period": 1320,
+          "speed": 1,
+          "shade": 0.34,
+          "seed": 10,
+          "ripples": {"count": 8, "depth": 0.3, "length": 150, "thick": 6, "light": 0.28}
+        },
+        {"kind": "boat", "y": 0.5, "size": 100, "at": 0.18, "sunk": 8, "period": 2640, "speed": 1, "shade": 0.6},
+        {"kind": "pines", "y": 0.985, "amp": 0.01, "height": 0.26, "period": 2640, "speed": 1, "density": 0.25, "group": 3, "shade": 0.55, "seed": 12},
+        {"kind": "reeds", "y": 1.01, "height": 0.13, "period": 1980, "speed": 1, "density": 0.6, "cattails": 0.1, "shade": 0.74, "seed": 13}
+      ]
+    },
+    "dawn": {
+      "sky": "pale",
+      "base": "field",
+      "deep": "navy",
+      "seed": 11,
+      "sky_top": "#FFF3C4",
+      "sky_to": 0.34,
+      "sun": {"at": [0.8, 0.255], "r": 0.035, "color": "sun", "ring": true},
+      "layers": [
+        {"kind": "hills", "y": 0.3, "amp": 0.022, "period": 1320, "speed": 1, "shade": 0.1, "seed": 12},
+        {"kind": "pines", "y": 0.36, "amp": 0.01, "height": 0.07, "period": 1980, "speed": 1, "density": 1.5, "shade": 0.22, "seed": 13},
+        {
+          "kind": "water",
+          "y": 0.39,
+          "amp": 0.002,
+          "period": 1320,
+          "speed": 1,
+          "shade": 0.34,
+          "seed": 14,
+          "ripples": {"count": 8, "depth": 0.3, "length": 150, "thick": 6, "light": 0.28}
+        },
+        {"kind": "boat", "y": 0.5, "size": 100, "at": 0.18, "sunk": 8, "period": 2640, "speed": 1, "shade": 0.6},
+        {"kind": "pines", "y": 0.985, "amp": 0.01, "height": 0.26, "period": 2640, "speed": 1, "density": 0.25, "group": 3, "shade": 0.55, "seed": 16},
+        {"kind": "reeds", "y": 1.01, "height": 0.13, "period": 1980, "speed": 1, "density": 0.6, "cattails": 0.1, "shade": 0.74, "seed": 17}
+      ]
+    },
+    "golden": {
+      "sky": "sun",
+      "base": "field",
+      "deep": "navy",
+      "seed": 21,
+      "sky_top": "#FFF6D0",
+      "sky_to": 0.34,
+      "sun": {"at": [0.22, 0.25], "r": 0.05, "color": "#FFFBEA", "ring": true},
+      "layers": [
+        {"kind": "hills", "y": 0.3, "amp": 0.022, "period": 1320, "speed": 1, "shade": 0.1, "seed": 22},
+        {"kind": "pines", "y": 0.36, "amp": 0.01, "height": 0.07, "period": 1980, "speed": 1, "density": 1.5, "shade": 0.22, "seed": 23},
+        {
+          "kind": "water",
+          "y": 0.39,
+          "amp": 0.002,
+          "period": 1320,
+          "speed": 1,
+          "shade": 0.34,
+          "seed": 24,
+          "ripples": {"count": 8, "depth": 0.3, "length": 150, "thick": 6, "light": 0.28}
+        },
+        {"kind": "boat", "y": 0.5, "size": 100, "at": 0.18, "sunk": 8, "period": 2640, "speed": 1, "shade": 0.6},
+        {"kind": "pines", "y": 0.985, "amp": 0.01, "height": 0.26, "period": 2640, "speed": 1, "density": 0.25, "group": 3, "shade": 0.55, "seed": 26},
+        {"kind": "reeds", "y": 1.01, "height": 0.13, "period": 1980, "speed": 1, "density": 0.6, "cattails": 0.1, "shade": 0.74, "seed": 27}
+      ]
+    },
+    "night": {
+      "sky": "navy",
+      "base": "#2A6EA6",
+      "deep": "#010A14",
+      "seed": 31,
+      "sky_top": "#03101F",
+      "sky_to": 0.34,
+      "sun": {"at": [0.85, 0.24], "r": 0.022, "color": "pale", "ring": true},
+      "stars": 70,
+      "stars_to": 0.3,
+      "layers": [
+        {"kind": "hills", "y": 0.3, "amp": 0.022, "period": 1320, "speed": 1, "shade": 0.35, "seed": 32},
+        {"kind": "pines", "y": 0.36, "amp": 0.01, "height": 0.07, "period": 1980, "speed": 1, "density": 1.5, "shade": 0.45, "seed": 33},
+        {
+          "kind": "water",
+          "y": 0.39,
+          "amp": 0.002,
+          "period": 1320,
+          "speed": 1,
+          "shade": 0.55,
+          "seed": 34,
+          "ripples": {"count": 8, "depth": 0.3, "length": 150, "thick": 6, "light": 0.28}
+        },
+        {"kind": "boat", "y": 0.5, "size": 100, "at": 0.18, "sunk": 8, "period": 2640, "speed": 1, "shade": 0.85},
+        {"kind": "pines", "y": 0.985, "amp": 0.01, "height": 0.26, "period": 2640, "speed": 1, "density": 0.25, "group": 3, "shade": 0.7, "seed": 36},
+        {"kind": "reeds", "y": 1.01, "height": 0.13, "period": 1980, "speed": 1, "density": 0.6, "cattails": 0.1, "shade": 0.85, "seed": 37}
+      ]
+    },
+    "dusk": {
+      "sky": "#62B8E8",
+      "base": "field",
+      "deep": "navy",
+      "seed": 41,
+      "sky_top": "navy",
+      "sky_to": 0.34,
+      "sun": {"at": [0.5, 0.31], "r": 0.06, "color": "sun", "ring": true},
+      "layers": [
+        {"kind": "hills", "y": 0.3, "amp": 0.022, "period": 1320, "speed": 1, "shade": 0.2, "seed": 42},
+        {"kind": "pines", "y": 0.36, "amp": 0.01, "height": 0.07, "period": 1980, "speed": 1, "density": 1.5, "shade": 0.32, "seed": 43},
+        {
+          "kind": "water",
+          "y": 0.39,
+          "amp": 0.002,
+          "period": 1320,
+          "speed": 1,
+          "shade": 0.42,
+          "seed": 44,
+          "ripples": {"count": 8, "depth": 0.3, "length": 150, "thick": 6, "light": 0.28}
+        },
+        {"kind": "boat", "y": 0.5, "size": 100, "at": 0.18, "sunk": 8, "period": 2640, "speed": 1, "shade": 0.7},
+        {"kind": "pines", "y": 0.985, "amp": 0.01, "height": 0.26, "period": 2640, "speed": 1, "density": 0.25, "group": 3, "shade": 0.62, "seed": 46},
+        {"kind": "reeds", "y": 1.01, "height": 0.13, "period": 1980, "speed": 1, "density": 0.6, "cattails": 0.1, "shade": 0.8, "seed": 47}
+      ]
+    },
+    "crew": {
+      "sky": "field",
+      "base": "field",
+      "deep": "navy",
+      "seed": 51,
+      "sky_top": "white",
+      "sky_to": 0.34,
+      "layers": [
+        {"kind": "hills", "y": 0.3, "amp": 0.022, "period": 1320, "speed": 1, "shade": 0.1, "seed": 52},
+        {"kind": "pines", "y": 0.36, "amp": 0.01, "height": 0.07, "period": 1980, "speed": 1, "density": 1.5, "shade": 0.22, "seed": 53},
+        {
+          "kind": "water",
+          "y": 0.39,
+          "amp": 0.002,
+          "period": 1320,
+          "speed": 1,
+          "shade": 0.34,
+          "seed": 54,
+          "ripples": {"count": 8, "depth": 0.3, "length": 150, "thick": 6, "light": 0.28}
+        },
+        {"kind": "boat", "y": 0.5, "size": 100, "at": 0.18, "sunk": 8, "period": 2640, "speed": 1, "shade": 0.6},
+        {"kind": "boat", "y": 0.57, "size": 82, "at": 0.73, "sunk": 8, "period": 2640, "speed": 1, "shade": 0.6},
+        {"kind": "pines", "y": 0.985, "amp": 0.01, "height": 0.26, "period": 2640, "speed": 1, "density": 0.25, "group": 3, "shade": 0.55, "seed": 56},
+        {"kind": "reeds", "y": 1.01, "height": 0.13, "period": 1980, "speed": 1, "density": 0.6, "cattails": 0.1, "shade": 0.74, "seed": 57}
+      ]
+    },
+    "event-day": {
+      "sky": "pale",
+      "base": "field",
+      "deep": "navy",
+      "seed": 61,
+      "layers": [
+        {"kind": "hills", "y": 0.3, "amp": 0.022, "period": 1320, "speed": 1, "shade": 0.1, "seed": 62},
+        {"kind": "pines", "y": 0.36, "amp": 0.01, "height": 0.07, "period": 1980, "speed": 1, "density": 1.5, "shade": 0.22, "seed": 63},
+        {
+          "kind": "water",
+          "y": 0.39,
+          "amp": 0.002,
+          "period": 1320,
+          "speed": 1,
+          "shade": 0.34,
+          "seed": 64,
+          "ripples": {"count": 8, "depth": 0.3, "length": 150, "thick": 6, "light": 0.28}
+        },
+        {"kind": "boat", "y": 0.5, "size": 100, "at": 0.18, "sunk": 8, "period": 2640, "speed": 1, "shade": 0.6},
+        {"kind": "boat", "y": 0.57, "size": 82, "at": 0.73, "sunk": 8, "period": 2640, "speed": 1, "shade": 0.6},
+        {"kind": "pines", "y": 0.985, "amp": 0.01, "height": 0.26, "period": 2640, "speed": 1, "density": 0.25, "group": 3, "shade": 0.55, "seed": 66},
+        {"kind": "reeds", "y": 1.01, "height": 0.13, "period": 1980, "speed": 1, "density": 0.6, "cattails": 0.1, "shade": 0.74, "seed": 67}
+      ]
+    },
+    "event-golden": {
+      "sky": "sun",
+      "base": "field",
+      "deep": "navy",
+      "seed": 71,
+      "sun": {"at": [0.24, 0.24], "r": 0.05, "color": "#FFFBEA", "ring": true},
+      "layers": [
+        {"kind": "hills", "y": 0.3, "amp": 0.022, "period": 1320, "speed": 1, "shade": 0.1, "seed": 72},
+        {"kind": "pines", "y": 0.36, "amp": 0.01, "height": 0.07, "period": 1980, "speed": 1, "density": 1.5, "shade": 0.22, "seed": 73},
+        {
+          "kind": "water",
+          "y": 0.39,
+          "amp": 0.002,
+          "period": 1320,
+          "speed": 1,
+          "shade": 0.34,
+          "seed": 74,
+          "ripples": {"count": 8, "depth": 0.3, "length": 150, "thick": 6, "light": 0.28}
+        },
+        {"kind": "boat", "y": 0.5, "size": 100, "at": 0.18, "sunk": 8, "period": 2640, "speed": 1, "shade": 0.6},
+        {"kind": "pines", "y": 0.985, "amp": 0.01, "height": 0.26, "period": 2640, "speed": 1, "density": 0.25, "group": 3, "shade": 0.55, "seed": 76},
+        {"kind": "reeds", "y": 1.01, "height": 0.13, "period": 1980, "speed": 1, "density": 0.6, "cattails": 0.1, "shade": 0.74, "seed": 77}
+      ]
+    },
+    "event-night": {
+      "sky": "navy",
+      "base": "#2A6EA6",
+      "deep": "#010A14",
+      "seed": 81,
+      "sun": {"at": [0.84, 0.16], "r": 0.03, "color": "pale", "ring": true},
+      "stars": 80,
+      "stars_to": 0.3,
+      "layers": [
+        {"kind": "hills", "y": 0.3, "amp": 0.022, "period": 1320, "speed": 1, "shade": 0.35, "seed": 82},
+        {"kind": "pines", "y": 0.36, "amp": 0.01, "height": 0.07, "period": 1980, "speed": 1, "density": 1.5, "shade": 0.45, "seed": 83},
+        {
+          "kind": "water",
+          "y": 0.39,
+          "amp": 0.002,
+          "period": 1320,
+          "speed": 1,
+          "shade": 0.55,
+          "seed": 84,
+          "ripples": {"count": 8, "depth": 0.3, "length": 150, "thick": 6, "light": 0.28}
+        },
+        {"kind": "boat", "y": 0.5, "size": 100, "at": 0.9, "sunk": 8, "period": 4000, "speed": 1, "shade": 0.85},
+        {"kind": "pines", "y": 0.985, "amp": 0.01, "height": 0.26, "period": 2640, "speed": 1, "density": 0.25, "group": 3, "shade": 0.7, "seed": 86},
+        {"kind": "reeds", "y": 1.01, "height": 0.13, "period": 1980, "speed": 1, "density": 0.6, "cattails": 0.1, "shade": 0.85, "seed": 87}
       ]
     }
-  ]
+  }
 }
