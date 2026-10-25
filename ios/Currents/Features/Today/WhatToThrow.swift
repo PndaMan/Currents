@@ -5,13 +5,14 @@ import SwiftUI
 enum ThrowText {
     /// One line on what the picks are based on: water temperature, clarity,
     /// light and pressure. `night` is the day-or-night test from the day's
-    /// sunrise and sunset (`SolunarDay.isNight(at:)`).
+    /// sunrise and sunset (`SolunarDay.isNight(at:)`). `twilight` is the dawn
+    /// or dusk golden hour, and wins over `night`: the sky is not dark yet.
     static func why(_ w: WeatherService.WeatherData?, clarity: WaterClarity, night: Bool,
-                    imperial: Bool = Units.isImperial) -> String {
+                    twilight: Bool = false, imperial: Bool = Units.isImperial) -> String {
         let water = clarity.label.lowercased() + " water"
         guard let w else { return "Picked for \(water). Temperature and light fill in when the weather loads." }
         let temp = w.waterTempC.map { Units.temperature($0, imperial: imperial) + " " } ?? ""
-        return "Picked for \(temp)\(water), \(light(w.cloudCoverPct, night: night)) and \(pressure(w.pressureChange6h))."
+        return "Picked for \(temp)\(water), \(light(w.cloudCoverPct, night: night, twilight: twilight)) and \(pressure(w.pressureChange6h))."
     }
 
     /// What each clarity looks like, as a sentence in the user's units.
@@ -23,7 +24,8 @@ enum ThrowText {
         }
     }
 
-    static func light(_ cloud: Int, night: Bool) -> String {
+    static func light(_ cloud: Int, night: Bool, twilight: Bool = false) -> String {
+        if twilight { return "low light" }
         if night { return "darkness" }
         if cloud >= 60 { return "low light" }
         if cloud <= 25 { return "bright sun" }
@@ -447,6 +449,9 @@ struct WhatToThrowSection: View {
     let weather: WeatherService.WeatherData?
     /// True while the sun is down, from the day's sunrise and sunset.
     let isNight: Bool
+    /// True during the dawn or dusk golden hour, when the light is low but
+    /// the sky is not dark.
+    var isGoldenHour: Bool = false
     let clarity: WaterClarity
     let clarityIsGuess: Bool
     /// The fish the picks are for, which says why a bait-only fish has one.
@@ -474,7 +479,8 @@ struct WhatToThrowSection: View {
             .accessibilityHint("Shows every pick and the colours to use")
 
             VStack(alignment: .leading, spacing: 12) {
-                Text(ThrowText.why(weather, clarity: clarity, night: isNight, imperial: units == "imperial"))
+                Text(ThrowText.why(weather, clarity: clarity, night: isNight, twilight: isGoldenHour,
+                                    imperial: units == "imperial"))
                     .font(.subheadline)
                     .foregroundStyle(.dsText2)
                     .fixedSize(horizontal: false, vertical: true)
@@ -591,7 +597,9 @@ struct WhatToThrowPage: View {
                 DetailHeader(over: store.species.map { "Targeting \($0.commonName)" } ?? store.placeName,
                              title: "What to throw",
                              subtitle: ThrowText.phrase(ThrowText.why(measuredWeather, clarity: clarity,
-                                                                      night: store.day(0).isDarkNow, imperial: imperial)))
+                                                                      night: store.day(0).isDarkNow,
+                                                                      twilight: store.day(0).isGoldenNow,
+                                                                      imperial: imperial)))
                 if let note = store.staleNote { SectionFootnote(note) }
 
                 VStack(alignment: .leading, spacing: 8) {

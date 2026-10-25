@@ -108,6 +108,7 @@ struct TodayTab: View {
                     upNextRow
                     WhatToThrowSection(
                         suggestions: suggestions, weather: measuredWeather, isNight: today.isDarkNow,
+                        isGoldenHour: today.isGoldenNow,
                         clarity: clarity, clarityIsGuess: clarityOverride.isEmpty, species: store.species,
                         hasGear: !ownedGear.isEmpty, onClarity: { clarityOverride = $0.rawValue }
                     )

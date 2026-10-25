@@ -74,6 +74,12 @@ struct ForecastDay {
     /// sunset. Later days have no "now", so they read as daytime.
     var isDarkNow: Bool { isToday && solunar.isNight(at: .now) }
 
+    /// True on today's page during the dawn or dusk golden hour, the window
+    /// the Sunrise tile calls the best light.
+    var isGoldenNow: Bool {
+        isToday && (solunar.dawnGoldenHour.contains(.now) || solunar.duskGoldenHour.contains(.now))
+    }
+
     /// Whether the hour starting at `start` is dark, tested at half past, as
     /// the hour's score is.
     func isDark(hourStarting start: Date) -> Bool {
