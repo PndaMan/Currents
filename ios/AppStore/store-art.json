@@ -200,8 +200,7 @@
       "layers": [
         {"type": "text", "lines": ["Know what", "to throw."], "size": 150, "at": [90, 200], "leading": 1.02},
         {"type": "phone", "screen": "lures", "center": [860, 1920], "scale": 0.76, "angle": 4},
-        {"type": "art", "name": "lure_spinnerbait", "width": 300, "center": [170, 1250], "angle": -18},
-        {"type": "art", "name": "lure_crankbait", "width": 260, "center": [150, 2050], "angle": 14}
+        {"type": "lure", "length": 220, "center": [170, 1560], "angle": -14, "line_to": [-10, 1170]}
       ],
       "scene": "golden"
     },

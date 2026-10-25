@@ -192,6 +192,48 @@ def artwork(name: str, width: int, flip: bool = False) -> Image.Image:
     return ImageOps.mirror(img) if flip else img
 
 
+def flat_lure(length: int, theme: dict) -> tuple[Image.Image, tuple[float, float]]:
+    """A crankbait drawn flat in the brand colours to sit in a lake scene,
+    nose to the left, and where its line ties on (pixels in the image)."""
+    k = 4
+    L = length * k
+    w, h = round(L * 1.4), round(L * 0.9)
+    ox, oy = L * 0.3, h * 0.42           # nose on the centre line
+    img = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+
+    def pt(u, v):
+        return (ox + u * L, oy + v * L)
+
+    def half(u):
+        return math.sin(math.pi * (0.03 + 0.9 * u) ** 0.6)
+
+    us = [i / 60 for i in range(61)]
+    top = [pt(u, -0.23 * half(u)) for u in us]
+    bottom = [pt(u, 0.2 * half(u)) for u in reversed(us)]
+    sun, navy, pale, white = (color(theme, n) for n in ("sun", "navy", "pale", "white"))
+    # Hooks first, so the body sits over their eyes.
+    for u, drop in ((0.42, 0.17), (0.9, 0.13)):
+        x, y = pt(u, 0.2 * half(u) - 0.01)
+        r = 0.05 * L
+        bend = y + drop * L
+        stroke = max(2, round(0.016 * L))
+        draw.line([(x, y), (x, bend)], fill=navy + (255,), width=stroke)
+        draw.arc((x, bend - r, x + 2 * r, bend + r), 0, 180, fill=navy + (255,), width=stroke)
+        draw.line([(x + 2 * r, bend), (x + 2 * r, bend - 0.04 * L)], fill=navy + (255,), width=stroke)
+    # A clear lip off the chin.
+    draw.polygon([pt(0.03, 0.06), pt(-0.2, 0.2), pt(-0.13, 0.3), pt(0.1, 0.15)], fill=white + (190,))
+    draw.polygon(top + bottom, fill=sun + (255,))
+    # Dark back and pale belly, each following its edge.
+    draw.polygon(top + [pt(u, -0.08 * half(u)) for u in reversed(us)], fill=navy + (255,))
+    draw.polygon([pt(u, 0.11 * half(u)) for u in us] + bottom, fill=pale + (255,))
+    ex, ey = pt(0.13, -0.035)
+    for r, c in ((0.05, white), (0.028, navy)):
+        draw.ellipse((ex - r * L, ey - r * L, ex + r * L, ey + r * L), fill=c + (255,))
+    tie = pt(-0.1, 0.17)
+    return img.resize((w // k, h // k), Image.LANCZOS), (tie[0] / k, tie[1] / k)
+
+
 def logo(height: int, color) -> Image.Image:
     img = Image.open(ASSETS / "Logo.imageset/Logo@3x.png").convert("RGBA")
     img = img.crop(img.getbbox())
@@ -324,6 +366,17 @@ def draw_slide(spec: dict, theme: dict, shots: Path) -> Image.Image:
         elif kind == "art":
             img = artwork(layer["name"], layer["width"], layer.get("flip", False))
             place(canvas, img, layer["center"], layer.get("angle", 0), (16, (0, 12), 0.2))
+        elif kind == "lure":
+            # A flat lure on its line, the line running off to "line_to".
+            img, (tx, ty) = flat_lure(layer["length"], theme)
+            cx, cy = layer["center"]
+            t = math.radians(layer.get("angle", 0))
+            dx, dy = tx - img.width / 2, ty - img.height / 2
+            tie = (cx + dx * math.cos(t) - dy * math.sin(t), cy + dx * math.sin(t) + dy * math.cos(t))
+            line = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
+            ImageDraw.Draw(line).line([tuple(layer["line_to"]), tie], fill=color(theme, "white") + (170,), width=3)
+            canvas.alpha_composite(line)
+            place(canvas, img, layer["center"], layer.get("angle", 0), (16, (0, 12), 0.18))
         elif kind == "shade":
             # A dark wash fading in from one edge, so white type reads on a
             # photo.
