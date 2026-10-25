@@ -31,8 +31,8 @@ enum SolunarEngine {
             let days = calendar.dateComponents([.day], from: calendar.startOfDay(for: date),
                                                to: calendar.startOfDay(for: time)).day ?? 0
             let rise = calendar.date(byAdding: .day, value: days, to: sunrise) ?? sunrise
-            let set = calendar.date(byAdding: .day, value: days, to: sunset) ?? sunset
-            return SolunarEngine.isNight(time, sunrise: rise, sunset: set)
+            let dusk = calendar.date(byAdding: .day, value: days, to: sunset) ?? sunset
+            return SolunarEngine.isNight(time, sunrise: rise, sunset: dusk)
         }
     }
 
@@ -167,8 +167,8 @@ enum SolunarEngine {
     /// from its sun times alone. The same rule as `SolunarDay.isNight(at:)`.
     static func isNight(at time: Date, coordinate: CLLocationCoordinate2D) -> Bool {
         let noon = Calendar.current.date(bySettingHour: 12, minute: 0, second: 0, of: time)!
-        let (rise, set) = sunTimes(date: noon, latitude: coordinate.latitude, longitude: coordinate.longitude)
-        return isNight(time, sunrise: rise, sunset: set)
+        let (rise, dusk) = sunTimes(date: noon, latitude: coordinate.latitude, longitude: coordinate.longitude)
+        return isNight(time, sunrise: rise, sunset: dusk)
     }
 
     /// Night is before sunrise and from sunset on.
