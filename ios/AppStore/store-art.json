@@ -69,7 +69,7 @@
         {"type": "shade", "edge": "top", "size": 1100, "opacity": 0.6},
         {"type": "text", "lines": ["Snap a fish.", "Know the species."], "size": 140, "align": "center", "at": [660, 200], "color": "white", "leading": 1.04},
         {"type": "phone", "screen": "log-catch-camera", "center": [660, 1980], "scale": 0.7, "angle": 0, "finish": "dark"},
-        {"type": "card", "screen": "log-catch-id", "box": [40, 1300, 1240, 400], "pad": 0, "radius": 60, "center": [760, 1560], "scale": 0.86, "angle": -3}
+        {"type": "card", "screen": "log-catch-id", "box": [30, 1385, 720, 300], "erase": [[650, 1520, 75, 52]], "pad": 0, "radius": 60, "center": [720, 1560], "scale": 1.08, "angle": -3}
       ],
       "blur": 14
     },
@@ -90,8 +90,8 @@
       "layers": [
         {"type": "shade", "edge": "top", "size": 1000, "opacity": 0.55},
         {"type": "text", "lines": ["Every catch,", "kept."], "size": 150, "align": "center", "at": [660, 200], "leading": 1.02, "color": "white"},
-        {"type": "card", "screen": "catch", "box": [30, 1378, 1260, 378], "pad": 24, "radius": 64, "center": [640, 2060], "scale": 0.84, "angle": -2},
-        {"type": "card", "screen": "catch", "box": [30, 1783, 1260, 400], "pad": 24, "radius": 64, "center": [690, 2470], "scale": 0.84, "angle": 1.5}
+        {"type": "card", "screen": "catch", "box": [36, 1206, 1248, 820], "pad": 24, "radius": 64, "center": [690, 2490], "scale": 0.76, "angle": 2},
+        {"type": "card", "screen": "stats", "box": [36, 584, 1248, 368], "pad": 24, "radius": 64, "center": [610, 2050], "scale": 0.72, "angle": -3}
       ]
     },
     {

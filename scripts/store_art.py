@@ -149,11 +149,20 @@ def phone(shot: Image.Image, finish: str) -> Image.Image:
 # MARK: - Pieces
 
 
-def plate(shot: Image.Image, box: list[int], radius: int, pad: int, outline) -> Image.Image:
+def plate(shot: Image.Image, box: list[int], radius: int, pad: int, outline, erase=()) -> Image.Image:
     """A piece of a capture on a white plate, the way a component is shown
-    lifted out of the app."""
+    lifted out of the app. `erase` lists boxes, in capture pixels, painted
+    over row by row with the background just right of each, for a control
+    that means nothing once the piece is out of the app."""
     x, y, w, h = box
-    piece = shot.convert("RGBA").crop((x, y, x + w, y + h))
+    shot = shot.convert("RGBA")
+    if erase:
+        shot = shot.copy()
+        draw = ImageDraw.Draw(shot)
+        for ex, ey, ew, eh in erase:
+            for row in range(ey, ey + eh):
+                draw.line([(ex, row), (ex + ew - 1, row)], fill=shot.getpixel((ex + ew + 4, row)))
+    piece = shot.crop((x, y, x + w, y + h))
     pw, ph = w + pad * 2, h + pad * 2
     out = masked(Image.new("RGBA", (pw, ph), (255, 255, 255, 255)), rounded_mask((pw, ph), radius))
     out.alpha_composite(masked(piece, rounded_mask((w, h), max(radius - pad, 0))), (pad, pad))
@@ -290,14 +299,14 @@ def draw_slide(spec: dict, theme: dict, shots: Path) -> Image.Image:
             t = math.radians(angle)
             center = (cx + dx * math.cos(t) - dy * math.sin(t), cy + dx * math.sin(t) + dy * math.cos(t))
             piece = plate(shot, layer["box"], layer.get("radius", 60), layer.get("pad", 0),
-                          rgb(layer["outline"]) if layer.get("outline") else None)
+                          rgb(layer["outline"]) if layer.get("outline") else None, layer.get("erase", ()))
             k = scale * layer.get("lift", 1.1)
             piece = piece.resize((round(piece.width * k), round(piece.height * k)), Image.LANCZOS)
             place(canvas, piece, center, angle + layer.get("turn", 0), (36, (0, 28), 0.3))
         elif kind == "card":
             shot = Image.open(shots / f"{layer['screen']}.png")
             piece = plate(shot, layer["box"], layer.get("radius", 60), layer.get("pad", 28),
-                          rgb(layer["outline"]) if layer.get("outline") else None)
+                          rgb(layer["outline"]) if layer.get("outline") else None, layer.get("erase", ()))
             k = layer.get("scale", 1.0)
             piece = piece.resize((round(piece.width * k), round(piece.height * k)), Image.LANCZOS)
             place(canvas, piece, layer["center"], layer.get("angle", 0), (36, (0, 28), 0.26))
