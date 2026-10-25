@@ -2,7 +2,7 @@ import SwiftUI
 
 /// Reusable species artwork. Shows the bundled per-species illustration
 /// (asset `fish_<id>`, populated by the dataset pipeline) when available,
-/// otherwise the fish glyph in `SpeciesTint.standIn`.
+/// otherwise the fish glyph in the neutral `SpeciesTint.standIn`.
 ///
 /// When `caught == false` the artwork is desaturated + dimmed, exactly like
 /// a not-yet-collected Pokédex entry; it snaps to full colour once caught.
@@ -32,9 +32,9 @@ struct SpeciesArtworkView: View {
                     .frame(maxWidth: fillWidth ? .infinity : size, maxHeight: size)
                     .frame(height: size)
             } else {
-                // No art yet: the fish glyph inked in the stand-in hue, as a
-                // ThumbView symbol is. Callers tint the tile with `artTint`,
-                // which is the same hue.
+                // No art yet: the fish glyph inked in the neutral stand-in, as
+                // a ThumbView symbol is. Callers tint the tile with `artTint`,
+                // which is the same neutral.
                 Image(systemName: "fish.fill")
                     .resizable()
                     .scaledToFit()

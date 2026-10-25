@@ -7,9 +7,11 @@ import UIKit
 enum SpeciesTint {
     private static let cache = NSCache<NSNumber, UIColor>()
 
-    /// One quiet hue for every species without art, the way a lure without
-    /// art takes one hue. The rarity colour would read as a meaning it lacks.
-    static var standIn: Color { .teal }
+    /// The neutral for every species without art: the tile and glyph of the
+    /// silhouette a fish the guide has no record of gets on the water page
+    /// (`ThumbView` tinted `dsText3`). A hue, even a quiet one, reads as an
+    /// icon tile; the rarity colour would read as a meaning it lacks.
+    static var standIn: Color { .dsText3 }
 
     static func color(for species: Species) -> Color {
         let key = NSNumber(value: species.id)
