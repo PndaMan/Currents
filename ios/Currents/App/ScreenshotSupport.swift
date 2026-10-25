@@ -172,14 +172,9 @@ enum ScreenshotSupport {
             .lowercased()
         guard let raw else { return nil }
         if let screen = Screen(rawValue: raw) { return screen }
-        return ContentView.Tab(rawValue: raw).map { tab -> Screen in
-            switch tab {
-            case .today: .today
-            case .explore: .explore
-            case .logbook: .logbook
-            case .crew: .crew
-            }
-        }
+        // An old tab name opens that tab's root, whose screen shares the
+        // tab's name (the Add item has no screen and no old name).
+        return ContentView.Tab(rawValue: raw).flatMap { Screen(rawValue: $0.rawValue) }
     }
 
     /// The tab CI asked us to open to, if any.

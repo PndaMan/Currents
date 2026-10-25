@@ -22,11 +22,19 @@ struct ContentView: View {
     /// on the selected tab pops back to its root.
     @State private var paths: [Tab: NavigationPath] = [:]
 
-    /// Four tabs, each its own NavigationStack. Profile and settings push
-    /// from the avatar at the left of every tab's large title.
-    enum Tab: Hashable, CaseIterable {
+    /// Four tabs, each its own NavigationStack, with the Add item in the
+    /// middle of the bar. Profile and settings push from the avatar at the
+    /// left of every tab's large title.
+    ///
+    /// `create` is the centre item. It is an action, not a page: selecting
+    /// it opens the Add menu and the selection never becomes `create` (see
+    /// `tabSelection`). It has no stack, no path and no deep link, and
+    /// `init?(rawValue:)` never returns it. Not CaseIterable, so no loop over
+    /// the tabs can pick it up as a page.
+    enum Tab: Hashable {
         case today
         case explore
+        case create
         case logbook
         case crew
 
@@ -46,6 +54,7 @@ struct ContentView: View {
             switch self {
             case .today: "today"
             case .explore: "explore"
+            case .create: "create"
             case .logbook: "logbook"
             case .crew: "crew"
             }
@@ -55,15 +64,19 @@ struct ContentView: View {
             switch self {
             case .today: "Today"
             case .explore: "Explore"
+            case .create: "Add"
             case .logbook: "Logbook"
             case .crew: "Crew"
             }
         }
 
+        /// The bar's symbol. The Add item draws the `TabCreate` logo image
+        /// instead; its symbol here is only a fallback name.
         var icon: String {
             switch self {
             case .today: "sun.max"
             case .explore: "map"
+            case .create: "plus"
             case .logbook: "book.closed"
             case .crew: "person.2"
             }
@@ -71,6 +84,15 @@ struct ContentView: View {
     }
 
     @State private var planPrompt: Trip?
+    /// The centre item's Add menu, and the sheets its actions open here.
+    @State private var showingAddMenu = false
+    @State private var showingNewSession = false
+    @State private var showingPlanner = false
+    /// The tab bar's top edge measured from the bottom of the screen: a
+    /// tab's bottom safe area, read from its stack. The Add menu sits just
+    /// above it. The default is close to an iPhone with a home indicator,
+    /// used until the first tab has laid out.
+    @State private var tabBarInset: CGFloat = 83
     @State private var joinGroupCode: JoinCode?
     @State private var pendingFriend: JoinCode?
     @State private var pendingCrew: JoinCode?
@@ -80,11 +102,17 @@ struct ContentView: View {
     struct JoinCode: Identifiable { let id: String }
 
     /// Selecting the tab that is already selected pops it to its root. Only a
-    /// tap on the tab bar ticks; deep links switch tabs quietly.
+    /// tap on the tab bar ticks; deep links switch tabs quietly. The Add item
+    /// opens its menu and leaves the selection where it was, so it is never
+    /// the selected tab; the menu opening redraws the bar on the old tab.
     private var tabSelection: Binding<Tab> {
         Binding(
             get: { selectedTab },
             set: { tab in
+                if tab == .create {
+                    openAddMenu()
+                    return
+                }
                 if tab == selectedTab { paths[tab] = NavigationPath() } else { Haptics.selection() }
                 selectedTab = tab
             }
@@ -111,8 +139,24 @@ struct ContentView: View {
         switch tab {
         case .today: TodayTab()
         case .explore: MapTab()
+        // The Add item has no page; the bar never shows it (`tabSelection`).
+        case .create: EmptyView()
         case .logbook: CatchesTab()
         case .crew: CommunityView()
+        }
+    }
+
+    /// A page tab's stack. It also reports the tab bar's height for the Add
+    /// menu: the stack's bottom safe area is the bar plus the home indicator.
+    private func stack(for tab: Tab) -> some View {
+        NavigationStack(path: path(for: tab)) {
+            root(for: tab)
+                .navigationDestination(for: AppRoute.self) { route in
+                    destination(for: route)
+                }
+        }
+        .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.bottom } action: { inset in
+            if inset > 0 { tabBarInset = inset }
         }
     }
 
@@ -130,17 +174,31 @@ struct ContentView: View {
 
     var body: some View {
         TabView(selection: tabSelection) {
-            ForEach(Tab.allCases, id: \.self) { tab in
-                SwiftUI.Tab(tab.title, systemImage: tab.icon, value: tab) {
-                    NavigationStack(path: path(for: tab)) {
-                        root(for: tab)
-                            .navigationDestination(for: AppRoute.self) { route in
-                                destination(for: route)
-                            }
-                    }
-                }
+            SwiftUI.Tab(Tab.today.title, systemImage: Tab.today.icon, value: Tab.today) {
+                stack(for: .today)
+            }
+            SwiftUI.Tab(Tab.explore.title, systemImage: Tab.explore.icon, value: Tab.explore) {
+                stack(for: .explore)
+            }
+            // The centre item: the logo, drawn larger than the symbols beside
+            // it. An action rather than a page, so its content is never shown.
+            SwiftUI.Tab("Add", image: "TabCreate", value: Tab.create) {
+                Color.clear
+            }
+            .accessibilityHint(Text("Log a catch, add a spot or plan a session"))
+            SwiftUI.Tab(Tab.logbook.title, systemImage: Tab.logbook.icon, value: Tab.logbook) {
+                stack(for: .logbook)
+            }
+            SwiftUI.Tab(Tab.crew.title, systemImage: Tab.crew.icon, value: Tab.crew) {
+                stack(for: .crew)
             }
         }
+        // Over the whole screen, tab bar included, and under the toasts and
+        // the celebration card.
+        .addMenuOverlay(isPresented: $showingAddMenu,
+                        sessionIsLive: appState.tripTracker.isTracking,
+                        bottomInset: tabBarInset,
+                        onSelect: runAddAction)
         .task(id: appState.launchFinished) {
             // Once the launch animation has gone (CurrentsApp), so the
             // planned-session alert never appears behind it.
@@ -203,6 +261,10 @@ struct ContentView: View {
                 JoinCrewConfirmView(code: crew.id)
             }
         }
+        // The Add menu's Start session and Plan a session: the same sheets
+        // Sessions and the Logbook open.
+        .sheet(isPresented: $showingNewSession) { NewSessionSheet() }
+        .sheet(isPresented: $showingPlanner) { PlanSessionSheet() }
         .onChange(of: appState.siriRequestedLogCatch) { _, requested in
             // Siri "Log a Catch" shortcut — surface Logbook so its log
             // sheet (which watches the same flag) can present.
@@ -245,6 +307,9 @@ struct ContentView: View {
     private func handleDeepLink(_ url: URL) {
         guard url.scheme == "currents" else { return }
         let host = url.host ?? ""
+        // A link from a notification or widget lands on its screen, not
+        // under the Add menu.
+        showingAddMenu = false
 
         // Simple screen routes (no code needed).
         switch host {
@@ -256,9 +321,7 @@ struct ContentView: View {
             appState.siriRequestedLogCatch = true
             return
         case "session":
-            // The live session sheet is presented by the Explore root.
-            navigate(.explore)
-            appState.openLiveSession = true
+            openLiveSession()
             return
         case "sessions":
             navigate(.logbook)
@@ -319,6 +382,44 @@ struct ContentView: View {
         } else if host == "crew" || url.pathComponents.contains("crew") {
             pendingCrew = JoinCode(id: code)
         }
+    }
+
+    // MARK: - Add menu
+
+    private func openAddMenu() {
+        guard !showingAddMenu else { return }
+        Haptics.softPress()
+        showingAddMenu = true
+    }
+
+    /// Runs a tile of the Add menu (which has already closed) through the
+    /// flow the rest of the app uses for it.
+    private func runAddAction(_ action: AddMenuAction) {
+        switch action {
+        case .logCatch:
+            // Today's Log catch: Logbook opens the log flow off this flag.
+            appState.siriRequestedLogCatch = true
+        case .addSpot:
+            // Explore's own Add spot: place the pin, then the New spot form.
+            navigate(.explore)
+            appState.openAddSpot = true
+        case .startSession:
+            // As on Explore: the live session when one is recording, else
+            // the New session sheet.
+            if appState.tripTracker.isTracking {
+                openLiveSession()
+            } else {
+                showingNewSession = true
+            }
+        case .planSession:
+            showingPlanner = true
+        }
+    }
+
+    /// The live session sheet, which the Explore root presents.
+    private func openLiveSession() {
+        navigate(.explore)
+        appState.openLiveSession = true
     }
 
     /// On launch, if a planned session is within ~2 hours of now and nothing is
