@@ -1772,6 +1772,19 @@ struct CrewPostSheet: View {
     /// snapshot of the post, so these stay the truth until it closes.
     @State private var localReactions: [CommunityService.CrewReaction]?
 
+    /// The photo's height at the top of the sheet.
+    private static let photoHeight: CGFloat = 260
+    /// The hero's label and the catch's name under the photo.
+    @ScaledMetric(relativeTo: .title) private var nameBlock: CGFloat = 58
+
+    /// Scroll, in points, at which the catch's name has gone from the page.
+    /// With a photo that is the photo and the space around it, then the label
+    /// and the name. Without one the hero is a thumbnail beside the text,
+    /// where the default holds.
+    private var titleThreshold: CGFloat {
+        post.hasPhoto ? DS.Space.s2 + Self.photoHeight + DS.Space.s5 + nameBlock : 110
+    }
+
     private var isMine: Bool { post.authorCode == svc.friendCode }
     private var canModerate: Bool { crew.map { svc.myRole(in: $0).canModerate } ?? false }
     private var reactions: [CommunityService.CrewReaction] { localReactions ?? post.reactions }
@@ -1811,7 +1824,8 @@ struct CrewPostSheet: View {
             .dsScreenBackground()
             // The catch's name fades into the bar once the hero scrolls away.
             .eventPageTitle(CrewText.catchTitle(species: post.species, lengthCm: post.lengthCm,
-                                                weightKg: post.weightKg))
+                                                weightKg: post.weightKg),
+                            threshold: titleThreshold)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) { moreMenu }
                 ToolbarItem(placement: .confirmationAction) { SheetDoneButton() }
@@ -1865,11 +1879,11 @@ struct CrewPostSheet: View {
         if post.hasPhoto {
             Group {
                 if let photo {
-                    CrewHeroImage(image: photo, height: 260)
+                    CrewHeroImage(image: photo, height: Self.photoHeight)
                 } else {
                     Color.dsFill
                         .frame(maxWidth: .infinity)
-                        .frame(height: 260)
+                        .frame(height: Self.photoHeight)
                         .overlay {
                             if photoFailed {
                                 VStack(spacing: DS.Space.s3) {

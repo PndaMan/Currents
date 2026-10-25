@@ -64,10 +64,27 @@ private struct EventPageTitle: ViewModifier {
     let title: String
     var threshold: CGFloat? = 110
     @State private var showsTitle = false
+    /// How tall the page's cover is, once it reports one; 0 without a cover.
+    @State private var coverHeight: CGFloat = 0
+    /// The status line and the title under a cover, which grow with the text:
+    /// 20 and 4 for the line, 34 for the title and about 8 where the 100 pt
+    /// ring beside them centres the text lower.
+    @ScaledMetric(relativeTo: .title) private var titleBlock: CGFloat = 66
+
+    /// With a cover, the title block sits below it, so the title waits for
+    /// the space above the cover, the cover, the gap to the header and the
+    /// block to scroll away. The event pages put `DS.Space.s2` above the
+    /// cover and `DS.Space.s4` between it and the header. Without a cover
+    /// the page's own `threshold` applies.
+    private var limit: CGFloat? {
+        guard coverHeight > 0 else { return threshold }
+        return DS.Space.s2 + coverHeight + DS.Space.s4 + titleBlock
+    }
 
     func body(content: Content) -> some View {
         content
-            .pageTitleTracking($showsTitle, threshold: threshold)
+            .onPreferenceChange(EventCoverHeightKey.self) { coverHeight = $0 }
+            .pageTitleTracking($showsTitle, threshold: limit)
             // A firm edge under the bar once the page scrolls, so rows never
             // read through the title (Luma's bar turns solid at this point).
             .detailScrollEdge()
@@ -111,7 +128,9 @@ extension View {
     /// Luma's pushed-page title: hidden while the large title block is on
     /// screen, faded into the bar once it scrolls away. `threshold` is the
     /// scroll, in points, at which that block has gone; pass nil when a
-    /// `DetailHeader` is at the top, to follow its measured height.
+    /// `DetailHeader` is at the top, to follow its measured height. A page
+    /// with an `EventCover` above its title follows the cover's height
+    /// instead, whatever `threshold` says.
     func eventPageTitle(_ title: String, threshold: CGFloat? = 110) -> some View {
         modifier(EventPageTitle(title: title, threshold: threshold))
     }
@@ -135,6 +154,8 @@ struct EventCover: View {
     var systemImage: String
     var tint: Color
     @Environment(\.colorScheme) private var scheme
+    /// The cover's measured height, passed up to `eventPageTitle`.
+    @State private var height: CGFloat = 0
 
     var body: some View {
         Color.clear
@@ -156,8 +177,23 @@ struct EventCover: View {
                 }
             }
             .clipShape(RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { new in
+                height = new
+            }
+            .preference(key: EventCoverHeightKey.self, value: height)
             .padding(.horizontal, DS.gutter)
             .accessibilityHidden(true)
+    }
+}
+
+/// How tall the page's `EventCover` is, so `eventPageTitle` brings the
+/// inline title in only once the title block under the cover has scrolled
+/// away. Stays 0 on a page without a cover.
+struct EventCoverHeightKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        if value == 0 { value = nextValue() }
     }
 }
 
