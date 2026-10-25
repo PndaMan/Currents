@@ -86,6 +86,20 @@ appstore-images: ## Replace every App Store image from STORE_ART, text untouched
 	$(ASC_ENV) uv run scripts/asc.py media $(APPLY_FLAG)
 	$(if $(APPLY_FLAG),$(MAKE) appstore-screenshots STORE_ART_DIR=$(STORE_ART)/6.9,@echo "Listing screenshots: APPLY=1 replaces them with $(STORE_ART)/6.9")
 
+# The whole listing in one go: text, screenshots, then the preview, header and
+# search art (placed once deliver has replaced the screenshot sets), events,
+# custom product pages and Game Center, all from STORE_ART. fastlane deliver
+# has no dry run, so without APPLY the text is only checked and the
+# screenshots only listed. Event dates are computed from START, so without it
+# only the event images change.
+appstore-upload: appstore-check ## Upload everything: text, screenshots, preview, header, search, events, pages, Game Center; dry run unless APPLY=1, START=YYYY-MM-DD also syncs event text and dates
+	$(if $(APPLY_FLAG),$(BUNDLE) ios metadata,@echo "Listing text: checked; APPLY=1 uploads ios/AppStore/metadata")
+	$(if $(APPLY_FLAG),export STORE_ART_DIR=$(abspath $(STORE_ART))/6.9 && $(BUNDLE) ios screenshots,@echo "Listing screenshots in order: $$(ls $(STORE_ART)/6.9 | tr '\n' ' ')")
+	$(ASC_ENV) uv run scripts/asc.py media $(APPLY_FLAG)
+	$(ASC_ENV) uv run scripts/asc.py events --art $(STORE_ART) $(if $(START),--start $(START),--images-only) $(APPLY_FLAG)
+	$(ASC_ENV) uv run scripts/asc.py pages --art $(STORE_ART) $(APPLY_FLAG)
+	$(ASC_ENV) uv run scripts/asc.py gamecenter $(APPLY_FLAG)
+
 # CloudKit pushes to one device. CK_KEY_ID and CK_KEY_PATH (server-to-server
 # key) come from the environment or .env.local.
 push-test: ## Send every CloudKit push to CODE's phone; dry run unless APPLY=1

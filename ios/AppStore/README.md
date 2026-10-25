@@ -162,6 +162,8 @@ The listing is pushed with an App Store Connect API key (Users and Access → In
 8. `make appstore-gamecenter`, then `make appstore-gamecenter APPLY=1`. It turns on the Game Center capability for the App ID and Game Center for the app and the version being prepared, and creates the achievements, leaderboards and challenges with their images in all three localisations.
 9. In App Store Connect, submit the version, the events, the custom product pages and the Game Center items for review.
 
+`make appstore-upload` runs steps 3 to 8 in one go from `ios/build/appstore-media`: a dry run, then `make appstore-upload START=<launch date> APPLY=1` to write it. Without `START` the events keep their text and dates and only their images change. fastlane deliver has no dry run, so the dry run checks the text and lists the screenshots in upload order without sending them.
+
 To swap every image and video without touching any text (listing screenshots, preview, header, search results, event images and the custom product pages' screenshots), render with `make appstore-art`, then `make appstore-images` for a dry run and `make appstore-images APPLY=1` to write it. A custom product page in review is skipped until the review finishes.
 
 Still by hand:
