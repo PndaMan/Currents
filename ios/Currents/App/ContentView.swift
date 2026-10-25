@@ -103,13 +103,16 @@ struct ContentView: View {
 
     /// Selecting the tab that is already selected pops it to its root. Only a
     /// tap on the tab bar ticks; deep links switch tabs quietly. The Add item
-    /// opens its menu and leaves the selection where it was, so it is never
-    /// the selected tab; the menu opening redraws the bar on the old tab.
+    /// opens its menu. The bar has already moved to it by then, and leaving
+    /// the selection where it was would leave the bar there, on the Add
+    /// item's empty page; so the selection follows it and is handed straight
+    /// back (`.onChange` in body), which moves the bar back too.
     private var tabSelection: Binding<Tab> {
         Binding(
             get: { selectedTab },
             set: { tab in
                 if tab == .create {
+                    selectedTab = .create
                     openAddMenu()
                     return
                 }
@@ -192,6 +195,9 @@ struct ContentView: View {
             SwiftUI.Tab(Tab.crew.title, systemImage: Tab.crew.icon, value: Tab.crew) {
                 stack(for: .crew)
             }
+        }
+        .onChange(of: selectedTab) { previous, tab in
+            if tab == .create { selectedTab = previous }
         }
         // Over the whole screen, tab bar included, and under the toasts and
         // the celebration card.
