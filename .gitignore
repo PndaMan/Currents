@@ -35,6 +35,10 @@ __pycache__/
 .env
 .env.local
 *.pem
+*.p8
+*.p12
+*.cer
+*.mobileprovision
 
 # OS
 .DS_Store
@@ -45,17 +49,15 @@ Thumbs.db
 .vscode/
 *.swp
 
-# Local agent / assistant notes (not shipped)
-CLAUDE.md
-.claude/
-AGENTS.md
-
 # CI artifact dumps left behind by local runs
 build-logs/
 Currents-IPA/
 Currents-simulator/
 logo-transparent.png
 .cache/
+ios/screenshots/
+ios/footage/
+*.log
 
 # fastlane (bundle install --path, run output, downloaded screenshots)
 ios/vendor/
