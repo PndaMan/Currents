@@ -107,9 +107,9 @@ struct TodayTab: View {
                     TargetRow(store: store).padding(.top, 20)
                     upNextRow
                     WhatToThrowSection(
-                        suggestions: suggestions, weather: measuredWeather, clarity: clarity,
-                        clarityIsGuess: clarityOverride.isEmpty, hasGear: !ownedGear.isEmpty,
-                        onClarity: { clarityOverride = $0.rawValue }
+                        suggestions: suggestions, weather: measuredWeather, isNight: today.isDarkNow,
+                        clarity: clarity, clarityIsGuess: clarityOverride.isEmpty, species: store.species,
+                        hasGear: !ownedGear.isEmpty, onClarity: { clarityOverride = $0.rawValue }
                     )
                     .padding(.top, 12)
                     weekStrip.padding(.top, 20)

@@ -402,7 +402,8 @@ struct TargetPage: View {
             } else {
                 CardGroup(separatorInset: pickSeparatorInset) {
                     ForEach(Array(picks.enumerated()), id: \.element.id) { index, pick in
-                        LureSuggestionRow(suggestion: pick, rank: index + 1, inCard: true)
+                        // The Known baits card below lists the baits, so the pick does not.
+                        LureSuggestionRow(suggestion: pick, rank: index + 1, inCard: true, showsBaits: baits.isEmpty)
                     }
                 }
             }

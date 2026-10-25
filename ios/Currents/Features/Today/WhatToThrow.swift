@@ -4,13 +4,14 @@ import SwiftUI
 
 enum ThrowText {
     /// One line on what the picks are based on: water temperature, clarity,
-    /// light and pressure.
-    static func why(_ w: WeatherService.WeatherData?, clarity: WaterClarity,
+    /// light and pressure. `night` is the day-or-night test from the day's
+    /// sunrise and sunset (`SolunarDay.isNight(at:)`).
+    static func why(_ w: WeatherService.WeatherData?, clarity: WaterClarity, night: Bool,
                     imperial: Bool = Units.isImperial) -> String {
         let water = clarity.label.lowercased() + " water"
         guard let w else { return "Picked for \(water). Temperature and light fill in when the weather loads." }
         let temp = w.waterTempC.map { Units.temperature($0, imperial: imperial) + " " } ?? ""
-        return "Picked for \(temp)\(water), \(light(w.cloudCoverPct)) and \(pressure(w.pressureChange6h))."
+        return "Picked for \(temp)\(water), \(light(w.cloudCoverPct, night: night)) and \(pressure(w.pressureChange6h))."
     }
 
     /// What each clarity looks like, as a sentence in the user's units.
@@ -22,7 +23,8 @@ enum ThrowText {
         }
     }
 
-    static func light(_ cloud: Int) -> String {
+    static func light(_ cloud: Int, night: Bool) -> String {
+        if night { return "darkness" }
         if cloud >= 60 { return "low light" }
         if cloud <= 25 { return "bright sun" }
         return "broken cloud"
@@ -142,6 +144,9 @@ struct LureSuggestionRow: View {
     /// True inside a `CardGroup`, which pads to the card's edge rather than
     /// the page gutter.
     var inCard: Bool = false
+    /// Whether a bait pick names the fish's own baits. A page that lists them
+    /// again in a card right below turns this off.
+    var showsBaits: Bool = true
 
     @Environment(\.dynamicTypeSize) private var typeSize
     @ScaledMetric(relativeTo: .headline) private var rankWidth: CGFloat = 16
@@ -187,7 +192,7 @@ struct LureSuggestionRow: View {
                                 .font(.subheadline)
                                 .foregroundStyle(.dsText2)
                         }
-                    } else if let baits = suggestion.baitLine {
+                    } else if showsBaits, let baits = suggestion.baitLine {
                         Text(baits)
                             .font(.subheadline)
                             .foregroundStyle(.dsText2)
@@ -440,8 +445,12 @@ struct ThrowSpeciesTitle: View {
 struct WhatToThrowSection: View {
     let suggestions: [LureEngine.Suggestion]
     let weather: WeatherService.WeatherData?
+    /// True while the sun is down, from the day's sunrise and sunset.
+    let isNight: Bool
     let clarity: WaterClarity
     let clarityIsGuess: Bool
+    /// The fish the picks are for, which says why a bait-only fish has one.
+    let species: Species?
     let hasGear: Bool
     let onClarity: (WaterClarity) -> Void
     @AppStorage("units") private var units = "metric"
@@ -465,7 +474,7 @@ struct WhatToThrowSection: View {
             .accessibilityHint("Shows every pick and the colours to use")
 
             VStack(alignment: .leading, spacing: 12) {
-                Text(ThrowText.why(weather, clarity: clarity, imperial: units == "imperial"))
+                Text(ThrowText.why(weather, clarity: clarity, night: isNight, imperial: units == "imperial"))
                     .font(.subheadline)
                     .foregroundStyle(.dsText2)
                     .fixedSize(horizontal: false, vertical: true)
@@ -495,6 +504,11 @@ struct WhatToThrowSection: View {
                     }
                 }
                 .padding(.top, DS.Space.s2)
+            }
+
+            // A fish caught only on bait has one pick; say why.
+            if !suggestions.isEmpty, let note = ThrowText.baitOnlyNote(species) {
+                SectionFootnote(note)
             }
 
             // Colours are for lures; bait alone takes none.
@@ -576,7 +590,8 @@ struct WhatToThrowPage: View {
             VStack(alignment: .leading, spacing: 0) {
                 DetailHeader(over: store.species.map { "Targeting \($0.commonName)" } ?? store.placeName,
                              title: "What to throw",
-                             subtitle: ThrowText.why(measuredWeather, clarity: clarity, imperial: imperial))
+                             subtitle: ThrowText.phrase(ThrowText.why(measuredWeather, clarity: clarity,
+                                                                      night: store.day(0).isDarkNow, imperial: imperial)))
                 if let note = store.staleNote { SectionFootnote(note) }
 
                 VStack(alignment: .leading, spacing: 8) {
