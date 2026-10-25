@@ -182,12 +182,14 @@ struct ExploreThrowSection: View {
 
     var body: some View {
         let choice = self.choice
+        let species = choice.species(chosen: chosenId)
         VStack(alignment: .leading, spacing: 0) {
             ThrowSpeciesTitle(choice: choice, chosenId: $chosenId)
-            ForEach(picks(for: choice.species(chosen: chosenId))) { pick in
+            ForEach(picks(for: species)) { pick in
                 pickRow(pick)
             }
-            ExploreFootnote(footnote)
+            // A fish caught only on bait has one pick; say why.
+            ExploreFootnote(ThrowText.baitOnlyNote(species).map { "\(footnote) \($0)" } ?? footnote)
         }
         .task {
             ownedGear = (try? appState.ownedGearRepository.fetchAll()) ?? []
@@ -206,9 +208,14 @@ struct ExploreThrowSection: View {
                 Text(pick.lure)
                     .font(.body.weight(.medium))
                     .foregroundStyle(.dsText)
-                Text(pick.color)
-                    .font(.subheadline)
-                    .foregroundStyle(.dsText2)
+                // A lure's colour; bait has none, so its line names the
+                // fish's own baits when the record has them.
+                if let line = pick.color.isEmpty ? pick.baitLine : Optional(pick.color) {
+                    Text(line)
+                        .font(.subheadline)
+                        .foregroundStyle(.dsText2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 Text(ExploreFormat.sentence(pick.technique))
                     .font(.subheadline)
                     .foregroundStyle(.dsText2)

@@ -710,12 +710,17 @@ enum TargetText {
                                         title: "Night hours score well",
                                         text: "It feeds after dark"))
         }
-        if !species.parsedBaits.isEmpty {
+        let baitOnly = LureEngine.isBaitOnly(species)
+        if baitOnly {
+            items.append(TargetNoteItem(icon: "fish", tint: .green,
+                                        title: "Bait leads what to throw",
+                                        text: "It is caught on bait, so lures are left out"))
+        } else if !species.parsedBaits.isEmpty {
             items.append(TargetNoteItem(icon: "fish", tint: .green,
                                         title: "Lures match its baits",
                                         text: "Lures like its known baits rank higher in what to throw"))
         }
-        if species.habitat == .marine || species.habitat == .brackish {
+        if !baitOnly && (species.habitat == .marine || species.habitat == .brackish) {
             items.append(TargetNoteItem(icon: "xmark.circle", tint: .red,
                                         title: "Bass lures left out",
                                         text: "Frogs, spinnerbaits and Texas rigs are not suggested"))

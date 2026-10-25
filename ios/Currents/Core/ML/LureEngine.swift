@@ -43,7 +43,12 @@ enum LureEngine {
     struct Suggestion: Identifiable {
         let id = UUID()
         let lure: String
+        /// The lure colour from the palette. Empty for the natural bait
+        /// pick, which has no colour.
         let color: String
+        /// The fish's own baits from its record, for the natural bait pick.
+        /// Empty for a lure, and when the record names none of its own.
+        var baits: [String] = []
         let technique: String
         /// How to fish it in a few words, for a row with room for one line.
         let brief: String
@@ -58,6 +63,16 @@ enum LureEngine {
         let personalCatches: Int
 
         var isOwned: Bool { ownedName != nil }
+
+        /// The line under the name in place of a colour on the natural bait
+        /// pick: "Red bait, white mussel, sardine". Nil for a lure, or when
+        /// the record names no baits of its own.
+        var baitLine: String? {
+            guard !baits.isEmpty else { return nil }
+            let list = baits.prefix(3).joined(separator: ", ")
+            guard let first = list.first else { return nil }
+            return String(first).uppercased() + list.dropFirst()
+        }
     }
 
     // MARK: - Lure archetypes
@@ -179,7 +194,7 @@ enum LureEngine {
                   depth: 0.3...1.5, technique: "Cast across the current and retrieve just fast enough to turn the blade.",
                   brief: "Steady, just turning the blade."),
 
-        Archetype(name: "Live or natural bait", keywords: ["live", "worm", "bait", "minnow", "prawn", "shrimp", "cut"],
+        Archetype(name: naturalBait, keywords: ["live", "worm", "bait", "minnow", "prawn", "shrimp", "cut"],
                   minTempC: -2, maxTempC: 35,
                   clarity: [.clear: 0.7, .stained: 0.8, .muddy: 0.85],
                   lowLightBonus: 0.05, windBonus: 0.0, fallingBonus: 0.0, postFrontBonus: 0.35,
@@ -194,6 +209,55 @@ enum LureEngine {
         "Spinnerbait", "Chatterbait", "Squarebill crankbait", "Skirted jig",
         "Ned rig", "Texas-rigged worm", "Hollow-body frog", "Inline spinner",
     ]
+
+    /// The one family that is not a lure.
+    static let naturalBait = "Live or natural bait"
+
+    /// Words that make an entry in a species' bait list a lure: every lure
+    /// family's keywords except those that also name a natural food ("worm",
+    /// "minnow"), plus the general names for lures and flies. Matched as
+    /// substrings, so an unclear entry counts as a lure and leaves the
+    /// species' picks as they were.
+    private static let lureWords: [String] = {
+        let food = Set(archetypes.first { $0.name == naturalBait }?.keywords ?? [])
+        let families = archetypes
+            .filter { $0.name != naturalBait }
+            .flatMap(\.keywords)
+            .filter { !food.contains($0) }
+        return families + ["lure", "fly", "flies", "plug", "pirk", "plastic", "feather", "sabiki",
+                           "slug", "streamer", "nymph", "bucktail", "tenya", "rapala", "buzzbait",
+                           "teaser", "trolling"]
+    }()
+
+    private static func isLure(_ entry: String) -> Bool {
+        let text = entry.lowercased()
+        return lureWords.contains { text.contains($0) }
+    }
+
+    /// The stand-in list the species seed gives fish with no bait record of
+    /// their own, with its notes.
+    private static let placeholderBaits = ["worms", "small spinners", "soft plastics", "local live bait"]
+    private static let placeholderNotes = "General freshwater tactics"
+
+    /// True when the species has a bait list of its own, false for none or
+    /// the seed's stand-in list.
+    static func hasBaitRecord(_ species: Species) -> Bool {
+        let baits = species.parsedBaits
+        guard !baits.isEmpty else { return false }
+        if species.baitNotes?.hasPrefix(placeholderNotes) == true { return false }
+        return baits.map { $0.lowercased() } != placeholderBaits
+    }
+
+    /// True when the species' own bait list names natural bait the bait
+    /// family knows and no lure, as for galjoen, catfish and carp. Such a fish
+    /// is caught on bait, so its picks lead with bait and leave lures out.
+    static func isBaitOnly(_ species: Species?) -> Bool {
+        guard let species, hasBaitRecord(species),
+              let bait = archetypes.first(where: { $0.name == naturalBait }) else { return false }
+        let baits = species.parsedBaits.map { $0.lowercased() }
+        let named = baits.contains { b in bait.keywords.contains { b.contains($0) } }
+        return named && !baits.contains(where: isLure)
+    }
 
     /// The reason given when the species' own bait list backs a family, so a
     /// page can say it once when every pick shares it.
@@ -223,7 +287,8 @@ enum LureEngine {
     }
 
     /// What a family's colour has to do. Families not listed in `colorRoles`
-    /// are soft plastics, jigs and bait, which want natural food colours.
+    /// are soft plastics and jigs, which want natural food colours. Natural
+    /// bait has no colour.
     private enum ColorRole {
         case natural
         case baitfish
@@ -313,21 +378,30 @@ enum LureEngine {
         let palette = colors(for: c.clarity, lowLight: c.isLowLight)
         let speciesBaits = (species?.parsedBaits ?? []).map { $0.lowercased() }
         let lureBox = ownedGear.filter { $0.category == .lure || $0.category == .bait }
+        // The fish's own natural baits, named on the bait pick.
+        var ownBaits: [String] = []
+        if let species, hasBaitRecord(species) {
+            ownBaits = species.parsedBaits.filter { entry in !isLure(entry) }
+        }
 
         var out: [Suggestion] = []
 
         // A saltwater or estuary target rules out the bass-only families.
         let saltwater = species?.habitat == .marine || species?.habitat == .brackish
+        // A fish caught only on bait gets the bait pick alone.
+        let baitOnly = isBaitOnly(species)
 
         for a in archetypes {
             if saltwater && freshwaterOnly.contains(a.name) { continue }
+            let isBait = a.name == naturalBait
+            if baitOnly && !isBait { continue }
             var score = 0.42
             // Most specific first, since a page may show only the first: the
             // species' own baits, then light, wind and pressure, then clarity.
             // The water temperature reads the same for every lure in range, so
             // it goes last.
             var reasons: [String] = []
-            let color = familyColor(a.name, palette: palette, clarity: c.clarity, lowLight: c.isLowLight)
+            let color = isBait ? "" : familyColor(a.name, palette: palette, clarity: c.clarity, lowLight: c.isLowLight)
 
             // Does the species' own bait list back this up?
             if !speciesBaits.isEmpty,
@@ -357,7 +431,10 @@ enum LureEngine {
             // Water clarity — drives both family and colour.
             let clarityFit = a.clarity[c.clarity] ?? 0.5
             score += (clarityFit - 0.5) * 0.42
-            if clarityFit >= 0.85 { reasons.append(colorReason(c.clarity, color: color)) }
+            if clarityFit >= 0.85 {
+                reasons.append(isBait ? "Its scent carries in \(c.clarity.label.lowercased()) water"
+                                      : colorReason(c.clarity, color: color))
+            }
 
             // Personal history — has this actually caught this angler fish?
             let personal = history.filter { detail in
@@ -394,6 +471,7 @@ enum LureEngine {
             out.append(Suggestion(
                 lure: a.name,
                 color: color,
+                baits: isBait ? ownBaits : [],
                 technique: a.technique,
                 brief: a.brief,
                 depth: a.depth.map(depthText) ?? a.depthWord ?? "",

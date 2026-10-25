@@ -65,6 +65,28 @@ enum ThrowText {
         s.reasons.first { !$0.hasPrefix("In your tackle box") && !$0.hasPrefix("Caught you") && $0 != shared }
     }
 
+    /// Each pick's Why, best pick first: its first conditions reason that the
+    /// page has not given already, either once for several picks (`shared`)
+    /// or as a higher pick's Why. Nil when every reason it has is taken.
+    static func whys(_ picks: [LureEngine.Suggestion], shared: String?) -> [String?] {
+        var given: Set<String> = []
+        if let shared { given.insert(shared) }
+        return picks.map { (pick) -> String? in
+            let why = pick.reasons.first { r in
+                !r.hasPrefix("In your tackle box") && !r.hasPrefix("Caught you") && !given.contains(r)
+            }
+            if let why { given.insert(why) }
+            return why
+        }
+    }
+
+    /// The note under the picks for a fish caught only on bait, which says
+    /// why there is one pick.
+    static func baitOnlyNote(_ species: Species?) -> String? {
+        guard let species, LureEngine.isBaitOnly(species) else { return nil }
+        return "\(species.commonName) are caught on bait, so lures are left out."
+    }
+
     /// The species reason when two or more picks lead with it, so the page
     /// says it once rather than as every pick's Why.
     static func sharedReason(_ picks: [LureEngine.Suggestion], species: Species?) -> String? {
@@ -89,6 +111,12 @@ enum ThrowText {
         return items.dropLast().joined(separator: ", ") + " and " + last
     }
 
+    /// True when there are picks and none of them takes a colour, so a
+    /// page leaves out the lure colours.
+    static func baitOnly(_ picks: [LureEngine.Suggestion]) -> Bool {
+        !picks.isEmpty && picks.allSatisfy { $0.color.isEmpty }
+    }
+
     /// Low light when it is overcast or outside the middle of the day.
     static func isLowLight(_ w: WeatherService.WeatherData?) -> Bool {
         let hour = Calendar.current.component(.hour, from: .now)
@@ -99,8 +127,8 @@ enum ThrowText {
 // MARK: - One pick
 
 /// A ranked lure: rank, picture, name, colour and how to fish it. The full
-/// version adds depth, the main reason and your own history as labelled
-/// values.
+/// version adds depth, the reason the page gives for it and your own
+/// history as labelled values.
 struct LureSuggestionRow: View {
     let suggestion: LureEngine.Suggestion
     let rank: Int
@@ -108,8 +136,9 @@ struct LureSuggestionRow: View {
     /// The short clause on how to fish it instead of the whole technique,
     /// for Today's glance.
     var brief: Bool = false
-    /// A reason the page says once for several picks; Why shows the next.
-    var sharedReason: String? = nil
+    /// The reason the full version gives as Why, from `ThrowText.whys`, so no
+    /// two picks give the same one.
+    var why: String? = nil
     /// True inside a `CardGroup`, which pads to the card's edge rather than
     /// the page gutter.
     var inCard: Bool = false
@@ -149,11 +178,20 @@ struct LureSuggestionRow: View {
                     Text(suggestion.lure)
                         .font(.headline)
                         .foregroundStyle(.dsText)
-                    HStack(spacing: 6) {
-                        LureColorSwatch(name: suggestion.color, size: 12)
-                        Text(suggestion.color)
+                    // A lure's colour; bait has none, so its line names the
+                    // fish's own baits when the record has them.
+                    if !suggestion.color.isEmpty {
+                        HStack(spacing: 6) {
+                            LureColorSwatch(name: suggestion.color, size: 12)
+                            Text(suggestion.color)
+                                .font(.subheadline)
+                                .foregroundStyle(.dsText2)
+                        }
+                    } else if let baits = suggestion.baitLine {
+                        Text(baits)
                             .font(.subheadline)
                             .foregroundStyle(.dsText2)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                     Text(ThrowText.sentence(brief ? suggestion.brief : suggestion.technique))
                         .font(.subheadline)
@@ -169,10 +207,8 @@ struct LureSuggestionRow: View {
                     if !suggestion.depth.isEmpty {
                         ThrowValue(label: "Depth", value: suggestion.depth)
                     }
-                    // The first reason only; the engine puts the most
-                    // specific one first.
-                    if let reason = ThrowText.reason(suggestion, skipping: sharedReason) {
-                        ThrowValue(label: "Why", value: ThrowText.phrase(reason))
+                    if let why {
+                        ThrowValue(label: "Why", value: ThrowText.phrase(why))
                     }
                     if !stacked { Spacer(minLength: 0) }
                 }
@@ -461,13 +497,16 @@ struct WhatToThrowSection: View {
                 .padding(.top, DS.Space.s2)
             }
 
-            Text("Colours for \(clarity.label.lowercased()) water")
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.dsText)
-                .padding(.horizontal, DS.gutter)
-                .padding(.top, DS.Space.s4)
-                .padding(.bottom, 8)
-            LureColourStrip(names: LureEngine.colors(for: clarity, lowLight: ThrowText.isLowLight(weather)))
+            // Colours are for lures; bait alone takes none.
+            if !ThrowText.baitOnly(suggestions) {
+                Text("Colours for \(clarity.label.lowercased()) water")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.dsText)
+                    .padding(.horizontal, DS.gutter)
+                    .padding(.top, DS.Space.s4)
+                    .padding(.bottom, 8)
+                LureColourStrip(names: LureEngine.colors(for: clarity, lowLight: ThrowText.isLowLight(weather)))
+            }
 
             if !hasGear {
                 NavigationLink(value: AppRoute.gear) {
@@ -556,21 +595,25 @@ struct WhatToThrowPage: View {
                 if picks.isEmpty && loaded {
                     InlineEmpty(text: "No picks yet. They appear once the weather loads.")
                 } else if !picks.isEmpty {
-                    let shared = ThrowText.sharedReason(picks, species: store.species)
+                    let whys = ThrowText.whys(picks, shared: ThrowText.sharedReason(picks, species: store.species))
                     CardGroup(separatorInset: pickSeparatorInset) {
                         ForEach(Array(picks.enumerated()), id: \.element.id) { index, s in
                             LureSuggestionRow(suggestion: s, rank: index + 1, full: true,
-                                              sharedReason: shared, inCard: true)
+                                              why: whys[index], inCard: true)
                         }
                     }
-                    if let note = ThrowText.sharedNote(picks, species: store.species) {
+                    if let note = ThrowText.sharedNote(picks, species: store.species)
+                        ?? ThrowText.baitOnlyNote(store.species) {
                         SectionFootnote(note)
                     }
                 }
 
-                SectionTitle("Colours for \(clarity.label.lowercased()) water")
-                    .padding(.top, 24)
-                LureColourStrip(names: LureEngine.colors(for: clarity, lowLight: ThrowText.isLowLight(measuredWeather)))
+                // Colours are for lures; bait alone takes none.
+                if !ThrowText.baitOnly(picks) {
+                    SectionTitle("Colours for \(clarity.label.lowercased()) water")
+                        .padding(.top, 24)
+                    LureColourStrip(names: LureEngine.colors(for: clarity, lowLight: ThrowText.isLowLight(measuredWeather)))
+                }
 
                 if ownedGear.isEmpty && loaded {
                     NavigationLink(value: AppRoute.gear) {
