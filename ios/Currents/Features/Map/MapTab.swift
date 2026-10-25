@@ -290,8 +290,12 @@ struct MapTab: View {
         .toolbar(.hidden, for: .navigationBar)
         .navigationDestination(for: ExploreRoute.self) { ExploreDestination(route: $0) }
         .navigationDestination(item: $pendingRoute) { ExploreDestination(route: $0) }
-        .sheet(isPresented: $isPlaceOpen, onDismiss: { Task { await loadData() } }) {
-            placeSheet
+        // The place is read here, in body, so tapping a pin rebuilds this
+        // view and the sheet opens on that place. Read only inside the sheet,
+        // it came up empty the first time on the offline map, where nothing
+        // else on screen changes with the tap.
+        .sheet(isPresented: $isPlaceOpen, onDismiss: { Task { await loadData() } }) { [shownPlace] in
+            placeSheet(shownPlace)
         }
         .sheet(item: $peek, onDismiss: { Task { await loadData() } }) { p in
             PinPeekSheet(peek: p) { route in openRoute(route) }
@@ -661,8 +665,8 @@ struct MapTab: View {
     // MARK: - Place sheet
 
     @ViewBuilder
-    private var placeSheet: some View {
-        if let place = shownPlace {
+    private func placeSheet(_ place: ExplorePlace?) -> some View {
+        if let place {
             NavigationStack {
                 switch place {
                 case .spot(let s):
