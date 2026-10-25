@@ -399,8 +399,7 @@ struct LocationInspectorSheet: View {
         do {
             let placemarks = try await geocoder.reverseGeocodeLocation(loc)
             if let p = placemarks.first {
-                let parts = [p.locality ?? p.name, p.administrativeArea].compactMap { $0 }
-                return parts.isEmpty ? nil : parts.joined(separator: ", ")
+                return p.locality ?? p.name
             }
         } catch {
             return nil
