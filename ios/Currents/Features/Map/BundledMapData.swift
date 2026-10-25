@@ -184,7 +184,8 @@ enum BundledMapData {
         return Dictionary(grouping: file.places) { tileKey(latitude: $0.lat, longitude: $0.lon) }
     }()
 
-    /// How far from any place a ramp may lie and still be named after it.
+    /// How far from a town or named place a ramp may lie and still be named
+    /// after it.
     static let placeMarginMetres = 10_000.0
 
     /// How far from a town a ramp may lie and still be named after it in
@@ -196,38 +197,57 @@ enum BundledMapData {
     /// not Somerset West.
     static let namedMarginMetres = 1_500.0
 
-    /// The nearest place of any kind within 10 km when it is a named place
-    /// or a town within 1.5 km, else the nearest town within 5 km, else that
-    /// nearest place, and the side of it the point is on, measured from its
-    /// centre: "East side". Nil outside the bundled country or far from any
-    /// place. A town wins over a nearer farm or hamlet no angler uses, such
-    /// as a farm beside Hout Bay, but not over a named place close by.
+    /// How far a section, farm or hamlet may lie and still name a ramp.
+    static let smallPlaceMarginMetres = 5_000.0
+
+    /// The place a point is named after, and the side of it the point is on,
+    /// measured from its centre: "East side". A named place or town within
+    /// 1.5 km wins, then the nearest town within 5 km, then the nearest
+    /// place of any kind within 5 km, then a town or named place up to
+    /// 10 km off. Nil outside the bundled country or far from any place,
+    /// so a ramp across a reserve from a hamlet keeps its plain label.
     static func place(near coordinate: CLLocationCoordinate2D) -> (name: String, side: String)? {
         let latIndex = Int((coordinate.latitude / 0.5).rounded(.down))
         let lonIndex = Int((coordinate.longitude / 0.5).rounded(.down))
         var nearest: (place: NamedPlace, distance: Double)?
+        var nearestNamed: (place: NamedPlace, distance: Double)?
         var nearestTown: (place: NamedPlace, distance: Double)?
+        var farTown: (place: NamedPlace, distance: Double)?
         for dLat in -1...1 {
             for dLon in -1...1 {
                 for place in placesByTile["\(latIndex + dLat)_\(lonIndex + dLon)"] ?? [] {
                     let distance = metres(coordinate.latitude, coordinate.longitude, place.lat, place.lon)
-                    if distance <= placeMarginMetres, distance < (nearest?.distance ?? .infinity) {
+                    guard distance <= placeMarginMetres else { continue }
+                    if distance < (nearest?.distance ?? .infinity) {
                         nearest = (place, distance)
                     }
-                    if place.tier >= 2, distance <= townMarginMetres, distance < (nearestTown?.distance ?? .infinity) {
-                        nearestTown = (place, distance)
+                    if place.tier >= 1, distance < (nearestNamed?.distance ?? .infinity) {
+                        nearestNamed = (place, distance)
+                    }
+                    if place.tier >= 2 {
+                        if distance <= townMarginMetres, distance < (nearestTown?.distance ?? .infinity) {
+                            nearestTown = (place, distance)
+                        }
+                        if distance < (farTown?.distance ?? .infinity) {
+                            farTown = (place, distance)
+                        }
                     }
                 }
             }
         }
-        guard let closest = nearest else { return nil }
         let chosen: NamedPlace
-        if closest.place.tier >= 1, closest.distance <= namedMarginMetres {
+        if let closest = nearest, closest.place.tier >= 1, closest.distance <= namedMarginMetres {
             chosen = closest.place
         } else if let town = nearestTown {
             chosen = town.place
-        } else {
+        } else if let closest = nearest, closest.distance <= smallPlaceMarginMetres {
             chosen = closest.place
+        } else if let town = farTown {
+            chosen = town.place
+        } else if let named = nearestNamed {
+            chosen = named.place
+        } else {
+            return nil
         }
         return (chosen.name, compassPoint(of: coordinate, fromLatitude: chosen.lat, longitude: chosen.lon) + " side")
     }
