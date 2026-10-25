@@ -10,15 +10,31 @@ no water to take a name from, so the app names it after the nearest
 populated place within 10 km instead ("Ramp near Hout Bay"). This script
 writes those places to ios/Currents/Resources/Data/gazetteer_za.json:
 
-    {"source": "...", "places": [[name, lat, lon], ...]}
+    {"source": "...", "places": [[name, lat, lon], [name, lat, lon, 1], ...]}
 
 Places are GeoNames feature class P (cities, towns, villages, and sections
 such as Hout Bay or Muizenberg), with coordinates to 4 decimals (about
-10 m). Left out:
+10 m). A fourth value of 1 marks a town, which the app prefers within 5 km
+over a nearer section, farm or hamlet; a row without it is not a town. A
+place is a town when it is
+
+    a capital or administrative seat (PPLC, PPLA, PPLA2 to PPLA5), or
+    a PPL with a population of 1000 or more, or
+    a PPL with two or more alternate names, which GeoNames records for
+    places people write about (Hout Bay, Kommetjie, Gordon's Bay) and not
+    for the farm and hamlet points that sit beside them (An-de-Waterkant,
+    Weltevreder)
+
+Population is 0 for most places in the dump, so it cannot do the job alone.
+Sections (PPLX), localities (PPLL) and farms (PPLF) are never towns.
+
+Left out:
 
     historical, abandoned and destroyed places (PPLH, PPLQ, PPLW, PPLCH)
     old "... Location" ward names, which are not names anglers use
     a second place of the same name within 2 km (the bigger one is kept)
+    a spelling variant within 5 km of a bigger place: names that differ only
+    by apostrophes, case or a trailing " Central" ("Gordons Bay Central")
 
 The " (2)" GeoNames adds to tell farms apart is dropped from names.
 
@@ -61,15 +77,19 @@ PLACES_JSON = DATA / "explore_places_za.json"
 MAX_BYTES = 300_000
 MARGIN_M = 25_000
 SAME_NAME_M = 2_000
+VARIANT_NAME_M = 5_000
+TOWN_POPULATION = 1_000
+TOWN_ALTERNATES = 2
 
 LEFT_OUT_CODES = {"PPLH", "PPLQ", "PPLW", "PPLCH"}
+TOWN_CODES = {"PPLC", "PPLA", "PPLA2", "PPLA3", "PPLA4", "PPLA5"}
 # GeoNames bays, coves, harbours, beaches and capes, standing in for the coast.
 COAST_CODES = {("H", "BAY"), ("H", "COVE"), ("H", "HBR"), ("T", "BCH"), ("T", "CAPE")}
 # Bigger places first when two share a name nearby.
 CODE_RANK = {"PPLC": 0, "PPLA": 1, "PPLA2": 2, "PPLA3": 3, "PPLA4": 4, "PPL": 5, "PPLX": 6, "PPLL": 7, "PPLF": 8}
 
 # geoname table columns (readme.txt in the dump)
-NAME, LAT, LON, CLASS, CODE, POPULATION = 1, 4, 5, 6, 7, 14
+NAME, ALTERNATES, LAT, LON, CLASS, CODE, POPULATION = 1, 3, 4, 5, 6, 7, 14
 
 
 def metres(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -120,6 +140,22 @@ def clean(name: str) -> str:
     return re.sub(r"\s*\(\d+\)$", "", " ".join(name.split()))
 
 
+def is_town(code: str, population: int, alternates: int) -> bool:
+    """Whether a place is a town an angler would name a ramp after. Population
+    is 0 for most places in the dump, so a PPL also counts when GeoNames holds
+    several names for it."""
+    if code in TOWN_CODES:
+        return True
+    return code == "PPL" and (population >= TOWN_POPULATION or alternates >= TOWN_ALTERNATES)
+
+
+def fold_key(name: str) -> str:
+    """The name without apostrophes, case or a trailing " Central", so that
+    "Gordon’s Bay", "Gordons Bay" and "Gordons Bay Central" are one key."""
+    key = " ".join(re.sub(r"['‘’ʼ`]", "", name).casefold().split())
+    return re.sub(r" central$", "", key)
+
+
 def populated(rows: list[list[str]]) -> list[dict]:
     places = []
     for r in rows:
@@ -128,27 +164,36 @@ def populated(rows: list[list[str]]) -> list[dict]:
         name = clean(r[NAME])
         if not name or name.endswith(" Location"):
             continue
+        population = int(r[POPULATION] or 0)
+        town = is_town(r[CODE], population, len([a for a in r[ALTERNATES].split(",") if a.strip()]))
         places.append({
             "name": name,
             "lat": round(float(r[LAT]), 4),
             "lon": round(float(r[LON]), 4),
-            "rank": (CODE_RANK.get(r[CODE], 9), -int(r[POPULATION] or 0)),
+            "tier": 1 if town else 0,
+            # Towns first, then the bigger feature codes and populations.
+            "rank": (0 if town else 1, CODE_RANK.get(r[CODE], 9), -population),
         })
     return places
 
 
 def drop_repeats(places: list[dict]) -> list[dict]:
-    """One place per name within 2 km, the biggest."""
+    """One place per name within 2 km, the biggest, and one per spelling
+    variant (see fold_key) within 5 km."""
     kept: dict[str, list[dict]] = defaultdict(list)
-    for p in sorted(places, key=lambda p: p["rank"]):
-        if any(metres(p["lat"], p["lon"], q["lat"], q["lon"]) < SAME_NAME_M for q in kept[p["name"]]):
+    for p in sorted(places, key=lambda p: (p["rank"], p["name"], p["lat"], p["lon"])):
+        group = kept[fold_key(p["name"])]
+        if any(metres(p["lat"], p["lon"], q["lat"], q["lon"])
+               < (SAME_NAME_M if p["name"] == q["name"] else VARIANT_NAME_M) for q in group):
             continue
-        kept[p["name"]].append(p)
+        group.append(p)
     return [p for group in kept.values() for p in group]
 
 
 def encode(source: str, places: list[dict]) -> str:
-    rows = [[p["name"], p["lat"], p["lon"]] for p in sorted(places, key=lambda p: (p["name"], p["lat"], p["lon"]))]
+    """Towns carry a fourth value of 1; the rest have three, which the app reads as tier 0."""
+    rows = [[p["name"], p["lat"], p["lon"], *([1] if p["tier"] else [])]
+            for p in sorted(places, key=lambda p: (p["name"], p["lat"], p["lon"]))]
     return json.dumps({"source": source, "places": rows}, ensure_ascii=False, separators=(",", ":")) + "\n"
 
 
@@ -178,7 +223,7 @@ def main() -> None:
         text = encode(source, places)
 
     size = len(text.encode("utf-8"))
-    print(f"{len(places)} places, {size / 1000:.0f} KB.")
+    print(f"{len(places)} places, {sum(p['tier'] for p in places)} of them towns, {size / 1000:.0f} KB.")
     if size > MAX_BYTES * 1.05:
         sys.exit("Still too big; nothing written.")
     if args.dry_run:
