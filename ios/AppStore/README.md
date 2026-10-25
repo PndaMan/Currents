@@ -25,7 +25,11 @@ The text files use the `fastlane deliver` layout and are uploaded by the make ta
 
 The screenshots workflow (`.github/workflows/screenshots.yml`) captures eight phone screens and the watch, frames them with the captions, renders the in-app event media, and publishes all of it to the `app-store-screenshots` branch: `raw/`, `framed/`, `watch.png` and `events/`. The custom product pages use `framed/`. It also captures the light screens `store-art.json` needs into `stills/`, with Log catch driven through the Add menu, and composes the listing set into `store/`: `6.9/` and `6.3/` screenshots and `creative/` header, search results and universal art. `make appstore-screenshots` uploads `store/6.9` when the branch has it.
 
-The preview video is cut from real footage. `.github/workflows/preview-footage.yml` records each take in the simulator (manual, or a `footage-*` tag), then `uv run scripts/render_preview.py --footage <downloaded folder> --out ios/build/appstore-media/preview.mp4` renders the scenes in `preview.json` at 886x1920, 30 fps, with a silent stereo track, as Apple requires.
+The preview video is cut from real footage. `.github/workflows/preview-footage.yml` records each take in the simulator (manual, or a `footage-*` tag), then `uv run scripts/render_preview.py --footage <downloaded folder> --out ios/build/appstore-media/preview.mp4` renders the scenes in `preview.json` at 886x1920, 30 fps, with a silent stereo track, as Apple requires. The title cards sit on the same lake scenes as the screenshots. The recorder only writes a frame when the screen changes, so the times in `preview.json` are what was on screen at that moment; `--sheet <folder>` writes contact sheets to check the cut.
+
+Every slide, event image and the header share one set of lake scenes, `scenes` in `store-art.json`, drawn by `scripts/scenes.py` (hills, a ridge of pines, open water with a boat, reeds in front) at different times of day. The product page header is that scene as a 30 second loop with the Currents mark over it: `uv run scripts/render_banner.py` writes `creative/header.mp4` and its first frame, `header-poster.png`. Each layer drifts at its own speed and moves a whole number of repeats in the loop, so it never jumps.
+
+`make appstore-art STILLS=<captures folder> [FOOTAGE=<clips folder>]` renders all of it into `ios/build/appstore-media`: screenshots, event images, the header video and, with footage, the preview.
 
 ## The listing
 
@@ -151,11 +155,13 @@ The listing is pushed with an App Store Connect API key (Users and Access → In
 2. `make appstore-status` to see that the build is processed and in TestFlight.
 3. `make appstore-metadata` uploads name, subtitle, keywords, description, promotional text, release notes and URLs for en-US, en-GB and es-MX to the version in `project.yml` (runs `appstore-check` first).
 4. `make appstore-screenshots` replaces the screenshots in all three localisations with the `framed/` set and `watch.png` from the screenshots branch. `STORE_ART_DIR=<folder>` uploads a local set of 1320x2868 PNGs in place of `framed/`, such as the `6.9` folder `scripts/store_art.py` writes; `watch.png` still comes from the branch.
-5. `make appstore-media`, then `make appstore-media APPLY=1`. It places `preview.mp4`, `creative/header.png` and `creative/search.png` from `ios/build/appstore-media` on every localisation of the version being prepared, through the asset library. Each file is checked against Apple's specs first, and a file already in the library is not uploaded again.
+5. `make appstore-media`, then `make appstore-media APPLY=1`. It places `preview.mp4`, the header (`creative/header.mp4`, or `header.png` when there is no video) and `creative/search.png` from `ios/build/appstore-media` on every localisation of the version being prepared, through the asset library. Each file is checked against Apple's specs first, and a file already in the library is not uploaded again.
 6. `make appstore-events START=<launch date>` shows what would change; `make appstore-events START=<launch date> APPLY=1` writes it.
 7. `make appstore-pages`, then `make appstore-pages APPLY=1`. It prints each page id.
 8. `make appstore-gamecenter`, then `make appstore-gamecenter APPLY=1`. It turns on the Game Center capability for the App ID and Game Center for the app and the version being prepared, and creates the achievements, leaderboards and challenges with their images in all three localisations.
 9. In App Store Connect, submit the version, the events, the custom product pages and the Game Center items for review.
+
+To swap every image and video without touching any text (listing screenshots, preview, header, search results, event images and the custom product pages' screenshots), render with `make appstore-art`, then `make appstore-images` for a dry run and `make appstore-images APPLY=1` to write it. A custom product page in review is skipped until the review finishes.
 
 Still by hand:
 
