@@ -79,7 +79,7 @@ jobs:
             crew-detail crews friends requests friend trip-setup group-trip
             settings settings-appearance settings-units settings-notifications
             settings-privacy settings-widgets settings-storage settings-about settings-knots
-            tips log-catch
+            tips log-catch add-menu
           )
 
           SELECTED=""
@@ -242,7 +242,7 @@ jobs:
 
           # Screens left out of the scrolled set: the map fills the screen and
           # the catch form opens as a sheet, so neither scrolls as a page.
-          SCROLL_SKIP=" explore explore-near log-catch "
+          SCROLL_SKIP=" explore explore-near log-catch add-menu "
 
           # Seconds to let a screen settle. The map screens load tiles.
           settle_for() {
