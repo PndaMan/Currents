@@ -63,6 +63,23 @@ enum CrewText {
         return species
     }
 
+    /// "43 cm, 1.3 kg" from whatever was measured, or nil: the line under a
+    /// catch's species, as the Logbook writes it. Sizes go through the same
+    /// parts as the Heaviest and Longest tiles, so a page never rounds one
+    /// fish two ways.
+    static func catchSize(lengthCm: Double?, weightKg: Double?, imperial: Bool) -> String? {
+        var parts: [String] = []
+        if let l = lengthCm {
+            let p = Units.lengthParts(cm: l, imperial: imperial)
+            parts.append("\(p.0) \(p.1)")
+        }
+        if let w = weightKg {
+            let p = Units.weightParts(kg: w, imperial: imperial)
+            parts.append("\(p.0) \(p.1)")
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: ", ")
+    }
+
     static func anglers(_ n: Int) -> String { n == 1 ? "1 angler" : "\(n) anglers" }
 }
 

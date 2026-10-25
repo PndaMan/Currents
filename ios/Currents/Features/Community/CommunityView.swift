@@ -1008,14 +1008,27 @@ private struct AnglerStatsLine: View {
 private struct AnglerCatchRows: View {
     let rows: [CommunityService.LeaderRow]
     @State private var showAll = false
+    @AppStorage("units") private var units = "metric"
+
+    /// The size under the species, as Logbook writes it. A region is added
+    /// only when the rows differ in it: one region on every row says nothing.
+    private func subtitle(_ c: CommunityService.LeaderRow, showsRegion: Bool) -> String? {
+        var parts: [String] = []
+        if let size = CrewText.catchSize(lengthCm: c.lengthCm, weightKg: c.weightKg, imperial: units == "imperial") {
+            parts.append(size)
+        }
+        if showsRegion, !c.region.isEmpty { parts.append(c.region) }
+        return parts.isEmpty ? nil : parts.joined(separator: ", ")
+    }
 
     var body: some View {
+        let showsRegion = Set(rows.map(\.region)).count > 1
         VStack(alignment: .leading, spacing: 0) {
             ForEach(showAll ? rows : Array(rows.prefix(10))) { c in
                 NavigationLink { CommunityCatchDetailView(row: c) } label: {
                     ArtRow(over: LogbookFormat.relativeDay(c.date),
-                           title: CrewText.catchTitle(species: c.species, lengthCm: c.lengthCm, weightKg: c.weightKg),
-                           subtitle: c.region.isEmpty ? nil : c.region,
+                           title: c.species,
+                           subtitle: subtitle(c, showsRegion: showsRegion),
                            chevron: true) {
                         CommunityCatchThumb(row: c, size: 64)
                     }
