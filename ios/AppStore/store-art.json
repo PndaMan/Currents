@@ -1,0 +1,95 @@
+{
+  "theme": {
+    "field": "#4CC8FF",
+    "pale": "#DDF4FF",
+    "navy": "#08243F",
+    "sun": "#FFD84D",
+    "ink": "#06121F",
+    "white": "#FFFFFF",
+    "sticker": "#FFD84D",
+    "device": "light"
+  },
+  "slides": [
+    {
+      "names": ["bite", "nearby"],
+      "span": 2,
+      "field": "field",
+      "layers": [
+        {"type": "phone", "screen": "explore", "center": [1930, 1150], "scale": 0.86, "angle": -9},
+        {"type": "logo", "at": [96, 150], "height": 96},
+        {"type": "text", "lines": ["Know when", "they bite."], "size": 204, "at": [92, 1800], "leading": 0.98},
+        {"type": "facts", "at": [100, 2440], "size": 104, "items": [["1,589", "species to identify"], ["Offline", "maps and logbook"]]},
+        {"type": "text", "lines": ["See what's biting", "near you"], "size": 104, "weight": "Bold", "align": "center", "at": [1980, 2590], "leading": 1.06}
+      ]
+    },
+    {
+      "name": "identify",
+      "photo": "bass-06.jpg",
+      "focus": [0.5, 0.55],
+      "layers": [
+        {"type": "shade", "edge": "top", "size": 1100, "opacity": 0.6},
+        {"type": "text", "lines": ["Snap a fish.", "Know the species."], "size": 140, "align": "center", "at": [660, 200], "color": "white", "leading": 1.04},
+        {"type": "phone", "screen": "log-catch-camera", "center": [660, 1980], "scale": 0.7, "angle": 0, "finish": "dark"},
+        {"type": "card", "screen": "log-catch-id", "box": [40, 1300, 1240, 400], "pad": 0, "radius": 60, "center": [760, 1560], "scale": 0.86, "angle": -3}
+      ],
+      "blur": 14
+    },
+    {
+      "name": "forecast",
+      "field": "pale",
+      "layers": [
+        {"type": "text", "lines": ["Plan the week", "around the bite."], "size": 140, "align": "center", "at": [660, 200], "leading": 1.04},
+        {"type": "card", "screen": "forecast-week", "box": [60, 714, 1200, 256], "pad": 30, "radius": 70, "center": [650, 840], "scale": 0.94, "angle": -2},
+        {"type": "card", "screen": "forecast-day", "box": [40, 1525, 1240, 560], "pad": 30, "radius": 70, "center": [680, 1530], "scale": 0.94, "angle": 1.5},
+        {"type": "card", "screen": "forecast-week", "box": [60, 1086, 1200, 732], "pad": 30, "radius": 70, "center": [640, 2370], "scale": 0.94, "angle": -1.5}
+      ]
+    },
+    {
+      "name": "catch",
+      "photo": "bass-04.jpg",
+      "focus": [0.5, 0.3],
+      "layers": [
+        {"type": "shade", "edge": "top", "size": 1000, "opacity": 0.55},
+        {"type": "text", "lines": ["Every catch,", "kept."], "size": 150, "align": "center", "at": [660, 200], "leading": 1.02, "color": "white"},
+        {"type": "card", "screen": "catch", "box": [30, 1378, 1260, 378], "pad": 24, "radius": 64, "center": [640, 2060], "scale": 0.84, "angle": -2},
+        {"type": "card", "screen": "catch", "box": [30, 1783, 1260, 400], "pad": 24, "radius": 64, "center": [690, 2470], "scale": 0.84, "angle": 1.5}
+      ]
+    },
+    {
+      "name": "lures",
+      "field": "sun",
+      "layers": [
+        {"type": "text", "lines": ["Know what", "to throw."], "size": 150, "at": [90, 200], "leading": 1.02},
+        {"type": "phone", "screen": "lures", "center": [860, 1920], "scale": 0.76, "angle": 4},
+        {"type": "art", "name": "lure_spinnerbait", "width": 300, "center": [170, 1250], "angle": -18},
+        {"type": "art", "name": "lure_crankbait", "width": 260, "center": [150, 2050], "angle": 14}
+      ]
+    },
+    {
+      "name": "fishdex",
+      "field": "navy",
+      "layers": [
+        {"type": "text", "lines": ["Collect all", "1,589 species."], "size": 140, "align": "center", "at": [660, 200], "color": "white", "leading": 1.04},
+        {"type": "phone", "screen": "fishdex-dark", "center": [660, 1990], "scale": 0.78, "angle": 0, "finish": "dark"}
+      ]
+    },
+    {
+      "name": "streak",
+      "field": "field",
+      "layers": [
+        {"type": "text", "lines": ["Keep your", "streak alive."], "size": 140, "align": "center", "at": [660, 200], "leading": 1.04},
+        {"type": "phone", "screen": "streak", "center": [660, 1990], "scale": 0.78, "angle": 0},
+        {"type": "pop", "box": [30, 960, 1260, 320], "lift": 1.16, "radius": 56, "pad": 20, "turn": -3}
+      ]
+    },
+    {
+      "name": "crew",
+      "field": "sun",
+      "layers": [
+        {"type": "text", "lines": ["Fish with", "your crew."], "size": 150, "align": "center", "at": [660, 200], "leading": 1.02},
+        {"type": "phone", "screen": "profile", "center": [890, 1930], "scale": 0.6, "angle": 6},
+        {"type": "phone", "screen": "leaderboard", "center": [450, 2080], "scale": 0.64, "angle": -5}
+      ]
+    }
+  ]
+}

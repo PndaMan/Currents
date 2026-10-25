@@ -75,3 +75,24 @@ stripped and two were cropped to remove a logo.
 | scene-river-dawn.jpg | https://www.pexels.com/photo/serene-river-at-sunrise-with-misty-reflections-33828127/ | The Visionary Vows | Pexels License |
 | scene-coast-01.jpg | https://www.pexels.com/photo/dramatic-rocky-coastline-of-south-africa-33641659/ | Zak H | Pexels License |
 | scene-coast-02.jpg | https://www.pexels.com/photo/rocky-ocean-coast-22873399/ | arnaud audoin | Pexels License |
+
+### Store art (`ios/AppStore/store-photos/`)
+
+`scripts/store_art.py` composes the store screenshots from the captures and
+draws two of them over a full-bleed photo. Those photos, and the scenes for
+the Header and Search Results art, are larger downloads of photos listed
+above, from the same pages under the same licences. EXIF is stripped and the
+long side is at most 3000 px. bass-06.jpg has its top fifth cropped away, so
+it shows the fish, hands and water only.
+
+| File | Same photo as |
+|---|---|
+| bass-04.jpg | demo-photos/bass-04.jpg |
+| bass-05.jpg | demo-photos/bass-05.jpg |
+| bass-06.jpg | demo-photos/bass-06.jpg |
+| river-dawn.jpg | demo-photos/scene-river-dawn.jpg |
+| lake-dawn.jpg | demo-photos/scene-lake-dawn.jpg |
+| coast-01.jpg | demo-photos/scene-coast-01.jpg |
+
+The headline type is Inter Display (`ios/AppStore/fonts/`), under the SIL
+Open Font License 1.1 (`ios/AppStore/fonts/OFL.txt`).
