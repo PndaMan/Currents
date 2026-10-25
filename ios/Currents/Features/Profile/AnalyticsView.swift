@@ -348,15 +348,20 @@ struct AnalyticsView: View {
             SectionTitle("Best hours")
                 .padding(.top, DS.Space.s8)
             Chart(hourCounts, id: \.hour) { item in
-                BarMark(x: .value("Hour", item.hour), y: .value("Catches", item.count), width: .ratio(0.7))
+                // The hour is a number, so there is no band for a width ratio
+                // to take a share of: the bar is drawn from its own start to
+                // its own end, centred on the hour.
+                BarMark(xStart: .value("From", Double(item.hour) - 0.38),
+                        xEnd: .value("To", Double(item.hour) + 0.38),
+                        y: .value("Catches", item.count))
                     .foregroundStyle(hourColor(item.hour))
             }
-            .chartXScale(domain: 0...23)
+            .chartXScale(domain: -0.5...23.5)
             .chartYAxis(.hidden)
             .chartXAxis {
-                AxisMarks(values: [0, 6, 12, 18]) { value in
+                AxisMarks(values: [0.0, 6.0, 12.0, 18.0]) { value in
                     AxisValueLabel {
-                        if let h = value.as(Int.self) { Text(formatHour(h)) }
+                        if let h = value.as(Double.self) { Text(formatHour(Int(h))) }
                     }
                 }
             }
