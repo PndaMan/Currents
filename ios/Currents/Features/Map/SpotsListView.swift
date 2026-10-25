@@ -205,6 +205,10 @@ struct WaterListView: View {
     @State private var usingFallback = false
     @AppStorage("units") private var units = "metric"
 
+    /// How far the list reaches, as on the ramps list. The region fetch is a
+    /// box that runs past this at the corners.
+    private static let reachKm = 100.0
+
     /// Reservoirs are often mapped as lakes, so the two go together, as in search.
     enum WaterFilter: String, CaseIterable, Hashable {
         case all = "All", dams = "Dams and lakes", rivers = "Rivers", coast = "Coast and estuaries"
@@ -224,7 +228,7 @@ struct WaterListView: View {
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
-                DetailHeader(over: "Within about \(Units.distance(km: 100, imperial: units == "imperial"))", title: "Water",
+                DetailHeader(over: "Within about \(Units.distance(km: Self.reachKm, imperial: units == "imperial"))", title: "Water",
                              subtitle: loaded && !waters.isEmpty ? "\(waters.count) dams, rivers and lakes, nearest first" : nil)
                     .padding(.bottom, DS.Space.s3)
 
@@ -288,6 +292,7 @@ struct WaterListView: View {
         )) ?? []
         waters = bodies
             .map { ($0, origin.distance(from: CLLocation(latitude: $0.latitude, longitude: $0.longitude))) }
+            .filter { $0.1 <= Self.reachKm * 1000 }
             .sorted { $0.1 < $1.1 }
         savedIds = Set(((try? appState.spotRepository.fetchAll()) ?? []).compactMap(\.waterbodyId))
         loaded = true
