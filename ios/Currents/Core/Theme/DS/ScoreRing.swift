@@ -23,7 +23,8 @@ struct ScoreRing: View {
     private var captionSize: CGFloat { max(10, size * 0.12) }
 
     /// The widest the caption can be: the chord of the circle inside the
-    /// stroke, at the foot of the caption. The text is laid out in the square
+    /// stroke (the stroke spans `size / 2 - stroke` to `size / 2`), at
+    /// the foot of the caption. The text is laid out in the square
     /// inside the stroke, but the circle is narrower at that height, so a
     /// wider caption runs into the stroke. Line heights are about 1.2 times
     /// the font size.
@@ -36,9 +37,13 @@ struct ScoreRing: View {
 
     var body: some View {
         ZStack {
+            // Inset by half the stroke, so the whole stroke sits inside the
+            // frame rather than half of it hanging outside.
             Circle()
+                .inset(by: stroke / 2)
                 .stroke(color.opacity(0.22), lineWidth: stroke)
             Circle()
+                .inset(by: stroke / 2)
                 .trim(from: 0, to: shown / 100)
                 .stroke(color, style: StrokeStyle(lineWidth: stroke, lineCap: .round))
                 .rotationEffect(.degrees(-90))
