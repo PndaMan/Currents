@@ -1760,6 +1760,7 @@ struct AboutView: View {
                         ("Rain radar", "RainViewer"),
                         ("Bathymetry", "GLOBathy"),
                         ("Water, ramps and access", "OpenStreetMap contributors"),
+                        ("Town names", "GeoNames"),
                     ])
                 }
             }
