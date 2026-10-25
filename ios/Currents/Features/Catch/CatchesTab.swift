@@ -768,7 +768,7 @@ struct CatchesTab: View {
 
     /// The Sessions page's Upcoming row, so both lists show a plan the same way.
     private func planRow(_ trip: Trip) -> some View {
-        let outlook = planOutlooks[trip.id].map { PlanRowOutlook(score: $0.score, best: $0.best) }
+        let outlook = planOutlooks[trip.id].map { PlanRowOutlook(score: $0.score, bestHour: $0.bestHour) }
         return NavigationLink(value: LogbookRoute.plan(trip.id)) {
             PlannedRow(trip: trip, outlook: outlook)
         }
@@ -816,18 +816,18 @@ struct CatchesTab: View {
         summary = LogbookSummary(catches: catches, speciesTotal: total)
     }
 
-    /// The best bite in a plan's hours and its best window, worked out as
+    /// The best bite in a plan's hours and the hour it comes, worked out as
     /// the Sessions list and the plan page do (`PlanRowOutlook`).
     struct PlanOutlook {
         let score: Int
-        let best: BiteWindows.Window?
+        let bestHour: Int?
     }
 
     private static func planOutlooks(for plans: [Trip], fallback: CLLocationCoordinate2D?) -> [String: PlanOutlook] {
         var result: [String: PlanOutlook] = [:]
         for p in plans {
             guard let outlook = PlanRowOutlook.make(for: p, fallback: fallback) else { continue }
-            result[p.id] = PlanOutlook(score: outlook.score, best: outlook.best)
+            result[p.id] = PlanOutlook(score: outlook.score, bestHour: outlook.bestHour)
         }
         return result
     }
