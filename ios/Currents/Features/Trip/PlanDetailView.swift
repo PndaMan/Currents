@@ -83,7 +83,7 @@ struct PlanDetailView: View {
                     // rings it; the day's own peak has its window tile.
                     if let forecast, !forecast.hourlyScores.isEmpty {
                         let best = PlanRowOutlook.hoursBest(forecast, from: Calendar.current.component(.hour, from: date))
-                        ScoreRing(score: best, size: 64, caption: "your hours")
+                        ScoreRing(score: best, size: 64, caption: "best", spokenLabel: "Your hours")
                             .padding(.trailing, DS.gutter)
                             .padding(.top, DS.Space.s2)
                     }

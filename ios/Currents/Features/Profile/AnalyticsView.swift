@@ -414,7 +414,7 @@ struct AnalyticsView: View {
             SectionTitle("Bite score at catch time")
                 .padding(.top, DS.Space.s8)
             HStack(spacing: 16) {
-                ScoreRing(score: Int(avg.rounded()), size: 64, caption: "average")
+                ScoreRing(score: Int(avg.rounded()), size: 80, caption: "average")
                 Text(avg > 50
                      ? "You catch more when the bite score is high."
                      : "You catch fish whatever the score says.")
