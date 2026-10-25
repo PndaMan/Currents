@@ -308,7 +308,11 @@ struct HourInfoBox: View {
     private func filled(hour: Int, score: Int) -> some View {
         // This moment's reading for the current hour, as the hero shows.
         let detail = isNow(hour) ? day.result : store.hourDetail(day: day.offset, hour: hour)
-        let hourDate = Calendar.current.startOfDay(for: day.date).addingTimeInterval(Double(hour) * 3600 + 1800)
+        // Half past for any other hour; the current hour tests this moment,
+        // as its score does.
+        let hourDate = isNow(hour)
+            ? Date.now
+            : Calendar.current.startOfDay(for: day.date).addingTimeInterval(Double(hour) * 3600 + 1800)
         let feeding = detail.feedingWindows.contains { hourDate >= $0.start && hourDate <= $0.end }
         let wx = weather(hour)
         // The hour and its grade side by side, stacked at accessibility sizes.
@@ -360,8 +364,10 @@ struct HourInfoBox: View {
         let wind = Units.speed(kmh: w.windSpeedKmh, imperial: imperial)
         let rainText = ConditionText.rainLine(w.precipMm)
         let wet = w.precipMm >= 0.1
+        let hourStart = Calendar.current.startOfDay(for: day.date).addingTimeInterval(Double(hour) * 3600)
+        let night: Bool = isNow(hour) ? day.isDarkNow : day.isDark(hourStarting: hourStart)
         let sky = Label(temperature, systemImage: ForecastFormat.weatherSymbol(cloud: w.cloudCoverPct,
-                                                                                precipMm: w.precipMm, hour: hour))
+                                                                                precipMm: w.precipMm, night: night))
             .accessibilityLabel("\(temperature), \(w.cloudCoverPct)% cloud")
         let breeze = Label(wind, systemImage: "wind")
             .accessibilityLabel("Wind \(wind)")
@@ -466,7 +472,8 @@ struct HourStrip: View {
                         Text(isNow ? "Now" : String(ForecastFormat.hour(h, use24: use24).prefix(use24 ? 2 : 5)))
                             .font(.footnote.weight(.semibold))
                             .foregroundStyle(.dsText)
-                        Image(systemName: ForecastFormat.weatherSymbol(cloud: p.cloudCoverPct, precipMm: p.precipMm, hour: h))
+                        Image(systemName: ForecastFormat.weatherSymbol(cloud: p.cloudCoverPct, precipMm: p.precipMm,
+                                                                       night: isNow ? day.isDarkNow : day.isDark(hourStarting: p.date)))
                             .symbolRenderingMode(.hierarchical)
                             .font(.title3)
                             .foregroundStyle(.dsText2)

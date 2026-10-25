@@ -70,6 +70,16 @@ struct ForecastDay {
 
     var isToday: Bool { offset == 0 }
 
+    /// True on today's page while the sun is down, by the day's sunrise and
+    /// sunset. Later days have no "now", so they read as daytime.
+    var isDarkNow: Bool { isToday && solunar.isNight(at: .now) }
+
+    /// Whether the hour starting at `start` is dark, tested at half past, as
+    /// the hour's score is.
+    func isDark(hourStarting start: Date) -> Bool {
+        solunar.isNight(at: start.addingTimeInterval(1800))
+    }
+
     /// The day's best hour. Day pages, the week and the day cards rank days
     /// by this; the Today hero shows `result.score`, the score right now.
     var peakScore: Int { result.hourlyScores.map(\.score).max() ?? result.score }
@@ -440,9 +450,9 @@ enum ForecastFormat {
         }
     }
 
-    /// SF Symbol for an hour of weather.
-    static func weatherSymbol(cloud: Int, precipMm: Double, hour: Int) -> String {
-        let night = hour < 6 || hour >= 19
+    /// SF Symbol for the sky at a time. `night` comes from the day's sunrise
+    /// and sunset (`SolunarDay.isNight(at:)`).
+    static func weatherSymbol(cloud: Int, precipMm: Double, night: Bool) -> String {
         if precipMm >= 1 { return "cloud.rain" }
         if precipMm >= 0.2 { return "cloud.drizzle" }
         if cloud >= 70 { return "cloud" }

@@ -20,6 +20,20 @@ enum SolunarEngine {
         let moonPhase: MoonPhase
         let moonIllumination: Double             // 0.0 – 1.0
         let dayRating: DayRating
+
+        /// True before sunrise or from sunset on: the one day-or-night test
+        /// that Today, the forecast pages and What to throw share. A time on
+        /// a neighbouring day (the hour strip runs on into tomorrow) is
+        /// tested against this day's sun times moved by whole days, since
+        /// they shift only a minute or so a day.
+        func isNight(at time: Date) -> Bool {
+            let calendar = Calendar.current
+            let days = calendar.dateComponents([.day], from: calendar.startOfDay(for: date),
+                                               to: calendar.startOfDay(for: time)).day ?? 0
+            let rise = calendar.date(byAdding: .day, value: days, to: sunrise) ?? sunrise
+            let set = calendar.date(byAdding: .day, value: days, to: sunset) ?? sunset
+            return SolunarEngine.isNight(time, sunrise: rise, sunset: set)
+        }
     }
 
     struct FeedingWindow: Sendable {
@@ -147,6 +161,19 @@ enum SolunarEngine {
             moonIllumination: illumination,
             dayRating: rating
         )
+    }
+
+    /// The day-or-night test for a place whose solunar day is not worked out,
+    /// from its sun times alone. The same rule as `SolunarDay.isNight(at:)`.
+    static func isNight(at time: Date, coordinate: CLLocationCoordinate2D) -> Bool {
+        let noon = Calendar.current.date(bySettingHour: 12, minute: 0, second: 0, of: time)!
+        let (rise, set) = sunTimes(date: noon, latitude: coordinate.latitude, longitude: coordinate.longitude)
+        return isNight(time, sunrise: rise, sunset: set)
+    }
+
+    /// Night is before sunrise and from sunset on.
+    static func isNight(_ time: Date, sunrise: Date, sunset: Date) -> Bool {
+        time < sunrise || time >= sunset
     }
 
     /// Hourly fishing score for a 24-hour period.
