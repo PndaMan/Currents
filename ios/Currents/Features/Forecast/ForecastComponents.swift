@@ -417,6 +417,9 @@ struct HourStrip: View {
     let day: ForecastDay
     /// The next day's hours, which today's strip continues into.
     var following: [WeatherService.HourlyPoint] = []
+    /// This moment's reading, which the Now column shows so it agrees with
+    /// the hour card and the tiles. Nil offline or on other days.
+    var current: WeatherService.WeatherData? = nil
     var use24: Bool = true
     @AppStorage("units") private var units = "metric"
     @ScaledMetric(relativeTo: .headline) private var columnWidth: CGFloat = 54
@@ -436,15 +439,29 @@ struct HourStrip: View {
         return Array((ahead + following).prefix(24))
     }
 
+    /// True for the column of the current hour of today.
+    private func isCurrentHour(_ p: WeatherService.HourlyPoint) -> Bool {
+        day.isToday && Calendar.current.isDate(p.date, equalTo: .now, toGranularity: .hour)
+    }
+
+    /// A column's weather: the current reading for Now, the hourly forecast
+    /// for every other hour.
+    private func columnWeather(_ p: WeatherService.HourlyPoint) -> WeatherService.HourlyPoint {
+        guard isCurrentHour(p), let w = current else { return p }
+        return WeatherService.HourlyPoint(date: p.date, temperatureC: w.temperatureC, pressureHpa: w.pressureHpa,
+                                          windSpeedKmh: w.windSpeedKmh, windDirectionDeg: w.windDirectionDeg,
+                                          precipMm: w.precipMm, cloudCoverPct: w.cloudCoverPct)
+    }
+
     var body: some View {
-        let shown = points
+        let shown = points.map { columnWeather($0) }
         // The rain line only when an hour has rain to show.
         let wet = shown.contains { $0.precipMm >= 0.1 }
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 0) {
                 ForEach(shown, id: \.date) { p in
                     let h = Calendar.current.component(.hour, from: p.date)
-                    let isNow = day.isToday && Calendar.current.isDate(p.date, equalTo: .now, toGranularity: .hour)
+                    let isNow = isCurrentHour(p)
                     VStack(spacing: 8) {
                         Text(isNow ? "Now" : String(ForecastFormat.hour(h, use24: use24).prefix(use24 ? 2 : 5)))
                             .font(.footnote.weight(.semibold))
