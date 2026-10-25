@@ -26,6 +26,9 @@ final class AppState {
     /// Set when a link should open the live fishing session so a catch can be
     /// logged straight away — MapTab watches this and presents the session.
     var openLiveSession = false
+    /// Set by the tab bar's Add menu: MapTab starts placing a new spot (its
+    /// own Add spot button's drop pin), then clears it.
+    var openAddSpot = false
     /// Set by a crew push-notification tap: the Community tab opens this
     /// crew's detail screen, then clears it.
     var openCrewCode: String?

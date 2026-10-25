@@ -387,10 +387,16 @@ struct MapTab: View {
             // session so a catch can be logged straight away.
             if open { openLiveSession() }
         }
+        .onChange(of: appState.openAddSpot) { _, open in
+            // The tab bar's Add menu asked to add a spot.
+            if open { startAddingSpot() }
+        }
         .task {
             // Cold-launch case: the flag may already be set before onChange
-            // starts observing.
+            // starts observing. The same goes for the Add menu's Add spot
+            // when Explore had not been opened yet.
             if appState.openLiveSession { openLiveSession() }
+            if appState.openAddSpot { startAddingSpot() }
         }
         .task {
             appState.mapManager.refreshDownloadedRegions()
@@ -826,6 +832,15 @@ struct MapTab: View {
             try? await Task.sleep(for: .milliseconds(450))
             if appState.tripTracker.isTracking { showingLiveTrip = true }
         }
+    }
+
+    /// The Add menu's Add spot: what the map's own Add spot button does, with
+    /// the search pane closed first so the pin and its bar show.
+    private func startAddingSpot() {
+        appState.openAddSpot = false
+        closeSearch()
+        isPlaceOpen = false
+        isDropping = true
     }
 
     /// Saving or removing on the place sheet swaps the water and spot pins
