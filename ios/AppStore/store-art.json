@@ -9,6 +9,45 @@
     "sticker": "#FFD84D",
     "device": "light"
   },
+  "creative": [
+    {
+      "name": "header",
+      "size": [3840, 1646],
+      "safe": [1097, 493, 1646, 661],
+      "photo": "river-dawn.jpg",
+      "focus": [0.4, 0.55],
+      "blur": 6,
+      "layers": [
+        {"type": "phone", "screen": "explore", "center": [1560, 1210], "scale": 0.5, "angle": -5},
+        {"type": "phone", "screen": "today", "center": [2290, 1180], "scale": 0.5, "angle": 4}
+      ]
+    },
+    {
+      "name": "search",
+      "size": [3840, 2560],
+      "safe": [836, 765, 2168, 1030],
+      "photo": "coast-01.jpg",
+      "focus": [0.5, 0.5],
+      "blur": 10,
+      "layers": [
+        {"type": "phone", "screen": "explore", "center": [1270, 1290], "scale": 0.35, "angle": -5},
+        {"type": "phone", "screen": "log-catch-id", "center": [2570, 1290], "scale": 0.35, "angle": 5},
+        {"type": "phone", "screen": "today", "center": [1920, 1280], "scale": 0.39, "angle": 0}
+      ]
+    },
+    {
+      "name": "universal",
+      "size": [5244, 2950],
+      "safe": [1921, 660, 1402, 962],
+      "photo": "river-dawn.jpg",
+      "focus": [0.45, 0.5],
+      "blur": 8,
+      "layers": [
+        {"type": "phone", "screen": "log-catch-id", "center": [2870, 1160], "scale": 0.33, "angle": 5},
+        {"type": "phone", "screen": "today", "center": [2390, 1140], "scale": 0.34, "angle": -4}
+      ]
+    }
+  ],
   "slides": [
     {
       "names": ["bite", "nearby"],

@@ -15,7 +15,11 @@ straddle the join the way it does across the first two in the store.
     uv run scripts/store_art.py --shots screenshots/raw --out screenshots/store
 
 Writes <out>/6.9/NN_name.png (1320x2868) and <out>/6.3/NN_name.png
-(1206x2622), RGB with no alpha, as App Store Connect requires.
+(1206x2622), RGB with no alpha, as App Store Connect requires. The
+"creative" entries are the product page Header, Search Results and
+Universal art, drawn the same way at their own sizes into
+<out>/creative/<name>.png; keep what matters inside each one's "safe" box,
+which is all some devices show.
 """
 
 from __future__ import annotations
@@ -229,7 +233,7 @@ def color(theme: dict, name: str):
 
 def draw_slide(spec: dict, theme: dict, shots: Path) -> Image.Image:
     span = spec.get("span", 1)
-    size = (W * span, H)
+    size = tuple(spec["size"]) if "size" in spec else (W * span, H)
     if "photo" in spec:
         canvas = cover(PHOTOS / spec["photo"], size, spec.get("focus", (0.5, 0.5)))
         if spec.get("blur"):
@@ -334,6 +338,17 @@ def main() -> None:
     for d in ("6.9", "6.3"):
         (args.out / d).mkdir(parents=True, exist_ok=True)
     have = {p.stem for p in args.shots.glob("*.png")}
+
+    for spec in config.get("creative", []):
+        if args.only and spec["name"] not in args.only:
+            continue
+        missing = {l["screen"] for l in spec["layers"] if "screen" in l} - have
+        if missing:
+            print(f"skip {spec['name']}: no capture for {', '.join(sorted(missing))}")
+            continue
+        (args.out / "creative").mkdir(parents=True, exist_ok=True)
+        draw_slide(spec, theme, args.shots).save(args.out / "creative" / f"{spec['name']}.png", optimize=True)
+        print(f"wrote creative/{spec['name']}.png")
 
     number = 0
     for spec in config["slides"]:
