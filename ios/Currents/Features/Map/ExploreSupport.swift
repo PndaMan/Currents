@@ -512,10 +512,11 @@ struct ExploreActionRow: View {
 
 extension View {
     /// The inline title of a scrolling Explore page or sheet, faded in once
-    /// its `DetailHeader` has scrolled away, as on TodayPage. Apply to the
+    /// its `DetailHeader` has scrolled away, as on TodayPage. A page whose
+    /// header sits below a cover passes a `threshold`. Apply to the
     /// ScrollView, after `detailTint` or `detailScrollEdge`.
-    func exploreInlineTitle(_ title: String) -> some View {
-        pageTitleFade(title)
+    func exploreInlineTitle(_ title: String, threshold: CGFloat? = nil) -> some View {
+        pageTitleFade(title, threshold: threshold)
     }
 }
 

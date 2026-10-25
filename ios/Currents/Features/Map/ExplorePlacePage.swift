@@ -13,6 +13,10 @@ struct ExplorePlacePage: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dynamicTypeSize) private var typeSize
     @AppStorage("cloudSyncEnabled") private var cloudSyncEnabled = false
+    /// The header's over line and large title, which grow with the text
+    /// size. On the page they sit under the 190 point map cover and its
+    /// padding (218 points), so the inline title waits for both.
+    @ScaledMetric(relativeTo: .largeTitle) private var titleBlock: CGFloat = 63
 
     let style: Style
     /// Called after the place is saved or removed, so the map can swap the
@@ -219,7 +223,7 @@ struct ExplorePlacePage: View {
             .pageWidth()
         }
         .detailTint(tint)
-        .exploreInlineTitle(name)
+        .exploreInlineTitle(name, threshold: style == .page ? 218 + titleBlock : nil)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button { showingPlan = true } label: {
