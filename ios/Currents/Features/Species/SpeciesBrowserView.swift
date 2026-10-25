@@ -148,12 +148,13 @@ struct SpeciesBrowserView: View {
         }
     }
 
-    /// "210 of 1,568 in season in October, water about 16°C."
+    /// "210 of 1,568 in season in October, water about 16°C", with no full
+    /// stop, as the other page subtitles.
     private var subtitle: String? {
         guard loaded else { return nil }
         let name = SpeciesSeason.fullMonths[month - 1]
         let temp = Units.temperature(water.temp(month))
-        return "\(inSeasonTotal.formatted()) of \(species.count.formatted()) in season in \(name), water about \(temp)."
+        return "\(inSeasonTotal.formatted()) of \(species.count.formatted()) in season in \(name), water about \(temp)"
     }
 
     /// In season this month across the whole guide, ignoring search and
@@ -212,14 +213,13 @@ struct SpeciesBrowserView: View {
         .buttonStyle(.dsRow)
     }
 
+    /// Habitat and comfort band. A fish whose common name another shares
+    /// gets its scientific name in place of the habitat, so the row keeps
+    /// two facts and one line.
     private func rowSubtitle(_ sp: Species) -> String {
-        let habitat = SpeciesSeason.habitatName(sp.habitat)
+        let first: String? = repeatedNames.contains(sp) ? sp.scientificName : SpeciesSeason.habitatName(sp.habitat)
         let comfort = SpeciesSeason.comfortText(sp, imperial: Units.isImperial)
-        guard repeatedNames.contains(sp) else {
-            return [habitat, comfort].compactMap { $0 }.joined(separator: ", ")
-        }
-        let parts: [String?] = [sp.scientificName, habitat?.lowercased(), comfort]
-        return parts.compactMap { $0 }.joined(separator: ", ")
+        return [first, comfort].compactMap { $0 }.joined(separator: ", ")
     }
 
     // MARK: - Data
