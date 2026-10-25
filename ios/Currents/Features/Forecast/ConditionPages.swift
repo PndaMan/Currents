@@ -517,7 +517,6 @@ struct ConditionPage: View {
     let condition: ForecastCondition
 
     @State private var offset: Int
-    @State private var titleShown = false
     @AppStorage("use24HourTime") private var use24 = true
     @AppStorage("units") private var units = "metric"
     @AppStorage("waterClarityOverride") private var clarityOverride = ""
@@ -576,11 +575,10 @@ struct ConditionPage: View {
             .animation(reduceMotion ? nil : DS.Motion.softSpring, value: offset)
             .pageWidth()
         }
-        .forecastTracksTitle($titleShown)
         // The wash fades out over the title and day strip, so the chart card
         // sits on the plain page; a blue wash hides the grey card in light mode.
         .detailTint(condition.tint, height: 300)
-        .forecastInlineTitle(condition.title, shown: titleShown)
+        .pageTitleFade(condition.title)
         .refreshable {
             let live = await store.load(force: true)
             ForecastStore.refreshFeedback(live)

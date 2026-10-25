@@ -495,7 +495,6 @@ struct WhatToThrowPage: View {
     @State private var ownedGear: [OwnedGear] = []
     @State private var history: [CatchDetail] = []
     @State private var loaded = false
-    @State private var titleShown = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dynamicTypeSize) private var typeSize
     /// Matches the rank column in `LureSuggestionRow`.
@@ -590,9 +589,8 @@ struct WhatToThrowPage: View {
             .padding(.bottom, 40)
             .pageWidth()
         }
-        .forecastTracksTitle($titleShown)
         .detailTint(nil)
-        .forecastInlineTitle("What to throw", shown: titleShown)
+        .pageTitleFade("What to throw")
         .refreshable {
             let live = await store.load(force: true)
             ForecastStore.refreshFeedback(live)

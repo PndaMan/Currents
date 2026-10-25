@@ -42,7 +42,6 @@ struct TargetSpeciesPage: View {
     @State private var loaded = false
     @State private var search = ""
     @State private var habitat: SpeciesHabitatFilter = .all
-    @State private var titleShown = false
 
     private var filtered: [Species] {
         var result = all
@@ -160,8 +159,7 @@ struct TargetSpeciesPage: View {
                 FishLoader(message: "Loading species")
             }
         }
-        .forecastTracksTitle($titleShown)
-        .forecastInlineTitle("Target species", shown: titleShown)
+        .pageTitleFade("Target species")
         .task {
             guard !loaded else { return }
             all = (try? appState.speciesRepository.fetchAll()) ?? []

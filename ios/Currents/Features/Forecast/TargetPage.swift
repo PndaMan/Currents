@@ -115,6 +115,12 @@ struct TargetPage: View {
     @Environment(\.dynamicTypeSize) private var typeSize
     /// Matches the rank column in `LureSuggestionRow`.
     @ScaledMetric(relativeTo: .headline) private var rankWidth: CGFloat = 16
+    /// The header's large title line and over line, which grow with the
+    /// text size. The 112 point thumb, its spacing and the page's top
+    /// padding (136 points) sit above them, so the inline title waits for
+    /// all of it.
+    @ScaledMetric(relativeTo: .largeTitle) private var titleLine: CGFloat = 41
+    @ScaledMetric(relativeTo: .subheadline) private var overLine: CGFloat = 22
     @AppStorage("targetSpeciesId") private var targetSpeciesId: Int = 0
     @AppStorage(RecentTargets.key) private var recentTargets = ""
     @AppStorage("waterClarityOverride") private var clarityOverride = ""
@@ -130,7 +136,6 @@ struct TargetPage: View {
     @State private var mostCaught: [Species] = []
     @State private var loaded = false
     @State private var loggingCatch = false
-    @State private var titleShown = false
 
     private var imperial: Bool { units == "imperial" }
 
@@ -161,9 +166,10 @@ struct TargetPage: View {
             .animation(reduceMotion ? nil : DS.Motion.softSpring, value: store.species?.id)
             .pageWidth()
         }
-        .forecastTracksTitle($titleShown)
         .detailTint(store.species?.artTint ?? DS.accent)
-        .forecastInlineTitle(store.species?.commonName ?? "Target a species", shown: titleShown)
+        // Only a target's header has an over line ("Your target").
+        .pageTitleFade(store.species?.commonName ?? "Target a species",
+                       threshold: 136 + titleLine + (store.species == nil ? 0 : overLine))
         .refreshable {
             let live = await store.load(force: true)
             ForecastStore.refreshFeedback(live)

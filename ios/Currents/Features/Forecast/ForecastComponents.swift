@@ -830,21 +830,3 @@ struct CloudBars: View {
         .accessibilityHidden(true)
     }
 }
-
-// MARK: - Page title
-
-extension View {
-    /// Sets `shown` once a page with its own large title has scrolled past
-    /// it: past the page's `DetailHeader` over line and title, as on
-    /// `TodayPage`. Apply to the page's ScrollView.
-    func forecastTracksTitle(_ shown: Binding<Bool>) -> some View {
-        pageTitleTracking(shown)
-    }
-
-    /// The inline title of a page that shows its own large title: hidden at
-    /// rest and faded in once `shown`, with the hairline under the bar, as
-    /// on `TodayPage`. Apply after `detailTint` or `detailScrollEdge`.
-    func forecastInlineTitle(_ title: String, shown: Bool) -> some View {
-        pageInlineTitle(title, shown: shown)
-    }
-}

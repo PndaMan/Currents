@@ -10,7 +10,6 @@ struct ForecastDayPage: View {
     @State private var selectedHour: Int?
     @State private var showPlanner = false
     @State private var showAlerts = false
-    @State private var titleShown = false
     @AppStorage("use24HourTime") private var use24 = true
     @AppStorage("alertsEnabled") private var alertsEnabled = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -89,10 +88,9 @@ struct ForecastDayPage: View {
                 .padding(.bottom, 40)
                 .pageWidth()
             }
-            .forecastTracksTitle($titleShown)
         }
         .detailTint(DS.scoreColor(day.peakScore))
-        .forecastInlineTitle(title, shown: titleShown)
+        .pageTitleFade(title)
         .refreshable {
             let live = await store.load(force: true)
             ForecastStore.refreshFeedback(live)
@@ -180,7 +178,6 @@ struct ForecastWeekPage: View {
     @ScaledMetric(relativeTo: .largeTitle) private var bestSize: CGFloat = 44
     @ScaledMetric(relativeTo: .title2) private var dateTile: CGFloat = 56
     @Environment(\.dynamicTypeSize) private var typeSize
-    @State private var titleShown = false
 
     var body: some View {
         let days = (0..<7).map { store.day($0) }
@@ -214,9 +211,8 @@ struct ForecastWeekPage: View {
             .padding(.bottom, 40)
             .pageWidth()
         }
-        .forecastTracksTitle($titleShown)
         .detailTint(nil)
-        .forecastInlineTitle("Next 7 days", shown: titleShown)
+        .pageTitleFade("Next 7 days")
         .refreshable {
             let live = await store.load(force: true)
             ForecastStore.refreshFeedback(live)
