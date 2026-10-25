@@ -78,8 +78,11 @@ struct FilePreview: View {
             }
             .overlay {
                 if empty {
+                    // The tile does not grow with text size, so neither does
+                    // the glyph, or it spills past a 72 pt tile at AX5.
                     Image(systemName: systemImage)
                         .font(renderSize > 120 ? .largeTitle : .title3)
+                        .dynamicTypeSize(...DynamicTypeSize.xxLarge)
                         .foregroundStyle(tint.map { DS.ink($0) } ?? Color.dsText2)
                 }
             }
