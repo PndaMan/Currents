@@ -149,22 +149,26 @@ struct AnalyticsView: View {
     /// streak" fits on one line. Both open the streak page, as Logbook's
     /// Streak card does.
     private func streakTiles(_ streak: StreakStats) -> some View {
-        let first = streak.weeks.min()
-        let since = first.map { "Since \($0.formatted(.dateTime.month(.abbreviated).year()))" }
+        let longestNote: String
+        if streak.current > 0 && streak.current == streak.best {
+            longestNote = "Still going"
+        } else if let start = streak.bestStart {
+            longestNote = "From \(LogbookFormat.shortDay(start))"
+        } else {
+            longestNote = "Your best run"
+        }
+        let weeksNote = streak.weeks.min()
+            .map { "Since \($0.formatted(.dateTime.month(.abbreviated).year()))" } ?? "Monday to Sunday"
         return tileRow {
             NavigationLink(value: LogbookRoute.streak) {
                 StatTile("Longest streak", systemImage: "flame.fill", tint: .dsScoreLow,
                          value: "\(streak.best)", unit: streak.best == 1 ? "week" : "weeks",
-                         footnote: streak.current > 0 && streak.current == streak.best
-                            ? "Still going"
-                            : streak.bestStart.map { "From \(LogbookFormat.shortDay($0))" } ?? "Your best run",
-                         width: nil)
+                         footnote: longestNote, width: nil)
             }
             .buttonStyle(.dim)
             NavigationLink(value: LogbookRoute.streak) {
                 StatTile("Weeks fished", systemImage: "calendar", tint: .teal,
-                         value: "\(streak.weeks.count)", footnote: since ?? "Monday to Sunday",
-                         width: nil)
+                         value: "\(streak.weeks.count)", footnote: weeksNote, width: nil)
             }
             .buttonStyle(.dim)
         }
