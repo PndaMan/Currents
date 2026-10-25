@@ -525,20 +525,22 @@ struct AnalyticsView: View {
         }
     }
 
-    /// "9.8 kg, 99.5 cm, 1 caught", rounded as the Heaviest and Longest
-    /// tiles round, so one fish reads the same in both places.
+    /// "Heaviest 9.8 kg, longest 99.5 cm, 1 caught", rounded as the Heaviest
+    /// and Longest tiles round, so one fish reads the same in both places.
+    /// The heaviest and the longest can be two fish, so each is named.
     private func bestSubtitle(_ pb: PersonalBest) -> String {
         var parts: [String] = []
         if let kg = pb.heaviestKg {
             let p = Units.weightParts(kg: kg, imperial: imperial)
-            parts.append("\(p.0) \(p.1)")
+            parts.append("heaviest \(p.0) \(p.1)")
         }
         if let cm = pb.longestCm {
             let p = Units.lengthParts(cm: cm, imperial: imperial)
-            parts.append("\(p.0) \(p.1)")
+            parts.append("longest \(p.0) \(p.1)")
         }
         parts.append("\(pb.totalCatches) caught")
-        return parts.joined(separator: ", ")
+        let line = parts.joined(separator: ", ")
+        return line.prefix(1).uppercased() + String(line.dropFirst())
     }
 
     /// The catch a personal best row opens: the heaviest of the species,
