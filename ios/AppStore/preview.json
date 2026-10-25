@@ -1,0 +1,27 @@
+{
+  "poster": "00:00:11:00",
+  "scenes": [
+    {"type": "title", "lines": ["Know when", "they bite."], "art": "bite", "duration": 2.0},
+    {"type": "clip", "clip": "launch-light", "parts": [{"from": 1.8, "to": 4.8}],
+     "zoom": [{"t": 1.6, "center": [220, 478], "scale": 1}, {"t": 3.0, "center": [220, 360], "scale": 1.1}]},
+
+    {"type": "title", "lines": ["Snap a fish.", "Know the", "species."], "art": "snap", "duration": 2.0},
+    {"type": "clip", "clip": "add-flow-light", "in": "slide",
+     "parts": [{"from": 5.2, "to": 6.8}, {"from": 6.8, "to": 8.4}, {"from": 8.4, "to": 11.4, "speed": 1.3},
+               {"from": 11.4, "to": 17.4, "speed": 4}, {"hold": 1.2, "at": 17.6}],
+     "taps": [{"t": 0.4, "at": [220, 903]}, {"t": 2.1, "at": [115, 640]}],
+     "zoom": [{"t": 4.9, "center": [220, 478], "scale": 1}, {"t": 6.2, "center": [220, 520], "scale": 1.18}]},
+
+    {"type": "title", "lines": ["Plan around", "the bite."], "art": "plan", "duration": 1.8},
+    {"type": "clip", "clip": "forecast-day-light", "in": "slide", "parts": [{"from": 5.5, "to": 8.8}],
+     "zoom": [{"t": 0.3, "center": [220, 478], "scale": 1}, {"t": 2.4, "center": [220, 600], "scale": 1.15}]},
+
+    {"type": "title", "lines": ["Find water", "worth fishing."], "art": "explore", "duration": 1.8},
+    {"type": "clip", "clip": "explore-pin-light", "in": "slide", "parts": [{"from": 8.6, "to": 10.4}, {"from": 10.4, "to": 13.0}],
+     "taps": [{"t": 1.2, "at": [190, 380]}]},
+
+    {"type": "clip", "clip": "streak-moment-light", "parts": [{"from": 2.6, "to": 5.4}]},
+
+    {"type": "title", "lines": ["Fish smarter", "with Currents."], "art": "finale", "duration": 2.2}
+  ]
+}
