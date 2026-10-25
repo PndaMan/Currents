@@ -80,9 +80,7 @@ struct ForecastDayPage: View {
                         ConditionGrid(store: store, day: day, use24: use24)
                     }
 
-                    FactorBreakdown(breakdown: day.result.breakdown, species: store.species,
-                                    note: day.isToday ? "The score for this hour, worked out on your phone."
-                                                      : "The score for midday, worked out on your phone.")
+                    factors(day)
 
                     TargetRow(store: store)
                 }
@@ -105,6 +103,21 @@ struct ForecastDayPage: View {
     /// other days.
     private func shownHour(_ day: ForecastDay) -> Int {
         selectedHour ?? (day.isToday ? Calendar.current.component(.hour, from: .now) : day.bestHour)
+    }
+
+    // MARK: - Factors
+
+    /// The factors behind the hour the card under Bite by hour shows, so the
+    /// breakdown explains that score rather than the day's peak in the hero.
+    private func factors(_ day: ForecastDay) -> some View {
+        let hour = shownHour(day)
+        let isNow = day.isToday && hour == Calendar.current.component(.hour, from: .now)
+        // This moment's reading for the current hour, as the hour card uses.
+        let detail = isNow ? day.result : store.hourDetail(day: day.offset, hour: hour)
+        let score = isNow ? day.result.score : (day.score(at: hour) ?? detail.score)
+        return FactorBreakdown(breakdown: detail.breakdown, species: store.species,
+                               title: "Why \(ForecastFormat.hour(hour, use24: use24)) scores \(score)",
+                               note: "Tap an hour under Bite by hour to see its factors.")
     }
 
     // MARK: - Date strip

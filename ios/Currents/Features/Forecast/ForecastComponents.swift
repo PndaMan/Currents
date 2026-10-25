@@ -242,8 +242,8 @@ struct TintedIconLabelStyle: LabelStyle {
 // MARK: - Hour info (day page)
 
 /// What a tapped hour looks like: score, the hour and its grade, the
-/// weather for that hour and the engine's main reason. The factors are in
-/// "Why this score" further down the page.
+/// weather for that hour and the engine's main reason. The same hour's
+/// factors are further down the page.
 struct HourInfoBox: View {
     let store: ForecastStore
     let day: ForecastDay
@@ -520,6 +520,9 @@ struct HourStrip: View {
 struct FactorBreakdown: View {
     let breakdown: ForecastEngine.ScoreBreakdown
     var species: Species? = nil
+    /// The card's title, naming the hour and score it explains when the page
+    /// shows one.
+    var title: String = "Why this score"
     /// One line under the card, such as when the score is for.
     var note: String? = nil
     @AppStorage("units") private var units = "metric"
@@ -584,7 +587,7 @@ struct FactorBreakdown: View {
     }
 
     var body: some View {
-        CardSection("Why this score", note: note) {
+        CardSection(title, note: note) {
             ForEach(Array(factors.enumerated()), id: \.offset) { _, f in
                 FactorRow(name: f.name, icon: f.icon, tint: f.tint, value: f.value, weight: f.weight,
                           explanation: f.weight > 0 || f.name == "Tide"
