@@ -1156,34 +1156,55 @@ struct SessionBiteChart: View {
     @State private var hours: [HourScore] = []
     @AppStorage("use24HourTime") private var use24 = true
 
+    /// One bar. The chart plots by `index`, the position in the session, so a
+    /// session across midnight runs on from 23 to 0 without the axis turning
+    /// back. `hour` and `day` say which clock hour the bar is.
     struct HourScore: Identifiable {
+        let index: Int
+        let day: Date
         let hour: Int
         let score: Int
-        var id: Int { hour }
+        var id: Int { index }
     }
 
-    private var catchHours: Set<Int> {
-        Set(catches.map { Calendar.current.component(.hour, from: $0.catchRecord.caughtAt) })
+    /// The hourly scores for one calendar day.
+    private struct DayScores {
+        let day: Date
+        let scores: [(hour: Int, score: Int)]
+    }
+
+    /// A clock hour on a particular day, to match a catch to its bar.
+    private struct HourKey: Hashable {
+        let day: Date
+        let hour: Int
+    }
+
+    private var catchHours: Set<HourKey> {
+        let cal = Calendar.current
+        return Set(catches.map { (c: CatchDetail) -> HourKey in
+            let caught: Date = c.catchRecord.caughtAt
+            return HourKey(day: cal.startOfDay(for: caught), hour: cal.component(.hour, from: caught))
+        })
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if hours.count > 1, let peak = hours.max(by: { $0.score < $1.score }) {
+            if !hours.isEmpty, let peak = hours.max(by: { $0.score < $1.score }) {
                 SectionTitle("Bite score during the session")
                     .padding(.top, DS.Space.s8)
                 Chart {
                     ForEach(hours) { h in
-                        // The hour is a number, so there is no band for a width
-                        // ratio to take a share of: each bar is a rectangle
-                        // from its own start to its own end, centred on the
-                        // hour, up from zero.
-                        RectangleMark(xStart: .value("From", Double(h.hour) - 0.38),
-                                      xEnd: .value("To", Double(h.hour) + 0.38),
+                        // The position is a number, so there is no band for a
+                        // width ratio to take a share of: each bar is a
+                        // rectangle from its own start to its own end,
+                        // centred on its position, up from zero.
+                        RectangleMark(xStart: .value("From", Double(h.index) - 0.38),
+                                      xEnd: .value("To", Double(h.index) + 0.38),
                                       yStart: .value("Base", 0),
                                       yEnd: .value("Score", h.score))
                             .foregroundStyle(DS.scoreColor(h.score))
-                        if catchHours.contains(h.hour) {
-                            PointMark(x: .value("Hour", Double(h.hour)), y: .value("Score", h.score + 8))
+                        if catchHours.contains(HourKey(day: h.day, hour: h.hour)) {
+                            PointMark(x: .value("Position", Double(h.index)), y: .value("Score", h.score + 8))
                                 .symbol {
                                     Image(systemName: "fish.fill")
                                         .font(.caption2)
@@ -1197,9 +1218,13 @@ struct SessionBiteChart: View {
                 .chartYAxis(.hidden)
                 .chartXAxis {
                     // Every third hour from the start, so the labels never crowd.
-                    AxisMarks(values: axisHours) { value in
-                        AxisValueLabel {
-                            if let h = value.as(Double.self) { Text(hourLabel(Int(h))) }
+                    // The anchor puts the middle of each label on its bar; a
+                    // numeric axis would start the label there instead.
+                    AxisMarks(values: axisPositions) { value in
+                        AxisValueLabel(anchor: UnitPoint.top) {
+                            if let position = value.as(Double.self), let label = axisLabel(at: position) {
+                                Text(label)
+                            }
                         }
                     }
                 }
@@ -1243,31 +1268,63 @@ struct SessionBiteChart: View {
     private func compute() {
         guard let coord = origin else { hours = []; return }
         let cal = Calendar.current
-        let start = trip.startDate
-        let end = trip.endDate ?? trip.allTrackPoints.last?.t ?? start
-        // Same calendar day only: the hourly forecast covers one day.
-        let startHour = cal.component(.hour, from: start)
-        let endHour = cal.isDate(end, inSameDayAs: start) ? cal.component(.hour, from: end) : 23
-        guard endHour >= startHour else { hours = []; return }
-        let f = ForecastEngine.forecast(date: start, coordinate: coord,
-                                        currentPressureHpa: nil, pressureChange6h: nil,
-                                        waterTempC: nil, windSpeedKmh: nil, windDirection: nil,
-                                        species: nil, isInSpawningZone: false)
-        hours = f.hourlyScores
-            .filter { $0.hour >= startHour && $0.hour <= endHour }
-            .map { HourScore(hour: $0.hour, score: $0.score) }
+        let start: Date = trip.startDate
+        let rawEnd: Date = trip.endDate ?? trip.allTrackPoints.last?.t ?? start
+        let end: Date = max(rawEnd, start)
+        let startDay: Date = cal.startOfDay(for: start)
+        let startHour: Int = cal.component(.hour, from: start)
+        let endHour: Int = cal.component(.hour, from: end)
+        let dayGap: Int = cal.dateComponents([.day], from: startDay, to: cal.startOfDay(for: end)).day ?? 0
+        // Hours since the start of the start day: 0 to 23 on that day, 24 to
+        // 47 on the next. A session shows at most 24 hours of bars, which
+        // never reaches past the next day.
+        let firstOffset: Int = startHour
+        let lastOffset: Int = min(dayGap * 24 + endHour, startHour + 23)
+        guard lastOffset >= firstOffset else { hours = []; return }
+
+        var days: [DayScores] = [DayScores(day: startDay, scores: dayScores(start, at: coord))]
+        if lastOffset >= 24, let next = cal.date(byAdding: .day, value: 1, to: start) {
+            days.append(DayScores(day: cal.startOfDay(for: next), scores: dayScores(next, at: coord)))
+        }
+
+        var bars: [HourScore] = []
+        for offset in firstOffset...lastOffset {
+            let dayIndex: Int = offset / 24
+            let hour: Int = offset % 24
+            guard dayIndex < days.count,
+                  let entry = days[dayIndex].scores.first(where: { $0.hour == hour }) else { continue }
+            bars.append(HourScore(index: bars.count, day: days[dayIndex].day,
+                                  hour: entry.hour, score: entry.score))
+        }
+        hours = bars
     }
 
-    private var axisHours: [Double] {
-        guard let first = hours.first?.hour else { return [] }
-        return hours.map(\.hour).filter { ($0 - first) % 3 == 0 }.map(Double.init)
+    /// The forecast's score for each hour of the day that `date` falls on.
+    private func dayScores(_ date: Date, at coord: CLLocationCoordinate2D) -> [(hour: Int, score: Int)] {
+        let f: ForecastEngine.ForecastResult = ForecastEngine.forecast(
+            date: date, coordinate: coord,
+            currentPressureHpa: nil, pressureChange6h: nil,
+            waterTempC: nil, windSpeedKmh: nil, windDirection: nil,
+            species: nil, isInSpawningZone: false)
+        return f.hourlyScores
     }
 
-    /// Half an hour either side of the first and last bar.
+    /// Every third bar from the start gets a label.
+    private var axisPositions: [Double] {
+        hours.map(\.index).filter { $0 % 3 == 0 }.map { Double($0) }
+    }
+
+    /// The clock-hour label for the bar at a chart position.
+    private func axisLabel(at position: Double) -> String? {
+        let index = Int(position.rounded())
+        guard let bar = hours.first(where: { $0.index == index }) else { return nil }
+        return hourLabel(bar.hour)
+    }
+
+    /// Half a step either side of the first and last bar.
     private var xDomain: ClosedRange<Double> {
-        let first = Double(hours.first?.hour ?? 0)
-        let last = Double(hours.last?.hour ?? 23)
-        return (first - 0.5)...(last + 0.5)
+        let count = max(hours.count, 1)
+        return -0.5...(Double(count) - 0.5)
     }
 
     private func hourLabel(_ hour: Int) -> String {
