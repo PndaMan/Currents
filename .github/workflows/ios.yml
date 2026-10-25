@@ -78,7 +78,6 @@ jobs:
           xcodegen generate
           echo "--- Verifying resources in project ---"
           grep -c "species_seed" Currents.xcodeproj/project.pbxproj || echo "WARNING: species_seed not found in project!"
-          grep -c "gear_catalog_seed" Currents.xcodeproj/project.pbxproj || echo "WARNING: gear_catalog_seed not found in project!"
 
       # No Package.resolved is committed (XcodeGen regenerates the project each
       # run), so nothing pins versions, and the cache action's default SwiftPM key
