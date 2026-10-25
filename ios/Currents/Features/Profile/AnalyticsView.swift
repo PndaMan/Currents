@@ -17,6 +17,8 @@ struct AnalyticsView: View {
     @State private var totalCatches = 0
     @State private var speciesCounts: [(speciesId: Int64, commonName: String, count: Int)] = []
     @State private var allCatches: [CatchDetail] = []
+    /// The weekly streak over the whole log, not just the catches above.
+    @State private var streak: StreakStats?
     @State private var loaded = false
     /// The log could not be read; the page offers a retry rather than "no stats".
     @State private var loadFailed = false
@@ -135,9 +137,37 @@ struct AnalyticsView: View {
                     }
                 }
             }
+            if let streak, streak.best > 0 {
+                streakTiles(streak)
+            }
         }
         .padding(.horizontal, DS.gutter)
         .padding(.top, DS.Space.s5)
+    }
+
+    /// The longest streak and the weeks fished, two across, so "Longest
+    /// streak" fits on one line. Both open the streak page, as Logbook's
+    /// Streak card does.
+    private func streakTiles(_ streak: StreakStats) -> some View {
+        let first = streak.weeks.min()
+        let since = first.map { "Since \($0.formatted(.dateTime.month(.abbreviated).year()))" }
+        return tileRow {
+            NavigationLink(value: LogbookRoute.streak) {
+                StatTile("Longest streak", systemImage: "flame.fill", tint: .dsScoreLow,
+                         value: "\(streak.best)", unit: streak.best == 1 ? "week" : "weeks",
+                         footnote: streak.current > 0 && streak.current == streak.best
+                            ? "Still going"
+                            : streak.bestStart.map { "From \(LogbookFormat.shortDay($0))" } ?? "Your best run",
+                         width: nil)
+            }
+            .buttonStyle(.dim)
+            NavigationLink(value: LogbookRoute.streak) {
+                StatTile("Weeks fished", systemImage: "calendar", tint: .teal,
+                         value: "\(streak.weeks.count)", footnote: since ?? "Monday to Sunday",
+                         width: nil)
+            }
+            .buttonStyle(.dim)
+        }
     }
 
     /// A species name short enough for a third-width footnote: "Leervis"
@@ -579,6 +609,13 @@ struct AnalyticsView: View {
             avgForecast = try repo.averageForecastScore()
             speciesCounts = try repo.speciesCounts()
             allCatches = try repo.fetchAll(limit: 1000)
+            // The streak needs every week fished, so a log longer than the
+            // catches above is read in full, off the main thread.
+            var log = allCatches
+            if totalCatches > allCatches.count {
+                log = try await repo.fetchAllInBackground(limit: totalCatches)
+            }
+            streak = StreakStats(catches: log)
             // Counted on the phone's clock. SQLite's strftime reads the stored
             // UTC times, which put every hour bar two hours early in Cape Town
             // and could file a catch after midnight under the month before.
