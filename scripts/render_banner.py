@@ -14,8 +14,9 @@ jump.
     uv run scripts/render_banner.py --sheet /path/to/sheet.png
 
 Writes ios/build/appstore-media/creative/header.mp4 (3840x1646, H.264, no
-sound, as the Header video slot takes) and header-poster.png beside it, the
-first frame, which is also the still shown before the video plays. --sheet
+sound, as the Header video slot takes) and header.png beside it, the first
+frame, which is also the still shown before the video plays and the Header
+art to use in its place. --sheet
 writes four frames across the loop instead, to check the layout quickly.
 """
 
@@ -97,7 +98,7 @@ def main() -> None:
     if not shutil.which("ffmpeg"):
         sys.exit("ffmpeg is needed to write the video")
     args.out.parent.mkdir(parents=True, exist_ok=True)
-    poster = args.out.with_name(args.out.stem + "-poster.png")
+    poster = args.out.with_suffix(".png")
     frame(0).save(poster, optimize=True)
 
     encode = subprocess.Popen(

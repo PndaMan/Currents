@@ -17,8 +17,9 @@ straddle the join the way it does across the first two in the store.
 
 Writes <out>/6.9/NN_name.png (1320x2868) and <out>/6.3/NN_name.png
 (1206x2622), RGB with no alpha, as App Store Connect requires. The
-"creative" entries are the product page Header, Search Results and
-Universal art, drawn the same way at their own sizes into
+"creative" entries are the product page Search Results and Universal
+art (the Header is scripts/render_banner.py), drawn the same way at their
+own sizes into
 <out>/creative/<name>.png; keep what matters inside each one's "safe" box,
 which is all some devices show. The "events" entries are each in-app
 event's card (16:9) and details page (9:16), written to
@@ -337,6 +338,10 @@ def draw_slide(spec: dict, theme: dict, shots: Path) -> Image.Image:
                 x += max(text_width(big, fb, -0.02), text_width(small, fs, -0.005)) + layer.get("gap", 120)
         elif kind == "phone":
             shot = Image.open(shots / f"{layer['screen']}.png")
+            # Boxes painted out with the colour just left of each, such as
+            # the species picker's chevron.
+            for box in layer.get("erase", []):
+                ImageDraw.Draw(shot).rectangle(box, fill=shot.getpixel((box[0] - 6, box[1])))
             dev = phone(shot, layer.get("finish", finish))
             scale = layer["scale"]
             dev = dev.resize((round(dev.width * scale), round(dev.height * scale)), Image.LANCZOS)

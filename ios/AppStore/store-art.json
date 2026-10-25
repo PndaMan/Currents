@@ -2,40 +2,26 @@
   "theme": {"field": "#4CC8FF", "pale": "#DDF4FF", "navy": "#08243F", "sun": "#FFD84D", "ink": "#06121F", "white": "#FFFFFF", "sticker": "#FFD84D", "device": "light"},
   "creative": [
     {
-      "name": "header",
-      "size": [3840, 1646],
-      "safe": [1097, 493, 1646, 661],
-      "photo": "river-dawn.jpg",
-      "focus": [0.4, 0.55],
-      "blur": 6,
-      "layers": [
-        {"type": "phone", "screen": "explore", "center": [1560, 1210], "scale": 0.5, "angle": -5},
-        {"type": "phone", "screen": "today", "center": [2290, 1180], "scale": 0.5, "angle": 4}
-      ]
-    },
-    {
       "name": "search",
       "size": [3840, 2560],
       "safe": [836, 765, 2168, 1030],
-      "photo": "coast-01.jpg",
-      "focus": [0.5, 0.5],
-      "blur": 10,
+      "scene": "wide",
       "layers": [
-        {"type": "phone", "screen": "explore", "center": [1270, 1290], "scale": 0.35, "angle": -5},
-        {"type": "phone", "screen": "log-catch-id", "center": [2570, 1290], "scale": 0.35, "angle": 5},
-        {"type": "phone", "screen": "today", "center": [1920, 1280], "scale": 0.39, "angle": 0}
+        {"type": "phone", "screen": "explore", "center": [1300, 1300], "scale": 0.32, "angle": -6},
+        {"type": "phone", "screen": "log-catch-id-trout", "center": [2540, 1300], "scale": 0.32, "angle": 6,
+         "erase": [[645, 1515, 729, 1578]]},
+        {"type": "phone", "screen": "today", "center": [1920, 1270], "scale": 0.36, "angle": 0}
       ]
     },
     {
       "name": "universal",
       "size": [5244, 2950],
       "safe": [1921, 660, 1402, 962],
-      "photo": "river-dawn.jpg",
-      "focus": [0.45, 0.5],
-      "blur": 8,
+      "scene": "wide",
       "layers": [
-        {"type": "phone", "screen": "log-catch-id", "center": [2870, 1160], "scale": 0.33, "angle": 5},
-        {"type": "phone", "screen": "today", "center": [2390, 1140], "scale": 0.34, "angle": -4}
+        {"type": "phone", "screen": "log-catch-id-trout", "center": [2870, 1160], "scale": 0.31, "angle": 5,
+         "erase": [[645, 1515, 729, 1578]]},
+        {"type": "phone", "screen": "today", "center": [2390, 1140], "scale": 0.32, "angle": -4}
       ]
     }
   ],
@@ -253,6 +239,31 @@
           "ripples": {"count": 8, "depth": 0.3, "length": 150, "thick": 6, "light": 0.28}
         },
         {"kind": "boat", "y": 0.5, "size": 100, "at": 0.18, "sunk": 8, "period": 2640, "speed": 1, "shade": 0.6},
+        {"kind": "pines", "y": 0.985, "amp": 0.01, "height": 0.26, "period": 2640, "speed": 1, "density": 0.25, "group": 3, "shade": 0.55, "seed": 12},
+        {"kind": "reeds", "y": 1.01, "height": 0.13, "period": 1980, "speed": 1, "density": 0.6, "cattails": 0.1, "shade": 0.74, "seed": 13}
+      ]
+    },
+    "wide": {
+      "sky": "field",
+      "base": "field",
+      "deep": "navy",
+      "seed": 7,
+      "sky_top": "#B4E8FF",
+      "sky_to": 0.34,
+      "layers": [
+        {"kind": "hills", "y": 0.3, "amp": 0.022, "period": 1320, "speed": 1, "shade": 0.1, "seed": 8},
+        {"kind": "pines", "y": 0.36, "amp": 0.01, "height": 0.07, "period": 1980, "speed": 1, "density": 1.5, "shade": 0.22, "seed": 9},
+        {
+          "kind": "water",
+          "y": 0.39,
+          "amp": 0.002,
+          "period": 1320,
+          "speed": 1,
+          "shade": 0.34,
+          "seed": 10,
+          "ripples": {"count": 8, "depth": 0.3, "length": 150, "thick": 6, "light": 0.28}
+        },
+        {"kind": "boat", "y": 0.5, "size": 100, "at": 0.12, "sunk": 8, "period": 5400, "speed": 1, "shade": 0.6},
         {"kind": "pines", "y": 0.985, "amp": 0.01, "height": 0.26, "period": 2640, "speed": 1, "density": 0.25, "group": 3, "shade": 0.55, "seed": 12},
         {"kind": "reeds", "y": 1.01, "height": 0.13, "period": 1980, "speed": 1, "density": 0.6, "cattails": 0.1, "shade": 0.74, "seed": 13}
       ]
