@@ -62,6 +62,9 @@ SCREENSHOTS_SCRIPT = ROOT / "scripts" / "appstore_screenshots.sh"
 
 BADGES = {"LIVE_EVENT", "PREMIERE", "CHALLENGE", "COMPETITION", "NEW_SEASON", "MAJOR_UPDATE", "SPECIAL_EVENT"}
 EDITABLE_AFTER_DRAFT = {"territorySchedules", "priority"}
+# Event states whose card and details images can change (READY_FOR_REVIEW by
+# leaving the draft review submission while they do).
+EVENT_IMAGE_STATES = {"DRAFT", "READY_FOR_REVIEW", "REJECTED"}
 
 PURPOSES = {
     "appropriate for all users": "APPROPRIATE_FOR_ALL_USERS",
@@ -576,12 +579,59 @@ def cmd_events(api: Client, args) -> int:
                         f"{k} {show_value(k, current['attributes'].get(k))} -> {show_value(k, v)}" for k, v in changes.items()),
                 )
 
-        for locale in locales:
-            sync_event_locale(api, event_id, spec, locale, args.images_only)
+        state = current["attributes"].get("eventState") if current else "DRAFT"
+        held = None
+        if state == "READY_FOR_REVIEW" and app and not event_images_are_current(api, event_id, spec, locales):
+            # Apple locks an event's images while it waits in a draft review
+            # submission, so it comes out for the new images and goes back.
+            held = draft_review_item(api, app["id"], "appEvent", event_id)
+            if held:
+                api.write("DELETE", f"/v1/reviewSubmissionItems/{held[1]}", None,
+                          "take the event out of the draft review submission to change its images")
+        elif state not in EVENT_IMAGE_STATES:
+            print(f"  images are locked while the event is {state}; skipped\n")
+            continue
+        try:
+            for locale in locales:
+                sync_event_locale(api, event_id, spec, locale, args.images_only)
+        finally:
+            if held:
+                api.write("POST", "/v1/reviewSubmissionItems",
+                          {"data": {"type": "reviewSubmissionItems", "relationships": {
+                              "reviewSubmission": {"data": {"type": "reviewSubmissions", "id": held[0]}},
+                              "appEvent": {"data": {"type": "appEvents", "id": event_id}}}}},
+                          "add the event back for review")
         print()
 
     finish(api, "events")
     return 0
+
+
+def event_image_is_current(shots: list[dict], asset_type: str, path: Path) -> bool:
+    have = [s for s in shots if s["attributes"].get("appEventAssetType") == asset_type]
+    return len(have) == 1 and have[0]["attributes"].get("fileName") == path.name \
+        and have[0]["attributes"].get("fileSize") == path.stat().st_size \
+        and (have[0]["attributes"].get("assetDeliveryState") or {}).get("state") == "COMPLETE"
+
+
+def event_images_are_current(api: Client, event_id: str, spec: "EventSpec", locales: list[str]) -> bool:
+    for loc in api.get_all(f"/v1/appEvents/{event_id}/localizations"):
+        if loc["attributes"]["locale"] not in locales:
+            continue
+        shots = api.get_all(f"/v1/appEventLocalizations/{loc['id']}/appEventScreenshots")
+        if not all(path is None or event_image_is_current(shots, t, path) for t, path in spec.media.items()):
+            return False
+    return True
+
+
+def draft_review_item(api: Client, app_id: str, relation: str, resource_id: str) -> tuple[str, str] | None:
+    """The draft review submission (added for review, not yet submitted)
+    holding a resource, and the item that holds it."""
+    for sub in api.get_all("/v1/reviewSubmissions", **{"filter[app]": app_id, "filter[state]": "READY_FOR_REVIEW"}):
+        for item in api.get_all(f"/v1/reviewSubmissions/{sub['id']}/items", include=relation):
+            if (((item.get("relationships") or {}).get(relation) or {}).get("data") or {}).get("id") == resource_id:
+                return sub["id"], item["id"]
+    return None
 
 
 def sync_event_locale(api: Client, event_id: str, spec: "EventSpec", locale: str, images_only: bool = False) -> None:
@@ -617,14 +667,9 @@ def sync_event_locale(api: Client, event_id: str, spec: "EventSpec", locale: str
         shots = api.get_all(f"/v1/appEventLocalizations/{loc_id}/appEventScreenshots")
     jobs = []
     for asset_type, path in spec.media.items():
-        if path is None:
+        if path is None or event_image_is_current(shots, asset_type, path):
             continue
         have = [s for s in shots if s["attributes"].get("appEventAssetType") == asset_type]
-        same = [s for s in have if s["attributes"].get("fileName") == path.name
-                and s["attributes"].get("fileSize") == path.stat().st_size
-                and (s["attributes"].get("assetDeliveryState") or {}).get("state") == "COMPLETE"]
-        if same and len(have) == 1:
-            continue
         for old in have:
             api.write("DELETE", f"/v1/appEventScreenshots/{old['id']}", None,
                       f"remove the old {asset_type} {old['attributes'].get('fileName')}")
@@ -1112,6 +1157,19 @@ def sync_gc_items(api: Client, kind: GCKind, items: list[GCItem], detail_id: str
                     f"update the {kind.label}: " + "; ".join(
                         f"{k} {json.dumps(attrs.get(k))} -> {json.dumps(v)}" for k, v in changes.items()),
                 )
+            if spec.leaderboard:
+                # A challenge can't go to review without its leaderboard, and
+                # App Store Connect has been seen to drop the link it was
+                # created with. The link can only be read by including it.
+                board = (leaderboard_ids or {}).get(spec.leaderboard)
+                if not board:
+                    raise ASCError(f"{spec.folder.name}: no leaderboard {spec.leaderboard} in game-center/leaderboards")
+                linked = api.get(f"{kind.create}/{item_id}", include="leaderboardV2")["data"]
+                linked = ((linked.get("relationships") or {}).get("leaderboardV2") or {}).get("data") or {}
+                if linked.get("id") != board:
+                    api.write("PATCH", f"{kind.create}/{item_id}/relationships/leaderboardV2",
+                              {"data": {"type": "gameCenterLeaderboards", "id": board}},
+                              f"link the {kind.label} to the {spec.leaderboard} leaderboard")
             version = state.version
             vstate = (version or {}).get("attributes", {}).get("state")
             if version is None or vstate in LIVE_GC_STATES:

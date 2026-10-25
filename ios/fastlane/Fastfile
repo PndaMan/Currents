@@ -70,10 +70,14 @@ platform :ios do
     )
   end
 
-  desc "Replace the screenshots for en-US, en-GB and es-MX with the framed set and watch.png from the app-store-screenshots branch"
+  # Synced, not replaced: deliver compares each screenshot by locale, filename
+  # and checksum, uploads only what differs, deletes what is no longer there
+  # and sorts each set, so a second run with the same files changes nothing.
+  desc "Sync the screenshots for en-US, en-GB and es-MX with the framed set and watch.png from the app-store-screenshots branch"
   lane :screenshots do
     script = File.join(REPO_DIR, "scripts", "appstore_screenshots.sh")
     screenshots_path = sh(script, log: false).lines.last.strip
+    ENV["FASTLANE_ENABLE_BETA_DELIVER_SYNC_SCREENSHOTS"] = "1"
     deliver(
       api_key: asc_api_key,
       app_identifier: APP_IDENTIFIER,
@@ -82,7 +86,7 @@ platform :ios do
       screenshots_path: screenshots_path,
       skip_binary_upload: true,
       skip_metadata: true,
-      overwrite_screenshots: true,
+      sync_screenshots: true,
       force: true,
       submit_for_review: false,
       automatic_release: false,
