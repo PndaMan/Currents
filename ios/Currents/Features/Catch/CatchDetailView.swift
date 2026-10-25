@@ -536,7 +536,7 @@ struct CatchDetailView: View {
         }
         if let line = g.lineLb {
             rows.append(GearLine(title: "Line",
-                                 subtitle: g.leaderLb.map { "\(PresetSheet.number($0)) lb leader" },
+                                 subtitle: g.leaderLb.map { Self.leaderPhrase(lb: $0) },
                                  systemImage: OwnedGear.Category.line.icon, tint: OwnedGear.Category.line.tint,
                                  value: "\(PresetSheet.number(line)) lb", category: .line))
         } else if let leader = g.leaderLb {
@@ -549,6 +549,15 @@ struct CatchDetailView: View {
                                  systemImage: "hand.draw.fill", tint: .teal))
         }
         return rows
+    }
+
+    /// "With an 8 lb leader" under the line: the leader is a second strength,
+    /// so the row does not read as two strengths for one line.
+    private static func leaderPhrase(lb: Double) -> String {
+        let whole = Int(lb.rounded(.down))
+        // Spoken as "an eight", "an eleven", "an eighteen", "an eighty".
+        let article = whole == 8 || whole == 11 || whole == 18 || (80...89).contains(whole) ? "an" : "a"
+        return "With \(article) \(PresetSheet.number(lb)) lb leader"
     }
 
     // MARK: - Conditions
