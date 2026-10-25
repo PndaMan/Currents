@@ -144,13 +144,14 @@ The listing is pushed with an App Store Connect API key (Users and Access → In
 1. `make appstore-setup` once, to install fastlane into `ios/vendor/bundle`.
 2. `make appstore-status` to see that the build is processed and in TestFlight.
 3. `make appstore-metadata` uploads name, subtitle, keywords, description, promotional text, release notes and URLs for en-US, en-GB and es-MX to the version in `project.yml` (runs `appstore-check` first).
-4. `make appstore-screenshots` replaces the screenshots in all three localisations with the `framed/` set and `watch.png` from the screenshots branch.
-5. `make appstore-events START=<launch date>` shows what would change; `make appstore-events START=<launch date> APPLY=1` writes it.
-6. `make appstore-pages`, then `make appstore-pages APPLY=1`. It prints each page id.
-7. `make appstore-gamecenter`, then `make appstore-gamecenter APPLY=1`. It turns on the Game Center capability for the App ID and Game Center for the app and the version being prepared, and creates the achievements, leaderboards and challenges with their images in all three localisations.
-8. In App Store Connect, submit the version, the events, the custom product pages and the Game Center items for review.
+4. `make appstore-screenshots` replaces the screenshots in all three localisations with the `framed/` set and `watch.png` from the screenshots branch. `STORE_ART_DIR=<folder>` uploads a local set of 1320x2868 PNGs in place of `framed/`, such as the `6.9` folder `scripts/store_art.py` writes; `watch.png` still comes from the branch.
+5. `make appstore-media`, then `make appstore-media APPLY=1`. It places `preview.mp4`, `creative/header.png` and `creative/search.png` from `ios/build/appstore-media` on every localisation of the version being prepared, through the asset library. Each file is checked against Apple's specs first, and a file already in the library is not uploaded again.
+6. `make appstore-events START=<launch date>` shows what would change; `make appstore-events START=<launch date> APPLY=1` writes it.
+7. `make appstore-pages`, then `make appstore-pages APPLY=1`. It prints each page id.
+8. `make appstore-gamecenter`, then `make appstore-gamecenter APPLY=1`. It turns on the Game Center capability for the App ID and Game Center for the app and the version being prepared, and creates the achievements, leaderboards and challenges with their images in all three localisations.
+9. In App Store Connect, submit the version, the events, the custom product pages and the Game Center items for review.
 
 Still by hand:
 
-- Paste the crew-invite page id printed in step 6 into `customPageId` in `docs/open.html` once the page is approved.
+- Paste the crew-invite page id printed in step 7 into `customPageId` in `docs/open.html` once the page is approved.
 - After the version is live, start the icon test under Product Page Optimization.

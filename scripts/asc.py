@@ -10,8 +10,10 @@
   gamecenter
            turn on Game Center and create or update the achievements,
            leaderboards and challenges in ios/AppStore/game-center
+  media    place the app preview and the product page header and search
+           results art (ios/build/appstore-media) on the version being prepared
 
-events, pages and gamecenter are dry runs unless --apply is given: they read App Store
+events, pages, gamecenter and media are dry runs unless --apply is given: they read App Store
 Connect, print every change they would make, and send no writes. Nothing here
 submits anything for review.
 
@@ -32,6 +34,10 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 import json
 import os
+import re
+import shutil
+import struct
+import subprocess
 import sys
 import time
 from dataclasses import dataclass, field
@@ -1278,6 +1284,219 @@ def cmd_gamecenter(api: Client, args) -> int:
     return 0
 
 
+# ---------------------------------------------------------------- preview and creative art
+
+MEDIA_DIR = ROOT / "ios" / "build" / "appstore-media"
+PREVIEW_CONFIG = APPSTORE_DIR / "preview.json"
+# Asset states from which an asset can be placed (processed, or further along in review).
+PLACEABLE = {"PREPARE_FOR_SUBMISSION", "READY_FOR_REVIEW", "WAITING_FOR_REVIEW", "IN_REVIEW", "ACCEPTED", "APPROVED"}
+
+
+@dataclass
+class MediaJob:
+    """One file placed in one placement group on every localisation of the version."""
+    label: str
+    placement_type: str
+    group: str
+    category: str
+    file: Path
+    video: bool
+
+
+def media_jobs(args) -> list[MediaJob]:
+    return [
+        MediaJob("app preview", "APP_PREVIEW", "IPHONE_DYNAMIC_ISLAND_LARGE_PROFILE", "APP_SCREENSHOTS_AND_PREVIEWS",
+                 args.preview, True),
+        MediaJob("header", "PRODUCT_PAGE_HEADER_ASSET", "DEFAULT_PROFILE", "CREATIVE_ASSETS", args.header, False),
+        MediaJob("search results", "APP_STORE_SEARCH_RESULTS_ASSET", "DEFAULT_PROFILE", "CREATIVE_ASSETS", args.search, False),
+    ]
+
+
+def png_info(path: Path) -> dict:
+    with path.open("rb") as fh:
+        head = fh.read(26)
+    if head[:8] != b"\x89PNG\r\n\x1a\n":
+        raise ASCError(f"{path.name} is not a PNG")
+    width, height = struct.unpack(">II", head[16:24])
+    return {"width": width, "height": height, "alpha": head[25] in (4, 6)}
+
+
+def video_info(path: Path) -> dict | None:
+    """Size, frame rate, duration and audio from ffprobe, or None without it."""
+    if not shutil.which("ffprobe"):
+        return None
+    out = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "stream=codec_type,width,height,avg_frame_rate:format=duration",
+                          "-of", "json", str(path)], capture_output=True, text=True, check=True)
+    probe = json.loads(out.stdout)
+    picture = next(s for s in probe["streams"] if s["codec_type"] == "video")
+    num, den = (int(n) for n in picture["avg_frame_rate"].split("/"))
+    return {"width": picture["width"], "height": picture["height"], "fps": num / den,
+            "duration": float(probe["format"]["duration"]),
+            "audio": any(s["codec_type"] == "audio" for s in probe["streams"])}
+
+
+def iso_seconds(value: str) -> float:
+    match = re.fullmatch(r"PT(?:(\d+)M)?(?:([\d.]+)S)?", value)
+    if not match:
+        raise ASCError(f"unexpected duration {value!r} in the reference data")
+    return int(match.group(1) or 0) * 60 + float(match.group(2) or 0)
+
+
+def check_media(ref: dict, job: MediaJob) -> str:
+    """Matches the file against the specs Apple lists for the job's placement
+    group, so a wrong size fails here and not after a long upload. Returns
+    the spec's short name."""
+    types = {t["placementTypeId"]: t for t in ref["placementTypes"]}
+    if job.placement_type not in types:
+        raise ASCError(f"App Store Connect has no {job.placement_type} placements")
+    mapping = next((m for m in types[job.placement_type].get("specMappings") or [] if m["placementGroupId"] == job.group), None)
+    if mapping is None:
+        raise ASCError(f"{job.group} is not a placement group for {job.placement_type}")
+    specs = {s["specId"]: s for s in ref["videoSpecs" if job.video else "imageSpecs"]}
+    info = video_info(job.file) if job.video else png_info(job.file)
+    if info is None:
+        print(f"  ffprobe not found, so {job.file.name} is not checked before upload")
+        return "unchecked"
+    problems = []
+    for spec_id in mapping["specs"]:
+        spec = specs.get(spec_id)
+        if spec is None:
+            continue
+        dims = spec["dimensions"]
+        why = []
+        if not (dims["minWidth"] <= info["width"] <= dims["maxWidth"] and dims["minHeight"] <= info["height"] <= dims["maxHeight"]):
+            why.append(f"{info['width']}x{info['height']}")
+        if job.file.suffix.lower() not in spec["fileExtensions"]:
+            why.append(job.file.suffix)
+        if job.file.stat().st_size > spec["maxFileSize"]:
+            why.append(f"{job.file.stat().st_size} bytes")
+        if not job.video and info["alpha"] and not spec.get("alphaAllowed"):
+            why.append("alpha channel")
+        if job.video:
+            if not any(r["minFps"] - 0.01 <= info["fps"] <= r["maxFps"] + 0.01 for r in spec.get("frameRates") or []):
+                why.append(f"{info['fps']:.2f} fps")
+            span = spec.get("duration")
+            if span and not iso_seconds(span["min"]) <= info["duration"] <= iso_seconds(span["max"]):
+                why.append(f"{info['duration']:.1f} s")
+            if spec.get("audioRequired") and not info["audio"]:
+                why.append("no audio track")
+        if not why:
+            return spec["shortName"]
+        problems.append(f"{spec['shortName']}: {', '.join(why)}")
+    raise ASCError(f"{job.file.name} matches no {job.label} spec\n  " + "\n  ".join(problems))
+
+
+def wait_for_library(api: Client, path: str, name: str, timeout: float) -> None:
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        attrs = api.get(path)["data"]["attributes"]
+        if attrs.get("state") in PLACEABLE:
+            return
+        if attrs.get("state") == "FAILED":
+            raise ASCError(f"Apple rejected {name}: {json.dumps(attrs.get('stateDetails'))}")
+        time.sleep(5)
+    print(f"  {name} is still processing; its placements show as processing until it finishes")
+
+
+def library_asset(api: Client, library_id: str, job: MediaJob, poster: str | None) -> str:
+    """The asset for the job's file: one already in the library with the same
+    content, or a new upload. The reference name carries a hash of the file,
+    so running this again uploads nothing."""
+    kind = "Videos" if job.video else "Images"
+    path = f"/v1/appAssetLibrary{kind}"
+    digest = hashlib.sha256(job.file.read_bytes()).hexdigest()[:12]
+    name = f"{job.file.stem} {digest}"
+    found = [a for a in api.get_all(f"/v1/appAssetLibraries/{library_id}/{kind.lower()}")
+             if a["attributes"].get("referenceName") == name and a["attributes"].get("state") in PLACEABLE | {"UPLOAD_COMPLETE"}]
+    if found:
+        asset = found[0]
+        print(f"  {name} is already in the asset library")
+        if poster and asset["attributes"].get("previewFrameTimeCode") != poster:
+            api.write("PATCH", f"{path}/{asset['id']}",
+                      {"data": {"type": f"appAssetLibrary{kind}", "id": asset["id"], "attributes": {"previewFrameTimeCode": poster}}},
+                      f"set the poster frame of {name} to {poster}")
+        if api.apply:
+            wait_for_library(api, f"{path}/{asset['id']}", name, 900 if job.video else 120)
+        return asset["id"]
+    attrs: dict[str, Any] = {"fileName": job.file.name, "fileSize": job.file.stat().st_size,
+                             "category": job.category, "referenceName": name}
+    if poster:
+        attrs["previewFrameTimeCode"] = poster
+    body = {"data": {"type": f"appAssetLibrary{kind}", "attributes": attrs,
+                     "relationships": {"assetLibrary": {"data": {"type": "appAssetLibraries", "id": library_id}}}}}
+    asset_id = upload_asset(api, path, body, job.file, f"appAssetLibrary{kind}", checksum=False)
+    if api.apply:
+        wait_for_library(api, f"{path}/{asset_id}", name, 900 if job.video else 120)
+    return asset_id
+
+
+def place_asset(api: Client, loc: dict, job: MediaJob, asset_id: str) -> None:
+    """Makes the asset the only one in the job's placement group on this
+    localisation. Placements cannot be edited, so an older one is removed
+    first; the asset it showed stays in the library."""
+    locale = loc["attributes"]["locale"]
+    relation = "video" if job.video else "image"
+    current = api.get(f"/v1/appStoreVersionLocalizations/{loc['id']}/placements",
+                      **{"filter[placementType]": job.placement_type, "filter[placementGroup]": job.group,
+                         "include": "image,video", "limit": 50})
+    names = {i["id"]: i["attributes"].get("referenceName") or i["attributes"].get("fileName") for i in current.get("included", [])}
+    placed = [(p, (p["relationships"].get(relation) or {}).get("data") or {}) for p in current.get("data", [])]
+    if any(linked.get("id") == asset_id for _, linked in placed) and len(placed) == 1:
+        print(f"  {locale}: {job.label} is current")
+        return
+    for placement, linked in placed:
+        shown = names.get(linked.get("id"), "an asset")
+        api.write("DELETE", f"/v1/appAssetLibraryPlacements/{placement['id']}", None,
+                  f"remove the {job.label} showing {shown} from {locale}")
+    api.write("POST", "/v1/appAssetLibraryPlacements",
+              {"data": {"type": "appAssetLibraryPlacements",
+                        "attributes": {"placementType": job.placement_type, "placementGroup": job.group},
+                        "relationships": {
+                            relation: {"data": {"type": f"appAssetLibrary{'Videos' if job.video else 'Images'}", "id": asset_id}},
+                            "appStoreVersionLocalization": {"data": {"type": "appStoreVersionLocalizations", "id": loc["id"]}}}}},
+              f"place {job.file.name} as the {job.label} on {locale}")
+
+
+def cmd_media(api: Client, args) -> int:
+    jobs = [j for j in media_jobs(args) if j.file.is_file()]
+    for job in media_jobs(args):
+        if not job.file.is_file():
+            print(f"No {job.label} at {job.file}; skipping it")
+    if not jobs:
+        print("Nothing to place. Render the art with scripts/store_art.py and the preview with scripts/render_preview.py.")
+        return 1
+    poster = args.poster or (json.loads(PREVIEW_CONFIG.read_text()).get("poster") if PREVIEW_CONFIG.is_file() else None)
+    if not api.online:
+        print("No credentials: App Store Connect can't be read, so nothing can be checked or planned.")
+        return 2
+    app = find_app(api)
+    library_id = api.get(f"/v1/apps/{app['id']}/assetLibrary")["data"]["id"]
+    ref_items = api.get("/v1/appAssetLibraryRefData")["data"]
+    ref = (ref_items[0] if isinstance(ref_items, list) else ref_items)["attributes"]
+
+    versions = api.get_all(f"/v1/apps/{app['id']}/appStoreVersions", **{"filter[platform]": "IOS"})
+    editable = [v for v in versions if v["attributes"].get("appVersionState") in EDITABLE_APP_VERSION_STATES]
+    if not editable:
+        print("No version is being prepared. Create the next version in App Store Connect, then run this again.")
+        return 1
+    version = editable[0]
+    locs = api.get_all(f"/v1/appStoreVersions/{version['id']}/appStoreVersionLocalizations")
+    print(f"Version {version['attributes'].get('versionString')}: "
+          f"{', '.join(l['attributes']['locale'] for l in locs)}\n")
+
+    for job in jobs:
+        print(f"{job.label.capitalize()}: {job.file.relative_to(ROOT) if job.file.is_relative_to(ROOT) else job.file}")
+        print(f"  matches {check_media(ref, job)}")
+        asset_id = library_asset(api, library_id, job, poster if job.video else None)
+        for loc in locs:
+            place_asset(api, loc, job, asset_id)
+        print()
+    print("The header and search results art appear on iOS 27 and later. Nothing here submits; "
+          "they go to review with the version.")
+    finish(api, "media")
+    return 0
+
+
 def finish(api: Client, what: str) -> None:
     if api.writes == 0:
         print(f"Nothing to change; App Store Connect matches the {what} folders.")
@@ -1311,6 +1530,12 @@ def build_parser() -> argparse.ArgumentParser:
     pg.add_argument("--apply", action="store_true", help="send the writes")
     gc = sub.add_parser("gamecenter", help="Game Center achievements, leaderboards and challenges (dry run unless --apply)")
     gc.add_argument("--apply", action="store_true", help="send the writes")
+    md = sub.add_parser("media", help="app preview, header and search results art (dry run unless --apply)")
+    md.add_argument("--preview", type=Path, default=MEDIA_DIR / "preview.mp4", help="886x1920 app preview")
+    md.add_argument("--header", type=Path, default=MEDIA_DIR / "creative" / "header.png", help="3840x1646 header art")
+    md.add_argument("--search", type=Path, default=MEDIA_DIR / "creative" / "search.png", help="3:2 search results art")
+    md.add_argument("--poster", help="poster frame as HH:MM:SS:FF (default: poster in ios/AppStore/preview.json)")
+    md.add_argument("--apply", action="store_true", help="send the writes")
     return parser
 
 
@@ -1324,7 +1549,7 @@ def main(argv: list[str] | None = None) -> int:
     api = Client(creds, apply)
     try:
         return {"status": cmd_status, "events": cmd_events, "pages": cmd_pages,
-                "gamecenter": cmd_gamecenter}[args.command](api, args)
+                "gamecenter": cmd_gamecenter, "media": cmd_media}[args.command](api, args)
     except ASCError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1

@@ -8,6 +8,10 @@
 # deliver reads every PNG in a locale folder and picks the display type from
 # the pixel size: 1320x2868 is APP_IPHONE_67 (the 6.9-inch slot) and 410x502 is
 # APP_WATCH_ULTRA. Prints the deliver folder on the last line.
+#
+# STORE_ART_DIR, when set, is a folder of 1320x2868 PNGs (such as the 6.9
+# folder scripts/store_art.py writes) used in place of the branch's framed set.
+# The branch's watch.png is still added, since deliver replaces every slot.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -23,9 +27,15 @@ mkdir -p "$OUT/branch" "$OUT/deliver"
 git -C "$ROOT" archive "$COMMIT" | tar -x -C "$OUT/branch"
 
 shopt -s nullglob
-framed=("$OUT/branch/framed/"*.png)
+if [ -n "${STORE_ART_DIR:-}" ]; then
+  framed=("$STORE_ART_DIR/"*.png)
+  SOURCE="$STORE_ART_DIR"
+else
+  framed=("$OUT/branch/framed/"*.png)
+  SOURCE="$BRANCH ($COMMIT)"
+fi
 if [ "${#framed[@]}" -eq 0 ]; then
-  echo "No framed screenshots on $BRANCH ($COMMIT). Run the screenshots workflow first." >&2
+  echo "No screenshots in $SOURCE. Run the screenshots workflow first." >&2
   exit 1
 fi
 
@@ -37,5 +47,5 @@ for locale in "${LOCALES[@]}"; do
   fi
 done
 
-echo "$BRANCH at ${COMMIT:0:8}: ${#framed[@]} framed, watch $([ -f "$OUT/branch/watch.png" ] && echo yes || echo no), events $([ -d "$OUT/branch/events" ] && ls "$OUT/branch/events" | tr '\n' ' ' || echo none)" >&2
+echo "${STORE_ART_DIR:-$BRANCH at ${COMMIT:0:8}}: ${#framed[@]} screenshots, watch $([ -f "$OUT/branch/watch.png" ] && echo yes || echo no), events $([ -d "$OUT/branch/events" ] && ls "$OUT/branch/events" | tr '\n' ' ' || echo none)" >&2
 echo "$OUT/deliver"
