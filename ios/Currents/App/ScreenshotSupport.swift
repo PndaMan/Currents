@@ -340,6 +340,16 @@ enum ScreenshotSupport {
             .appendingPathComponent("ScreenshotPhotos", isDirectory: true)
     }
 
+    /// The demo photo Log catch takes by itself when the app is launched with
+    /// `SCREENSHOT_PHOTO=<file name>`, so a screen recording shows the real
+    /// capture and species ID (`.github/workflows/preview-footage.yml`).
+    static var capturePhoto: UIImage? {
+        guard isActive,
+              let name = ProcessInfo.processInfo.environment["SCREENSHOT_PHOTO"], !name.isEmpty
+        else { return nil }
+        return UIImage(contentsOfFile: photoFolder.appendingPathComponent(name).path)
+    }
+
     private static func photoNames() -> [String] {
         let names = (try? FileManager.default.contentsOfDirectory(atPath: photoFolder.path)) ?? []
         return names.filter { $0.lowercased().hasSuffix(".jpg") }.sorted()
