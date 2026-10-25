@@ -3,7 +3,7 @@
 # Since we can't run Xcode on Linux, this Makefile provides shortcuts
 # for triggering CI builds, checking status, and common dev tasks.
 
-.PHONY: help ci ci-status ci-logs lint test-local clean screenshots-frame appstore-check appstore-setup appstore-status appstore-metadata appstore-screenshots appstore-events appstore-pages appstore-gamecenter appstore-media push-test
+.PHONY: help ci ci-status ci-logs lint test-local clean screenshots-frame appstore-check appstore-setup appstore-status appstore-metadata appstore-screenshots appstore-events appstore-pages appstore-gamecenter appstore-media appstore-art appstore-images push-test
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | \
@@ -68,6 +68,23 @@ appstore-gamecenter: ## Game Center achievements, leaderboards and challenges; d
 
 appstore-media: ## App preview, header and search results art from ios/build/appstore-media; dry run unless APPLY=1
 	$(ASC_ENV) uv run scripts/asc.py media $(APPLY_FLAG)
+
+# The whole set of store images, rendered into STORE_ART and then swapped in
+# without touching any text: listing screenshots, preview, header, search
+# results, in-app event images and the custom product pages' screenshots.
+STORE_ART = ios/build/appstore-media
+
+appstore-art: ## Render screenshots, event images, header video and (with FOOTAGE=dir) the preview from STILLS=dir
+	@test -n "$(STILLS)" || { echo "usage: make appstore-art STILLS=<captures folder> [FOOTAGE=<clips folder>]"; exit 2; }
+	uv run scripts/store_art.py --shots $(STILLS) --out $(STORE_ART)
+	uv run scripts/render_banner.py
+	$(if $(FOOTAGE),uv run scripts/render_preview.py --footage $(FOOTAGE) --out $(STORE_ART)/preview.mp4,)
+
+appstore-images: ## Replace every App Store image from STORE_ART, text untouched; dry run unless APPLY=1
+	$(ASC_ENV) uv run scripts/asc.py events --images-only --art $(STORE_ART) $(APPLY_FLAG)
+	$(ASC_ENV) uv run scripts/asc.py pages --images-only --art $(STORE_ART) $(APPLY_FLAG)
+	$(ASC_ENV) uv run scripts/asc.py media $(APPLY_FLAG)
+	$(if $(APPLY_FLAG),$(MAKE) appstore-screenshots STORE_ART_DIR=$(STORE_ART)/6.9,@echo "Listing screenshots: APPLY=1 replaces them with $(STORE_ART)/6.9")
 
 # CloudKit pushes to one device. CK_KEY_ID and CK_KEY_PATH (server-to-server
 # key) come from the environment or .env.local.

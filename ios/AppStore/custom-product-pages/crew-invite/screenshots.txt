@@ -1,6 +1,6 @@
-06_crew
-07_leaderboard
-08_profile
-03_catch
-01_today
-02_explore
+09_crew
+08_streak
+05_catch
+01_bite
+02_nearby
+03_identify

@@ -485,7 +485,7 @@ def load_events(start: dt.date, all_territories: list[str] | None, media_dir: Pa
             path = media_dir / "events" / name / filename if media_dir else None
             media[asset_type] = path if path and path.is_file() else None
             if media[asset_type] is None:
-                warnings.append(f"{filename} is not on the screenshots branch yet; run the screenshots workflow")
+                warnings.append(f"{filename} is not in {media_dir / 'events' / name if media_dir else 'the art folder'}")
         specs.append(EventSpec(folder, raw["reference_name"], attributes, localization, media, warnings))
     return specs
 
@@ -527,7 +527,7 @@ def show_value(key: str, value: Any) -> str:
 
 def cmd_events(api: Client, args) -> int:
     start = args.start or dt.date.today()
-    media_dir = ensure_screenshot_branch()
+    media_dir = args.art or ensure_screenshot_branch()
     app = find_app(api) if api.online else None
     all_territories = sorted(t["id"] for t in api.get_all("/v1/territories")) if api.online else None
     locales = store_locales(api, app)
@@ -545,6 +545,9 @@ def cmd_events(api: Client, args) -> int:
         for w in spec.warnings:
             print(f"  warning: {w}")
         current = existing.get(spec.reference_name)
+        if current is None and args.images_only:
+            print("  not in App Store Connect yet; skipped (run without --images-only to create it)\n")
+            continue
         if current is None:
             created = api.write(
                 "POST", "/v1/appEvents",
@@ -565,7 +568,7 @@ def cmd_events(api: Client, args) -> int:
                     print(f"  warning: {key} is locked while the event is {state}; "
                           f"it stays {show_value(key, current['attributes'].get(key))}, not {show_value(key, value)}")
                 changes = {k: v for k, v in changes.items() if k in EDITABLE_AFTER_DRAFT}
-            if changes:
+            if changes and not args.images_only:
                 api.write(
                     "PATCH", f"/v1/appEvents/{event_id}",
                     {"data": {"type": "appEvents", "id": event_id, "attributes": changes}},
@@ -574,18 +577,21 @@ def cmd_events(api: Client, args) -> int:
                 )
 
         for locale in locales:
-            sync_event_locale(api, event_id, spec, locale)
+            sync_event_locale(api, event_id, spec, locale, args.images_only)
         print()
 
     finish(api, "events")
     return 0
 
 
-def sync_event_locale(api: Client, event_id: str, spec: "EventSpec", locale: str) -> None:
+def sync_event_locale(api: Client, event_id: str, spec: "EventSpec", locale: str, images_only: bool = False) -> None:
     print(f"  {locale}:")
     loc = None
     if not is_placeholder(event_id) and api.online:
         loc = next((l for l in api.get_all(f"/v1/appEvents/{event_id}/localizations") if l["attributes"]["locale"] == locale), None)
+    if loc is None and images_only:
+        print("    no text for this locale yet; skipped")
+        return
     if loc is None:
         created = api.write(
             "POST", "/v1/appEventLocalizations",
@@ -597,7 +603,7 @@ def sync_event_locale(api: Client, event_id: str, spec: "EventSpec", locale: str
     else:
         loc_id = loc["id"]
         changes = {k: v for k, v in spec.localization.items() if (loc["attributes"].get(k) or "") != v}
-        if changes:
+        if changes and not images_only:
             api.write(
                 "PATCH", f"/v1/appEventLocalizations/{loc_id}",
                 {"data": {"type": "appEventLocalizations", "id": loc_id, "attributes": changes}},
@@ -644,7 +650,7 @@ class PageSpec:
     warnings: list[str] = field(default_factory=list)
 
 
-def load_pages(media_dir: Path) -> list[PageSpec]:
+def load_pages(shots_dir: Path) -> list[PageSpec]:
     specs = []
     for folder in sorted(p for p in PAGES_DIR.iterdir() if p.is_dir()):
         warnings = []
@@ -654,19 +660,21 @@ def load_pages(media_dir: Path) -> list[PageSpec]:
             raise ASCError(f"{folder.name}: promotional text is {len(promo)} characters; the limit is 170")
         shots = []
         for stem in read_text(folder / "screenshots.txt").split():
-            path = media_dir / "framed" / f"{stem}.png"
+            path = shots_dir / f"{stem}.png"
             if path.is_file():
                 shots.append(path)
             else:
-                warnings.append(f"framed/{stem}.png is not on the screenshots branch")
+                warnings.append(f"{stem}.png is not in {shots_dir}")
         keywords = [k.strip() for k in read_text(folder / "keywords.txt").split(",") if k.strip()]
         specs.append(PageSpec(folder, name, promo, shots, keywords, warnings))
     return specs
 
 
 def cmd_pages(api: Client, args) -> int:
-    media_dir = ensure_screenshot_branch()
-    specs = load_pages(media_dir)
+    # The composed store art (scripts/store_art.py) when --art names it,
+    # else the framed captures on the screenshots branch.
+    shots_dir = args.art / "6.9" if args.art else ensure_screenshot_branch() / "framed"
+    specs = load_pages(shots_dir)
     app = find_app(api) if api.online else None
     existing = {}
     # A new page must start in the app's primary locale; the others are added beside it.
@@ -689,6 +697,9 @@ def cmd_pages(api: Client, args) -> int:
             print(f"  warning: {w}")
         page = existing.get(spec.name)
         version_id = None
+        if page is None and args.images_only:
+            print("  not in App Store Connect yet; skipped (run without --images-only to create it)\n")
+            continue
         if page is None:
             version_ref = "${new-appCustomProductPageVersion-id}"
             loc_ref = "${new-appCustomProductPageLocalization-id}"
@@ -736,13 +747,16 @@ def cmd_pages(api: Client, args) -> int:
             loc = next((l for l in locs if l["attributes"]["locale"] == locale), None)
             if loc is not None:
                 loc_id = loc["id"]
-                if (loc["attributes"].get("promotionalText") or "") != spec.promotional_text:
+                if (loc["attributes"].get("promotionalText") or "") != spec.promotional_text and not args.images_only:
                     api.write(
                         "PATCH", f"/v1/appCustomProductPageLocalizations/{loc_id}",
                         {"data": {"type": "appCustomProductPageLocalizations", "id": loc_id,
                                   "attributes": {"promotionalText": spec.promotional_text}}},
                         f"update {locale} promotional text {json.dumps(loc['attributes'].get('promotionalText'), ensure_ascii=False)} -> {json.dumps(spec.promotional_text, ensure_ascii=False)}",
                     )
+            elif args.images_only:
+                print("    no text for this locale yet; skipped")
+                continue
             elif page is None and locale == primary and is_placeholder(page_id):
                 # Dry run: the create request above makes this one.
                 loc_id = "(new-localization)"
@@ -756,7 +770,8 @@ def cmd_pages(api: Client, args) -> int:
                 )
                 loc_id = created["data"]["id"]
             sync_page_screenshots(api, loc_id, spec)
-            sync_page_keywords(api, loc_id, spec, available_keywords[locale], locale)
+            if not args.images_only:
+                sync_page_keywords(api, loc_id, spec, available_keywords[locale], locale)
 
         if not is_placeholder(page_id):
             hint = "  (paste into customPageId in docs/open.html)" if spec.folder.name == "crew-invite" else ""
@@ -1301,13 +1316,17 @@ class MediaJob:
     category: str
     file: Path
     video: bool
+    poster: str | None = None
 
 
 def media_jobs(args) -> list[MediaJob]:
+    preview_poster = args.poster or (json.loads(PREVIEW_CONFIG.read_text()).get("poster") if PREVIEW_CONFIG.is_file() else None)
+    header_video = args.header.suffix.lower() in {".mp4", ".mov"}
     return [
         MediaJob("app preview", "APP_PREVIEW", "IPHONE_DYNAMIC_ISLAND_LARGE_PROFILE", "APP_SCREENSHOTS_AND_PREVIEWS",
-                 args.preview, True),
-        MediaJob("header", "PRODUCT_PAGE_HEADER_ASSET", "DEFAULT_PROFILE", "CREATIVE_ASSETS", args.header, False),
+                 args.preview, True, preview_poster),
+        MediaJob("header", "PRODUCT_PAGE_HEADER_ASSET", "DEFAULT_PROFILE", "CREATIVE_ASSETS", args.header, header_video,
+                 args.header_poster if header_video else None),
         MediaJob("search results", "APP_STORE_SEARCH_RESULTS_ASSET", "DEFAULT_PROFILE", "CREATIVE_ASSETS", args.search, False),
     ]
 
@@ -1465,7 +1484,6 @@ def cmd_media(api: Client, args) -> int:
     if not jobs:
         print("Nothing to place. Render the art with scripts/store_art.py and the preview with scripts/render_preview.py.")
         return 1
-    poster = args.poster or (json.loads(PREVIEW_CONFIG.read_text()).get("poster") if PREVIEW_CONFIG.is_file() else None)
     if not api.online:
         print("No credentials: App Store Connect can't be read, so nothing can be checked or planned.")
         return 2
@@ -1487,7 +1505,7 @@ def cmd_media(api: Client, args) -> int:
     for job in jobs:
         print(f"{job.label.capitalize()}: {job.file.relative_to(ROOT) if job.file.is_relative_to(ROOT) else job.file}")
         print(f"  matches {check_media(ref, job)}")
-        asset_id = library_asset(api, library_id, job, poster if job.video else None)
+        asset_id = library_asset(api, library_id, job, job.poster)
         for loc in locs:
             place_asset(api, loc, job, asset_id)
         print()
@@ -1525,14 +1543,25 @@ def build_parser() -> argparse.ArgumentParser:
     ev = sub.add_parser("events", help="create or update the in-app events (dry run unless --apply)")
     ev.add_argument("--start", type=parse_date, help="date the schedules are computed from (default today); "
                                                      "for crews-and-tournaments, the day 1.3.0 goes live")
+    ev.add_argument("--images-only", action="store_true",
+                    help="only replace each event's card and details images; create nothing and leave the text and schedule")
+    ev.add_argument("--art", type=Path, help="folder with events/<slug>/event-card.png and event-details.png "
+                    "(default: the screenshots branch)")
     ev.add_argument("--apply", action="store_true", help="send the writes")
     pg = sub.add_parser("pages", help="create or update the custom product pages (dry run unless --apply)")
+    pg.add_argument("--images-only", action="store_true",
+                    help="only replace each page's screenshots; create no page and leave promotional text and keywords")
+    pg.add_argument("--art", type=Path, help="store art folder; screenshots come from its 6.9/ (default: framed "
+                    "captures on the screenshots branch)")
     pg.add_argument("--apply", action="store_true", help="send the writes")
     gc = sub.add_parser("gamecenter", help="Game Center achievements, leaderboards and challenges (dry run unless --apply)")
     gc.add_argument("--apply", action="store_true", help="send the writes")
     md = sub.add_parser("media", help="app preview, header and search results art (dry run unless --apply)")
     md.add_argument("--preview", type=Path, default=MEDIA_DIR / "preview.mp4", help="886x1920 app preview")
-    md.add_argument("--header", type=Path, default=MEDIA_DIR / "creative" / "header.png", help="3840x1646 header art")
+    header = MEDIA_DIR / "creative" / "header.mp4"
+    md.add_argument("--header", type=Path, default=header if header.is_file() else header.with_suffix(".png"),
+                    help="3840x1646 header video (header.mp4, the default when it exists) or art (header.png)")
+    md.add_argument("--header-poster", default="00:00:00:00", help="poster frame of a header video as HH:MM:SS:FF")
     md.add_argument("--search", type=Path, default=MEDIA_DIR / "creative" / "search.png", help="3:2 search results art")
     md.add_argument("--poster", help="poster frame as HH:MM:SS:FF (default: poster in ios/AppStore/preview.json)")
     md.add_argument("--apply", action="store_true", help="send the writes")
