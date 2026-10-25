@@ -1517,9 +1517,19 @@ struct ConditionChart: View {
         }
     }
 
+    /// The shades cut to the chart's range, so a period that runs past
+    /// midnight stops at the plot's edge, as the band does.
+    private var shownShades: [ChartShade] {
+        shades.compactMap { s in
+            let start = max(s.start, xDomain.lowerBound)
+            let end = min(s.end, xDomain.upperBound)
+            return start < end ? ChartShade(start: start, end: end, strong: s.strong) : nil
+        }
+    }
+
     @ChartContentBuilder
     private var shadeLayer: some ChartContent {
-        ForEach(shades) { s in
+        ForEach(shownShades) { s in
             RectangleMark(xStart: .value("Start", s.start), xEnd: .value("End", s.end),
                           yStart: .value("Low", yDomain.lowerBound), yEnd: .value("High", yDomain.upperBound))
                 .foregroundStyle(fill.opacity(s.strong ? 0.24 : 0.12))
