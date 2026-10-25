@@ -26,9 +26,9 @@ struct ContentView: View {
     /// middle of the bar. Profile and settings push from the avatar at the
     /// left of every tab's large title.
     ///
-    /// `create` is the centre item. It is an action, not a page: selecting
-    /// it opens the Add menu and the selection never becomes `create` (see
-    /// `tabSelection`). It has no stack, no path and no deep link, and
+    /// `create` is the centre item. It is an action, not a page: it opens the
+    /// Add menu over the open page, and the selection stays on that page
+    /// (see `tabSelection`). It has no stack, no path and no deep link, and
     /// `init?(rawValue:)` never returns it. Not CaseIterable, so no loop over
     /// the tabs can pick it up as a page.
     enum Tab: Hashable {
@@ -89,9 +89,10 @@ struct ContentView: View {
     @State private var showingNewSession = false
     @State private var showingPlanner = false
     /// The tab bar's top edge measured from the bottom of the screen: a
-    /// tab's bottom safe area, read from its stack. The Add menu sits just
-    /// above it. The default is close to an iPhone with a home indicator,
-    /// used until the first tab has laid out.
+    /// tab's bottom safe area without the keyboard, read from its stack. The
+    /// Add menu sits just above it and lines its Add item up with the bar's.
+    /// The default is close to an iPhone with a home indicator, used until
+    /// the first tab has laid out.
     @State private var tabBarInset: CGFloat = 83
     @State private var joinGroupCode: JoinCode?
     @State private var pendingFriend: JoinCode?
@@ -102,11 +103,16 @@ struct ContentView: View {
     struct JoinCode: Identifiable { let id: String }
 
     /// Selecting the tab that is already selected pops it to its root. Only a
-    /// tap on the tab bar ticks; deep links switch tabs quietly. The Add item
-    /// opens its menu. The bar has already moved to it by then, and leaving
-    /// the selection where it was would leave the bar there, on the Add
-    /// item's empty page; so the selection follows it and is handed straight
-    /// back (`.onChange` in body), which moves the bar back too.
+    /// tap on the tab bar ticks; deep links switch tabs quietly.
+    ///
+    /// A tap on the Add item does not get here: the Add menu's overlay takes
+    /// it before the bar can (`addMenuOverlay`), so the bar stays on the open
+    /// page, which stays on screen under the menu, and the overlay draws the
+    /// item selected until the menu closes. The bar can still select the item
+    /// itself, from VoiceOver, Voice Control or a drag along the bar. By then
+    /// it has moved to the item's empty page, and leaving the selection where
+    /// it was would leave it there; so the selection follows it and is handed
+    /// straight back (`.onChange` in body), which moves the bar back too.
     private var tabSelection: Binding<Tab> {
         Binding(
             get: { selectedTab },
@@ -142,7 +148,7 @@ struct ContentView: View {
         switch tab {
         case .today: TodayTab()
         case .explore: MapTab()
-        // The Add item has no page; the bar never shows it (`tabSelection`).
+        // The Add item has no page (`tabSelection`).
         case .create: EmptyView()
         case .logbook: CatchesTab()
         case .crew: CommunityView()
@@ -151,6 +157,8 @@ struct ContentView: View {
 
     /// A page tab's stack. It also reports the tab bar's height for the Add
     /// menu: the stack's bottom safe area is the bar plus the home indicator.
+    /// Read behind the stack with the keyboard left out, since the keyboard
+    /// would count as the bar while it is up and lift the Add item with it.
     private func stack(for tab: Tab) -> some View {
         NavigationStack(path: path(for: tab)) {
             root(for: tab)
@@ -158,8 +166,12 @@ struct ContentView: View {
                     destination(for: route)
                 }
         }
-        .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.bottom } action: { inset in
-            if inset > 0 { tabBarInset = inset }
+        .background {
+            Color.clear
+                .ignoresSafeArea(.keyboard)
+                .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.bottom } action: { inset in
+                    if inset > 0 { tabBarInset = inset }
+                }
         }
     }
 
@@ -184,7 +196,7 @@ struct ContentView: View {
                 stack(for: .explore)
             }
             // The centre item: the logo, drawn larger than the symbols beside
-            // it. An action rather than a page, so its content is never shown.
+            // it. An action rather than a page, so its content is empty.
             SwiftUI.Tab("Add", image: "TabCreate", value: Tab.create) {
                 Color.clear
             }
@@ -196,14 +208,18 @@ struct ContentView: View {
                 stack(for: .crew)
             }
         }
+        // The bar's own selection of the Add item (`tabSelection`) goes back
+        // to the page it came from.
         .onChange(of: selectedTab) { previous, tab in
             if tab == .create { selectedTab = previous }
         }
         // Over the whole screen, tab bar included, and under the toasts and
-        // the celebration card.
+        // the celebration card. It takes taps on the bar's Add item, and
+        // draws that item selected while the menu is open.
         .addMenuOverlay(isPresented: $showingAddMenu,
                         sessionIsLive: appState.tripTracker.isTracking,
                         bottomInset: tabBarInset,
+                        onOpen: openAddMenu,
                         onSelect: runAddAction)
         .task(id: appState.launchFinished) {
             // Once the launch animation has gone (CurrentsApp), so the
@@ -399,6 +415,8 @@ struct ContentView: View {
 
     // MARK: - Add menu
 
+    /// From a tap on the bar's Add item, which the menu's overlay takes, or
+    /// the bar selecting the item itself (`tabSelection`).
     private func openAddMenu() {
         guard !showingAddMenu else { return }
         Haptics.softPress()

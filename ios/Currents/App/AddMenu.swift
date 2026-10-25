@@ -64,10 +64,32 @@ extension View {
     /// from the bottom of the screen (a tab's bottom safe area), so the panel
     /// sits just above the bar. Attach at the app root, under the toast and
     /// celebration hosts.
+    ///
+    /// It also lies over the bar's Add item and takes the tap on it, calling
+    /// `onOpen`, so the bar never selects the item and the page underneath
+    /// stays on screen. While the menu is open it draws the item selected in
+    /// that spot, where a tap closes the menu.
     func addMenuOverlay(isPresented: Binding<Bool>, sessionIsLive: Bool, bottomInset: CGFloat,
+                        onOpen: @escaping () -> Void,
                         onSelect: @escaping (AddMenuAction) -> Void) -> some View {
         modifier(AddMenuHost(isPresented: isPresented, sessionIsLive: sessionIsLive,
-                             bottomInset: bottomInset, onSelect: onSelect))
+                             bottomInset: bottomInset, onOpen: onOpen, onSelect: onSelect))
+    }
+}
+
+/// iOS 26's floating tab bar, which the overlay lines the Add item up with.
+/// Its glass is 62 points tall and hangs from the tabs' bottom safe area,
+/// about 21 points in from the sides of the screen, with the five items in
+/// equal slots 4 points inside it. The Add item is the middle slot, so it is
+/// centred on the screen, and a selected item's capsule fills its slot.
+private enum AddMenuBar {
+    static let height: CGFloat = 62
+    static let margin: CGFloat = 21
+    static let inset: CGFloat = 4
+
+    /// One slot's width on a screen this wide.
+    static func itemWidth(across width: CGFloat) -> CGFloat {
+        max(0, (width - 2 * (margin + inset)) / 5)
     }
 }
 
@@ -86,13 +108,23 @@ private struct AddMenuHost: ViewModifier {
     @Binding var isPresented: Bool
     let sessionIsLive: Bool
     let bottomInset: CGFloat
+    let onOpen: () -> Void
     let onSelect: (AddMenuAction) -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// The keyboard covers the bar, so the patch over its Add item stands
+    /// down until it goes.
+    @State private var keyboardShown = false
 
     private var panelTransition: AnyTransition {
         reduceMotion
             ? AnyTransition.opacity
             : AnyTransition.scale(scale: 0.6, anchor: .bottom).combined(with: .opacity)
+    }
+
+    private var itemTransition: AnyTransition {
+        reduceMotion
+            ? AnyTransition.opacity
+            : AnyTransition.scale(scale: 0.85).combined(with: .opacity)
     }
 
     private var currentAnimation: Animation {
@@ -122,6 +154,45 @@ private struct AddMenuHost: ViewModifier {
             .ignoresSafeArea(.container, edges: .bottom)
             .animation(currentAnimation, value: isPresented)
         }
+        // Above the scrim, so the selected item is not dimmed with the bar.
+        .overlay { barItem }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
+            keyboardShown = true
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidHideNotification)) { _ in
+            keyboardShown = false
+        }
+    }
+
+    /// A patch over the bar's Add item. Closed, it is clear and takes the tap
+    /// before the bar can, since the bar would switch to the item's empty
+    /// page. Open, it draws the item selected and a tap on it closes the
+    /// menu. Hidden from VoiceOver, which reads the bar's own item; when the
+    /// bar selects that item, ContentView's `tabSelection` opens the menu.
+    private var barItem: some View {
+        GeometryReader { proxy in
+            Color.clear
+                .overlay {
+                    if isPresented {
+                        AddMenuBarItem()
+                            .transition(itemTransition)
+                    }
+                }
+                .frame(width: AddMenuBar.itemWidth(across: proxy.size.width), height: AddMenuBar.height)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    if isPresented { close() } else { onOpen() }
+                }
+                .allowsHitTesting(isPresented || !keyboardShown)
+                .accessibilityHidden(true)
+                // The bar's glass hangs from the tabs' bottom safe area.
+                .padding(.bottom, max(0, bottomInset - AddMenuBar.height))
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+        }
+        // Measured from the screen's bottom edge, as `bottomInset` is, and
+        // left in place by the keyboard, which covers the bar.
+        .ignoresSafeArea(edges: .bottom)
+        .animation(currentAnimation, value: isPresented)
     }
 
     private func close() {
@@ -131,6 +202,23 @@ private struct AddMenuHost: ViewModifier {
     private func select(_ action: AddMenuAction) {
         isPresented = false
         onSelect(action)
+    }
+}
+
+/// The bar's Add item as the bar draws a selected tab: the logo and its
+/// title in the theme colour, on a glass capsule that fills its slot. The
+/// same image and title as the item in ContentView's TabView.
+private struct AddMenuBarItem: View {
+    var body: some View {
+        VStack(spacing: 2) {
+            Image("TabCreate")
+            Text("Add")
+                .font(.system(size: 10, weight: .semibold))
+        }
+        .foregroundStyle(.tint)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .glassEffect(.regular, in: Capsule())
+        .padding(.vertical, AddMenuBar.inset)
     }
 }
 
