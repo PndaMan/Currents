@@ -206,14 +206,17 @@ struct ContentView: View {
             checkPlannedSession()
         }
         .task {
-            // Screenshot mode: push the screen CI asked for once the tabs exist.
+            // Screenshot mode: push the screen CI asked for once the tabs
+            // exist, or open the Add menu over its tab.
             guard let tab = ScreenshotSupport.initialTab else { return }
             let path = ScreenshotSupport.initialPath
             let link = ScreenshotSupport.launchURL
-            guard path != nil || link != nil else { return }
+            let menu = ScreenshotSupport.opensAddMenu
+            guard path != nil || link != nil || menu else { return }
             try? await Task.sleep(for: .milliseconds(700))
             if let path { paths[tab] = path }
             if let link { appState.pendingDeepLink = link }
+            if menu { showingAddMenu = true }
         }
         .task {
             // On cold launch (scenePhase .onChange doesn't fire for the initial

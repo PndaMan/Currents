@@ -103,6 +103,9 @@ enum ScreenshotSupport {
         // Review set: the log-catch sheet, opened by a deep link.
         case logCatch = "log-catch"
 
+        // Review set: Today with the tab bar's Add menu open over it.
+        case addMenu = "add-menu"
+
         var tab: ContentView.Tab {
             switch self {
             case .today, .lures, .forecastDay, .forecastWeek,
@@ -111,7 +114,7 @@ enum ScreenshotSupport {
                  .target, .targetSpecies,
                  .settings, .settingsAppearance, .settingsUnits, .settingsNotifications,
                  .settingsPrivacy, .settingsWidgets, .settingsStorage, .settingsAbout,
-                 .settingsKnots, .tips:
+                 .settingsKnots, .tips, .addMenu:
                 .today
             case .explore, .exploreNear, .spotPage, .waterbodyPage, .speciesPage,
                  .spots, .waters, .ramps, .speciesGuide, .regulations, .offlineMaps:
@@ -189,8 +192,9 @@ enum ScreenshotSupport {
         guard let screen = Self.screen, let appState = AppState.shared else { return nil }
         var path = NavigationPath()
         switch screen {
-        // Tab roots, and the log-catch sheet, which `launchURL` opens.
-        case .today, .logbook, .crew, .exploreNear, .explore, .logCatch:
+        // Tab roots, the log-catch sheet, which `launchURL` opens, and the
+        // Add menu, which `opensAddMenu` opens.
+        case .today, .logbook, .crew, .exploreNear, .explore, .logCatch, .addMenu:
             return nil
 
         // App Store set.
@@ -269,6 +273,9 @@ enum ScreenshotSupport {
     static var launchURL: URL? {
         screen == .logCatch ? URL(string: "currents://log") : nil
     }
+
+    /// True for the screen that opens the tab bar's Add menu over its tab.
+    static var opensAddMenu: Bool { screen == .addMenu }
 
     /// Where a scrolling page opens for the review run's scrolled shots:
     /// `-uiReviewScroll center` opens it at the middle and
