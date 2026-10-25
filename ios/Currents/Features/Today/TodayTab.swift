@@ -148,6 +148,8 @@ struct TodayTab: View {
             }
         }
         .onAppear { refreshLocalData() }
+        // A plan or session saved from the tab bar's Add menu.
+        .onChange(of: appState.addMenuSheetsClosed) { _, _ in refreshLocalData() }
         .onChange(of: appState.tripTracker.isTracking) { _, tracking in
             refreshLocalData()
             // Ended elsewhere (Explore, the Live Activity): close the sheet

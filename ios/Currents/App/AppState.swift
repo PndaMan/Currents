@@ -29,6 +29,10 @@ final class AppState {
     /// Set by the tab bar's Add menu: MapTab starts placing a new spot (its
     /// own Add spot button's drop pin), then clears it.
     var openAddSpot = false
+    /// Counts the sessions and plans saved from the Add menu's sheets. They
+    /// sit at the app root, so closing one fires no onAppear underneath;
+    /// Today and the Logbook reload when this changes.
+    var addMenuSheetsClosed = 0
     /// Set by a crew push-notification tap: the Community tab opens this
     /// crew's detail screen, then clears it.
     var openCrewCode: String?

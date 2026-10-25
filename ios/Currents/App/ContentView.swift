@@ -266,8 +266,12 @@ struct ContentView: View {
         }
         // The Add menu's Start session and Plan a session: the same sheets
         // Sessions and the Logbook open.
-        .sheet(isPresented: $showingNewSession) { NewSessionSheet() }
-        .sheet(isPresented: $showingPlanner) { PlanSessionSheet() }
+        .sheet(isPresented: $showingNewSession, onDismiss: { appState.addMenuSheetsClosed += 1 }) {
+            NewSessionSheet()
+        }
+        .sheet(isPresented: $showingPlanner, onDismiss: { appState.addMenuSheetsClosed += 1 }) {
+            PlanSessionSheet()
+        }
         .onChange(of: appState.siriRequestedLogCatch) { _, requested in
             // Siri "Log a Catch" shortcut — surface Logbook so its log
             // sheet (which watches the same flag) can present.

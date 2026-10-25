@@ -247,6 +247,8 @@ struct CatchesTab: View {
             // Coming back from a detail page that edited or deleted something.
             reload()
         }
+        // A plan or session saved from the tab bar's Add menu.
+        .onChange(of: appState.addMenuSheetsClosed) { _, _ in reload() }
     }
 
     // MARK: - Destinations
