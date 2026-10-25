@@ -1,0 +1,23 @@
+{
+  "name": "currents-app-preview",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "prepare-assets": "uv run prepare.py",
+    "studio": "remotion studio",
+    "render": "bun render.ts"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.534",
+    "@remotion/fonts": "4.0.534",
+    "@remotion/transitions": "4.0.534",
+    "react": "19.1.0",
+    "react-dom": "19.1.0",
+    "remotion": "4.0.534"
+  },
+  "devDependencies": {
+    "@types/bun": "1.2.17",
+    "@types/react": "19.1.8",
+    "typescript": "5.8.3"
+  }
+}

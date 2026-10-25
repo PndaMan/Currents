@@ -64,3 +64,8 @@ ios/fastlane/report.xml
 ios/fastlane/Preview.html
 ios/fastlane/README.md
 ios/fastlane/screenshots/
+
+# App preview (Remotion): packages, prepared assets and renders
+ios/AppStore/preview/node_modules/
+ios/AppStore/preview/public/
+ios/AppStore/preview/out/
