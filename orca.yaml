@@ -1,0 +1,9 @@
+# Orca workspace settings.
+# New worktrees link these gitignored folders back to the main checkout, so the
+# GBIF download cache, the fastlane bundle and the app preview's packages are
+# not fetched again for every branch.
+worktree:
+  sharedDirectories:
+    - .cache
+    - ios/vendor
+    - ios/AppStore/preview/node_modules

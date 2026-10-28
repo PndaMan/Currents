@@ -54,13 +54,15 @@ build-logs/
 Currents-IPA/
 Currents-simulator/
 logo-transparent.png
-.cache/
+# No trailing slash on the folders below: Orca worktrees link them back to the
+# main checkout (orca.yaml), and a link is not a directory to git.
+.cache
 ios/screenshots/
 ios/footage/
 *.log
 
 # fastlane (bundle install --path, run output, downloaded screenshots)
-ios/vendor/
+ios/vendor
 ios/build/
 ios/fastlane/report.xml
 ios/fastlane/Preview.html
@@ -68,6 +70,6 @@ ios/fastlane/README.md
 ios/fastlane/screenshots/
 
 # App preview (Remotion): packages, prepared assets and renders
-ios/AppStore/preview/node_modules/
+ios/AppStore/preview/node_modules
 ios/AppStore/preview/public/
 ios/AppStore/preview/out/
