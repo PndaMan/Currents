@@ -9,14 +9,17 @@ name: iOS Build & Test
 on:
   push:
     branches: [master]
-    # Docs and notes don't feed the app build, and the generators under ml/,
-    # tiles/ and scripts/ only matter once their output is committed under ios/.
+    # Docs, notes and workspace config don't feed the app build, and the
+    # generators under ml/, tiles/ and scripts/ only matter once their output
+    # is committed under ios/.
     paths-ignore:
       - "docs/**"
       - "**.md"
       - "ml/**"
       - "tiles/**"
       - "scripts/**"
+      - "orca.yaml"
+      - ".gitignore"
   pull_request:
     branches: [master]
     paths-ignore:
@@ -25,6 +28,8 @@ on:
       - "ml/**"
       - "tiles/**"
       - "scripts/**"
+      - "orca.yaml"
+      - ".gitignore"
   workflow_dispatch:
     inputs:
       testflight:
