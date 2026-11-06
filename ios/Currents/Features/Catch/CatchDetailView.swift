@@ -716,9 +716,7 @@ struct CatchDetailView: View {
 
     /// Rising or falling at the catch time.
     private func tideRising(_ tide: TideEngine.TideDay) -> Bool? {
-        let at = record.caughtAt
-        let point = tide.points.min { abs($0.time.timeIntervalSince(at)) < abs($1.time.timeIntervalSince(at)) }
-        return point?.isRising
+        tide.isRising(at: record.caughtAt)
     }
 
     @ViewBuilder

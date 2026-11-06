@@ -601,7 +601,7 @@ struct ForecastEngine {
         // Check if between high/low (moving) or at peak/trough (slack)
         // Simple heuristic: middle third of interval between events = slack
         let sorted = allEvents.sorted { $0.time < $1.time }
-        for i in 0..<sorted.count - 1 {
+        for i in sorted.indices.dropLast() {
             let start = sorted[i].time
             let end = sorted[i + 1].time
             let interval = end.timeIntervalSince(start)

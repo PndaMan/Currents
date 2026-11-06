@@ -154,10 +154,10 @@ final class ForecastStore {
     /// the place does not say (the phone's location, an estuary).
     private(set) var freshwater: Bool?
 
-    /// Tides matter here: not at a freshwater spot, and not for a target
-    /// that lives in fresh water.
+    /// Tides matter here: not at a freshwater spot or away from the sea, and
+    /// not for a target that lives in fresh water.
     var showsTide: Bool {
-        if freshwater == true { return false }
+        if freshwater == true || !TideEngine.hasTide(at: coordinate) { return false }
         return ForecastEngine.SpeciesTraits(species).tide != .ignored
     }
 

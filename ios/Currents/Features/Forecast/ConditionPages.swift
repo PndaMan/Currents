@@ -456,7 +456,7 @@ enum ConditionText {
     /// Whether the tide is coming in right now (today only).
     static func isRising(_ day: ForecastDay) -> Bool? {
         guard day.isToday else { return nil }
-        return day.tide.points.min { abs($0.time.timeIntervalSinceNow) < abs($1.time.timeIntervalSinceNow) }?.isRising
+        return day.tide.isRising(at: .now)
     }
 
     /// The tide height now, between the two nearest hourly points.
@@ -898,7 +898,7 @@ struct ConditionPageModel {
         return ConditionPageModel(
             value: reading.value, unit: nil, subtitle: reading.meaning,
             chartTitle: "Through the day", figures: figures,
-            footnote: "Worked out from the moon and sun with relative heights, so check local tables before launching a boat.",
+            footnote: "Predicted from a global tide model with relative heights. Times can be out in bays and rivers, so check local tables before launching a boat.",
             over: day.nextTide == nil ? nil : reading.label
         )
     }
