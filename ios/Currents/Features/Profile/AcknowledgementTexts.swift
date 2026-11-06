@@ -3,7 +3,8 @@ import Foundation
 /// The licence of each open-source package in Currents, word for word as
 /// the project publishes it, with the line breaks inside each paragraph
 /// joined so it wraps on the phone. MIT asks for the copyright and
-/// permission notice to ship with the app. AcknowledgementsView shows them.
+/// permission notice to ship with the app, and CC BY for credit and a note of
+/// what changed. AcknowledgementsView shows them.
 enum AcknowledgementTexts {
     /// GRDB, MIT License.
     static let grdb = """
@@ -40,5 +41,16 @@ enum AcknowledgementTexts {
         The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
 
         THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+        """
+
+    /// EOT20, Creative Commons Attribution 4.0.
+    static let eot20 = """
+        Tide predictions in Currents use EOT20, a global empirical ocean tide model from multi-mission satellite altimetry.
+
+        Hart-Davis Michael, Piccioni Gaia, Dettmering Denise, Schwatke Christian, Passaro Marcello, Seitz Florian (2021). EOT20 - A global Empirical Ocean Tide model from multi-mission satellite altimetry. SEANOE. https://doi.org/10.17882/79489
+
+        Hart-Davis Michael G., Piccioni Gaia, Dettmering Denise, Schwatke Christian, Passaro Marcello, Seitz Florian (2021). EOT20: a global ocean tide model from multi-mission satellite altimetry. Earth System Science Data, 13 (8), 3869-3884. https://doi.org/10.5194/essd-13-3869-2021
+
+        Used under the Creative Commons Attribution 4.0 International licence, https://creativecommons.org/licenses/by/4.0/. Changed for Currents: reduced to ten constituents on a 1/2 degree grid of water near the coast.
         """
 }

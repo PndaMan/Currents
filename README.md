@@ -56,7 +56,7 @@ The `ForecastEngine` computes a 0–100 bite score from a weighted combination o
 |---|---|---|
 | Barometric pressure trend | 15 | Open-Meteo hourly pressure (+ on-device barometer) |
 | Solunar major / minor windows | 15 | On-device astro calc (no API) |
-| Tide phase | 15 | Simplified harmonic prediction |
+| Tide phase | 15 | Harmonic prediction from the bundled EOT20 tide model |
 | Time of day (golden hours) | 15 | Sunrise / sunset from location |
 | Pressure level | 10 | Open-Meteo current |
 | Moon phase | 10 | Synodic cycle from 1999-12-25 new moon |

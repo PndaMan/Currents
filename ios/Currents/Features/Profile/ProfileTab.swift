@@ -1760,7 +1760,7 @@ struct AboutView: View {
                     .buttonStyle(.dsCardRow)
                     .accessibilityHint("Opens the privacy policy")
                     NavigationLink(value: AboutRoute.acknowledgements) {
-                        CardRow("Acknowledgements", subtitle: "Open-source software in Currents",
+                        CardRow("Acknowledgements", subtitle: "Open-source software and data in Currents",
                                 systemImage: "shippingbox.fill", tint: .purple, chevron: true)
                     }
                     .buttonStyle(.dsCardRow)
@@ -1834,10 +1834,12 @@ struct AcknowledgementsView: View {
                 url: URL(string: "https://github.com/kean/Nuke")!, tint: .orange),
         Package(name: "ZIPFoundation", licence: "MIT License", text: AcknowledgementTexts.zipFoundation,
                 url: URL(string: "https://github.com/weichsel/ZIPFoundation")!, tint: .green),
+        Package(name: "EOT20 tide model", licence: "CC BY 4.0", text: AcknowledgementTexts.eot20,
+                url: URL(string: "https://doi.org/10.17882/79489")!, tint: .cyan),
     ]
 
     var body: some View {
-        TodayPage("Acknowledgements", subtitle: "Open-source software in Currents") {
+        TodayPage("Acknowledgements", subtitle: "Open-source software and data in Currents") {
             CardSection(note: "Thank you to everyone who builds and maintains these.") {
                 ForEach(packages) { package in
                     NavigationLink {
